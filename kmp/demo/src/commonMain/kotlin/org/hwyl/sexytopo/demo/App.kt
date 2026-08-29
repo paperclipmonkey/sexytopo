@@ -42,6 +42,12 @@ import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.survey.Survey
 
+/** Which screen is showing: the sketch, or the numbers behind it. */
+enum class Screen(val label: String) {
+    SKETCH("Sketch"),
+    TABLE("Table"),
+}
+
 /** Which survey the canvas is showing. */
 enum class SurveyMode(val label: String) {
     EXAMPLE("Demo cave"),
@@ -62,8 +68,10 @@ fun App(
     initialDarkMode: Boolean = false,
     initialTool: CanvasTool = CanvasTool.PAN,
     initialMode: SurveyMode = SurveyMode.EXAMPLE,
+    initialScreen: Screen = Screen.SKETCH,
 ) {
     var mode by remember { mutableStateOf(initialMode) }
+    var screen by remember { mutableStateOf(initialScreen) }
     var projection by remember { mutableStateOf(initialProjection) }
     var tool by remember { mutableStateOf(initialTool) }
     var brushColour by remember { mutableStateOf(Colour.BLACK) }
@@ -121,6 +129,9 @@ fun App(
                                 for (m in SurveyMode.entries) {
                                     FilterChip(mode == m, { mode = m }, { Text(m.label) })
                                 }
+                                for (sc in Screen.entries) {
+                                    FilterChip(screen == sc, { screen = sc }, { Text(sc.label) })
+                                }
                                 for (p in listOf(Projection2D.PLAN, Projection2D.EXTENDED_ELEVATION)) {
                                     FilterChip(
                                         projection == p,
@@ -153,6 +164,9 @@ fun App(
                             for (m in SurveyMode.entries) {
                                 FilterChip(mode == m, { mode = m }, { Text(m.label) })
                             }
+                            for (sc in Screen.entries) {
+                                FilterChip(screen == sc, { screen = sc }, { Text(sc.label) })
+                            }
                             for (p in listOf(Projection2D.PLAN, Projection2D.EXTENDED_ELEVATION)) {
                                 FilterChip(
                                     selected = projection == p,
@@ -166,7 +180,7 @@ fun App(
                             InstrumentBar(session)
                         }
 
-                        ToolbarRow {
+                        if (screen == Screen.SKETCH) ToolbarRow {
                             for (t in CanvasTool.entries) {
                                 FilterChip(tool == t, { tool = t }, { Text(t.displayName) })
                             }
@@ -180,7 +194,7 @@ fun App(
                             }
                         }
 
-                        ToolbarRow {
+                        if (screen == Screen.SKETCH) ToolbarRow {
                             TextButton(
                                 enabled = history.canUndo,
                                 onClick = {
@@ -200,6 +214,13 @@ fun App(
                         }
                         }
 
+                        if (screen == Screen.TABLE) {
+                            SurveyTableView(
+                                survey = shown,
+                                revision = sketchRevision + session.revision,
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                            )
+                        } else
                         SurveyCanvas(
                             survey = shown,
                             projection = projection,

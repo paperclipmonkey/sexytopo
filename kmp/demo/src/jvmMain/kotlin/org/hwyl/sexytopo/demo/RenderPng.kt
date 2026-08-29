@@ -55,6 +55,10 @@ fun main() {
 
     // A survey built the way the app really builds one: readings decoded from DistoX wire-format
     // packets, three agreeing readings promoted to a station by the ported survey engine.
+    render("table.png", 1400, 1000) {
+        App(survey = survey, initialScreen = Screen.TABLE)
+    }
+
     render("live-survey.png", 1400, 1000) {
         App(survey = buildSurveyFromInstrument(), initialProjection = Projection2D.PLAN)
     }
