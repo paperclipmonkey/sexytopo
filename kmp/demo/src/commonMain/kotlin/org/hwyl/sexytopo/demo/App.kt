@@ -1,35 +1,28 @@
 package org.hwyl.sexytopo.demo
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -39,32 +32,36 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import org.hwyl.sexytopo.demo.resources.Res
+import org.hwyl.sexytopo.demo.resources.elevation
+import org.hwyl.sexytopo.demo.resources.plan
+import org.hwyl.sexytopo.demo.resources.table
 import org.hwyl.sexytopo.shared.demo.ExampleSurvey
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
-import org.hwyl.sexytopo.shared.model.sketch.Colour
-import org.hwyl.sexytopo.shared.model.sketch.forDarkMode
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
+import org.jetbrains.compose.resources.painterResource
 
 /**
  * The whole demo UI, written once and run on Android, iOS, desktop and the browser.
  *
+ * It is a deliberate copy of SexyTopo's own sketch screen — `activity_graph.xml`, its green panels
+ * from `colors.xml`, and its toolbar icons, carried across as Compose resources. That is the point:
+ * a demo styled to somebody's taste would prove that Compose can draw a UI, which nobody doubts.
+ * A demo that a SexyTopo user recognises on an iPhone, and can already use, is an argument.
+ *
+ * There is one layout rather than a phone one and a tablet one, because the app has one: a
+ * nine-column grid of weighted buttons spreads out on a tablet and squares up on a phone by
+ * itself. What the demo adds beyond the app's own chrome — the choice of survey, and the export
+ * screen — is in the overflow menu, where a fourth screen would go in the app too.
+ *
  * Everything the canvas draws comes from the shared Kotlin core ported from the Android app's Java;
  * everything you draw on it goes back into the same shared sketch model, and every reading in the
  * live survey is decoded from a real DistoX wire-format packet by the ported protocol code.
- *
- * There are two layouts below, and the split is at 600dp — the standard Material breakpoint, which
- * in practice means "a phone in portrait" against everything else. A phone gets a proper app
- * shell: a bottom navigation bar, one context-sensitive tool row, and every remaining pixel given
- * to the canvas. Anything wider gets the toolbars laid out flat, because there is room and a
- * surveyor with a tablet or a laptop would rather see the controls than hunt for them.
- *
- * Both layouts drive the same [DemoState], so nothing is available in one and missing from the
- * other, and rotating a tablet across the breakpoint changes only the arrangement.
  */
 @Composable
 fun App(
@@ -87,259 +84,189 @@ fun App(
             )
         }
     val editor = rememberSketchEditor(state)
+    val canvas = rememberCanvasController(state)
 
     WithBundledFont { typography ->
         MaterialTheme(
             colorScheme = if (state.darkMode) darkColorScheme() else lightColorScheme(),
             typography = typography,
         ) {
-            BoxWithConstraints(Modifier.fillMaxSize()) {
-                if (maxWidth < 600.dp) {
-                    PhoneLayout(state, editor)
-                } else {
-                    WideLayout(state, editor)
-                }
-            }
-        }
-    }
-}
+            Surface(
+                Modifier.fillMaxSize(),
+                color =
+                    if (state.darkMode) {
+                        SexyTopoColours.canvasBackgroundNight
+                    } else {
+                        SexyTopoColours.canvasBackground
+                    },
+            ) {
+                // safeDrawing rather than nothing: on Android the app draws edge to edge behind
+                // the status and navigation bars, and on an iPhone there is a notch at one end and
+                // a home indicator at the other. Without this the app bar hides under the clock.
+                Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                    SexyTopoAppBar(state)
 
-// -------------------------------------------------------------------------------------------
-// Phone
-// -------------------------------------------------------------------------------------------
+                    ScreenContent(
+                        state,
+                        editor,
+                        canvas,
+                        Modifier.weight(1f).fillMaxWidth().heightIn(min = 120.dp),
+                    )
 
-/**
- * The phone shell.
- *
- * [Scaffold] rather than a hand-rolled Column, because it is what puts the bottom bar clear of the
- * system navigation bar — on Android the app draws edge to edge behind it, and on an iPhone there
- * is a home indicator in the same place. Getting that wrong is the difference between a demo that
- * looks native and one that looks like a web page.
- */
-@Composable
-private fun PhoneLayout(state: DemoState, editor: SketchEditor) {
-    Scaffold(
-        topBar = { PhoneTopBar(state) },
-        bottomBar = {
-            Column {
-                // Context first, then navigation: the tools belong to the screen above them, so
-                // they sit next to it rather than below the thing that switches screens.
-                if (state.screen == Screen.SKETCH) {
-                    PhoneToolRow(state, editor)
-                }
-                if (state.mode == SurveyMode.LIVE) {
-                    InstrumentBar(state, compact = true)
-                }
-                NavigationBar {
-                    for (screen in Screen.entries) {
-                        NavigationBarItem(
-                            selected = state.screen == screen,
-                            onClick = { state.screen = screen },
-                            // A dot rather than an icon: the demo carries no icon font, and a
-                            // NavigationBarItem must have something in the slot.
-                            icon = { Dot(state.screen == screen) },
-                            label = { Text(screen.label) },
-                        )
+                    if (state.mode == SurveyMode.LIVE) {
+                        InstrumentBar(state)
+                    }
+
+                    if (state.screen == Screen.SKETCH) {
+                        SketchToolbar(state, editor, canvas)
                     }
                 }
             }
-        },
-    ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            ScreenContent(state, editor, Modifier.weight(1f).fillMaxWidth())
-            Text(
-                text = summarise(state, compact = true),
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-            )
         }
     }
 }
 
+/**
+ * The app bar: `MaterialToolbar` on `panelBackground` with a white title, and the three
+ * always-visible actions from `res/menu/action_bar.xml` that this port can honour — table, plan
+ * and extended elevation.
+ *
+ * The app's fourth always-visible action is save, which is left out rather than drawn as a button
+ * that does nothing: this demo holds its survey in memory and has nowhere to put it.
+ *
+ * The subtitle is the demo's own addition. The app has no such line, but a screenshot of a cave
+ * with no numbers on it says very little, and it is where the shared core gets to show that it
+ * counted the stations.
+ */
 @Composable
-private fun PhoneTopBar(state: DemoState) {
+private fun SexyTopoAppBar(state: DemoState) {
     var menuOpen by remember { mutableStateOf(false) }
+    val panel =
+        if (state.darkMode) {
+            SexyTopoColours.panelBackgroundNight
+        } else {
+            SexyTopoColours.panelBackground
+        }
 
     Row(
-        Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 2.dp),
+        Modifier.fillMaxWidth().background(panel).padding(start = 14.dp, end = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        // Switching between the generated cave and a survey you build yourself is the headline of
-        // the demo, so it stays visible rather than going in the menu.
-        for (mode in SurveyMode.entries) {
-            FilterChip(
-                selected = state.mode == mode,
-                onClick = { state.mode = mode },
-                label = { Text(mode.label, style = MaterialTheme.typography.labelMedium) },
+        Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+            Text(
+                state.survey.name,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = SexyTopoColours.onPanel,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                subtitle(state),
+                style = MaterialTheme.typography.labelSmall,
+                color = SexyTopoColours.onPanel.copy(alpha = 0.85f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
 
-        Spacer(Modifier.weight(1f))
+        ToolbarButton(
+            painter = painterResource(Res.drawable.table),
+            description = "Table",
+            modifier = Modifier.widthOfAnAction(),
+            selected = state.screen == Screen.TABLE,
+            onClick = { state.screen = if (state.screen == Screen.TABLE) Screen.SKETCH else Screen.TABLE },
+        )
+        ToolbarButton(
+            painter = painterResource(Res.drawable.plan),
+            description = "Plan",
+            modifier = Modifier.widthOfAnAction(),
+            selected = state.screen == Screen.SKETCH && state.projection == Projection2D.PLAN,
+            onClick = {
+                state.screen = Screen.SKETCH
+                state.projection = Projection2D.PLAN
+            },
+        )
+        ToolbarButton(
+            painter = painterResource(Res.drawable.elevation),
+            description = "Extended elevation",
+            modifier = Modifier.widthOfAnAction(),
+            selected =
+                state.screen == Screen.SKETCH &&
+                    state.projection == Projection2D.EXTENDED_ELEVATION,
+            onClick = {
+                state.screen = Screen.SKETCH
+                state.projection = Projection2D.EXTENDED_ELEVATION
+            },
+        )
 
         Box {
-            TextButton(onClick = { menuOpen = true }) { Text("View") }
+            OverflowGlyph(
+                Modifier
+                    .clickable { menuOpen = true }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            )
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                for (projection in DRAWABLE_PROJECTIONS) {
+                // What the demo adds to the app's own menus: which survey is showing, and a look
+                // at what it exports as.
+                for (mode in SurveyMode.entries) {
                     DropdownMenuItem(
-                        text = { Text(projection.displayName) },
-                        leadingIcon = { Dot(state.projection == projection) },
+                        text = { Text(mode.label) },
+                        leadingIcon = { Text(if (state.mode == mode) "✓" else " ") },
                         onClick = {
-                            state.projection = projection
+                            state.mode = mode
                             menuOpen = false
                         },
                     )
                 }
-                for (toggle in VIEW_TOGGLES) {
-                    DropdownMenuItem(
-                        text = { Text(toggle.label) },
-                        leadingIcon = { Dot(toggle.get(state)) },
-                        onClick = { toggle.toggle(state) },
-                    )
-                }
+                DropdownMenuItem(
+                    text = { Text("Export") },
+                    leadingIcon = { Text(if (state.screen == Screen.EXPORT) "✓" else " ") },
+                    onClick = {
+                        state.screen = Screen.EXPORT
+                        menuOpen = false
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Dark mode") },
+                    leadingIcon = { Text(if (state.darkMode) "✓" else " ") },
+                    onClick = { state.darkMode = !state.darkMode },
+                )
             }
         }
     }
 }
+
+/** Action icons in the app bar: the toolbar button height, and about as wide. */
+private fun Modifier.widthOfAnAction(): Modifier = this.width(44.dp)
 
 /**
- * The one row of sketching controls a phone gets: the tool, the ink, and undo.
+ * The three-dot overflow, drawn rather than typed.
  *
- * Horizontally scrollable because eight brush colours plus three tools plus undo and redo will not
- * fit across a narrow phone at a comfortable touch size — and shrinking them until they do is how
- * a drawing app becomes unusable with cold, muddy hands.
+ * `⋮` (U+22EE) is not in Liberation Sans, which this app bundles precisely so that text renders
+ * identically everywhere — so on every platform it came out as a missing-glyph box. Drawing it is
+ * three lines of code and cannot fail on a font.
  */
 @Composable
-private fun PhoneToolRow(state: DemoState, editor: SketchEditor) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun OverflowGlyph(modifier: Modifier = Modifier) {
+    Column(
+        modifier,
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        for (tool in DEMO_TOOLS) {
-            FilterChip(
-                selected = state.tool == tool,
-                onClick = { state.tool = tool },
-                label = { Text(tool.label, style = MaterialTheme.typography.labelMedium) },
-            )
-        }
-
-        // Undo before the colours, not after: the row scrolls, and undo is the control a surveyor
-        // reaches for in a hurry after a slip of the stylus. Putting eight colour swatches in
-        // front of it would push it off the edge of a phone screen exactly when it is wanted.
-        TextButton(enabled = editor.canUndo, onClick = { state.undo(editor) }) { Text("Undo") }
-        TextButton(enabled = editor.canRedo, onClick = { state.redo(editor) }) { Text("Redo") }
-
-        Spacer(Modifier.size(4.dp))
-
-        for (colour in BRUSH_COLOURS) {
-            ColourSwatch(colour, state.brushColour == colour, state.darkMode) {
-                state.pickColour(colour, editor)
-            }
+        repeat(3) {
+            Box(Modifier.size(3.dp).background(SexyTopoColours.onPanel, CircleShape))
         }
     }
 }
 
-// -------------------------------------------------------------------------------------------
-// Tablet, desktop and browser
-// -------------------------------------------------------------------------------------------
-
 @Composable
-private fun WideLayout(state: DemoState, editor: SketchEditor) {
-    Surface(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize()) {
-            Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-                Text(
-                    "SexyTopo — Kotlin Multiplatform",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    "Survey engine, instrument protocols, sketch model and file format ported " +
-                        "from the Android app's Java. This UI is shared Compose code.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-
-            ToolbarRow {
-                for (mode in SurveyMode.entries) {
-                    FilterChip(state.mode == mode, { state.mode = mode }, { Text(mode.label) })
-                }
-                for (screen in Screen.entries) {
-                    FilterChip(
-                        state.screen == screen,
-                        { state.screen = screen },
-                        { Text(screen.label) },
-                    )
-                }
-                for (projection in DRAWABLE_PROJECTIONS) {
-                    FilterChip(
-                        selected = state.projection == projection,
-                        onClick = { state.projection = projection },
-                        label = { Text(projection.displayName) },
-                    )
-                }
-            }
-
-            if (state.mode == SurveyMode.LIVE) {
-                InstrumentBar(state, compact = false)
-            }
-
-            if (state.screen == Screen.SKETCH) {
-                ToolbarRow {
-                    for (tool in DEMO_TOOLS) {
-                        FilterChip(state.tool == tool, { state.tool = tool }, { Text(tool.label) })
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        for (colour in BRUSH_COLOURS) {
-                            ColourSwatch(colour, state.brushColour == colour, state.darkMode) {
-                                state.pickColour(colour, editor)
-                            }
-                        }
-                    }
-                }
-
-                ToolbarRow {
-                    TextButton(enabled = editor.canUndo, onClick = { state.undo(editor) }) {
-                        Text("Undo")
-                    }
-                    TextButton(enabled = editor.canRedo, onClick = { state.redo(editor) }) {
-                        Text("Redo")
-                    }
-                    for (toggle in VIEW_TOGGLES) {
-                        FilterChip(
-                            toggle.get(state),
-                            { toggle.toggle(state) },
-                            { Text(toggle.label) },
-                        )
-                    }
-                }
-            }
-
-            ScreenContent(
-                state,
-                editor,
-                Modifier.weight(1f).fillMaxWidth().heightIn(min = 200.dp),
-            )
-
-            Text(
-                text = summarise(state, compact = false),
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            )
-        }
-    }
-}
-
-// -------------------------------------------------------------------------------------------
-// Shared between the two layouts
-// -------------------------------------------------------------------------------------------
-
-@Composable
-private fun ScreenContent(state: DemoState, editor: SketchEditor, modifier: Modifier) {
+private fun ScreenContent(
+    state: DemoState,
+    editor: SketchEditor,
+    canvas: CanvasController,
+    modifier: Modifier,
+) {
     when (state.screen) {
         Screen.TABLE -> SurveyTableView(state.survey, state.revision, modifier)
         Screen.EXPORT -> ExportView(state.survey, state.revision, modifier)
@@ -349,6 +276,7 @@ private fun ScreenContent(state: DemoState, editor: SketchEditor, modifier: Modi
                 projection = state.projection,
                 options = state.displayOptions,
                 editor = editor,
+                canvas = canvas,
                 modifier = modifier,
                 tool = state.tool,
                 revision = state.revision,
@@ -360,111 +288,32 @@ private fun ScreenContent(state: DemoState, editor: SketchEditor, modifier: Modi
 /**
  * The live-survey controls. Each press decodes one real DistoX packet; three agreeing readings
  * promote to a station, which is the core interaction of the whole app.
+ *
+ * In the Android app this is not a bar at all — readings arrive over Bluetooth while the phone is
+ * in a pocket. It is here because the demo has no radio, and a button is the honest stand-in.
  */
 @Composable
-private fun InstrumentBar(state: DemoState, compact: Boolean) {
+private fun InstrumentBar(state: DemoState) {
     val session = state.session
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+        Modifier
+            .fillMaxWidth()
+            .background(SexyTopoColours.innerPanel)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Button(onClick = { session.takeReading() }) { Text("Take reading") }
         Text(
             buildString {
-                if (!compact) {
-                    append(if (session.connected) "connected" else "not connected")
-                    append("  ·  ")
-                }
                 append("${session.readingsTaken} readings")
                 session.lastReading?.let {
                     append("  ·  ${oneDp(it.distance)}m ${oneDp(it.azimuth)}°")
                 }
             },
             style = MaterialTheme.typography.bodySmall,
+            color = SexyTopoColours.legend,
         )
+        Spacer(Modifier.weight(1f))
     }
-    if (!compact) {
-        session.log.firstOrNull()?.let {
-            Text(
-                it,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(horizontal = 12.dp),
-            )
-        }
-    }
-}
-
-/** The two projections a survey can be sketched on; the rest are for maths, not for drawing. */
-private val DRAWABLE_PROJECTIONS =
-    listOf(Projection2D.PLAN, Projection2D.EXTENDED_ELEVATION)
-
-/** A view toggle, declared once so the phone menu and the wide toolbar cannot drift apart. */
-private class ViewToggle(
-    val label: String,
-    val get: (DemoState) -> Boolean,
-    val toggle: (DemoState) -> Unit,
-)
-
-private val VIEW_TOGGLES =
-    listOf(
-        ViewToggle("Sketch", { it.showSketch }, { it.showSketch = !it.showSketch }),
-        ViewToggle("Splays", { it.showSplays }, { it.showSplays = !it.showSplays }),
-        ViewToggle("Labels", { it.showLabels }, { it.showLabels = !it.showLabels }),
-        ViewToggle("Dark", { it.darkMode }, { it.darkMode = !it.darkMode }),
-    )
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ToolbarRow(content: @Composable () -> Unit) {
-    // FlowRow rather than Row: even on a wide window the chips must wrap onto another line rather
-    // than being squeezed until their labels break mid-word.
-    FlowRow(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        content()
-    }
-}
-
-/**
- * A brush colour, shown as it will actually be drawn.
- *
- * The distinction matters in dark mode, where the model draws black ink white so a plan is legible
- * on a black background. A swatch showing the stored colour rather than the drawn one would be a
- * black disc on a black background that then paints white — wrong twice over.
- */
-@Composable
-private fun ColourSwatch(
-    colour: Colour,
-    selected: Boolean,
-    darkMode: Boolean,
-    onClick: () -> Unit,
-) {
-    Box(
-        Modifier
-            .size(if (selected) 30.dp else 24.dp)
-            .background(Color(colour.forDarkMode(darkMode).intValue), CircleShape)
-            .border(
-                width = if (selected) 2.dp else 1.dp,
-                color = MaterialTheme.colorScheme.onSurface,
-                shape = CircleShape,
-            )
-            .clickable(onClick = onClick),
-    )
-}
-
-/** A filled or hollow dot, standing in for the icons this demo deliberately does not bundle. */
-@Composable
-private fun Dot(filled: Boolean) {
-    Box(
-        Modifier
-            .size(10.dp)
-            .background(
-                if (filled) MaterialTheme.colorScheme.primary else Color.Transparent,
-                CircleShape,
-            )
-            .border(1.dp, MaterialTheme.colorScheme.onSurfaceVariant, CircleShape),
-    )
 }

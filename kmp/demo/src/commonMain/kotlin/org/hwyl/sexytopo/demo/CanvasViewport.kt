@@ -124,6 +124,11 @@ class ViewportFit {
     fun noteFitted(bounds: Bounds) {
         fittedTo = bounds
     }
+
+    /** Forget what was last fitted, so the next draw fits again. Used by "centre the view". */
+    fun forget() {
+        fittedTo = null
+    }
 }
 
 /**

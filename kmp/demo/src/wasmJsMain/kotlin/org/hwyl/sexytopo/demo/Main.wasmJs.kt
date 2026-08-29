@@ -48,6 +48,7 @@ fun main() {
                             remember(survey) {
                                 SketchEditor(survey.getSketch(Projection2D.PLAN))
                             },
+                        canvas = remember(survey) { CanvasController() },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

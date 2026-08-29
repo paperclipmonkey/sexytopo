@@ -115,8 +115,15 @@ if (drewText) {
 // (antialiasing differs), so the comparison is on compressed size.
 const beforeDraw = await page.screenshot({ clip: box })
 
-// "Draw" is the second chip in the tool row; the layout is fixed, so its position is known.
-await page.mouse.click(box.x + 120, box.y + 130)
+// The toolbar is SexyTopo's own: nine equal columns, two rows, along the bottom. Positions are
+// computed from the canvas box rather than hardcoded, so moving a button by a few pixels does not
+// break the test while moving it to another cell rightly does.
+const column = box.width / 9
+const toolRowY = box.y + box.height - 20
+const cellCentre = (index) => box.x + column * (index + 0.5)
+
+// Row two, cell one: the pencil.
+await page.mouse.click(cellCentre(1), toolRowY)
 await page.waitForTimeout(400)
 
 await page.mouse.move(box.x + 300, box.y + 620)
@@ -137,14 +144,14 @@ await page.screenshot({ path: join(shotDir, 'browser-drawn.png') })
 if (afterDraw.length <= beforeDraw.length) {
   fail(
     `the drag did not add ink (${beforeDraw.length} -> ${afterDraw.length} bytes). ` +
-      'Either drawing is broken, or the Draw chip has moved and the click missed it.',
+      'Either drawing is broken, or the draw button is no longer in row two, cell one.',
   )
 } else {
   pass('a drag draws a stroke')
 }
 
-// "Undo" is the first control in the row below.
-await page.mouse.click(box.x + 41, box.y + 182)
+// Row two, cell six: undo.
+await page.mouse.click(cellCentre(6), toolRowY)
 await page.waitForTimeout(700)
 const afterUndo = await page.screenshot({ clip: box })
 

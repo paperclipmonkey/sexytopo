@@ -51,22 +51,28 @@ against real hardware. **Expect to fix something on the first real build.**
 
 ## One UI, four platforms
 
-`App()` is one composable. These are all of it — the same file, the same survey, the same sketch
-model — laid out for whatever it is running on.
+`App()` is one composable, and it is a deliberate copy of SexyTopo's own sketch screen — the layout
+of `activity_graph.xml`, the green panels from `colors.xml`, and the app's own toolbar artwork
+carried across as Compose resources.
 
 | iPhone 15 Pro | Pixel 8 | The same, dark |
 | --- | --- | --- |
 | ![iphone](docs/images/iphone-draw.png) | ![android](docs/images/android-plan.png) | ![dark](docs/images/android-dark.png) |
 
-The split is at the standard 600dp Material breakpoint, which in practice means "a phone in
-portrait" against everything else. A phone gets a proper app shell — bottom navigation, one
-context-sensitive tool row, and every remaining pixel given to the cave. Anything wider gets the
-toolbars laid out flat.
+That copying is the point. A demo restyled to somebody's taste would prove that Compose can draw a
+UI, which nobody doubts. A demo a SexyTopo user recognises on an iPhone — and can already use,
+because the buttons are where their thumb expects — is an argument. So the centreline is red and
+the splays are salmon, because that is what SexyTopo draws, not because it is what anybody would
+choose from scratch.
 
 ![plan](docs/images/plan.png)
 
-Both layouts drive the same state object, so nothing is reachable in one and missing from the
-other, and rotating a tablet across the breakpoint changes only the arrangement.
+There is one layout rather than a phone one and a tablet one, because the app has one: nine
+weighted columns spread out on a tablet and square up on a phone by themselves. Two buttons are
+drawn but greyed — the symbol and select tools, which the shared model supports and this demo has
+no palette or station menu to drive. Showing them disabled keeps the toolbar honest in both
+directions: it is the app's toolbar, and what the demo cannot do is visible rather than quietly
+missing.
 
 ## What the demo does
 
@@ -163,6 +169,10 @@ function), the two Swift files in `iosApp/`, and — when you want real instrume
 | `control/io/basic/*JsonTranslater` | `shared/io/` | Same tags, same tolerant two-pass load |
 | `control/graph/GraphView` — tools, viewport, hit-testing | `shared/sketch/` | Ported; the demo drives it |
 | `control/graph/GraphView` — drawing and touch plumbing | `demo/.../SurveyCanvas.kt` | **Rewritten**, not ported |
+| `res/layout/activity_graph.xml` | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied |
+| `res/values/colors.xml` (+ `values-night`) | `demo/.../SexyTopoTheme.kt` | The app's own palette |
+| `res/drawable-hdpi/*.png` | `demo/src/commonMain/composeResources/drawable/` | The app's own icons |
+| `res/menu/drawing.xml` | `demo/.../SketchToolbar.kt` | The display toggles behind the gear |
 | `model/sketch/Sketch`'s twin history stacks | `shared/sketch/SketchEditor.kt` | `DeletedDetail` becomes a sealed type |
 | `control/io/thirdparty/{survex,therion,survextherion}` | `shared/io/export/` | Golden-tested, metadata block included |
 | `model/table/LRUD` | `shared/survey/Lrud.kt` | |

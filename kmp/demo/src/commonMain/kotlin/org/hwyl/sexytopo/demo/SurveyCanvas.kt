@@ -60,6 +60,7 @@ fun SurveyCanvas(
     projection: Projection2D,
     options: DisplayOptions,
     editor: SketchEditor,
+    canvas: CanvasController,
     modifier: Modifier = Modifier,
     tool: SketchTool = SketchTool.MOVE,
     revision: Int = 0,
@@ -71,13 +72,11 @@ fun SurveyCanvas(
     // Reprojecting is pure and cheap; recompute when the survey, projection or sketch changes.
     val scene = remember(survey, projection, revision) { SurveyScene.from(survey, projection) }
 
-    val viewport = remember(survey, projection) { SketchViewport() }
-    val fit = remember(survey, projection) { ViewportFit() }
+    val viewport = canvas.viewport
+    val fit = canvas.fit
 
-    // The viewport and the editor are plain objects, not Compose state, so a gesture that changes
-    // one has to say so. Two counters rather than one: a stroke in progress only needs a repaint,
-    // while a committed edit needs the scene (and its bounds) rebuilt.
-    var viewTick by remember { mutableIntStateOf(0) }
+    // The editor is a plain object, not Compose state, so a stroke in progress has to say when it
+    // needs repainting. The viewport says so through the controller's own revision.
     var strokeTick by remember { mutableIntStateOf(0) }
 
     val gestures =
@@ -88,11 +87,11 @@ fun SurveyCanvas(
                         // Zoom about the pinch centre first, then pan, so the point under the
                         // fingers stays under them. adjustZoomBy refuses to leave the shared
                         // viewport's zoom range rather than clamping, exactly as the Java does.
-                        viewport.adjustZoomBy(zoomChange, centroid.toCoord2D())
-                        viewport.panBy(panChange.toCoord2D())
-                        // From here on the viewport is the surveyor's, not the app's.
-                        fit.userHasTakenControl = true
-                        viewTick++
+                        canvas.transformBy(
+                            centroid.toCoord2D(),
+                            panChange.toCoord2D(),
+                            zoomChange,
+                        )
                     }
                 }
 
@@ -152,11 +151,14 @@ fun SurveyCanvas(
 
     Box(modifier = modifier.then(gestures)) {
         Canvas(Modifier.fillMaxSize()) {
-            // Read both counters so a gesture repaints; the values themselves are not used.
+            // Read both counters so a gesture or a toolbar button repaints; the values themselves
+            // are not used.
             @Suppress("UNUSED_EXPRESSION")
-            viewTick
+            canvas.revision
             @Suppress("UNUSED_EXPRESSION")
             strokeTick
+
+            canvas.noteViewSize(size.width, size.height)
 
             // Fit here rather than from onSizeChanged: this is the first moment the real size is
             // known, and in the single-frame headless render there is no later moment at all.
@@ -239,8 +241,48 @@ class DisplayOptions(
     val showSplays: Boolean = true,
     val showSketch: Boolean = true,
     val showStationLabels: Boolean = true,
+    val showGrid: Boolean = true,
     val darkMode: Boolean = false,
 )
+
+/**
+ * The metre grid the Android app draws under everything else.
+ *
+ * The spacing comes from [SketchViewport.minorGridBoxSizeMetres], which is the ported rule: one
+ * metre when zoomed in past 15 pixels per metre, ten metres past 2, a hundred metres below that.
+ * So the grid tells you the scale at a glance without reading the bar, which is the whole point of
+ * it underground.
+ *
+ * Lines are drawn on whole multiples of the spacing in *survey* coordinates rather than stepping
+ * across the screen, so they stay pinned to the cave as the view is panned instead of crawling.
+ */
+private fun DrawScope.drawGrid(viewport: SketchViewport, palette: Palette) {
+    val spacing = viewport.minorGridBoxSizeMetres().toFloat()
+    if (spacing <= 0f) return
+
+    val topLeft = viewport.toSurvey(Offset.Zero)
+    val bottomRight = viewport.toSurvey(Offset(size.width, size.height))
+
+    // A guard rather than an optimisation: at a very low zoom the loop below would run for
+    // millions of lines nobody could see.
+    val columns = (bottomRight.x - topLeft.x) / spacing
+    val rows = (bottomRight.y - topLeft.y) / spacing
+    if (!columns.isFinite() || !rows.isFinite() || columns > 400f || rows > 400f) return
+
+    var x = floor(topLeft.x / spacing) * spacing
+    while (x <= bottomRight.x) {
+        val screenX = viewport.toScreen(Coord2D(x, topLeft.y)).x
+        drawLine(palette.grid, Offset(screenX, 0f), Offset(screenX, size.height), 1f)
+        x += spacing
+    }
+
+    var y = floor(topLeft.y / spacing) * spacing
+    while (y <= bottomRight.y) {
+        val screenY = viewport.toScreen(Coord2D(topLeft.x, y)).y
+        drawLine(palette.grid, Offset(0f, screenY), Offset(size.width, screenY), 1f)
+        y += spacing
+    }
+}
 
 /**
  * Below this zoom the station names are dropped.
@@ -265,6 +307,10 @@ private fun DrawScope.drawSurvey(
     drawRect(palette.background)
 
     fun project(coord: Coord2D): Offset = viewport.toScreen(coord)
+
+    if (options.showGrid) {
+        drawGrid(viewport, palette)
+    }
 
     if (options.showSplays) {
         for ((start, end) in scene.splays) {
@@ -402,28 +448,38 @@ class Palette(
     val symbol: Color,
     val crossSection: Color,
     val scaleBar: Color,
+    val grid: Color,
 )
 
+/**
+ * The Android app's own graph colours, not a reinterpretation of them — see [SexyTopoColours].
+ *
+ * The red centreline is the surprising one, and the one that most makes a screenshot recognisable:
+ * SexyTopo draws legs in pure red and splays in a light red, not in the ink-on-paper greys most
+ * survey software uses.
+ */
 private val LightPalette =
     Palette(
-        background = Color(0xFFF7F8F4),
-        centreline = Color(0xFF1C2624),
-        splay = Color(0xFFB6C0BA),
-        station = Color(0xFFB23327),
-        stationLabel = Color(0xFF5A6A66),
-        symbol = Color(0xFF2C6B5F),
-        crossSection = Color(0xFF92640A),
-        scaleBar = Color(0xFF5A6A66),
+        background = SexyTopoColours.canvasBackground,
+        centreline = SexyTopoColours.leg,
+        splay = SexyTopoColours.splay,
+        station = SexyTopoColours.station,
+        stationLabel = SexyTopoColours.legend,
+        symbol = SexyTopoColours.crossSectionIndicator,
+        crossSection = SexyTopoColours.crossSectionConnection,
+        scaleBar = SexyTopoColours.legend,
+        grid = SexyTopoColours.grid,
     )
 
 private val DarkPalette =
     Palette(
-        background = Color(0xFF121715),
-        centreline = Color(0xFFE4E9E4),
-        splay = Color(0xFF44514C),
-        station = Color(0xFFE06A5C),
-        stationLabel = Color(0xFF9FADA7),
-        symbol = Color(0xFF5FB3A1),
-        crossSection = Color(0xFFD9A84E),
-        scaleBar = Color(0xFF9FADA7),
+        background = SexyTopoColours.canvasBackgroundNight,
+        centreline = SexyTopoColours.legNight,
+        splay = SexyTopoColours.splayNight,
+        station = SexyTopoColours.stationNight,
+        stationLabel = SexyTopoColours.legendNight,
+        symbol = SexyTopoColours.crossSectionIndicator,
+        crossSection = SexyTopoColours.crossSectionConnection,
+        scaleBar = SexyTopoColours.legendNight,
+        grid = SexyTopoColours.gridNight,
     )

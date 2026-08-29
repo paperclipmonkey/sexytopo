@@ -53,6 +53,7 @@ class DemoState(
     var showSplays by mutableStateOf(true)
     var showSketch by mutableStateOf(true)
     var showLabels by mutableStateOf(true)
+    var showGrid by mutableStateOf(true)
 
     /** The survey built live from the simulated instrument, kept even while it is not shown. */
     val liveSurvey = Survey("Live Survey")
@@ -97,6 +98,7 @@ class DemoState(
                 showSplays = showSplays,
                 showSketch = showSketch,
                 showStationLabels = showLabels,
+                showGrid = showGrid,
                 darkMode = darkMode,
             )
 }
@@ -128,6 +130,35 @@ fun rememberSketchEditor(state: DemoState): SketchEditor {
 }
 
 /**
+ * The view that survives a rebuild of the canvas composable, one per sketch.
+ *
+ * Same reasoning as [rememberSketchEditor]: flipping to the elevation and back should not throw
+ * away where the surveyor had scrolled to, any more than it should throw away their undo history.
+ */
+@Composable
+fun rememberCanvasController(state: DemoState): CanvasController {
+    val controllers = remember(state) { mutableMapOf<Sketch, CanvasController>() }
+    val sketch = state.survey.getSketch(state.projection)
+    return controllers.getOrPut(sketch) { CanvasController() }
+}
+
+/** A view toggle, declared once so the drawing menu and any other caller cannot drift apart. */
+class ViewToggle(
+    val label: String,
+    val get: (DemoState) -> Boolean,
+    val toggle: (DemoState) -> Unit,
+)
+
+/** The checkable display items from `res/menu/drawing.xml` that this port can honour. */
+val VIEW_TOGGLES =
+    listOf(
+        ViewToggle("Show splays", { it.showSplays }, { it.showSplays = !it.showSplays }),
+        ViewToggle("Show sketch", { it.showSketch }, { it.showSketch = !it.showSketch }),
+        ViewToggle("Show station labels", { it.showLabels }, { it.showLabels = !it.showLabels }),
+        ViewToggle("Show grid", { it.showGrid }, { it.showGrid = !it.showGrid }),
+    )
+
+/**
  * The colours the Android app offers on its sketch toolbar — the shared [BrushColour] list, not a
  * demo-chosen subset of the 144 colours the model can store.
  */
@@ -152,7 +183,28 @@ val SketchTool.label: String
             else -> name.lowercase().replaceFirstChar { it.uppercase() }
         }
 
-/** The one-line status under the canvas, in two lengths. */
+/**
+ * The app bar's subtitle: what the shared core counted, and nothing else.
+ *
+ * Kept to one short line on purpose. It is an addition to the app's own chrome — SexyTopo has no
+ * such line — so it has to earn its place without pushing the app bar down over the cave.
+ */
+fun subtitle(state: DemoState): String {
+    // Reading the revision is what makes this recompute. The survey is mutated in place, so a new
+    // leg changes nothing Compose can see; without this the counts would freeze at whatever they
+    // were when the app bar last happened to be redrawn for some other reason.
+    @Suppress("UNUSED_VARIABLE")
+    val revision = state.revision
+    val space = state.projection.project(state.survey)
+    val legs = space.legMap.keys.count { it.hasDestination() }
+    val sketch = state.survey.getSketch(state.projection)
+    // Splays are left out: there are typically four per station, so the number is large, dull and
+    // the first thing to be truncated on a narrow phone - where it would push out the counts that
+    // actually say how big the cave is.
+    return "${space.stationMap.size} stations · $legs legs · ${sketch.pathDetails.size} lines"
+}
+
+/** The one-line status used by the desktop window title and the tests. */
 fun summarise(state: DemoState, compact: Boolean): String {
     val survey = state.survey
     val space = state.projection.project(survey)
