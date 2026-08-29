@@ -156,7 +156,19 @@ fun SurveyCanvas(
 
     Box(modifier = modifier.onSizeChanged { canvasSize = Size(it.width.toFloat(), it.height.toFloat()) }.then(gestures)) {
         Canvas(Modifier.fillMaxSize()) {
-            drawSurvey(scene, options, viewport, textMeasurer, fontFamily, liveStroke, brushColour, tool)
+            // Build the viewport from the DrawScope's own size rather than the onSizeChanged
+            // state: on the very first frame — and in a single-frame headless render — that
+            // callback has not run yet, and the survey would be drawn at 1 pixel per metre.
+            drawSurvey(
+                scene,
+                options,
+                Viewport(scene.bounds, size, zoom, pan),
+                textMeasurer,
+                fontFamily,
+                liveStroke,
+                brushColour,
+                tool,
+            )
         }
     }
 }
