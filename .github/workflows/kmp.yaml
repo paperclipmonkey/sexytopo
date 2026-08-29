@@ -1,0 +1,51 @@
+# CI for the Kotlin Multiplatform proof of concept in kmp/.
+#
+# Deliberately independent of the Android app's own workflow: this build needs no Android SDK,
+# which is the point — the shared core is plain Kotlin and its tests are the correctness oracle.
+name: KMP proof of concept
+
+on:
+  push:
+    paths:
+      - 'kmp/**'
+      - '.github/workflows/kmp.yaml'
+  pull_request:
+    paths:
+      - 'kmp/**'
+      - '.github/workflows/kmp.yaml'
+  workflow_dispatch:
+
+jobs:
+  shared-core:
+    name: Shared core tests + demo render
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Run the ported test suite
+        working-directory: kmp
+        run: ./gradlew :shared:jvmTest
+
+      - name: Render the shared Compose UI headlessly
+        working-directory: kmp
+        run: ./gradlew :demo:renderDemoPng
+
+      - name: Upload renders
+        uses: actions/upload-artifact@v4
+        with:
+          name: survey-renders
+          path: kmp/demo/build/demo/*.png
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: kmp/shared/build/reports/tests/

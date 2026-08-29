@@ -1,0 +1,48 @@
+# XcodeGen spec for the iOS host app.
+#
+# The Xcode project is generated rather than committed because it was authored on Linux, where
+# Xcode cannot be run to verify a hand-written .pbxproj. Generating it takes one command:
+#
+#   brew install xcodegen
+#   cd kmp/iosApp && xcodegen && open iosApp.xcodeproj
+#
+# kmp/README.md also describes the fully manual alternative (a new SwiftUI project plus one run
+# script phase), if you would rather not install anything.
+
+name: iosApp
+
+options:
+  bundleIdPrefix: org.hwyl.sexytopo
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+
+targets:
+  iosApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: iosApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.hwyl.sexytopo.kmpdemo
+        PRODUCT_NAME: SexyTopo KMP
+        INFOPLIST_FILE: iosApp/Info.plist
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: NO
+        # Xcode 14+ sandboxes script phases by default, which stops Gradle running.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        FRAMEWORK_SEARCH_PATHS:
+          - $(inherited)
+          - $(SRCROOT)/../demo/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)
+        OTHER_LDFLAGS:
+          - $(inherited)
+          - -framework
+          - SexyTopoDemo
+    preBuildScripts:
+      # Builds the Kotlin/Native framework from :demo and copies it into the app bundle.
+      - name: Compile Kotlin Framework
+        basedOnDependencyAnalysis: false
+        script: |
+          cd "$SRCROOT/.."
+          ./gradlew :demo:embedAndSignAppleFrameworkForXcode
