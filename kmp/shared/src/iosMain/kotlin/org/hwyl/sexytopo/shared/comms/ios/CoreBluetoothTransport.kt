@@ -33,11 +33,17 @@ import platform.posix.memcpy
 /**
  * A CoreBluetooth implementation of [org.hwyl.sexytopo.shared.comms.InstrumentTransport].
  *
- * ## Status: written, never compiled
+ * ## Status: compiles for iOS, has never reached a radio
  *
- * This file was authored on Linux, where there is no Xcode and no Kotlin/Native Apple toolchain, so
- * it has **not been compiled or run**. Expect to fix selector signatures and nullability on the
- * first real build.
+ * This file was authored on Linux, with no Xcode and no Kotlin/Native Apple toolchain, and for most
+ * of its life had never been compiled at all. It is now built on every push by a macOS runner
+ * (`.github/workflows/kmp.yaml`), so the selector signatures and nullability below are checked by
+ * the compiler rather than by argument.
+ *
+ * What is still unverified is everything that needs a radio. The iOS simulator has no Bluetooth
+ * stack, so CI cannot exercise one line of the actual conversation with an instrument: whether the
+ * profiles match real advertised names, whether the characteristics are where the table says, and
+ * whether a connection survives a cave. Compiling is a floor, not a guarantee.
  *
  * What has changed since the first draft is how much that matters. It used to hold the whole
  * connection lifecycle — and an adversarial review found six defects in it, none of which anybody
@@ -54,9 +60,12 @@ import platform.posix.memcpy
  * See that function.
  *
  * A later review of what remains found two hard compile errors — anonymous delegate types, and two
- * pairs of Objective-C selectors that collapse onto one Kotlin signature — both fixed below and both
- * of exactly the kind the "expect to fix" warning above is about. That they were found by reading
- * rather than by building is the argument for keeping this file small, not for trusting it.
+ * pairs of Objective-C selectors that collapse onto one Kotlin signature. The compiler then
+ * confirmed both, and showed that reading had got the *fixes* wrong twice: `@ObjCSignatureOverride`
+ * was reasoned onto one half of each colliding pair, from the protocol's declaration order, and both
+ * times it was the wrong half. The diagnostic quotes the signature a declaration collides with
+ * rather than the one it is reporting, so the message names one function and the line number points
+ * at the other. Hence all four halves carry it now, and nobody should try to be clever about which.
  *
  * ## Why each attempt gets its own manager and delegates
  *

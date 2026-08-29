@@ -35,17 +35,36 @@ Being precise about this matters more than the demo looking good.
 | The BLE connection logic is platform-free | **Verified** | `GattLinkTest` and `GattSessionTest` — the profile matrix *and* the connection lifecycle; only callback plumbing is left in `iosMain` |
 | Shared Compose UI draws, and can be drawn on | **Verified** | `./gradlew :demo:renderDemoPng`; drawing/erasing/undo covered by tests |
 | **The shared core has no JVM-only dependencies** | **Verified** | every shared test passes on **Kotlin/Wasm** as well as the JVM |
-| The same code compiles for iOS | **Not verified** | Kotlin/Native for Apple targets needs macOS; this was authored on Linux |
-| The iOS app runs on a device | **Not verified** | needs Xcode |
-| `CoreBluetoothTransport` works | **Not verified** | written, never compiled — but its logic now lives in `GattLink` and `GattSession`, which are; see its KDoc |
+| **The same code compiles for iOS** | **Verified** | `:shared:compileKotlinIosSimulatorArm64` in CI on a macOS runner — `iosMain`, `CoreBluetoothTransport` included |
+| **The ported test suite passes on Kotlin/Native** | **Verified** | `:shared:iosSimulatorArm64Test` — the same tests as the JVM and Wasm jobs, on the actual target rather than a proxy for it |
+| **The shared Compose UI links as an iOS framework** | **Verified** | `:demo:linkDebugFrameworkIosSimulatorArm64` — Compose's own Native klibs, the bundled font and the toolbar PNGs, resolved into the static framework `iosApp/` links against |
+| The iOS app runs on a device | **Not verified** | needs Xcode, an Apple developer account and a physical phone |
+| `CoreBluetoothTransport` works | **Not verified** | it compiles now, and has still never talked to a radio; the simulator has no Bluetooth stack, so this needs a real instrument |
 | The whole app runs in a browser | **Verified** | a headless-Chromium smoke test in CI loads the page, draws a stroke and undoes it |
 | The same UI builds and packages for **Android** | **Verified** | `:androidApp:assembleDebug` in CI; the APK is a build artifact |
 
-**The honest summary:** everything checkable without a Mac has been checked and passes, and the
-Kotlin/Wasm run is a meaningful proxy for the iOS build — Kotlin/Wasm, like Kotlin/Native for iOS,
-has no `java.*` at all, so a green run there means the core is not quietly leaning on the JVM. What
-remains genuinely unverified is Apple-specific: the Kotlin/Native compile, Xcode, and CoreBluetooth
-against real hardware. **Expect to fix something on the first real build.**
+**The honest summary:** the port compiles for iOS, its tests pass on Kotlin/Native, and the shared
+Compose UI links as an iOS framework — all three checked on every push by a macOS runner, which
+GitHub provides free on public repositories. The Mac that gated this project turned out to be a CI
+job rather than a purchase.
+
+What remains unverified is now much narrower, and all of it needs hardware rather than a toolchain:
+the app running on a physical device, sketching latency under an Apple Pencil, and CoreBluetooth
+against a real instrument. The iOS *simulator* has no Bluetooth stack, so no amount of CI closes that
+last one.
+
+**"Expect to fix something on the first real build" was right**, and worth recording precisely,
+because it is the calibration for everything else here. The first compile of `iosMain` found:
+
+- two delegate properties whose anonymous types Kotlin refuses to infer;
+- two pairs of Objective-C selectors that collapse onto one Kotlin signature and need
+  `@ObjCSignatureOverride`;
+- a missing `BetaInteropApi` opt-in, whose level is ERROR rather than warning.
+
+It took three compile-fix cycles, because the conflicting-overload diagnostic *quotes the signature
+the declaration collides with* rather than the one it is reporting — so the message names one
+function while the line number points at the other, and reading the message gets you the wrong half
+of the pair twice running.
 
 ---
 
@@ -234,13 +253,23 @@ These are the things that would actually shape a real port.
    iOS an instrument that is off or out of range still hangs the connection attempt. Driving it
    needs a run loop, which needs a host, which needs a Mac.
 
-   And making the file smaller did not make it safe. A later review of the ~200 lines that remain
+   And making the file smaller did not make it correct. A later review of the ~200 lines that remain
    found two errors that would stop it compiling at all — anonymous delegate types, and two pairs of
    Objective-C selectors that collapse onto one Kotlin signature — plus a missing `BetaInteropApi`
    opt-in, a failed scan that never stopped the radio, and a `disconnect()` that never reported
-   itself. All are fixed, and all were found by reading, which is precisely the method the previous
-   paragraph says not to rely on. Take that as the calibration for this file: small enough to review
-   is not the same as verified, and the number that matters is still zero — it has never been built.
+   itself.
+
+   Then a macOS runner was added and the compiler had its say, which is the part worth keeping. It
+   confirmed every one of those diagnoses, and it also showed that reading had got the *fixes* wrong
+   twice: `@ObjCSignatureOverride` had been reasoned onto one half of each colliding pair, from the
+   protocol's declaration order, and both times it was the wrong half. Three cycles of ninety
+   seconds each settled what several hours of careful reading could not.
+
+   So the lesson has two halves, and the second only arrived once there was a compiler to supply it:
+   **make the untestable file smaller, and then go and test it anyway.** Small enough to review is
+   not the same as verified. What made that possible here was noticing that GitHub gives public
+   repositories free macOS runners — the Mac this project had been treating as a blocker was a
+   nine-line CI job all along.
 
 8. **The specific bug worth quoting.** The first
    `CoreBluetoothTransport` compared `CBUUID.UUIDString` against the profile's 128-bit UUIDs as
@@ -291,8 +320,9 @@ JVM — just a static file host.
 
 This is a proof of concept. It does **not** include:
 
-- **Real Bluetooth on any platform.** `CoreBluetoothTransport` is written but uncompiled; there is
-  no Android transport here (the Android app keeps its own).
+- **Real Bluetooth on any platform.** `CoreBluetoothTransport` compiles for iOS and has never
+  reached a radio — the simulator has no Bluetooth stack, so this one genuinely needs an instrument
+  in hand. There is no Android transport here either (the Android app keeps its own).
 - **Calibration.** The DistoX calibration solver is pure maths and would port directly; it is not
   done.
 - **Symbol artwork.** The shared model places symbols; the SVG assets are not carried, so a symbol
