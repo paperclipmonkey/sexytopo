@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
+import androidx.compose.runtime.remember
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -13,6 +14,7 @@ import kotlinx.browser.document
 import kotlinx.browser.window
 import org.hwyl.sexytopo.shared.demo.ExampleSurvey
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
+import org.hwyl.sexytopo.shared.sketch.SketchEditor
 
 /**
  * Browser host for the shared UI — the same [App] the iOS and desktop hosts show.
@@ -36,13 +38,19 @@ fun main() {
                     Box(Modifier.fillMaxSize()) {
                         Canvas(Modifier.fillMaxSize()) { drawCircle(Color.Red, 80f) }
                     }
-                mode.contains("scene") ->
+                mode.contains("scene") -> {
+                    val survey = remember { ExampleSurvey.create() }
                     SurveyCanvas(
-                        survey = ExampleSurvey.create(),
+                        survey = survey,
                         projection = Projection2D.PLAN,
                         options = DisplayOptions(),
+                        editor =
+                            remember(survey) {
+                                SketchEditor(survey.getSketch(Projection2D.PLAN))
+                            },
                         modifier = Modifier.fillMaxSize(),
                     )
+                }
                 else -> App()
             }
         }

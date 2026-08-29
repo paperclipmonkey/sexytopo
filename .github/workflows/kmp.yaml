@@ -44,6 +44,14 @@ jobs:
         working-directory: kmp
         run: ./gradlew :demo:jvmTest
 
+      # The UI's own non-JVM target. Only the shared module was being compiled for Wasm, so a
+      # change to a composable's signature could - and did - break the browser and the iOS host
+      # while every check here stayed green. Nothing else in this workflow compiles a source set
+      # that iOS also uses, which is exactly why this step matters more than it looks.
+      - name: Compile the shared UI for a non-JVM target
+        working-directory: kmp
+        run: ./gradlew :demo:compileKotlinWasmJs
+
       - name: Render the shared Compose UI headlessly
         working-directory: kmp
         run: ./gradlew :demo:renderDemoPng
