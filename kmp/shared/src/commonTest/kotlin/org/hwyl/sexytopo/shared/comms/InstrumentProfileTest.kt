@@ -83,3 +83,29 @@ class InstrumentProfileTest {
         }
     }
 }
+
+/** Regressions from the fidelity review of the port against the Java drivers. */
+class InstrumentProfileReviewTest {
+
+    @Test
+    fun matchingIsCaseInsensitiveAsTheJavaIs() {
+        // InstrumentType.byName lower-cases both sides. An advertised name is a firmware string
+        // that nothing normalises, so a unit advertising in another case must still be found.
+        assertEquals(InstrumentProfile.SAP6, InstrumentProfile.forAdvertisedName("sap6-1234"))
+        assertEquals(InstrumentProfile.BRIC5, InstrumentProfile.forAdvertisedName("bric5_0099"))
+        assertEquals(
+            InstrumentProfile.DISTOX_BLE,
+            InstrumentProfile.forAdvertisedName("DISTOXBLE-1234"),
+        )
+    }
+
+    @Test
+    fun bricsThreeCharacteristicsAreDistinguishable() {
+        // The whole point of routing by UUID on iOS: three distinct channels, so a dropped
+        // indication cannot desynchronise the decoder the way it can on Android.
+        val channels = InstrumentProfile.BRIC4.notifyChannels
+        assertEquals(3, channels.size)
+        assertEquals(channels.size, channels.toSet().size, "each characteristic gets its own role")
+        assertTrue(FrameChannel.DEFAULT !in channels, "DEFAULT means 'could not tell them apart'")
+    }
+}

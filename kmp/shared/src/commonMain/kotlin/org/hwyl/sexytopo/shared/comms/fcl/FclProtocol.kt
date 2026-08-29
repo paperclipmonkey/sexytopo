@@ -440,11 +440,18 @@ class FclDecoder {
         )
     }
 
-    /** Routes a frame by channel; anything not marked EXTENDED is treated as a primary packet. */
+    /**
+     * Routes a frame by channel.
+     *
+     * A frame on any other channel is rejected rather than guessed at: the Java logs an unexpected
+     * characteristic and ignores it, and treating one as a primary packet would silently discard a
+     * held primary and cost the shot it belonged to.
+     */
     fun feed(channel: FrameChannel, data: ByteArray): FclDecodeResult =
         when (channel) {
+            FrameChannel.PRIMARY -> feedPrimary(data)
             FrameChannel.EXTENDED -> feedExtended(data)
-            else -> feedPrimary(data)
+            else -> FclDecodeResult.Error("frame on unexpected channel $channel")
         }
 
     /** Call when the extended packet has not arrived within [FclProtocol.PACKET_TIMEOUT_MS]. */

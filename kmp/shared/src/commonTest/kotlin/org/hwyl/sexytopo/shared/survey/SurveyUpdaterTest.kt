@@ -386,14 +386,29 @@ class SurveyUpdaterTest {
 
     @Test
     fun deleteStationWithSubtreeRemovesAll() {
+        // The Java test this was ported from targets station "1" — the ORIGIN — which
+        // deleteStation returns from immediately, and then asserts only `size <= initial`. It
+        // therefore passes with deleteStation's body emptied. Targeting an interior station and
+        // asserting the concrete outcome makes it test something.
         val survey = TestSurveys.createStraightNorthWith1EBranch()
-        val toDelete = survey.getStationByName("1")!!
-        val initialStationCount = survey.getAllStations().size
+        val toDelete = survey.getStationByName("2")!!
 
         SurveyUpdater.deleteStation(survey, toDelete)
 
-        assertTrue(survey.getAllStations().size <= initialStationCount)
+        val remaining = survey.getAllStations().map { it.name }.toSet()
+        assertEquals(setOf("1", "5"), remaining, "2 and its subtree 3, 4 should be gone")
         assertFalse(survey.isSaved)
+    }
+
+    @Test
+    fun deletingTheOriginIsRefused() {
+        // The behaviour the old assertion accidentally covered, stated on purpose.
+        val survey = TestSurveys.createStraightNorthWith1EBranch()
+        val before = survey.getAllStations().size
+
+        SurveyUpdater.deleteStation(survey, survey.origin)
+
+        assertEquals(before, survey.getAllStations().size, "the origin cannot be deleted")
     }
 
     @Test

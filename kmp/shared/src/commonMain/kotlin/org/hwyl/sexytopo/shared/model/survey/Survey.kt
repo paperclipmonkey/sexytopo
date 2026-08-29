@@ -20,7 +20,17 @@ import org.hwyl.sexytopo.shared.model.sketch.Sketch
  * independent index over the same Leg objects, and the two can disagree — hence
  * [checkSurveyIntegrity], which prunes record entries pointing at stations no longer in the tree.
  */
-class Survey(var name: String = DEFAULT_NAME) {
+class Survey(name: String = DEFAULT_NAME) {
+
+    /**
+     * Sanitised on every write, as in the Java: the name becomes a directory name, so characters
+     * that would split a path or a filename are stripped and a name left empty falls back.
+     */
+    var name: String = sanitiseName(name)
+        set(value) {
+            field = sanitiseName(value)
+        }
+
 
     var origin: Station = Station(ORIGIN_NAME)
 
@@ -219,7 +229,16 @@ class Survey(var name: String = DEFAULT_NAME) {
 
     companion object {
         const val ORIGIN_NAME = "1"
-        const val DEFAULT_NAME = "Untitled"
+        const val DEFAULT_NAME = "Unsaved Survey"
+
+        /** Characters that cannot appear in a survey name, because it is used as a folder name. */
+        val FORBIDDEN_CHARS = charArrayOf(':', '.', '\n', '\r', '/', '\\')
+
+        private fun sanitiseName(name: String): String {
+            var sanitised = name
+            for (c in FORBIDDEN_CHARS) sanitised = sanitised.replace(c.toString(), "")
+            return sanitised.ifEmpty { "blank" }
+        }
 
         /**
          * Ported from `control/util/SurveyTools.traverseLegs`. Iterates a snapshot of each

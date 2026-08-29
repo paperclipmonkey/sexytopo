@@ -51,14 +51,22 @@ fun interface TransportSubscription {
  *
  * Most instruments have exactly one inbound stream ([DEFAULT]). FCL genuinely has two, told apart
  * by characteristic UUID (`...c504` primary, `...c505` extended), so its decoder needs to know
- * which is which. BRIC4 has three characteristics but — as `Bric4Manager` notes in a comment —
- * gives the client no way to tell them apart, so its frames are all [DEFAULT] and the decoder
- * cycles blindly through the three roles.
+ * which is which. BRIC4 also has three, and `Bric4Manager` notes in a comment that Android gives it
+ * no way to tell them apart, so the Android driver cycles blindly through the roles. CoreBluetooth
+ * *does* report the characteristic, so BRIC's profile maps its three to [PRIMARY], [EXTENDED] and
+ * [TERTIARY] and [org.hwyl.sexytopo.shared.comms.bric.Bric4Decoder.feed] can route by role.
  */
 enum class FrameChannel {
     DEFAULT,
     PRIMARY,
     EXTENDED,
+
+    /**
+     * A third distinct stream. Only BRIC needs it: its measurement, metadata and error
+     * characteristics are three separate notify sources that Android cannot tell apart but
+     * CoreBluetooth can.
+     */
+    TERTIARY,
 }
 
 /** Callbacks from an [InstrumentTransport]. Every method has a no-op default. */

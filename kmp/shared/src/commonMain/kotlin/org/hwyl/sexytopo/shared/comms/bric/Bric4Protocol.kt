@@ -1,6 +1,7 @@
 package org.hwyl.sexytopo.shared.comms.bric
 
 import org.hwyl.sexytopo.shared.comms.DeviceTimestamp
+import org.hwyl.sexytopo.shared.comms.FrameChannel
 import org.hwyl.sexytopo.shared.comms.InstrumentPacket
 import org.hwyl.sexytopo.shared.comms.ShotDetail
 import org.hwyl.sexytopo.shared.comms.floatLE
@@ -69,7 +70,14 @@ data class Bric4Metadata(
 )
 
 /** One of the two error slots on the 58d3 characteristic. */
-data class Bric4ErrorReport(val code: Int, val error: Bric4Error, val data1: Float, val data2: Float)
+/** [slot] is 0 for the first error field in the frame and 1 for the second; see showToUser. */
+data class Bric4ErrorReport(
+    val code: Int,
+    val error: Bric4Error,
+    val data1: Float,
+    val data2: Float,
+    val slot: Int,
+)
 
 /** The 58d3 characteristic: up to two error slots, of which only non-zero codes count. */
 data class Bric4Errors(val reports: List<Bric4ErrorReport>) {
@@ -180,6 +188,7 @@ object Bric4Protocol {
                 Bric4Error.fromCode(firstCode),
                 bytes.floatLE(1),
                 bytes.floatLE(5),
+                slot = 0,
             )
         }
         val secondCode = bytes.uint8(9)
@@ -189,6 +198,7 @@ object Bric4Protocol {
                 Bric4Error.fromCode(secondCode),
                 bytes.floatLE(10),
                 bytes.floatLE(14),
+                slot = 1,
             )
         }
         return Bric4Errors(reports)
@@ -237,9 +247,39 @@ class Bric4Decoder {
      */
     fun feed(bytes: ByteArray?): List<InstrumentPacket> {
         if (bytes == null) return emptyList()
+        val result = handle(state, bytes)
+        state = when (state) {
+            State.MEASUREMENT -> State.METADATA
+            State.METADATA -> State.ERRORS
+            State.ERRORS -> State.MEASUREMENT
+        }
+        return result
+    }
 
-        val result: List<InstrumentPacket> =
-            when (state) {
+    /**
+     * Feeds one indication whose *role is known*, which is the whole reason [FrameChannel] carries
+     * BRIC's three characteristics separately.
+     *
+     * Android cannot do this — `Bric4Manager`'s own comment says there is no way to tell which
+     * characteristic an indication came from, so it cycles blindly and can desynchronise if one is
+     * dropped. CoreBluetooth reports the characteristic on every callback, so a transport that maps
+     * the profile's [FrameChannel]s can call this instead and the failure mode disappears.
+     *
+     * [FrameChannel.DEFAULT] means the transport could not tell them apart, so it falls back to the
+     * blind cycle.
+     */
+    fun feed(channel: FrameChannel, bytes: ByteArray?): List<InstrumentPacket> {
+        if (bytes == null) return emptyList()
+        return when (channel) {
+            FrameChannel.PRIMARY -> handle(State.MEASUREMENT, bytes)
+            FrameChannel.EXTENDED -> handle(State.METADATA, bytes)
+            FrameChannel.TERTIARY -> handle(State.ERRORS, bytes)
+            FrameChannel.DEFAULT -> feed(bytes)
+        }
+    }
+
+    private fun handle(state: State, bytes: ByteArray): List<InstrumentPacket> {
+        return when (state) {
                 State.MEASUREMENT -> {
                     currentMeasurement = Bric4Protocol.parsePrimary(bytes)
                     emptyList()
@@ -253,14 +293,17 @@ class Bric4Decoder {
                 State.ERRORS -> {
                     val errors = Bric4Protocol.parseErrors(bytes)
                     if (errors.hasErrors) {
-                        // The Java toasts the first error and only logs the second.
-                        errors.reports.mapIndexed { index, report ->
+                        // The Java binds "show this to the surveyor" to WHICH SLOT the error came
+                        // from, not to its position in the list: slot 1 is toasted, slot 2 is only
+                        // logged. An errors frame carrying a code only in slot 2 must therefore
+                        // stay silent, which indexing the filtered list would get wrong.
+                        errors.reports.map { report ->
                             InstrumentPacket.DeviceFailure(
                                 code = report.code,
                                 description = report.error.description,
                                 data1 = report.data1,
                                 data2 = report.data2,
-                                showToUser = index == 0,
+                                showToUser = report.slot == 0,
                             )
                         }
                     } else {
@@ -275,15 +318,7 @@ class Bric4Decoder {
                         )
                     }
                 }
-            }
-
-        state = when (state) {
-            State.MEASUREMENT -> State.METADATA
-            State.METADATA -> State.ERRORS
-            State.ERRORS -> State.MEASUREMENT
         }
-
-        return result
     }
 
     /** Puts the cycle back to the start; use after reconnecting. */

@@ -83,6 +83,10 @@ data class InstrumentProfile(
                     ),
                 writeCharacteristicUuid = "000058e1-0000-1000-8000-00805f9b34fb",
                 writeServiceUuid = "000058e0-0000-1000-8000-00805f9b34fb",
+                // Measurement, metadata, errors — distinguishable on iOS even though they are not
+                // on Android, which is what lets Bric4Decoder.feed route instead of cycling.
+                notifyChannels =
+                    listOf(FrameChannel.PRIMARY, FrameChannel.EXTENDED, FrameChannel.TERTIARY),
                 notes = "Android cannot tell which of the three indications it received, so " +
                     "Bric4Manager cycles blindly through the roles and its own comment admits the " +
                     "desync risk. CoreBluetooth reports the characteristic on every callback, so " +
@@ -124,8 +128,14 @@ data class InstrumentProfile(
         /** Every instrument an iOS build could talk to. */
         val ALL = listOf(DISTOX_BLE, CAVWAY_X1, BRIC4, BRIC5, SAP6, DISCOX, FCL)
 
-        /** Matches an advertised name to a profile, as `InstrumentType.byName` does. */
+        /**
+         * Matches an advertised name to a profile, as `InstrumentType.byName` does.
+         *
+         * Case-insensitive, deliberately: the Java lower-cases both sides, and an advertised name
+         * is a firmware string that nothing normalises, so a unit advertising "sap6-1234" must
+         * still be recognised.
+         */
         fun forAdvertisedName(name: String): InstrumentProfile? =
-            ALL.firstOrNull { name.startsWith(it.namePrefix) }
+            ALL.firstOrNull { name.startsWith(it.namePrefix, ignoreCase = true) }
     }
 }

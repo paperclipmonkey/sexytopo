@@ -52,8 +52,10 @@ import platform.posix.memcpy
  *
  * `Bric4Manager` on Android cannot tell which of BRIC's three indication characteristics delivered
  * a packet, so it cycles blindly through the roles and its own comment admits the desync risk.
- * CoreBluetooth passes the characteristic to every callback, so [routeChannel] can dispatch by UUID
- * and the failure mode simply does not exist here.
+ * CoreBluetooth passes the characteristic to every callback, so [routeChannel] dispatches by UUID:
+ * BRIC's profile maps its three characteristics to distinct [FrameChannel]s, and
+ * `Bric4Decoder.feed(channel, bytes)` routes by role instead of cycling. A dropped indication
+ * therefore cannot desynchronise the decoder here.
  */
 @OptIn(ExperimentalForeignApi::class)
 class CoreBluetoothTransport(
@@ -63,6 +65,7 @@ class CoreBluetoothTransport(
     private var central: CBCentralManager? = null
     private var peripheral: CBPeripheral? = null
     private var writeCharacteristic: CBCharacteristic? = null
+    private val subscribedNotifyUuids = mutableSetOf<String>()
     private var connectedFlag = false
 
     override val isConnected: Boolean
@@ -84,6 +87,7 @@ class CoreBluetoothTransport(
         central?.stopScan()
         peripheral = null
         writeCharacteristic = null
+        subscribedNotifyUuids.clear()
         connectedFlag = false
     }
 
@@ -126,8 +130,9 @@ class CoreBluetoothTransport(
                         ?: return
 
                 // The same name-prefix matching the Android app uses, which is the one piece of
-                // discovery that ports unchanged.
-                if (!advertisedName.startsWith(profile.namePrefix)) return
+                // discovery that ports unchanged. Case-insensitive, as the Java is: an advertised
+                // name is a firmware string and nothing normalises its case.
+                if (!advertisedName.startsWith(profile.namePrefix, ignoreCase = true)) return
 
                 central.stopScan()
                 peripheral = didDiscoverPeripheral
@@ -162,6 +167,7 @@ class CoreBluetoothTransport(
             ) {
                 connectedFlag = false
                 writeCharacteristic = null
+                subscribedNotifyUuids.clear()
                 emitDisconnected(error?.localizedDescription)
             }
         }
@@ -207,11 +213,22 @@ class CoreBluetoothTransport(
                             writeCharacteristic = characteristic
                         // CoreBluetooth writes the CCCD itself, so unlike the Android drivers
                         // there is no descriptor to poke.
-                        uuid in notifyUuids -> peripheral.setNotifyValue(true, characteristic)
+                        uuid in notifyUuids -> {
+                            peripheral.setNotifyValue(true, characteristic)
+                            subscribedNotifyUuids += uuid
+                        }
                     }
                 }
 
-                if (writeCharacteristic != null && !connectedFlag) {
+                // Only report success once EVERY characteristic the profile needs has turned up.
+                // The Android drivers refuse the device otherwise (Bric4Manager's
+                // isRequiredServiceSupported checks all three indications), and announcing a
+                // half-configured link is worse than failing: for FCL, primary packets would
+                // arrive and be held forever while the extended half never came, so the surveyor
+                // would see a connected instrument that silently never records a shot.
+                val everythingFound =
+                    writeCharacteristic != null && subscribedNotifyUuids.containsAll(notifyUuids)
+                if (everythingFound && !connectedFlag) {
                     connectedFlag = true
                     emitConnected()
                 }
