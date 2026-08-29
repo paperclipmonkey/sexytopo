@@ -12,6 +12,7 @@ import org.hwyl.sexytopo.shared.comms.sim.SimulatedInstrument
 import org.hwyl.sexytopo.shared.demo.ExampleSurvey
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 import org.jetbrains.skia.EncodedImageFormat
 import java.io.File
@@ -50,7 +51,7 @@ fun main() {
     }
     render("phone-plan.png", 430, 932) { App(survey = survey) }
     render("drawing-tool.png", 1400, 1000) {
-        App(survey = survey, initialTool = CanvasTool.DRAW)
+        App(survey = survey, initialTool = SketchTool.DRAW)
     }
 
     // A survey built the way the app really builds one: readings decoded from DistoX wire-format

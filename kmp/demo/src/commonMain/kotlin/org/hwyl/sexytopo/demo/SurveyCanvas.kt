@@ -2,25 +2,23 @@ package org.hwyl.sexytopo.demo
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
@@ -30,46 +28,41 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
-import org.hwyl.sexytopo.shared.model.sketch.Colour
-import org.hwyl.sexytopo.shared.model.sketch.PathDetail
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.sketch.SketchDefaults
+import org.hwyl.sexytopo.shared.sketch.SketchEditor
+import org.hwyl.sexytopo.shared.sketch.SketchTool
+import org.hwyl.sexytopo.shared.sketch.SketchViewport
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.log10
-import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
-
-/** What a drag does on the canvas. */
-enum class CanvasTool(val displayName: String) {
-    PAN("Move"),
-    DRAW("Draw"),
-    ERASE("Erase"),
-}
 
 /**
  * The survey drawing surface, written once in Compose Multiplatform and rendered by Skia on every
  * platform — iOS included.
  *
- * The Android app's equivalent is `control/graph/GraphView`, a 2,199-line custom Android View. Its
- * drawing and gesture handling are Android-specific, but the geometry is not, which is why the
- * maths came across untouched and only this layer had to be rewritten.
+ * The Android app's equivalent is `control/graph/GraphView`, a 2,199-line custom Android View. Very
+ * little of what it does is actually Android-specific, and this file is the evidence: the tool
+ * model, the viewport, the hit-testing, the undo stack, the stroke simplification and the eraser's
+ * split-rather-than-delete behaviour are all in the shared module, ported from that class and
+ * tested on the JVM and on Kotlin/Wasm. What is left here is drawing and touch plumbing.
  *
- * Strokes are captured in survey metres via [Viewport.toSurvey], never in pixels, so a sketch keeps
- * its meaning across zoom levels and round-trips through the shared JSON format unchanged.
+ * Strokes are captured in survey metres, never in pixels, so a sketch keeps its meaning across zoom
+ * levels and round-trips through the shared JSON format unchanged.
  */
 @Composable
 fun SurveyCanvas(
     survey: Survey,
     projection: Projection2D,
     options: DisplayOptions,
+    editor: SketchEditor,
     modifier: Modifier = Modifier,
-    tool: CanvasTool = CanvasTool.PAN,
-    brushColour: Colour = Colour.BLACK,
+    tool: SketchTool = SketchTool.MOVE,
     revision: Int = 0,
     onSketchEdit: () -> Unit = {},
-    history: SketchHistory? = null,
 ) {
     val textMeasurer = rememberTextMeasurer()
     val fontFamily = LocalAppFontFamily.current
@@ -77,98 +70,90 @@ fun SurveyCanvas(
     // Reprojecting is pure and cheap; recompute when the survey, projection or sketch changes.
     val scene = remember(survey, projection, revision) { SurveyScene.from(survey, projection) }
 
-    var zoom by remember(survey, projection) { mutableFloatStateOf(1f) }
-    var pan by remember(survey, projection) { mutableStateOf(Offset.Zero) }
-    var canvasSize by remember { mutableStateOf(Size.Zero) }
+    val viewport = remember(survey, projection) { SketchViewport() }
+    val fit = remember(survey, projection) { FitOnce() }
 
-    // The stroke being drawn right now, before it is committed to the sketch.
-    var liveStroke by remember { mutableStateOf<List<Coord2D>>(emptyList()) }
-
-    val viewport = Viewport(scene.bounds, canvasSize, zoom, pan)
+    // The viewport and the editor are plain objects, not Compose state, so a gesture that changes
+    // one has to say so. Two counters rather than one: a stroke in progress only needs a repaint,
+    // while a committed edit needs the scene (and its bounds) rebuilt.
+    var viewTick by remember { mutableIntStateOf(0) }
+    var strokeTick by remember { mutableIntStateOf(0) }
 
     val gestures =
         when (tool) {
-            CanvasTool.PAN ->
+            SketchTool.MOVE ->
                 Modifier.pointerInput(scene) {
-                    detectTransformGestures { _, panChange, zoomChange, _ ->
-                        zoom = (zoom * zoomChange).coerceIn(0.2f, 40f)
-                        pan += panChange
+                    detectTransformGestures { centroid, panChange, zoomChange, _ ->
+                        // Zoom about the pinch centre first, then pan, so the point under the
+                        // fingers stays under them. adjustZoomBy refuses to leave the shared
+                        // viewport's zoom range rather than clamping, exactly as the Java does.
+                        viewport.adjustZoomBy(zoomChange, centroid.toCoord2D())
+                        viewport.panBy(panChange.toCoord2D())
+                        viewTick++
                     }
                 }
 
-            CanvasTool.DRAW ->
-                Modifier.pointerInput(scene, brushColour, canvasSize, zoom, pan) {
-                    detectDragGestures(
-                        onDragStart = { offset ->
-                            liveStroke = listOf(viewport.toSurvey(offset))
-                        },
-                        onDrag = { change, _ ->
-                            change.consume()
-                            liveStroke = liveStroke + viewport.toSurvey(change.position)
-                        },
-                        onDragEnd = {
-                            val stroke = liveStroke
-                            liveStroke = emptyList()
-                            if (stroke.size >= 2) {
-                                val sketch = survey.getSketch(projection)
-                                history?.record(sketch)
-                                // Simplify on release, as the Android app does, so a stroke is
-                                // stored as a handful of points rather than every sampled position.
-                                val simplified = simplifyPath(stroke, viewport.toSurveyDistance(1.5f))
-                                sketch.pathDetails.add(PathDetail(simplified, brushColour))
-                                onSketchEdit()
-                            }
-                        },
-                        onDragCancel = { liveStroke = emptyList() },
-                    )
+            SketchTool.ERASE ->
+                // A tap, not a drag: the Android app erases on touch-down only, so the eraser is a
+                // tapping tool rather than a rubbing one. Reproduced deliberately - rubbing would
+                // feel better but would diverge from what a surveyor's muscle memory expects.
+                Modifier.pointerInput(scene) {
+                    detectTapGestures { offset ->
+                        val erased =
+                            editor.eraseAt(
+                                point = viewport.toSurvey(offset),
+                                toleranceInMetres =
+                                    viewport.toSurveyDistance(SketchDefaults.DELETE_DETAILS_WITHIN_DP),
+                                pixelsPerMetre = viewport.pixelsPerMetre,
+                                showCrossSections = options.showSketch,
+                            )
+                        if (erased) onSketchEdit()
+                    }
                 }
 
-            CanvasTool.ERASE ->
-                Modifier.pointerInput(scene, canvasSize, zoom, pan) {
-                    var erasedAnything = false
+            else ->
+                Modifier.pointerInput(scene) {
                     detectDragGestures(
                         onDragStart = { offset ->
-                            val sketch = survey.getSketch(projection)
-                            history?.record(sketch)
-                            erasedAnything =
-                                eraseAt(sketch, viewport.toSurvey(offset), viewport.toSurveyDistance(ERASER_RADIUS_PX))
+                            editor.startPath(viewport.toSurvey(offset))
+                            strokeTick++
                         },
                         onDrag = { change, _ ->
                             change.consume()
-                            val sketch = survey.getSketch(projection)
-                            if (eraseAt(
-                                    sketch,
-                                    viewport.toSurvey(change.position),
-                                    viewport.toSurveyDistance(ERASER_RADIUS_PX),
-                                )
-                            ) {
-                                erasedAnything = true
-                                onSketchEdit()
-                            }
+                            editor.extendPath(viewport.toSurvey(change.position))
+                            strokeTick++
                         },
                         onDragEnd = {
-                            if (erasedAnything) onSketchEdit() else history?.undo(survey.getSketch(projection))
-                            erasedAnything = false
+                            // finishPath simplifies the stroke and pushes one undo step; a stroke
+                            // of fewer than two points is still committed, as in the original,
+                            // because a tap is how you draw a dot.
+                            editor.finishPath()
+                            onSketchEdit()
+                        },
+                        onDragCancel = {
+                            editor.abandonPath()
+                            strokeTick++
                         },
                     )
                 }
         }
 
-    Box(modifier = modifier.onSizeChanged { canvasSize = Size(it.width.toFloat(), it.height.toFloat()) }.then(gestures)) {
+    Box(modifier = modifier.then(gestures)) {
         Canvas(Modifier.fillMaxSize()) {
-            // Build the viewport from the DrawScope's own size rather than the onSizeChanged
-            // state: on the very first frame — and in a single-frame headless render — that
-            // callback has not run yet, and the survey would be drawn at 1 pixel per metre.
-            drawSurvey(
-                scene,
-                options,
-                Viewport(scene.bounds, size, zoom, pan),
-                textMeasurer,
-                fontFamily,
-                liveStroke,
-                brushColour,
-                tool,
-            )
+            // Read both counters so a gesture repaints; the values themselves are not used.
+            @Suppress("UNUSED_EXPRESSION")
+            viewTick
+            @Suppress("UNUSED_EXPRESSION")
+            strokeTick
+
+            // Fit here rather than from onSizeChanged: this is the first moment the real size is
+            // known, and in the single-frame headless render there is no later moment at all.
+            if (!fit.done && size.width > 0f && size.height > 0f) {
+                viewport.fitTo(scene.bounds, size.width, size.height)
+                fit.done = true
+            }
+
+            drawSurvey(scene, options, viewport, textMeasurer, fontFamily, tool)
         }
     }
 }
@@ -178,6 +163,7 @@ class SurveyScene private constructor(
     val stations: List<Pair<String, Coord2D>>,
     val legs: List<Pair<Coord2D, Coord2D>>,
     val splays: List<Pair<Coord2D, Coord2D>>,
+    /** The live sketch, not a copy: a stroke in progress grows in place and draws as it goes. */
     val sketch: Sketch,
     val bounds: Bounds,
 ) {
@@ -220,18 +206,23 @@ class DisplayOptions(
     val darkMode: Boolean = false,
 )
 
-private const val ERASER_RADIUS_PX = 14f
+/**
+ * Below this zoom the station names are dropped.
+ *
+ * Deliberately generous. Legs are commonly 5-10 m, so at this scale adjacent labels are only about
+ * 10 px apart and will overlap here and there — but a plan with no station names on it is much less
+ * use to a caver than a plan with a few crowded ones, and the Android app makes the same trade.
+ */
+private const val LABEL_VISIBILITY_PIXELS_PER_METRE = 1.5f
 
 @OptIn(ExperimentalTextApi::class)
 private fun DrawScope.drawSurvey(
     scene: SurveyScene,
     options: DisplayOptions,
-    viewport: Viewport,
+    viewport: SketchViewport,
     textMeasurer: TextMeasurer,
     fontFamily: FontFamily,
-    liveStroke: List<Coord2D>,
-    brushColour: Colour,
-    tool: CanvasTool,
+    tool: SketchTool,
 ) {
     val palette = if (options.darkMode) DarkPalette else LightPalette
 
@@ -262,7 +253,9 @@ private fun DrawScope.drawSurvey(
     for ((name, coord) in scene.stations) {
         val centre = project(coord)
         drawCircle(palette.station, radius = 3.5f, center = centre)
-        if (options.showStationLabels && viewport.zoom > 0.75f) {
+        if (options.showStationLabels &&
+            viewport.pixelsPerMetre > LABEL_VISIBILITY_PIXELS_PER_METRE
+        ) {
             val layout =
                 textMeasurer.measure(
                     name,
@@ -311,15 +304,11 @@ private fun DrawScope.drawSurvey(
         }
     }
 
-    // The stroke under the stylus right now, drawn unsimplified for immediate feedback.
-    if (liveStroke.size >= 2) {
-        drawPolyline(liveStroke.map(::project), Color(brushColour.intValue), 2f)
-    }
-
-    if (tool == CanvasTool.ERASE) {
+    if (tool == SketchTool.ERASE) {
+        // The eraser's real reach, drawn at the size a tap would actually clear.
         drawCircle(
             palette.station,
-            radius = ERASER_RADIUS_PX,
+            radius = SketchDefaults.DELETE_DETAILS_WITHIN_DP,
             center = Offset(size.width - 40f, 40f),
             style = Stroke(1.5f),
         )
@@ -366,35 +355,6 @@ private fun DrawScope.drawScaleBar(
     val layout =
         textMeasurer.measure(label, TextStyle(color = palette.scaleBar, fontSize = 11.sp, fontFamily = fontFamily))
     drawText(layout, topLeft = Offset(left, bottom - 24f))
-}
-
-/**
- * Douglas-Peucker: drops points that lie within [epsilon] of the line between their neighbours.
- *
- * The Android app simplifies every stroke on release for the same reason — a finger or stylus emits
- * far more positions than the shape needs, and the sketch is persisted as JSON.
- */
-fun simplifyPath(points: List<Coord2D>, epsilon: Float): List<Coord2D> {
-    if (points.size < 3 || epsilon <= 0f) return points
-
-    var maxDistance = 0f
-    var index = 0
-    for (i in 1 until points.size - 1) {
-        val distance =
-            org.hwyl.sexytopo.shared.math.getDistanceFromLine(points[i], points.first(), points.last())
-        if (distance > maxDistance) {
-            maxDistance = distance
-            index = i
-        }
-    }
-
-    return if (maxDistance > epsilon) {
-        val left = simplifyPath(points.subList(0, index + 1), epsilon)
-        val right = simplifyPath(points.subList(index, points.size), epsilon)
-        left.dropLast(1) + right
-    } else {
-        listOf(points.first(), points.last())
-    }
 }
 
 class Palette(

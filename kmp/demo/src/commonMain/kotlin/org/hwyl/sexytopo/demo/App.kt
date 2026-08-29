@@ -41,6 +41,9 @@ import org.hwyl.sexytopo.shared.demo.ExampleSurvey
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.sketch.BrushColour
+import org.hwyl.sexytopo.shared.sketch.SketchEditor
+import org.hwyl.sexytopo.shared.sketch.SketchTool
 
 /** Which screen is showing: the sketch, or the numbers behind it. */
 enum class Screen(val label: String) {
@@ -67,7 +70,7 @@ fun App(
     survey: Survey = remember { ExampleSurvey.create() },
     initialProjection: Projection2D = Projection2D.PLAN,
     initialDarkMode: Boolean = false,
-    initialTool: CanvasTool = CanvasTool.PAN,
+    initialTool: SketchTool = SketchTool.MOVE,
     initialMode: SurveyMode = SurveyMode.EXAMPLE,
     initialScreen: Screen = Screen.SKETCH,
 ) {
@@ -88,7 +91,12 @@ fun App(
     // Sketches are mutated in place, so an explicit counter drives recomposition. The session
     // keeps its own, which is added in so incoming readings redraw the canvas too.
     var sketchRevision by remember { mutableIntStateOf(0) }
-    val history = remember(shown) { SketchHistory() }
+    // One editor per sketch: swapping to the elevation gives it its own undo stack, as in the
+    // Android app where each sketch owns its history.
+    val editor =
+        remember(shown, projection) {
+            SketchEditor(shown.getSketch(projection)).also { it.activeColour = brushColour }
+        }
 
     WithBundledFont { typography ->
         MaterialTheme(
@@ -140,20 +148,21 @@ fun App(
                                         { Text(if (p == Projection2D.PLAN) "Plan" else "Elevation") },
                                     )
                                 }
-                                for (t in CanvasTool.entries) {
-                                    FilterChip(tool == t, { tool = t }, { Text(t.displayName) })
+                                for (t in DEMO_TOOLS) {
+                                    FilterChip(tool == t, { tool = t }, { Text(t.label) })
                                 }
                                 for (c in BRUSH_COLOURS) {
                                     ColourSwatch(c, brushColour == c) {
                                         brushColour = c
-                                        tool = CanvasTool.DRAW
+                                        editor.activeColour = c
+                                        // Picking a colour while another tool is active switches to
+                                        // drawing, which is what SketchTool.usesColour is for.
+                                        if (!tool.usesColour) tool = SketchTool.DRAW
                                     }
                                 }
                                 TextButton(
-                                    enabled = history.canUndo,
-                                    onClick = {
-                                        if (history.undo(shown.getSketch(projection))) sketchRevision++
-                                    },
+                                    enabled = editor.canUndo,
+                                    onClick = { if (editor.undo()) sketchRevision++ },
                                 ) { Text("Undo") }
                                 FilterChip(darkMode, { darkMode = !darkMode }, { Text("Dark") })
                             }
@@ -182,14 +191,15 @@ fun App(
                         }
 
                         if (screen == Screen.SKETCH) ToolbarRow {
-                            for (t in CanvasTool.entries) {
-                                FilterChip(tool == t, { tool = t }, { Text(t.displayName) })
+                            for (t in DEMO_TOOLS) {
+                                FilterChip(tool == t, { tool = t }, { Text(t.label) })
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 for (c in BRUSH_COLOURS) {
                                     ColourSwatch(c, brushColour == c) {
                                         brushColour = c
-                                        tool = CanvasTool.DRAW
+                                        editor.activeColour = c
+                                        if (!tool.usesColour) tool = SketchTool.DRAW
                                     }
                                 }
                             }
@@ -197,16 +207,12 @@ fun App(
 
                         if (screen == Screen.SKETCH) ToolbarRow {
                             TextButton(
-                                enabled = history.canUndo,
-                                onClick = {
-                                    if (history.undo(shown.getSketch(projection))) sketchRevision++
-                                },
+                                enabled = editor.canUndo,
+                                onClick = { if (editor.undo()) sketchRevision++ },
                             ) { Text("Undo") }
                             TextButton(
-                                enabled = history.canRedo,
-                                onClick = {
-                                    if (history.redo(shown.getSketch(projection))) sketchRevision++
-                                },
+                                enabled = editor.canRedo,
+                                onClick = { if (editor.redo()) sketchRevision++ },
                             ) { Text("Redo") }
                             FilterChip(showSketch, { showSketch = !showSketch }, { Text("Sketch") })
                             FilterChip(showSplays, { showSplays = !showSplays }, { Text("Splays") })
@@ -239,11 +245,10 @@ fun App(
                                     darkMode = darkMode,
                                 ),
                             modifier = Modifier.weight(1f).fillMaxWidth().heightIn(min = 200.dp),
+                            editor = editor,
                             tool = tool,
-                            brushColour = brushColour,
                             revision = sketchRevision + session.revision,
                             onSketchEdit = { sketchRevision++ },
-                            history = history,
                         )
 
                         Text(
@@ -286,9 +291,30 @@ private fun InstrumentBar(session: SurveySession) {
     }
 }
 
-/** The colours the Android app offers on its sketch toolbar. */
-private val BRUSH_COLOURS =
-    listOf(Colour.BLACK, Colour.RED, Colour.BLUE, Colour.DARK_GREEN, Colour.BROWN, Colour.ORANGE)
+/**
+ * The colours the Android app offers on its sketch toolbar — the shared [BrushColour] list, not a
+ * demo-chosen subset of the 144 colours the model can store.
+ */
+private val BRUSH_COLOURS = BrushColour.entries.map { it.colour }
+
+/**
+ * The tools the demo offers, out of the eleven [SketchTool] knows about.
+ *
+ * The rest — placing symbols and labels, and the four cross-section gestures — need chrome this
+ * demo does not have: a symbol palette, a text field, a cross-section editor screen. The shared
+ * model supports them already.
+ */
+private val DEMO_TOOLS = listOf(SketchTool.MOVE, SketchTool.DRAW, SketchTool.ERASE)
+
+/** Toolbar labels. The shared enum carries behaviour, not display strings. */
+private val SketchTool.label: String
+    get() =
+        when (this) {
+            SketchTool.MOVE -> "Move"
+            SketchTool.DRAW -> "Draw"
+            SketchTool.ERASE -> "Erase"
+            else -> name.lowercase().replaceFirstChar { it.uppercase() }
+        }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -322,7 +348,7 @@ private fun ColourSwatch(colour: Colour, selected: Boolean, onClick: () -> Unit)
 private fun summarise(
     survey: Survey,
     projection: Projection2D,
-    tool: CanvasTool,
+    tool: SketchTool,
     compact: Boolean,
 ): String {
     val space = projection.project(survey)
@@ -331,9 +357,9 @@ private fun summarise(
     val sketch = survey.getSketch(projection)
     val hint =
         when (tool) {
-            CanvasTool.PAN -> "drag to pan, pinch to zoom"
-            CanvasTool.DRAW -> "drag to draw a passage wall"
-            CanvasTool.ERASE -> "drag over a line to rub it out"
+            SketchTool.MOVE -> "drag to pan, pinch to zoom"
+            SketchTool.ERASE -> "tap a line to rub it out"
+            else -> "drag to draw a passage wall"
         }
     if (compact) {
         return "${space.stationMap.size} stations · $legs legs · " +
