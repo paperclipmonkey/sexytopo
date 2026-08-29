@@ -365,6 +365,16 @@ object SurveyJson {
     fun write(survey: Survey, versionName: String = "kmp-port", versionCode: Int = 0): String {
         val chrono = survey.getAllLegsInChronoOrder()
 
+        // The chronological index of each leg, precomputed. Neither Leg nor Station overrides
+        // equals, so a HashMap keyed on them is identity-keyed — which is exactly the semantics
+        // wanted (two identical readings are two different legs) and turns what the Java does with
+        // a linear `chronoList.indexOf` per leg into one lookup. On a survey with ten thousand legs
+        // that is the difference between a hundred million comparisons and ten thousand.
+        val chronoIndices = HashMap<Leg, Int>(chrono.size)
+        for ((index, leg) in chrono.withIndex()) {
+            chronoIndices.putIfAbsentCompat(leg, index)
+        }
+
         val root = buildJsonObject {
             put(VERSION_NAME_TAG, versionName)
             put(VERSION_CODE_TAG, versionCode)
@@ -373,7 +383,7 @@ object SurveyJson {
                 STATIONS_TAG,
                 buildJsonArray {
                     for (station in stationsToWrite(survey, chrono)) {
-                        add(stationToJson(station, chrono))
+                        add(stationToJson(station, chronoIndices))
                     }
                 },
             )
@@ -381,6 +391,11 @@ object SurveyJson {
             put(ACTIVE_STATION_TAG, survey.activeStation.name)
         }
         return pretty.encodeToString(JsonObject.serializer(), root)
+    }
+
+    /** First occurrence wins, matching `List.indexOf` when a leg somehow appears twice. */
+    private fun <K, V> HashMap<K, V>.putIfAbsentCompat(key: K, value: V) {
+        if (!containsKey(key)) put(key, value)
     }
 
     /**
@@ -399,33 +414,37 @@ object SurveyJson {
      */
     private fun stationsToWrite(survey: Survey, chrono: List<Leg>): List<Station> {
         val ordered = mutableListOf(survey.origin)
+        // Identity-keyed, as Station does not override equals; see the note in [write].
+        val written = HashSet<Station>()
+        written.add(survey.origin)
+
         for (leg in chrono) {
-            if (leg.hasDestination()) {
+            if (leg.hasDestination() && written.add(leg.destination)) {
                 ordered.add(leg.destination)
             }
         }
         for (station in survey.getAllStations()) {
-            if (ordered.none { it === station }) {
+            if (written.add(station)) {
                 ordered.add(station)
             }
         }
         return ordered
     }
 
-    private fun stationToJson(station: Station, chrono: List<Leg>): JsonObject = buildJsonObject {
-        put(STATION_NAME_TAG, station.name)
-        put(DIRECTION_TAG, station.extendedElevationDirection.name.lowercase())
-        put(COMMENT_TAG, station.comment)
-        put(
-            ONWARD_LEGS_TAG,
-            buildJsonArray {
-                for (leg in station.onwardLegs) {
-                    val index = chrono.indexOfFirst { it === leg }
-                    add(legToJson(leg, if (index >= 0) index else null))
-                }
-            },
-        )
-    }
+    private fun stationToJson(station: Station, chronoIndices: Map<Leg, Int>): JsonObject =
+        buildJsonObject {
+            put(STATION_NAME_TAG, station.name)
+            put(DIRECTION_TAG, station.extendedElevationDirection.name.lowercase())
+            put(COMMENT_TAG, station.comment)
+            put(
+                ONWARD_LEGS_TAG,
+                buildJsonArray {
+                    for (leg in station.onwardLegs) {
+                        add(legToJson(leg, chronoIndices[leg]))
+                    }
+                },
+            )
+        }
 
     private fun legToJson(leg: Leg, index: Int?): JsonObject = buildJsonObject {
         put(DISTANCE_TAG, leg.distance)

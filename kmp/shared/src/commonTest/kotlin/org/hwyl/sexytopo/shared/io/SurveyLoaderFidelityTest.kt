@@ -391,6 +391,56 @@ class SurveyLoaderFidelityTest {
     }
 
     /**
+     * A survey the size of a real system round-trips intact.
+     *
+     * Caves get big — a connected system can run to thousands of stations — and both the writer and
+     * the reader used to be quadratic in that number: one linear scan of the chronological record
+     * per leg written, and one linear scan of the stations already written per station. Both are
+     * now single hash lookups, keyed by identity since neither `Leg` nor `Station` overrides
+     * `equals`. This asserts the result is unchanged; it deliberately does not assert a time, since
+     * a timing test on shared CI is a flaky test.
+     */
+    @Test
+    fun aLargeSurveyRoundTripsIntact() {
+        val survey = Survey("Big System")
+        var previous = survey.origin
+        val stations = mutableListOf(previous)
+
+        repeat(500) { index ->
+            val next = Station("s$index")
+            val leg = Leg(5f + index % 7, (index * 13 % 360).toFloat(), 0f, next)
+            previous.addOnwardLeg(leg)
+            survey.addLegRecord(leg)
+            // A splay off every station, so the file has both kinds of leg throughout. Recorded as
+            // well as hung on the station, because that is what the survey engine does — and a
+            // splay left out of the record comes back from the file as an *unindexed* leg, which
+            // sorts ahead of everything and so silently reorders the survey's history.
+            val splay = Leg(1.5f, 90f, 0f)
+            previous.addOnwardLeg(splay)
+            survey.addLegRecord(splay)
+            stations.add(next)
+            previous = next
+        }
+
+        val reloaded = SurveyJson.load(SurveyJson.write(survey))
+
+        assertFalse(reloaded.hadPartialErrors, "problems were ${reloaded.problems}")
+        assertEquals(stations.size, reloaded.survey.getAllStations().size)
+        assertEquals(
+            stations.map { it.name },
+            reloaded.survey.getAllStations().map { it.name },
+            "and in the same order, so the origin has not moved",
+        )
+        val chrono = reloaded.survey.getAllLegsInChronoOrder()
+        assertEquals(1000, chrono.size, "500 legs and 500 splays, all recorded")
+        assertEquals(
+            survey.getAllLegsInChronoOrder().map { it.distance },
+            chrono.map { it.distance },
+            "and in the order they were taken",
+        )
+    }
+
+    /**
      * A station whose creating leg is missing from the chronological record still exists in the
      * tree. The Java writes only the origin plus each recorded leg's destination, so it drops such
      * a station and everything past it; this port appends the remainder.
