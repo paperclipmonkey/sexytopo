@@ -240,9 +240,22 @@ class SurveyJsonTest {
 
         assertEquals(sketch.pathDetails.size, reparsed.pathDetails.size)
         assertEquals(sketch.textDetails.size, reparsed.textDetails.size)
+
+        // Not point-for-point: the loader thins each stroke with Douglas-Peucker, exactly as the
+        // Android loader does, so the first trip through the file loses the redundant samples.
+        assertTrue(
+            reparsed.pathDetails.first().path.size < sketch.pathDetails.first().path.size,
+            "the loader should simplify the stroke, as the Android loader does",
+        )
+
+        // What must hold is that the loss stops there. If simplification were not idempotent, a
+        // sketch would erode a little on every save/load cycle — which over a season of trips is
+        // how a passage wall quietly turns into a straight line.
+        val twice = SketchJson.parse(SketchJson.write(reparsed, survey.name))
         assertEquals(
-            sketch.pathDetails.first().path.size,
-            reparsed.pathDetails.first().path.size,
+            reparsed.pathDetails.first().path,
+            twice.pathDetails.first().path,
+            "a second round trip should change nothing",
         )
     }
 }

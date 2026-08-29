@@ -96,8 +96,17 @@ class SymbolDetail(
     override fun translate(translation: Coord2D): SymbolDetail =
         SymbolDetail(position + translation, symbolName, size, angle, colour)
 
+    /**
+     * Grows the stamp but leaves it where it is, as in the original.
+     *
+     * That asymmetry looks like a bug and is not. `SinglePositionDetail.scale` returns `this`
+     * unchanged with the comment "if just a point, do we need to scale anything?", and the
+     * subclasses override it only to scale [size]. Scaling the position too would be right if
+     * `scale` meant "zoom the whole sketch about the origin" — but its callers mean "make the
+     * marks bigger", so moving them would drag every symbol away from the passage it annotates.
+     */
     override fun scale(scale: Float): SymbolDetail =
-        SymbolDetail(position.scale(scale), symbolName, size * scale, angle, colour)
+        SymbolDetail(position, symbolName, size * scale, angle, colour)
 }
 
 class TextDetail(
@@ -113,8 +122,9 @@ class TextDetail(
     override fun translate(translation: Coord2D): TextDetail =
         TextDetail(position + translation, text, size, colour)
 
+    /** Grows the lettering in place; see [SymbolDetail.scale] for why the position is untouched. */
     override fun scale(scale: Float): TextDetail =
-        TextDetail(position.scale(scale), text, size * scale, colour)
+        TextDetail(position, text, size * scale, colour)
 }
 
 class Sketch {

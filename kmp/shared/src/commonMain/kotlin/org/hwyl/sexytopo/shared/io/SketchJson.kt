@@ -2,6 +2,7 @@ package org.hwyl.sexytopo.shared.io
 
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -10,14 +11,24 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
+import org.hwyl.sexytopo.shared.model.sketch.CrossSection
+import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.PathDetail
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
+import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.sketch.simplificationEpsilon
+import org.hwyl.sexytopo.shared.sketch.simplify
 
 /**
  * Reads and writes SexyTopo's `<survey>.plan.json` / `<survey>.ext-elevation.json` sketch files.
  *
- * Ported from `control/io/basic/SketchJsonTranslater`. Cross-sections are parsed past rather than
- * reconstructed in this proof of concept — see the module README for what is and is not covered.
+ * Ported from `control/io/basic/SketchJsonTranslater`.
+ *
+ * Cross-sections live in the `x-sections` array. Each entry names the station it belongs to by
+ * name (`station-id`) rather than by any id, so a sketch can only be read back against the survey
+ * it belongs to — hence the [Survey] parameter on [parse]. Its own drawn content is a nested
+ * sketch object under `sketch`, holding the same `paths`/`labels`/`symbols` arrays as the top
+ * level (but never a further `x-sections`: cross-sections do not nest).
  */
 @OptIn(ExperimentalSerializationApi::class)
 object SketchJson {
@@ -28,33 +39,132 @@ object SketchJson {
     const val SYMBOLS_TAG = "symbols"
     const val LABELS_TAG = "labels"
     const val CROSS_SECTIONS_TAG = "x-sections"
+    const val SKETCH_TAG = "sketch"
     const val SYMBOL_ID_TAG = "symbol-id"
     const val TEXT_TAG = "text"
     const val SIZE_TAG = "size"
+    const val STATION_ID_TAG = "station-id"
     const val POSITION_TAG = "location"
     const val ANGLE_TAG = "angle"
+    const val SETTINGS_TAG = "settings"
+    const val CROSS_SECTION_SCALE_TAG = "cross-section-scale"
     const val X_TAG = "x"
     const val Y_TAG = "y"
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val pretty = Json { prettyPrint = true; prettyPrintIndent = "  " }
 
-    fun parse(text: String): Sketch {
+    /**
+     * @param survey the survey the sketch belongs to, needed to resolve `station-id` back to a
+     *   station object. Cross-sections are skipped when it is absent (or names a station the survey
+     *   does not have) — see [toCrossSectionDetail].
+     */
+    fun parse(text: String, survey: Survey? = null): Sketch {
         val root = json.parseToJsonElement(text).jsonObject
         val sketch = Sketch()
 
-        root[PATHS_TAG]?.jsonArray?.forEach { element ->
+        readDrawnDetails(root, sketch)
+
+        for (element in root.arrayOrEmpty(CROSS_SECTIONS_TAG)) {
+            runCatching { toCrossSectionDetail(element.jsonObject, survey) }
+                .getOrNull()
+                ?.let { sketch.crossSectionDetails.add(it) }
+        }
+
+        runCatching { root[SETTINGS_TAG]?.jsonObject?.floatOrNull(CROSS_SECTION_SCALE_TAG) }
+            .getOrNull()
+            ?.let { sketch.crossSectionScale = it }
+
+        return sketch
+    }
+
+    fun write(sketch: Sketch, surveyName: String): String {
+        val root = buildJsonObject {
+            put(SurveyJson.SURVEY_NAME_TAG, surveyName)
+            put(PATHS_TAG, pathsToJson(sketch))
+            put(LABELS_TAG, labelsToJson(sketch))
+            put(SYMBOLS_TAG, symbolsToJson(sketch))
+            put(
+                CROSS_SECTIONS_TAG,
+                buildJsonArray {
+                    for (detail in sketch.crossSectionDetails) add(toJson(detail))
+                },
+            )
+            put(SETTINGS_TAG, buildJsonObject { put(CROSS_SECTION_SCALE_TAG, sketch.crossSectionScale) })
+        }
+        return pretty.encodeToString(JsonObject.serializer(), root)
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Cross-sections
+    // -----------------------------------------------------------------------------------------
+
+    /**
+     * One `x-sections` entry: which station, where on the sketch, at what bearing, and — only if
+     * anything has been drawn in it — the nested sub-sketch.
+     *
+     * The empty-sub-sketch check is the original's: paths, symbols and labels only. A sub-sketch
+     * carrying nothing but (impossible) nested cross-sections still counts as empty.
+     */
+    fun toJson(detail: CrossSectionDetail): JsonObject = buildJsonObject {
+        put(STATION_ID_TAG, detail.station.name)
+        put(POSITION_TAG, toJson(detail.position))
+        put(ANGLE_TAG, detail.crossSection.angle)
+        val subSketch = detail.sketch
+        if (subSketch.hasDrawnDetails()) {
+            put(SKETCH_TAG, toSubSketchJson(subSketch))
+        }
+    }
+
+    /**
+     * Rebuilds a cross-section, or returns null if it cannot be attached to a real station.
+     *
+     * Deliberate divergence: the Java looks the station up and stores whatever comes back, so a
+     * sketch referring to a since-deleted station yields a detail with a null station that throws
+     * the moment anything draws or re-saves it. Skipping is the safer equivalent, and the only
+     * cost is that a dangling section is dropped on load rather than on crash.
+     */
+    fun toCrossSectionDetail(entry: JsonObject, survey: Survey?): CrossSectionDetail? {
+        val stationName = entry.stringOrNull(STATION_ID_TAG) ?: return null
+        val station = survey?.getStationByName(stationName) ?: return null
+        val position = runCatching { toCoord2D(entry[POSITION_TAG]!!.jsonObject) }.getOrNull()
+            ?: return null
+        val angle = entry.floatOrNull(ANGLE_TAG) ?: return null
+
+        val subSketch = Sketch()
+        runCatching { entry[SKETCH_TAG]?.jsonObject }.getOrNull()?.let {
+            readDrawnDetails(it, subSketch)
+        }
+
+        return CrossSectionDetail(position, CrossSection(station, angle), subSketch)
+    }
+
+    private fun toSubSketchJson(sketch: Sketch): JsonObject = buildJsonObject {
+        put(PATHS_TAG, pathsToJson(sketch))
+        put(LABELS_TAG, labelsToJson(sketch))
+        put(SYMBOLS_TAG, symbolsToJson(sketch))
+    }
+
+    /** The original's `isSketchEmpty`, inverted: cross-section details deliberately don't count. */
+    private fun Sketch.hasDrawnDetails(): Boolean =
+        pathDetails.isNotEmpty() || symbolDetails.isNotEmpty() || textDetails.isNotEmpty()
+
+    // -----------------------------------------------------------------------------------------
+    // Paths, labels and symbols — shared by the top-level sketch and by every sub-sketch
+    // -----------------------------------------------------------------------------------------
+
+    private fun readDrawnDetails(root: JsonObject, sketch: Sketch) {
+        for (element in root.arrayOrEmpty(PATHS_TAG)) {
             runCatching { toPathDetail(element.jsonObject) }.getOrNull()?.let {
                 sketch.pathDetails.add(it)
             }
         }
 
-        root[SYMBOLS_TAG]?.jsonArray?.forEach { element ->
+        for (element in root.arrayOrEmpty(SYMBOLS_TAG)) {
             runCatching {
                 val entry = element.jsonObject
-                val position = toCoord2D(entry[POSITION_TAG]!!.jsonObject)
                 sketch.addSymbolDetail(
-                    position = position,
+                    position = toCoord2D(entry[POSITION_TAG]!!.jsonObject),
                     symbolName = entry.stringOrNull(SYMBOL_ID_TAG) ?: return@runCatching,
                     size = entry.floatOrNull(SIZE_TAG) ?: 1f,
                     angle = entry.floatOrNull(ANGLE_TAG) ?: 0f,
@@ -63,81 +173,70 @@ object SketchJson {
             }
         }
 
-        root[LABELS_TAG]?.jsonArray?.forEach { element ->
+        for (element in root.arrayOrEmpty(LABELS_TAG)) {
             runCatching {
                 val entry = element.jsonObject
-                val position = toCoord2D(entry[POSITION_TAG]!!.jsonObject)
                 sketch.addTextDetail(
-                    position = position,
+                    position = toCoord2D(entry[POSITION_TAG]!!.jsonObject),
                     text = entry.stringOrNull(TEXT_TAG) ?: return@runCatching,
                     size = entry.floatOrNull(SIZE_TAG) ?: 0f,
                     colour = colourOf(entry),
                 )
             }
         }
-
-        return sketch
     }
 
-    fun write(sketch: Sketch, surveyName: String): String {
-        val root = buildJsonObject {
-            put(SurveyJson.SURVEY_NAME_TAG, surveyName)
-            put(
-                PATHS_TAG,
-                buildJsonArray {
-                    for (path in sketch.pathDetails) {
-                        add(
-                            buildJsonObject {
-                                put(COLOUR_TAG, path.colour.name)
-                                put(
-                                    POINTS_TAG,
-                                    buildJsonArray { for (p in path.path) add(toJson(p)) },
-                                )
-                            },
-                        )
-                    }
+    private fun pathsToJson(sketch: Sketch): JsonArray = buildJsonArray {
+        for (path in sketch.pathDetails) {
+            add(
+                buildJsonObject {
+                    put(COLOUR_TAG, path.colour.name)
+                    put(POINTS_TAG, buildJsonArray { for (p in path.path) add(toJson(p)) })
                 },
             )
-            put(
-                LABELS_TAG,
-                buildJsonArray {
-                    for (label in sketch.textDetails) {
-                        add(
-                            buildJsonObject {
-                                put(COLOUR_TAG, label.colour.name)
-                                put(POSITION_TAG, toJson(label.position))
-                                put(TEXT_TAG, label.text)
-                                put(SIZE_TAG, label.size)
-                            },
-                        )
-                    }
-                },
-            )
-            put(
-                SYMBOLS_TAG,
-                buildJsonArray {
-                    for (symbol in sketch.symbolDetails) {
-                        add(
-                            buildJsonObject {
-                                put(COLOUR_TAG, symbol.colour.name)
-                                put(POSITION_TAG, toJson(symbol.position))
-                                put(SYMBOL_ID_TAG, symbol.symbolName)
-                                put(SIZE_TAG, symbol.size)
-                                put(ANGLE_TAG, symbol.angle)
-                            },
-                        )
-                    }
-                },
-            )
-            put(CROSS_SECTIONS_TAG, buildJsonArray {})
         }
-        return pretty.encodeToString(JsonObject.serializer(), root)
     }
 
+    private fun labelsToJson(sketch: Sketch): JsonArray = buildJsonArray {
+        for (label in sketch.textDetails) {
+            add(
+                buildJsonObject {
+                    put(COLOUR_TAG, label.colour.name)
+                    put(POSITION_TAG, toJson(label.position))
+                    put(TEXT_TAG, label.text)
+                    put(SIZE_TAG, label.size)
+                },
+            )
+        }
+    }
+
+    private fun symbolsToJson(sketch: Sketch): JsonArray = buildJsonArray {
+        for (symbol in sketch.symbolDetails) {
+            add(
+                buildJsonObject {
+                    put(COLOUR_TAG, symbol.colour.name)
+                    put(POSITION_TAG, toJson(symbol.position))
+                    put(SYMBOL_ID_TAG, symbol.symbolName)
+                    put(SIZE_TAG, symbol.size)
+                    put(ANGLE_TAG, symbol.angle)
+                },
+            )
+        }
+    }
+
+    /**
+     * One stroke, thinned on the way in.
+     *
+     * The simplification is not an optimisation this port added — it is in the original's loader,
+     * and leaving it out would be a fidelity bug in the other direction: an old file whose strokes
+     * were saved raw (several hundred touch samples per wall) would render and export with far more
+     * points here than on Android, and would grow rather than shrink each time it was re-saved. The
+     * tolerance is relative to the stroke's own bounding box, so it is resolution-independent.
+     */
     private fun toPathDetail(entry: JsonObject): PathDetail {
         val colour = colourOf(entry)
         val points = entry[POINTS_TAG]!!.jsonArray.map { toCoord2D(it.jsonObject) }
-        return PathDetail(points, colour)
+        return PathDetail(simplify(points, simplificationEpsilon(points)), colour)
     }
 
     private fun colourOf(entry: JsonObject): Colour =
@@ -150,4 +249,8 @@ object SketchJson {
         put(X_TAG, coord.x)
         put(Y_TAG, coord.y)
     }
+
+    /** A missing or malformed array reads as empty, matching the original's log-and-carry-on. */
+    private fun JsonObject.arrayOrEmpty(key: String): JsonArray =
+        runCatching { this[key]?.jsonArray }.getOrNull() ?: JsonArray(emptyList())
 }

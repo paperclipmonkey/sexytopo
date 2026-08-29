@@ -64,10 +64,20 @@ class Survey(name: String = DEFAULT_NAME) {
 
     var isAutosaved: Boolean = true
 
+    /**
+     * The sketch drawn on one of the two projections a survey has.
+     *
+     * Only [Projection2D.PLAN] and [Projection2D.EXTENDED_ELEVATION] are drawable — the other
+     * projections exist for maths, not for sketching, and a cross-section's drawing lives in its
+     * own [org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail]. Asking for one of those is a
+     * caller bug, so it throws as in the original rather than quietly handing back the plan and
+     * letting the caller's strokes land on the wrong sheet.
+     */
     fun getSketch(projection: Projection2D): Sketch =
         when (projection) {
+            Projection2D.PLAN -> planSketch
             Projection2D.EXTENDED_ELEVATION -> elevationSketch
-            else -> planSketch
+            else -> throw IllegalArgumentException("Not a drawable projection: $projection")
         }
 
     fun isOrigin(station: Station): Boolean = station === origin
@@ -270,12 +280,4 @@ class Survey(name: String = DEFAULT_NAME) {
             return false
         }
     }
-}
-
-/** Minimal trip metadata; the Android original also carries licence and copyright fields. */
-class Trip {
-    var surveyDate: String? = null
-    var team: List<TeamEntry> = emptyList()
-
-    class TeamEntry(val name: String, val roles: List<String> = emptyList())
 }
