@@ -68,3 +68,56 @@ jobs:
         with:
           name: test-report
           path: kmp/shared/build/reports/tests/
+
+  # The whole stack in a real browser: the ported survey core, the shared Compose UI and Skia, all
+  # compiled to WebAssembly and running somewhere with no java.* in it at all. Separate from the
+  # job above because it needs Node and a browser, and because it is the slow one.
+  browser:
+    name: Shared UI in a real browser (Wasm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build the browser distribution
+        working-directory: kmp
+        run: ./gradlew :demo:wasmJsBrowserDistribution
+
+      - name: Install Playwright and Chromium
+        working-directory: kmp/demo/browser-test
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Serve the distribution
+        working-directory: kmp/demo/build/dist/wasmJs/productionExecutable
+        run: |
+          python3 -m http.server 8731 &
+          # Wait for the server rather than sleeping blind, so a slow runner does not fail here.
+          for _ in $(seq 1 30); do
+            curl -sf -o /dev/null http://localhost:8731/index.html && exit 0
+            sleep 1
+          done
+          echo "the static server never came up" >&2
+          exit 1
+
+      - name: Smoke-test the page
+        working-directory: kmp/demo/browser-test
+        run: node smoke.mjs http://localhost:8731/index.html screenshots
+
+      - name: Upload browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-screenshots
+          path: kmp/demo/browser-test/screenshots/*.png

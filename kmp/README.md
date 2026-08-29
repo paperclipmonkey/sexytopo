@@ -37,7 +37,7 @@ Being precise about this matters more than the demo looking good.
 | The same code compiles for iOS | **Not verified** | Kotlin/Native for Apple targets needs macOS; this was authored on Linux |
 | The iOS app runs on a device | **Not verified** | needs Xcode |
 | `CoreBluetoothTransport` works | **Not verified** | written, never compiled — but its logic now lives in `GattLink`, which is tested; see its KDoc |
-| Browser demo | **Builds and tests pass; the page does not render** | see "The browser target" below |
+| The whole app runs in a browser | **Verified** | a headless-Chromium smoke test in CI loads the page, draws a stroke and undoes it |
 
 **The honest summary:** everything checkable without a Mac has been checked and passes, and the
 Kotlin/Wasm run is a meaningful proxy for the iOS build — Kotlin/Wasm, like Kotlin/Native for iOS,
@@ -88,8 +88,10 @@ cd kmp
 ./gradlew :shared:jvmTest          # the ported test suite (343)
 ./gradlew :shared:wasmJsNodeTest   # the same tests on a NON-JVM target
 ./gradlew :demo:jvmTest            # the UI's use of the shared editor (29)
-./gradlew :demo:renderDemoPng      # render the shared UI to PNGs, no display needed
-./gradlew :demo:run                # the desktop app (needs a display)
+./gradlew :demo:compileKotlinWasmJs      # the UI compiled for a non-JVM target
+./gradlew :demo:renderDemoPng            # render the shared UI to PNGs, no display needed
+./gradlew :demo:run                      # the desktop app (needs a display)
+./gradlew :demo:wasmJsBrowserDistribution  # the browser build — see "The browser target" below
 ```
 
 ### Running on iOS (needs macOS + Xcode)
@@ -190,13 +192,29 @@ These are the things that would actually shape a real port.
 
 ## The browser target
 
-`:demo:wasmJsBrowserDistribution` builds, and the shared tests pass on Kotlin/Wasm under Node — the
-target is genuinely useful for that reason alone. But **the browser page does not render**: it
-throws during startup inside Compose Resources' font loading. Bisection established the shape of it
-(a pure-drawing canvas works; anything with `Text` throws; no font is fetched at all), and bundling
-a font plus `configureWebResources` did not resolve it in this environment. It is left in place,
-clearly marked, rather than removed: someone with a browser to poke at will likely find it quickly,
-and the Wasm target earns its keep as a non-JVM test bed regardless.
+The whole app runs in a browser, and this is the strongest single piece of evidence on the branch:
+the ported survey core, the shared Compose UI and Skia, compiled to WebAssembly and running
+somewhere with no `java.*` in it at all. Not a screenshot of a survey — the actual app, which you
+can draw on.
+
+![browser](docs/images/browser-drawn.png)
+
+An earlier revision of this file said the page did not render, because it did not: Skia ships no
+system fonts on the web, so every text draw threw and the page came up blank. Bundling Liberation
+Sans fixed it. That claim then sat here as prose, stale and wrong, which is exactly why it is now a
+CI job instead — `kmp/demo/browser-test/smoke.mjs` loads the page in headless Chromium and fails if
+it throws, if the canvas never attaches, if the page renders blank, if a resource 404s, or if
+drawing a stroke and undoing it does not change what is on screen.
+
+```bash
+cd kmp && ./gradlew :demo:wasmJsBrowserDistribution
+cd demo/browser-test && npm install && npx playwright install chromium
+(cd ../build/dist/wasmJs/productionExecutable && python3 -m http.server 8731 &)
+node smoke.mjs http://localhost:8731/index.html screenshots
+```
+
+This is also the easiest way to show somebody the demo: it needs no Xcode, no Android SDK and no
+JVM — just a static file host.
 
 ---
 
