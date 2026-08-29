@@ -7,9 +7,11 @@ yet. It exists to answer one question with running code rather than argument:
 > actually drive an iOS app?
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
-engine, the instrument protocols, the projection maths, the sketch model and the native file format
-are ported and covered by 226 tests. The UI — including a drawable sketching canvas — is written
-once in Compose Multiplatform and renders through Skia, which is what Compose uses on iOS.
+engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
+Survex and Therion exporters and the native file format are ported and covered by 372 tests. The UI
+is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
+iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
+tests the claim.
 
 Nothing in the existing Android app has been touched. `kmp/` is a separate Gradle build alongside
 it, which does not even need the Android SDK.
@@ -26,12 +28,15 @@ Being precise about this matters more than the demo looking good.
 | The survey engine builds stations from readings the way the app does | **Verified** | `SurveyUpdaterTest` (55 tests), triple-shot promotion and all three amalgamation algorithms |
 | Instrument packets decode identically | **Verified** | byte-level tests for DistoX, DistoX-BLE, BRIC, SAP6, Cavway, FCL |
 | The whole chain works end to end | **Verified** | `SurveyingEndToEndTest`: simulated instrument → packet decode → station promotion → JSON round-trip |
-| Native JSON survey/sketch formats read and written compatibly | **Verified** | round-trip tests against Android-shaped fixtures |
+| Native JSON survey/sketch formats read and written compatibly | **Verified** | round-trip tests against Android-shaped fixtures, including corrupt and old-format files |
+| Survex and Therion export byte-identically | **Verified** | golden tests asserting the full file, metadata block included |
+| The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
+| The BLE connection logic is platform-free | **Verified** | `GattLinkTest`; only the CoreBluetooth callback plumbing is left in `iosMain` |
 | Shared Compose UI draws, and can be drawn on | **Verified** | `./gradlew :demo:renderDemoPng`; drawing/erasing/undo covered by tests |
-| **The shared core has no JVM-only dependencies** | **Verified** | all 202 shared tests pass on **Kotlin/Wasm** as well as the JVM |
+| **The shared core has no JVM-only dependencies** | **Verified** | all 343 shared tests pass on **Kotlin/Wasm** as well as the JVM |
 | The same code compiles for iOS | **Not verified** | Kotlin/Native for Apple targets needs macOS; this was authored on Linux |
 | The iOS app runs on a device | **Not verified** | needs Xcode |
-| `CoreBluetoothTransport` works | **Not verified** | written, never compiled — see its KDoc |
+| `CoreBluetoothTransport` works | **Not verified** | written, never compiled — but its logic now lives in `GattLink`, which is tested; see its KDoc |
 | Browser demo | **Builds and tests pass; the page does not render** | see "The browser target" below |
 
 **The honest summary:** everything checkable without a Mac has been checked and passes, and the
@@ -50,16 +55,26 @@ against real hardware. **Expect to fix something on the first real build.**
 - **Live surveying.** "Take reading" makes the simulated instrument emit a real DistoX wire-format
   packet; the ported protocol decodes it; the ported engine promotes three agreeing readings into a
   station. That is the core interaction of the whole app, and only the radio is pretend.
-- **Sketching.** Draw, erase and pan tools, six brush colours, undo/redo. Strokes are captured in
-  survey metres (never pixels) and simplified on release. Erasing splits a stroke rather than
-  deleting it, so rubbing out the middle of a passage wall leaves both ends.
+- **Sketching**, driven entirely by the shared `SketchEditor`, `SketchViewport` and `SketchTool`.
+  Draw, erase and move tools, the Android toolbar's eight brush colours, undo/redo. Strokes are
+  captured in survey metres (never pixels) and simplified on release. Erasing splits a stroke
+  rather than deleting it — rubbing out the middle of a passage wall leaves both ends — and it
+  hit-tests through the same visibility rule the renderer uses, so you cannot rub out what is too
+  small to see.
+- **Cross-sections**, drawn on the plan where the surveyor parked them.
+- **Export** to Survex `.svx` and Therion `.th`, and to the app's own JSON — the same bytes the
+  Android app would read back.
 - **Plan and extended elevation**, the latter exercising the cave-unrolling maths.
 - **The survey table**, with backwards shots normalised back to the reading as taken.
 - Light and dark, and a layout that collapses to one scrollable toolbar on a phone.
 
-| Extended elevation | Live survey from the instrument | Table |
-| --- | --- | --- |
-| ![elevation](docs/images/extended-elevation.png) | ![live](docs/images/live-survey.png) | ![table](docs/images/table.png) |
+| Extended elevation | Live survey from the instrument |
+| --- | --- |
+| ![elevation](docs/images/extended-elevation.png) | ![live](docs/images/live-survey.png) |
+
+| Survey table | Export |
+| --- | --- |
+| ![table](docs/images/table.png) | ![export](docs/images/export.png) |
 
 ---
 
@@ -70,9 +85,9 @@ Everything below works on Linux/macOS/Windows except where noted.
 ```bash
 cd kmp
 
-./gradlew :shared:jvmTest          # the ported test suite (202)
+./gradlew :shared:jvmTest          # the ported test suite (343)
 ./gradlew :shared:wasmJsNodeTest   # the same tests on a NON-JVM target
-./gradlew :demo:jvmTest            # the interactive drawing layer (24)
+./gradlew :demo:jvmTest            # the UI's use of the shared editor (29)
 ./gradlew :demo:renderDemoPng      # render the shared UI to PNGs, no display needed
 ./gradlew :demo:run                # the desktop app (needs a display)
 ```
@@ -111,7 +126,12 @@ function), the two Swift files in `iosApp/`, and — when you want real instrume
 | the `*Manager` classes' device knowledge | `shared/comms/InstrumentProfile.kt` | The BLE device matrix, as data |
 | Nordic `BleManager` subclasses | `shared/iosMain/.../CoreBluetoothTransport.kt` | The whole iOS Bluetooth surface |
 | `control/io/basic/*JsonTranslater` | `shared/io/` | Same tags, same tolerant two-pass load |
-| `control/graph/GraphView` (2,199 lines) | `demo/.../SurveyCanvas.kt` | **Rewritten**, not ported |
+| `control/graph/GraphView` — tools, viewport, hit-testing | `shared/sketch/` | Ported; the demo drives it |
+| `control/graph/GraphView` — drawing and touch plumbing | `demo/.../SurveyCanvas.kt` | **Rewritten**, not ported |
+| `model/sketch/Sketch`'s twin history stacks | `shared/sketch/SketchEditor.kt` | `DeletedDetail` becomes a sealed type |
+| `control/io/thirdparty/{survex,therion,survextherion}` | `shared/io/export/` | Golden-tested, metadata block included |
+| `model/table/LRUD` | `shared/survey/Lrud.kt` | |
+| `model/survey/Trip` | `shared/model/survey/Trip.kt` | `java.util.Date` becomes a zoneless `SurveyDate` |
 | `control/util/GraphToListTranslator` | `demo/.../SurveyTableView.kt` | Including as-taken normalisation |
 
 ---
@@ -147,8 +167,24 @@ These are the things that would actually shape a real port.
    callback, so routing by UUID makes that failure mode impossible.
 
 6. **The instrument layer really does split cleanly.** ~2,450 lines of protocol logic are shared and
-   byte-tested; the platform transport is ~270 lines. That was the feasibility study's central claim
-   about this layer and it holds up.
+   byte-tested; the platform transport is ~230 lines of pure callback plumbing, with its decisions
+   pulled out into a tested `GattLink`. That was the feasibility study's central claim about this
+   layer and it holds up.
+
+7. **Extracting the untestable code found a bug in it immediately.** The first
+   `CoreBluetoothTransport` compared `CBUUID.UUIDString` against the profile's 128-bit UUIDs as
+   plain strings. Assigned-number UUIDs — which is what BRIC4 and BRIC5 use for *all four* of their
+   characteristics — have a 16-bit short form, and CoreBluetooth reports whichever width the UUID
+   actually has, so none of BRIC's characteristics would have matched: the instrument would pair
+   and then do nothing. Android's `UUID.toString()` is always 128-bit, which is why the original
+   never had to think about it. Nobody would have found this without a Mac, a BRIC and a cave.
+
+8. **The Java loader silently turns corruption into data loss.** A leg naming a station missing
+   from the file becomes a *splay* if you resolve the name leniently, which detaches every station
+   beyond it with no error — the port did exactly this until a review caught it. Saving a sketch
+   also dropped every cross-section. Both are the worst failure mode a survey app has: the file
+   still opens, and what is missing is a branch of the cave. Anything reimplementing this format
+   should start from the tests in `SurveyLoaderFidelityTest`.
 
 ---
 
@@ -172,9 +208,12 @@ This is a proof of concept. It does **not** include:
   no Android transport here (the Android app keeps its own).
 - **Calibration.** The DistoX calibration solver is pure maths and would port directly; it is not
   done.
-- **Symbol artwork, cross-sections, text and select tools.** The canvas draws and erases lines.
-- **The exporters** — Therion, Survex, Compass, PocketTopo, SVG, XVI.
-- **The rest of the Android UI**: trip metadata, settings, stats, the 3D view, the manual.
+- **Symbol artwork.** The shared model places symbols; the SVG assets are not carried, so a symbol
+  draws as a marked point. The symbol, text and cross-section *tools* exist in the shared model but
+  the demo has no palette, text field or cross-section editor to drive them.
+- **The other exporters** — Compass, PocketTopo, SVG, XVI, and Therion's `.th2` sketch files.
+  Survex and Therion `.th` are done and golden-tested.
+- **The rest of the Android UI**: settings, stats, the 3D view, the manual.
 - **The Android app adopting this core.** That is the step that would make the work pay for itself
   regardless of the iOS outcome, and it is deliberately not attempted yet — it also needs an Android
   SDK, which the machine this was written on did not have.
@@ -189,8 +228,10 @@ Roughly the order that keeps every intermediate state shippable:
 2. **Licensing, in parallel and early.** GPL-3.0 on the App Store needs a Section 7 "App Store
    exception" from every copyright holder — Rich, the eight named contributors, and Beat Heeb for
    the calibration algorithm. It gates release, not development, so it should start first.
-3. Extend the shared core to the exporters, gated on byte-identical output against the existing
-   `exportTherionFixtures` / `exportSvgFixtures` golden bundles.
+3. Finish the exporters — Survex and Therion `.th` are done here; `.th2`, SVG, Compass and
+   PocketTopo are not. Gate all of them on byte-identical output against the existing
+   `exportTherionFixtures` / `exportSvgFixtures` golden bundles, which is a stronger check than the
+   hand-written goldens in this branch.
 4. **Point the Android app at the shared core and ship it.** After this the effort has paid for
    itself even if iOS never happens.
 5. Then the iOS-specific work: compile it, fix what the first build finds, file handling, and
