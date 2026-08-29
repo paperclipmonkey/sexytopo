@@ -20,3 +20,4 @@ rootProject.name = "sexytopo-kmp"
 
 include(":shared")
 include(":demo")
+include(":androidApp")

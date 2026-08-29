@@ -14,7 +14,8 @@ iOS — and it drives the ported logic rather than reimplementing it, which is t
 tests the claim.
 
 Nothing in the existing Android app has been touched. `kmp/` is a separate Gradle build alongside
-it, which does not even need the Android SDK.
+it; everything except the Android host builds without an Android SDK at all, which is the clearest
+demonstration that the core no longer depends on one.
 
 ---
 
@@ -38,6 +39,7 @@ Being precise about this matters more than the demo looking good.
 | The iOS app runs on a device | **Not verified** | needs Xcode |
 | `CoreBluetoothTransport` works | **Not verified** | written, never compiled — but its logic now lives in `GattLink`, which is tested; see its KDoc |
 | The whole app runs in a browser | **Verified** | a headless-Chromium smoke test in CI loads the page, draws a stroke and undoes it |
+| The same UI builds and packages for **Android** | **Verified** | `:androidApp:assembleDebug` in CI; the APK is a build artifact |
 
 **The honest summary:** everything checkable without a Mac has been checked and passes, and the
 Kotlin/Wasm run is a meaningful proxy for the iOS build — Kotlin/Wasm, like Kotlin/Native for iOS,
@@ -47,9 +49,26 @@ against real hardware. **Expect to fix something on the first real build.**
 
 ---
 
-## What the demo does
+## One UI, four platforms
+
+`App()` is one composable. These are all of it — the same file, the same survey, the same sketch
+model — laid out for whatever it is running on.
+
+| iPhone 15 Pro | Pixel 8 | The same, dark |
+| --- | --- | --- |
+| ![iphone](docs/images/iphone-draw.png) | ![android](docs/images/android-plan.png) | ![dark](docs/images/android-dark.png) |
+
+The split is at the standard 600dp Material breakpoint, which in practice means "a phone in
+portrait" against everything else. A phone gets a proper app shell — bottom navigation, one
+context-sensitive tool row, and every remaining pixel given to the cave. Anything wider gets the
+toolbars laid out flat.
 
 ![plan](docs/images/plan.png)
+
+Both layouts drive the same state object, so nothing is reachable in one and missing from the
+other, and rotating a tablet across the breakpoint changes only the arrangement.
+
+## What the demo does
 
 - **Two surveys.** A generated demo cave, and a **live survey** you build yourself.
 - **Live surveying.** "Take reading" makes the simulated instrument emit a real DistoX wire-format
@@ -92,7 +111,21 @@ cd kmp
 ./gradlew :demo:renderDemoPng            # render the shared UI to PNGs, no display needed
 ./gradlew :demo:run                      # the desktop app (needs a display)
 ./gradlew :demo:wasmJsBrowserDistribution  # the browser build — see "The browser target" below
+./gradlew :androidApp:assembleDebug      # the Android app (needs an Android SDK)
 ```
+
+### Running on Android
+
+Needs an Android SDK, which is the only thing this build wants that the others do not:
+
+```bash
+export ANDROID_HOME=/path/to/android-sdk
+cd kmp && ./gradlew :androidApp:installDebug   # or assembleDebug for just the APK
+```
+
+The Android-specific surface is one activity that calls `setContent { App() }`, a manifest and a
+theme. It installs with its own application id, so it sits on a phone next to the real SexyTopo
+rather than replacing it — which is how you would want to compare them.
 
 ### Running on iOS (needs macOS + Xcode)
 
@@ -135,6 +168,7 @@ function), the two Swift files in `iosApp/`, and — when you want real instrume
 | `model/table/LRUD` | `shared/survey/Lrud.kt` | |
 | `model/survey/Trip` | `shared/model/survey/Trip.kt` | `java.util.Date` becomes a zoneless `SurveyDate` |
 | `control/util/GraphToListTranslator` | `demo/.../SurveyTableView.kt` | Including as-taken normalisation |
+| `SexyTopoActivity` and the Android UI shell | `androidApp/.../MainActivity.kt` | One `setContent { App() }` |
 
 ---
 

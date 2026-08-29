@@ -1,13 +1,24 @@
 @file:OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
 
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     kotlin("multiplatform")
     id("org.jetbrains.compose")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.android.library")
 }
 
 kotlin {
     jvm()
+
+    // The same composables the iOS app hosts, packaged as an Android library. Nothing in
+    // commonMain changes to make this work - that is the point of the target being here.
+    androidTarget {
+        compilations.all {
+            compileTaskProvider.configure { compilerOptions { jvmTarget.set(JvmTarget.JVM_11) } }
+        }
+    }
 
     wasmJs {
         browser()
@@ -40,6 +51,23 @@ kotlin {
         wasmJsMain.dependencies {
             implementation("org.jetbrains.kotlinx:kotlinx-browser:0.3")
         }
+        androidMain.dependencies {
+            // The one Android-only dependency: ComponentActivity.setContent. Everything the app
+            // draws above that line is common code.
+            implementation("androidx.activity:activity-compose:1.9.3")
+        }
+    }
+}
+
+android {
+    namespace = "org.hwyl.sexytopo.demo"
+    compileSdk = 35
+    defaultConfig {
+        minSdk = 23
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
 }
 

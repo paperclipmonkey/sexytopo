@@ -52,6 +52,19 @@ jobs:
         working-directory: kmp
         run: ./gradlew :demo:compileKotlinWasmJs
 
+      # The Android host, which is the same App() the iOS and browser hosts show. Building it here
+      # is what makes "one UI, three platforms" a checked statement rather than an assertion: two
+      # of the three are compiled on every push, and the third shares their source set.
+      - name: Build the Android app
+        working-directory: kmp
+        run: ./gradlew :androidApp:assembleDebug
+
+      - name: Upload the Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-demo-apk
+          path: kmp/androidApp/build/outputs/apk/debug/*.apk
+
       - name: Render the shared Compose UI headlessly
         working-directory: kmp
         run: ./gradlew :demo:renderDemoPng

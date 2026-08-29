@@ -1,12 +1,24 @@
 @file:OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
 
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     kotlin("multiplatform")
     kotlin("plugin.serialization")
+    id("com.android.library")
 }
 
 kotlin {
     jvm()
+
+    // Android is a target of the shared core like any other. That is the whole argument in one
+    // line: the same module that an iOS app links as a framework, an Android app consumes as an
+    // AAR - so adopting this core on Android is not a rewrite, it is a dependency.
+    androidTarget {
+        compilations.all {
+            compileTaskProvider.configure { compilerOptions { jvmTarget.set(JvmTarget.JVM_11) } }
+        }
+    }
 
     // Browser target: lets the same shared core and UI be demonstrated without a Mac.
     wasmJs {
@@ -30,5 +42,19 @@ kotlin {
         commonTest.dependencies {
             implementation(kotlin("test"))
         }
+    }
+}
+
+android {
+    namespace = "org.hwyl.sexytopo.shared"
+    compileSdk = 35
+    defaultConfig {
+        // Matches the Android app's own minimum and Java level, so this core could drop straight
+        // into it without moving anybody's floor.
+        minSdk = 23
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
 }

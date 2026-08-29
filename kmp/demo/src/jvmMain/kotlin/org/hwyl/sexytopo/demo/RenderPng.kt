@@ -29,9 +29,26 @@ fun main() {
     val outputDir = File("build/demo").apply { mkdirs() }
     val survey = ExampleSurvey.create()
 
-    fun render(name: String, width: Int, height: Int, content: @Composable () -> Unit) {
+    /**
+     * @param width and [height] in **density-independent pixels**, not device pixels. Compose
+     *   lays out in dp, so a render sized in raw pixels quietly gets the layout of a screen half
+     *   the size — which is how an earlier phone render came out with a toolbar and no room for
+     *   the cave. The images come out at [scale] times these numbers.
+     */
+    fun render(
+        name: String,
+        width: Int,
+        height: Int,
+        scale: Float = 2f,
+        content: @Composable () -> Unit,
+    ) {
         val scene =
-            ImageComposeScene(width = width, height = height, density = Density(2f), content = content)
+            ImageComposeScene(
+                width = (width * scale).toInt(),
+                height = (height * scale).toInt(),
+                density = Density(scale),
+                content = content,
+            )
         try {
             val image = scene.render()
             val data = image.encodeToData(EncodedImageFormat.PNG) ?: error("Skia failed to encode $name")
@@ -42,34 +59,62 @@ fun main() {
         }
     }
 
-    render("plan.png", 1400, 1000) { App(survey = survey, initialProjection = Projection2D.PLAN) }
-    render("extended-elevation.png", 1400, 1000) {
+    // Desktop / tablet: the wide layout.
+    render("plan.png", 1200, 820) { App(survey = survey, initialProjection = Projection2D.PLAN) }
+    render("extended-elevation.png", 1200, 820) {
         App(survey = survey, initialProjection = Projection2D.EXTENDED_ELEVATION)
     }
-    render("plan-dark.png", 1400, 1000) {
+    render("plan-dark.png", 1200, 820) {
         App(survey = survey, initialProjection = Projection2D.PLAN, initialDarkMode = true)
     }
-    render("phone-plan.png", 430, 932) { App(survey = survey) }
-    render("drawing-tool.png", 1400, 1000) {
+    render("drawing-tool.png", 1200, 820) {
         App(survey = survey, initialTool = SketchTool.DRAW)
     }
+    render("table.png", 1200, 820) { App(survey = survey, initialScreen = Screen.TABLE) }
+    render("export.png", 1200, 820) { App(survey = survey, initialScreen = Screen.EXPORT) }
 
     // A survey built the way the app really builds one: readings decoded from DistoX wire-format
     // packets, three agreeing readings promoted to a station by the ported survey engine.
-    render("table.png", 1400, 1000) {
-        App(survey = survey, initialScreen = Screen.TABLE)
-    }
-
-    render("export.png", 1400, 1000) {
-        App(survey = survey, initialScreen = Screen.EXPORT)
-    }
-
-    render("live-survey.png", 1400, 1000) {
+    render("live-survey.png", 1200, 820) {
         App(survey = buildSurveyFromInstrument(), initialProjection = Projection2D.PLAN)
+    }
+
+    // Phones: the same App() at the two screen sizes it will actually be demonstrated on, in dp,
+    // so the phone layout is exercised rather than the wide one at a small size.
+    for ((name, size) in PHONES) {
+        val (width, height) = size
+        render("$name-plan.png", width, height) { App(survey = survey) }
+        render("$name-draw.png", width, height) {
+            App(survey = survey, initialTool = SketchTool.DRAW)
+        }
+        render("$name-live.png", width, height) {
+            App(survey = survey, initialMode = SurveyMode.LIVE)
+        }
+        render("$name-table.png", width, height) {
+            App(survey = survey, initialScreen = Screen.TABLE)
+        }
+        render("$name-dark.png", width, height) {
+            App(survey = survey, initialDarkMode = true, initialTool = SketchTool.DRAW)
+        }
     }
 
     println("Rendered ${outputDir.listFiles()?.count { it.extension == "png" } ?: 0} images")
 }
+
+/**
+ * The two phones this will be shown on, in density-independent pixels.
+ *
+ * Both are comfortably under the 600dp breakpoint, so both get the phone layout — which is the
+ * point of rendering them: the argument is that one `App()` suits an iPhone and a Pixel equally,
+ * and that is only worth making if somebody has looked at both.
+ */
+private val PHONES =
+    mapOf(
+        // iPhone 15 Pro.
+        "iphone" to (393 to 852),
+        // Pixel 8.
+        "android" to (412 to 915),
+    )
 
 /** Drives the real pipeline: simulated instrument → packet decode → survey engine. */
 private fun buildSurveyFromInstrument(): Survey {

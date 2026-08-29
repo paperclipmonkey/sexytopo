@@ -130,8 +130,15 @@ await page.waitForTimeout(800)
 const afterDraw = await page.screenshot({ clip: box })
 await page.screenshot({ path: join(shotDir, 'browser-drawn.png') })
 
-if (Math.abs(afterDraw.length - beforeDraw.length) < 200) {
-  fail('drawing a stroke changed nothing on screen')
+// Strictly *more* ink, not merely different. The tool chips are clicked by coordinate, so if the
+// toolbar ever shifts and the click lands on Erase instead of Draw, the drag would still change
+// the image - and a test that only asked "did anything change" would pass while testing the wrong
+// tool. More pixels covered means more PNG.
+if (afterDraw.length <= beforeDraw.length) {
+  fail(
+    `the drag did not add ink (${beforeDraw.length} -> ${afterDraw.length} bytes). ` +
+      'Either drawing is broken, or the Draw chip has moved and the click missed it.',
+  )
 } else {
   pass('a drag draws a stroke')
 }
@@ -141,8 +148,12 @@ await page.mouse.click(box.x + 41, box.y + 182)
 await page.waitForTimeout(700)
 const afterUndo = await page.screenshot({ clip: box })
 
-if (Math.abs(afterUndo.length - beforeDraw.length) > Math.abs(afterDraw.length - beforeDraw.length)) {
-  fail('undo did not restore the sketch')
+// Undo must take the ink away again, landing nearer where it started than where the stroke left
+// it. Exact equality is too strict — antialiasing does not round-trip byte for byte.
+if (afterUndo.length >= afterDraw.length) {
+  fail(`undo did not remove the stroke (${afterDraw.length} -> ${afterUndo.length} bytes)`)
+} else if (Math.abs(afterUndo.length - beforeDraw.length) > Math.abs(afterUndo.length - afterDraw.length)) {
+  fail('undo changed the sketch but did not restore it')
 } else {
   pass('undo restores the sketch')
 }

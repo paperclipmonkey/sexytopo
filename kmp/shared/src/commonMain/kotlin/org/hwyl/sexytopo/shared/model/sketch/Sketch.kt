@@ -11,11 +11,19 @@ import org.hwyl.sexytopo.shared.model.graph.Coord2D
  * this app is portable — the drawing data needs no translation, only the renderer does.
  */
 
+/**
+ * In dark mode black ink is drawn white, as in the original.
+ *
+ * A property of the colour rather than of the thing drawn in it, so a toolbar swatch can show what
+ * the brush will actually put on the page — otherwise a black swatch on a black background paints
+ * white, which is wrong twice over.
+ */
+fun Colour.forDarkMode(isDarkModeActive: Boolean): Colour =
+    if (isDarkModeActive && this == Colour.BLACK) Colour.WHITE else this
+
 abstract class SketchDetail(val colour: Colour) {
 
-    /** In dark mode black ink is drawn white, as in the original. */
-    fun getDrawColour(isDarkModeActive: Boolean): Colour =
-        if (isDarkModeActive && colour == Colour.BLACK) Colour.WHITE else colour
+    fun getDrawColour(isDarkModeActive: Boolean): Colour = colour.forDarkMode(isDarkModeActive)
 
     abstract fun getDistanceFrom(point: Coord2D): Float
 

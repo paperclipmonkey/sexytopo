@@ -39,9 +39,14 @@ fun SketchViewport.toSurvey(point: Offset): Coord2D = toSurvey(point.toCoord2D()
 fun SketchViewport.fitTo(bounds: Bounds, width: Float, height: Float, padding: Float = 48f) {
     val fit =
         min((width - padding * 2) / bounds.width, (height - padding * 2) / bounds.height)
-    // A degenerate survey — one station, no extent — would otherwise fit at infinity.
+
+    // A survey with no extent — the single station a live survey starts with — has nothing to fit
+    // to, so it opens at the zoom the Android app opens at. Fitting it would be arithmetically
+    // valid and visually absurd: the bounds floor of a millimetre would zoom until the scale bar
+    // read centimetres, and the surveyor's first leg would shoot straight off the screen.
+    val nothingToFit = bounds.width <= DEGENERATE_EXTENT && bounds.height <= DEGENERATE_EXTENT
     val zoom =
-        if (fit.isFinite() && fit > 0f) {
+        if (!nothingToFit && fit.isFinite() && fit > 0f) {
             fit
         } else {
             SketchViewport.DEFAULT_PIXELS_PER_METRE
@@ -55,6 +60,13 @@ fun SketchViewport.fitTo(bounds: Bounds, width: Float, height: Float, padding: F
     )
     centreOn(Coord2D(bounds.centreX, bounds.centreY), width, height)
 }
+
+/**
+ * Below this, in metres, a survey counts as having no extent at all — one station, or none. It is
+ * a centimetre rather than the [Bounds] floor because a survey that genuinely spans a centimetre
+ * is not a survey either.
+ */
+private const val DEGENERATE_EXTENT = 0.01f
 
 /** The extent of everything drawn, in survey space. Used only to choose the opening zoom. */
 class Bounds(val minX: Float, val minY: Float, val maxX: Float, val maxY: Float) {
