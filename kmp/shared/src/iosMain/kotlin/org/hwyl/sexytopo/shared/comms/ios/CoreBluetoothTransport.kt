@@ -285,6 +285,13 @@ class CoreBluetoothTransport(profile: InstrumentProfile) : BaseInstrumentTranspo
                     apply(session.peripheralConnected(generation))
                 }
 
+                // `centralManager:didFailToConnectPeripheral:error:` and
+                // `centralManager:didDisconnectPeripheral:error:` are distinct selectors that
+                // cinterop maps onto one Kotlin signature — parameter names do not disambiguate an
+                // override — so without this the pair is a CONFLICTING_OVERLOADS error. Both halves
+                // carry it, because the compiler blames whichever it reaches first and the error
+                // quotes the signature it *collides with* rather than the one it is reporting.
+                @ObjCSignatureOverride
                 override fun centralManager(
                     central: CBCentralManager,
                     didFailToConnectPeripheral: CBPeripheral,
@@ -293,10 +300,6 @@ class CoreBluetoothTransport(profile: InstrumentProfile) : BaseInstrumentTranspo
                     apply(session.connectionFailed(error?.localizedDescription, generation))
                 }
 
-                // `centralManager:didFailToConnectPeripheral:error:` and
-                // `centralManager:didDisconnectPeripheral:error:` are distinct selectors that
-                // cinterop maps onto one Kotlin signature — parameter names do not disambiguate an
-                // override — so without this the pair is a CONFLICTING_OVERLOADS error.
                 @ObjCSignatureOverride
                 override fun centralManager(
                     central: CBCentralManager,
