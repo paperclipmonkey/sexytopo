@@ -14,6 +14,22 @@ package org.hwyl.sexytopo.shared.comms
  * Bluetooth Classic for data), so no profile here can describe them. Everything below is BLE and
  * therefore reachable from CoreBluetooth without any Apple certification.
  */
+/**
+ * Whether a command must be acknowledged by the instrument.
+ *
+ * A per-device fact, and not a cosmetic one: writing with a response to a characteristic that only
+ * advertises write-without-response fails, and writing without one where the device expects an
+ * acknowledgement can drop commands under load. The Android drivers set it explicitly per device,
+ * so this table has to as well.
+ */
+enum class WriteType {
+    /** `WRITE_TYPE_DEFAULT` on Android, `CBCharacteristicWriteWithResponse` on iOS. */
+    WITH_RESPONSE,
+
+    /** `WRITE_TYPE_NO_RESPONSE` / `CBCharacteristicWriteWithoutResponse`. */
+    WITHOUT_RESPONSE,
+}
+
 data class InstrumentProfile(
     /** Human-readable device family. */
     val name: String,
@@ -34,6 +50,19 @@ data class InstrumentProfile(
     val writeServiceUuid: String = serviceUuid,
     /** How inbound frames map to [FrameChannel]s, parallel to [notifyCharacteristicUuids]. */
     val notifyChannels: List<FrameChannel> = notifyCharacteristicUuids.map { FrameChannel.DEFAULT },
+    /** Whether commands are acknowledged; see [WriteType]. */
+    val writeType: WriteType = WriteType.WITH_RESPONSE,
+    /**
+     * Whether the link is unusable without [writeCharacteristicUuid].
+     *
+     * True for every device whose Android driver checks for it in `isRequiredServiceSupported`,
+     * and false for BRIC, whose driver requires only its three measurement characteristics. That
+     * is a defensible choice rather than an oversight: the write characteristic is in a *separate*
+     * control service, and a BRIC that exposes measurements but not control is still a BRIC you
+     * can record a survey from. Refusing it here would have made this port stricter than the app
+     * it copies, and refused a device that works.
+     */
+    val requiresWriteCharacteristic: Boolean = true,
     val notes: String = "",
 ) {
     init {
@@ -56,8 +85,9 @@ data class InstrumentProfile(
                 serviceUuid = NUS_SERVICE,
                 notifyCharacteristicUuids = listOf(NUS_NOTIFY),
                 writeCharacteristicUuid = NUS_WRITE,
-                notes = "Conversion board for the Leica X310. Frames are 'data:'-wrapped DistoX " +
-                    "packets; see DistoXBleFraming.",
+                notes = "Conversion board for the Leica X310. Commands are wrapped in a " +
+                    "'data:' frame on the way out (see DistoXBleFraming); inbound packets are " +
+                    "bare DistoX packets, not framed - the wrapping is outbound only.",
             )
 
         val CAVWAY_X1 =
@@ -67,7 +97,7 @@ data class InstrumentProfile(
                 serviceUuid = NUS_SERVICE,
                 notifyCharacteristicUuids = listOf(NUS_NOTIFY),
                 writeCharacteristicUuid = NUS_WRITE,
-                notes = "Same transport and framing as DistoX-BLE.",
+                notes = "Same transport and outbound framing as DistoX-BLE.",
             )
 
         val BRIC4 =
@@ -87,6 +117,9 @@ data class InstrumentProfile(
                 // on Android, which is what lets Bric4Decoder.feed route instead of cycling.
                 notifyChannels =
                     listOf(FrameChannel.PRIMARY, FrameChannel.EXTENDED, FrameChannel.TERTIARY),
+                // Bric4Manager.isRequiredServiceSupported checks the three measurement
+                // characteristics and not the control one, so neither does this.
+                requiresWriteCharacteristic = false,
                 notes = "Android cannot tell which of the three indications it received, so " +
                     "Bric4Manager cycles blindly through the roles and its own comment admits the " +
                     "desync risk. CoreBluetooth reports the characteristic on every callback, so " +
@@ -103,6 +136,8 @@ data class InstrumentProfile(
                 serviceUuid = "137c4435-8a64-4bcb-93f1-3792c6bdc965",
                 notifyCharacteristicUuids = listOf("137c4435-8a64-4bcb-93f1-3792c6bdc968"),
                 writeCharacteristicUuid = "137c4435-8a64-4bcb-93f1-3792c6bdc967",
+                // CaveBLE.kt sets WRITE_TYPE_NO_RESPONSE.
+                writeType = WriteType.WITHOUT_RESPONSE,
                 notes = "Shetland Attack Pony 6, speaking the open-source CaveBLE protocol.",
             )
 
@@ -121,11 +156,24 @@ data class InstrumentProfile(
                     ),
                 writeCharacteristicUuid = "9cc8ffd8-1b11-4848-9026-529e47d4c501",
                 notifyChannels = listOf(FrameChannel.PRIMARY, FrameChannel.EXTENDED),
+                // FCLBLE.kt sets WRITE_TYPE_NO_RESPONSE.
+                writeType = WriteType.WITHOUT_RESPONSE,
                 notes = "Genuinely two inbound streams, told apart by characteristic UUID, which " +
                     "is why FrameChannel exists.",
             )
 
-        /** Every instrument an iOS build could talk to. */
+        /**
+         * Every instrument this table can describe.
+         *
+         * Not quite every instrument an iOS build could talk to. The Shetland Attack Pony 5 is
+         * missing on purpose: `sap5/BLESocket` does not have a profile at all, it *probes* — it
+         * walks the device's services looking for whichever generic serial chipset is present
+         * (TI CC254X `ffe0/ffe1`, Microchip RN4870, or the Nordic UART) and uses the first it
+         * finds, deciding the write type from the characteristic's own advertised properties.
+         * That is a discovery strategy rather than a row in a table, and inventing a row for it
+         * would describe a device that does not exist. An iOS port would need the same probe;
+         * [GattLink] would be the place for it.
+         */
         val ALL = listOf(DISTOX_BLE, CAVWAY_X1, BRIC4, BRIC5, SAP6, DISCOX, FCL)
 
         /**

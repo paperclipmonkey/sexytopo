@@ -79,19 +79,29 @@ class GattLink(val profile: InstrumentProfile) {
      * Whether every characteristic the profile needs has been found.
      *
      * The transport must not report a connection before this is true. The Android drivers refuse
-     * the device outright when it is not (`Bric4Manager.isRequiredServiceSupported` checks all
-     * three indications), and announcing a half-configured link is worse than failing: on an FCL,
-     * primary packets would arrive and be held waiting for an extended half that never came, so the
-     * surveyor would watch a connected instrument silently fail to record a single shot.
+     * the device outright when it is not, and announcing a half-configured link is worse than
+     * failing: on an FCL, primary packets would arrive and be held waiting for an extended half
+     * that never came, so the surveyor would watch a connected instrument silently fail to record
+     * a single shot.
+     *
+     * What counts as needed is per device. Every notify characteristic always does. The write one
+     * does for every instrument whose Android driver checks for it — but not for BRIC, whose
+     * `isRequiredServiceSupported` asks only for its three measurement characteristics, because
+     * the write characteristic lives in a separate control service and a BRIC without it still
+     * delivers measurements. See [InstrumentProfile.requiresWriteCharacteristic].
      */
     val isReady: Boolean
-        get() = writeFound && notifyFound.size == notifyUuids.size
+        get() =
+            (writeFound || !profile.requiresWriteCharacteristic) &&
+                notifyFound.size == notifyUuids.size
 
     /** What is still missing, for a diagnostic the surveyor can act on. Empty once [isReady]. */
     val missing: List<String>
         get() {
             val outstanding = mutableListOf<String>()
-            if (!writeFound) outstanding.add(profile.writeCharacteristicUuid)
+            if (!writeFound && profile.requiresWriteCharacteristic) {
+                outstanding.add(profile.writeCharacteristicUuid)
+            }
             for (uuid in profile.notifyCharacteristicUuids) {
                 if (normaliseUuid(uuid) !in notifyFound) outstanding.add(uuid)
             }

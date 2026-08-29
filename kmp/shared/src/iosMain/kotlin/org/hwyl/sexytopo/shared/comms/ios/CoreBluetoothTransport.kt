@@ -6,11 +6,13 @@ import kotlinx.cinterop.usePinned
 import org.hwyl.sexytopo.shared.comms.BaseInstrumentTransport
 import org.hwyl.sexytopo.shared.comms.GattLink
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
+import org.hwyl.sexytopo.shared.comms.WriteType
 import platform.CoreBluetooth.CBAdvertisementDataLocalNameKey
 import platform.CoreBluetooth.CBCentralManager
 import platform.CoreBluetooth.CBCentralManagerDelegateProtocol
 import platform.CoreBluetooth.CBCharacteristic
 import platform.CoreBluetooth.CBCharacteristicWriteWithResponse
+import platform.CoreBluetooth.CBCharacteristicWriteWithoutResponse
 import platform.CoreBluetooth.CBManagerStatePoweredOn
 import platform.CoreBluetooth.CBPeripheral
 import platform.CoreBluetooth.CBPeripheralDelegateProtocol
@@ -95,7 +97,15 @@ class CoreBluetoothTransport(profile: InstrumentProfile) : BaseInstrumentTranspo
             emitFailure("not connected")
             return
         }
-        target.writeValue(bytes.toNSData(), characteristic, CBCharacteristicWriteWithResponse)
+        // Per device, from the profile. SAP6, DiscoX and FCL advertise write-without-response
+        // only, so writing with one to them fails and the command never reaches the instrument -
+        // which would look exactly like a broken cable and be very hard to diagnose in a cave.
+        val writeType =
+            when (link.profile.writeType) {
+                WriteType.WITH_RESPONSE -> CBCharacteristicWriteWithResponse
+                WriteType.WITHOUT_RESPONSE -> CBCharacteristicWriteWithoutResponse
+            }
+        target.writeValue(bytes.toNSData(), characteristic, writeType)
     }
 
     // ---------------------------------------------------------------------------------------

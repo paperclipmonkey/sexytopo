@@ -102,11 +102,64 @@ class GattLinkTest {
         )
     }
 
+    /**
+     * Per-device, from the Android drivers, and invisible without a real instrument: writing with a
+     * response to a characteristic that only advertises write-without-response fails, and the
+     * command never arrives. That would look exactly like a broken instrument.
+     */
+    @Test
+    fun theWriteTypeMatchesEachDevicesAndroidDriver() {
+        // CavwayX1Manager, Bric4Manager and DistoXBleManager all pass WRITE_TYPE_DEFAULT.
+        for (profile in
+            listOf(
+                InstrumentProfile.DISTOX_BLE,
+                InstrumentProfile.CAVWAY_X1,
+                InstrumentProfile.BRIC4,
+                InstrumentProfile.BRIC5,
+            )
+        ) {
+            assertEquals(WriteType.WITH_RESPONSE, profile.writeType, profile.name)
+        }
+
+        // CaveBLE.kt and FCLBLE.kt both set WRITE_TYPE_NO_RESPONSE.
+        for (profile in
+            listOf(InstrumentProfile.SAP6, InstrumentProfile.DISCOX, InstrumentProfile.FCL)
+        ) {
+            assertEquals(WriteType.WITHOUT_RESPONSE, profile.writeType, profile.name)
+        }
+    }
+
+    /**
+     * `Bric4Manager.isRequiredServiceSupported` checks its three measurement characteristics and
+     * not the control one, which lives in a separate service. Requiring it here would have made
+     * this port refuse a device the Android app is happy with.
+     */
+    @Test
+    fun aBricIsUsableWithoutItsControlCharacteristic() {
+        val link = GattLink(InstrumentProfile.BRIC4)
+        for (uuid in InstrumentProfile.BRIC4.notifyCharacteristicUuids) {
+            link.discovered(uuid)
+        }
+
+        assertTrue(link.isReady, "measurements are what a BRIC is for")
+        assertEquals(emptyList(), link.missing)
+    }
+
+    @Test
+    fun everyOtherInstrumentStillNeedsItsWriteCharacteristic() {
+        for (profile in InstrumentProfile.ALL.filter { it.requiresWriteCharacteristic }) {
+            val link = GattLink(profile)
+            for (uuid in profile.notifyCharacteristicUuids) link.discovered(uuid)
+            assertFalse(link.isReady, "${profile.name} cannot be commanded without it")
+        }
+    }
+
     @Test
     fun aLinkWithNoWriteCharacteristicIsNotReady() {
         val link = GattLink(InstrumentProfile.DISTOX_BLE)
         link.discovered(InstrumentProfile.DISTOX_BLE.notifyCharacteristicUuids[0])
 
+        assertTrue(InstrumentProfile.DISTOX_BLE.requiresWriteCharacteristic)
         assertFalse(link.isReady, "commands could not be sent, so this is not a usable link")
         assertEquals(listOf(InstrumentProfile.DISTOX_BLE.writeCharacteristicUuid), link.missing)
     }
