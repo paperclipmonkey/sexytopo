@@ -59,6 +59,10 @@ fun main() {
         App(survey = survey, initialScreen = Screen.TABLE)
     }
 
+    render("export.png", 1400, 1000) {
+        App(survey = survey, initialScreen = Screen.EXPORT)
+    }
+
     render("live-survey.png", 1400, 1000) {
         App(survey = buildSurveyFromInstrument(), initialProjection = Projection2D.PLAN)
     }

@@ -46,6 +46,7 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
 enum class Screen(val label: String) {
     SKETCH("Sketch"),
     TABLE("Table"),
+    EXPORT("Export"),
 }
 
 /** Which survey the canvas is showing. */
@@ -216,6 +217,12 @@ fun App(
 
                         if (screen == Screen.TABLE) {
                             SurveyTableView(
+                                survey = shown,
+                                revision = sketchRevision + session.revision,
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                            )
+                        } else if (screen == Screen.EXPORT) {
+                            ExportView(
                                 survey = shown,
                                 revision = sketchRevision + session.revision,
                                 modifier = Modifier.weight(1f).fillMaxWidth(),
