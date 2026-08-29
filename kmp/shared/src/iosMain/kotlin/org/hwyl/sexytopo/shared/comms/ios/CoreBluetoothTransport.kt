@@ -375,6 +375,11 @@ class CoreBluetoothTransport(profile: InstrumentProfile) : BaseInstrumentTranspo
                     }
                 }
 
+                // Both members of the colliding pair carry the annotation. Which one the compiler
+                // reports is decided by the order `CBPeripheralDelegateProtocol` declares them in,
+                // not by the order they appear here: annotating only the one written second
+                // compiled the two `centralManager` overrides fine and still failed on this pair.
+                @ObjCSignatureOverride
                 override fun peripheral(
                     peripheral: CBPeripheral,
                     didUpdateNotificationStateForCharacteristic: CBCharacteristic,
@@ -389,10 +394,7 @@ class CoreBluetoothTransport(profile: InstrumentProfile) : BaseInstrumentTranspo
                     )
                 }
 
-                // Same selector collision as the two `centralManager` overrides above:
-                // `peripheral:didUpdateNotificationStateForCharacteristic:error:` and
-                // `peripheral:didUpdateValueForCharacteristic:error:` both arrive as
-                // `(CBPeripheral, CBCharacteristic, NSError?)`.
+                // The other half of that pair.
                 @ObjCSignatureOverride
                 override fun peripheral(
                     peripheral: CBPeripheral,
