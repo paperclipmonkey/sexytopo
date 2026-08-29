@@ -10,6 +10,7 @@ import org.hwyl.sexytopo.shared.model.sketch.PathDetail
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.survey.CrossSectioner
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
 import kotlin.random.Random
 
@@ -42,6 +43,7 @@ object ExampleSurvey {
 
         survey.activeStation = survey.origin
         addWallLines(survey, random)
+        addCrossSections(survey, random)
         addAnnotations(survey)
         return survey
     }
@@ -72,6 +74,30 @@ object ExampleSurvey {
         SurveyBuilder.addSplay(survey, station, Leg(1f + random.nextInt(3), right, 0f))
         SurveyBuilder.addSplay(survey, station, Leg(1f + random.nextInt(2), passageAzimuth, 89f))
         SurveyBuilder.addSplay(survey, station, Leg(1f + random.nextInt(2), passageAzimuth, -89f))
+    }
+
+    /**
+     * Places a slice through the passage at a few stations, the way a surveyor records passage
+     * shape. The section is offset clear of the centreline by the station's own splay reach.
+     */
+    private fun addCrossSections(survey: Survey, random: Random) {
+        val plan = survey.getSketch(Projection2D.PLAN)
+        val positions = Projection2D.PLAN.project(survey).stationMap
+        val candidates = survey.getAllStations().filter { !survey.isOrigin(it) }
+        if (candidates.isEmpty()) return
+
+        // Drawn larger than life, as the app's cross-section-scale setting does: a passage a
+        // couple of metres wide is unreadable at the scale the centreline is drawn at.
+        plan.crossSectionScale = 4f
+
+        val count = maxOf(1, candidates.size / 5)
+        val chosen = candidates.shuffled(random).take(count)
+        for (station in chosen) {
+            val position = positions[station] ?: continue
+            val radius = CrossSectioner.horizontalRadius(station)
+            val offset = (if (radius > 0f) radius else 3f) * 2.5f
+            plan.addCrossSection(CrossSectioner.section(survey, station), position.add(0f, offset))
+        }
     }
 
     // -----------------------------------------------------------------------------------------

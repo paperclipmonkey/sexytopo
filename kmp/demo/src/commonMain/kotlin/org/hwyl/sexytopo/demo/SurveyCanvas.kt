@@ -204,6 +204,7 @@ class SurveyScene private constructor(
                         sketch.pathDetails.forEach { addAll(it.path) }
                         sketch.textDetails.forEach { add(it.position) }
                         sketch.symbolDetails.forEach { add(it.position) }
+                        sketch.crossSectionDetails.forEach { add(it.position) }
                     },
                 )
 
@@ -287,6 +288,26 @@ private fun DrawScope.drawSurvey(
         // a symbol is drawn as a marked point so its placement is still visible.
         for (symbol in scene.sketch.symbolDetails) {
             drawCircle(palette.symbol, radius = 4f, center = project(symbol.position), style = Stroke(1.5f))
+        }
+
+        // Cross-sections: the passage profile at a station, drawn where it was placed on the plan.
+        val sectionScale = scene.sketch.crossSectionScale
+        for (detail in scene.sketch.crossSectionDetails) {
+            val centre = project(detail.position)
+            for (line in detail.crossSection.getProjection().legMap.values) {
+                val end = line.end.scale(sectionScale)
+                drawLine(
+                    palette.crossSection,
+                    centre,
+                    Offset(
+                        centre.x + end.x * viewport.pixelsPerMetre,
+                        centre.y + end.y * viewport.pixelsPerMetre,
+                    ),
+                    1.2f,
+                    StrokeCap.Round,
+                )
+            }
+            drawCircle(palette.crossSection, radius = 2.5f, center = centre)
         }
     }
 
@@ -383,6 +404,7 @@ class Palette(
     val station: Color,
     val stationLabel: Color,
     val symbol: Color,
+    val crossSection: Color,
     val scaleBar: Color,
 )
 
@@ -394,6 +416,7 @@ private val LightPalette =
         station = Color(0xFFB23327),
         stationLabel = Color(0xFF5A6A66),
         symbol = Color(0xFF2C6B5F),
+        crossSection = Color(0xFF92640A),
         scaleBar = Color(0xFF5A6A66),
     )
 
@@ -405,5 +428,6 @@ private val DarkPalette =
         station = Color(0xFFE06A5C),
         stationLabel = Color(0xFF9FADA7),
         symbol = Color(0xFF5FB3A1),
+        crossSection = Color(0xFFD9A84E),
         scaleBar = Color(0xFF9FADA7),
     )

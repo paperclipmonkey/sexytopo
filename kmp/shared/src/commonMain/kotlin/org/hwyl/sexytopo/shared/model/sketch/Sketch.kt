@@ -122,6 +122,10 @@ class Sketch {
     var pathDetails: MutableList<PathDetail> = mutableListOf()
     var symbolDetails: MutableList<SymbolDetail> = mutableListOf()
     var textDetails: MutableList<TextDetail> = mutableListOf()
+    var crossSectionDetails: MutableList<CrossSectionDetail> = mutableListOf()
+
+    /** How much bigger than life a cross-section is drawn, as in the Android app's sketch. */
+    var crossSectionScale: Float = 1f
 
     var activeColour: Colour = Colour.BLACK
 
@@ -154,6 +158,15 @@ class Sketch {
         return detail
     }
 
+    fun addCrossSection(crossSection: CrossSection, position: Coord2D): CrossSectionDetail {
+        val detail = CrossSectionDetail(position, crossSection)
+        crossSectionDetails.add(detail)
+        return detail
+    }
+
     fun isEmpty(): Boolean =
-        pathDetails.isEmpty() && symbolDetails.isEmpty() && textDetails.isEmpty()
+        pathDetails.isEmpty() &&
+            symbolDetails.isEmpty() &&
+            textDetails.isEmpty() &&
+            crossSectionDetails.isEmpty()
 }
