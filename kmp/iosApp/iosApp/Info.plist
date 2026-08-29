@@ -20,6 +20,25 @@
 	<string>1</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!--
+	    Required from iOS 13. Without it, simply constructing a CBCentralManager raises
+	    NSInternalInconsistencyException and the app dies on the spot - so an iOS build that
+	    forgets this does not merely fail to find instruments, it crashes the first time a
+	    surveyor taps connect. The string is shown verbatim in the permission prompt, so it says
+	    what the app wants the radio for rather than restating that it wants the radio.
+	-->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>SexyTopo connects to your cave survey instrument to read distance, compass and clino measurements.</string>
+	<!--
+	    Surveys are a folder of plain JSON files, and a caver has to get them off the phone and
+	    into Therion or Survex. These two keys put that folder in the Files app, which is the iOS
+	    counterpart of the Storage Access Framework folder the Android app asks for - and, unlike
+	    it, needs no code at all.
+	-->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -27,9 +46,14 @@
 	</dict>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<!--
+	    arm64, not the armv7 the old Xcode template emits: armv7 is 32-bit ARM, which nothing
+	    running iOS 11 or later has, and Kotlin/Native builds this app for iosArm64 only.
+	    Declaring armv7 required asks for a device the binary could not run on.
+	-->
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
