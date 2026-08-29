@@ -4,7 +4,7 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
 import org.hwyl.sexytopo.shared.comms.BaseInstrumentTransport
-import org.hwyl.sexytopo.shared.comms.FrameChannel
+import org.hwyl.sexytopo.shared.comms.GattLink
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
 import platform.CoreBluetooth.CBAdvertisementDataLocalNameKey
 import platform.CoreBluetooth.CBCentralManager
@@ -29,10 +29,17 @@ import platform.posix.memcpy
  * ## Status: written, never compiled
  *
  * This file was authored on Linux, where there is no Xcode and no Kotlin/Native Apple toolchain, so
- * it has **not been compiled or run**. Treat it as a concrete starting point rather than working
- * code: expect to fix selector signatures and nullability on the first real build. Everything it
- * depends on — the profiles, the decoders, the survey engine — *is* tested, on both the JVM and
- * Kotlin/Wasm.
+ * it has **not been compiled or run**. Expect to fix selector signatures and nullability on the
+ * first real build. What has changed since the first draft is how much that matters: every decision
+ * this class used to make itself now lives in [GattLink] in `commonMain`, under test on the JVM and
+ * on Kotlin/Wasm. What is left here is translation — CoreBluetooth's callbacks in, [GattLink]
+ * questions out — so a compile error is the worst thing likely to be wrong with it, rather than a
+ * logic error nobody could have run.
+ *
+ * That was not a theoretical improvement. Pulling the logic out immediately exposed a real defect:
+ * this class used to compare `CBUUID.UUIDString` against the profile's 128-bit UUIDs as plain
+ * strings, which silently fails for every characteristic BRIC4 and BRIC5 have. See
+ * [GattLink.normaliseUuid].
  *
  * ## Why it is short
  *
@@ -44,28 +51,18 @@ import platform.posix.memcpy
  * ## What it deliberately cannot do
  *
  * There is no path here for the original DistoX or DistoX2. They speak Bluetooth Classic
- * RFCOMM/SPP, and iOS exposes no public API for that: only MFi-certified accessories may carry
- * data over Bluetooth Classic, and MFi-certifying a discontinued, third-party-modified Leica is not
+ * RFCOMM/SPP, and iOS exposes no public API for that: only MFi-certified accessories may carry data
+ * over Bluetooth Classic, and MFi-certifying a discontinued, third-party-modified Leica is not
  * realistic. Every instrument in [InstrumentProfile.ALL] is BLE and needs no Apple certification.
- *
- * ## A bug this design drops
- *
- * `Bric4Manager` on Android cannot tell which of BRIC's three indication characteristics delivered
- * a packet, so it cycles blindly through the roles and its own comment admits the desync risk.
- * CoreBluetooth passes the characteristic to every callback, so [routeChannel] dispatches by UUID:
- * BRIC's profile maps its three characteristics to distinct [FrameChannel]s, and
- * `Bric4Decoder.feed(channel, bytes)` routes by role instead of cycling. A dropped indication
- * therefore cannot desynchronise the decoder here.
  */
 @OptIn(ExperimentalForeignApi::class)
-class CoreBluetoothTransport(
-    private val profile: InstrumentProfile,
-) : BaseInstrumentTransport() {
+class CoreBluetoothTransport(profile: InstrumentProfile) : BaseInstrumentTransport() {
+
+    private val link = GattLink(profile)
 
     private var central: CBCentralManager? = null
     private var peripheral: CBPeripheral? = null
     private var writeCharacteristic: CBCharacteristic? = null
-    private val subscribedNotifyUuids = mutableSetOf<String>()
     private var connectedFlag = false
 
     override val isConnected: Boolean
@@ -87,7 +84,7 @@ class CoreBluetoothTransport(
         central?.stopScan()
         peripheral = null
         writeCharacteristic = null
-        subscribedNotifyUuids.clear()
+        link.reset()
         connectedFlag = false
     }
 
@@ -111,7 +108,7 @@ class CoreBluetoothTransport(
             override fun centralManagerDidUpdateState(central: CBCentralManager) {
                 if (central.state == CBManagerStatePoweredOn) {
                     // Scanning for all services rather than filtering: several instruments
-                    // advertise no service UUID, and the Android app matches on name anyway.
+                    // advertise no service UUID at all, and matching is by name anyway.
                     central.scanForPeripheralsWithServices(null, null)
                 } else {
                     emitFailure("bluetooth unavailable (state ${central.state})")
@@ -124,15 +121,12 @@ class CoreBluetoothTransport(
                 advertisementData: Map<Any?, *>,
                 RSSI: NSNumber,
             ) {
+                // The advertisement's local name is the live one; the peripheral's cached name can
+                // be stale or absent on a device iOS has not seen before.
                 val advertisedName =
                     advertisementData[CBAdvertisementDataLocalNameKey] as? String
                         ?: didDiscoverPeripheral.name
-                        ?: return
-
-                // The same name-prefix matching the Android app uses, which is the one piece of
-                // discovery that ports unchanged. Case-insensitive, as the Java is: an advertised
-                // name is a firmware string and nothing normalises its case.
-                if (!advertisedName.startsWith(profile.namePrefix, ignoreCase = true)) return
+                if (!link.matches(advertisedName)) return
 
                 central.stopScan()
                 peripheral = didDiscoverPeripheral
@@ -144,11 +138,9 @@ class CoreBluetoothTransport(
                 central: CBCentralManager,
                 didConnectPeripheral: CBPeripheral,
             ) {
-                val services =
-                    listOf(profile.serviceUuid, profile.writeServiceUuid)
-                        .distinct()
-                        .map { CBUUID.UUIDWithString(it) }
-                didConnectPeripheral.discoverServices(services)
+                didConnectPeripheral.discoverServices(
+                    link.servicesToDiscover.map { CBUUID.UUIDWithString(it) },
+                )
             }
 
             override fun centralManager(
@@ -167,7 +159,7 @@ class CoreBluetoothTransport(
             ) {
                 connectedFlag = false
                 writeCharacteristic = null
-                subscribedNotifyUuids.clear()
+                link.reset()
                 emitDisconnected(error?.localizedDescription)
             }
         }
@@ -184,8 +176,7 @@ class CoreBluetoothTransport(
                     emitFailure(didDiscoverServices.localizedDescription)
                     return
                 }
-                val services = peripheral.services.orEmpty().filterIsInstance<CBService>()
-                for (service in services) {
+                for (service in peripheral.services.orEmpty().filterIsInstance<CBService>()) {
                     peripheral.discoverCharacteristics(null, service)
                 }
             }
@@ -205,30 +196,19 @@ class CoreBluetoothTransport(
                         .orEmpty()
                         .filterIsInstance<CBCharacteristic>()
 
-                val notifyUuids = profile.notifyCharacteristicUuids.map { it.lowercase() }
                 for (characteristic in characteristics) {
-                    val uuid = characteristic.UUID.UUIDString.lowercase()
-                    when {
-                        uuid == profile.writeCharacteristicUuid.lowercase() ->
-                            writeCharacteristic = characteristic
-                        // CoreBluetooth writes the CCCD itself, so unlike the Android drivers
-                        // there is no descriptor to poke.
-                        uuid in notifyUuids -> {
-                            peripheral.setNotifyValue(true, characteristic)
-                            subscribedNotifyUuids += uuid
-                        }
+                    when (link.discovered(characteristic.UUID.UUIDString)) {
+                        GattLink.Role.WRITE -> writeCharacteristic = characteristic
+                        // CoreBluetooth writes the CCCD itself, so unlike the Android drivers there
+                        // is no descriptor to poke.
+                        GattLink.Role.NOTIFY -> peripheral.setNotifyValue(true, characteristic)
+                        GattLink.Role.IGNORED -> Unit
                     }
                 }
 
-                // Only report success once EVERY characteristic the profile needs has turned up.
-                // The Android drivers refuse the device otherwise (Bric4Manager's
-                // isRequiredServiceSupported checks all three indications), and announcing a
-                // half-configured link is worse than failing: for FCL, primary packets would
-                // arrive and be held forever while the extended half never came, so the surveyor
-                // would see a connected instrument that silently never records a shot.
-                val everythingFound =
-                    writeCharacteristic != null && subscribedNotifyUuids.containsAll(notifyUuids)
-                if (everythingFound && !connectedFlag) {
+                // Only report success once every characteristic the profile needs has turned up;
+                // see GattLink.isReady for why a half-configured link is worse than none.
+                if (link.isReady && !connectedFlag) {
                     connectedFlag = true
                     emitConnected()
                 }
@@ -246,22 +226,10 @@ class CoreBluetoothTransport(
                 val data = didUpdateValueForCharacteristic.value ?: return
                 emitFrame(
                     data.toByteArray(),
-                    routeChannel(didUpdateValueForCharacteristic.UUID.UUIDString),
+                    link.channelFor(didUpdateValueForCharacteristic.UUID.UUIDString),
                 )
             }
         }
-
-    /**
-     * Maps the characteristic a frame arrived on to its logical channel — which is what lets the
-     * FCL decoder tell a primary packet from an extended one without guessing.
-     */
-    private fun routeChannel(characteristicUuid: String): FrameChannel {
-        val index =
-            profile.notifyCharacteristicUuids.indexOfFirst {
-                it.equals(characteristicUuid, ignoreCase = true)
-            }
-        return if (index >= 0) profile.notifyChannels[index] else FrameChannel.DEFAULT
-    }
 }
 
 // -------------------------------------------------------------------------------------------
