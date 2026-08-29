@@ -167,9 +167,14 @@ data class InstrumentProfile(
          *
          * Not quite every instrument an iOS build could talk to. The Shetland Attack Pony 5 is
          * missing on purpose: `sap5/BLESocket` does not have a profile at all, it *probes* — it
-         * walks the device's services looking for whichever generic serial chipset is present
-         * (TI CC254X `ffe0/ffe1`, Microchip RN4870, or the Nordic UART) and uses the first it
-         * finds, deciding the write type from the characteristic's own advertised properties.
+         * walks every one of the device's services looking for whichever generic serial chipset is
+         * present (TI CC254X `ffe0/ffe1`, Microchip RN4870, or the Nordic UART), assigning as it
+         * goes without breaking, so on a device exposing two of them the *last* one recognised
+         * wins. It never chooses a write type either: it checks only that the characteristic it
+         * settled on is writable at all — WRITE or WRITE_NO_RESPONSE — and then writes with
+         * whatever default that characteristic carries. (The Nordic branch is the one exception
+         * that reads properties, and only to tell its two candidate characteristics apart.)
+         *
          * That is a discovery strategy rather than a row in a table, and inventing a row for it
          * would describe a device that does not exist. An iOS port would need the same probe;
          * [GattLink] would be the place for it.

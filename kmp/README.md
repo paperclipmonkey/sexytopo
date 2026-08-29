@@ -229,6 +229,19 @@ These are the things that would actually shape a real port.
    `GattSession` in `commonMain` and get a test each. The lesson generalises: when a file cannot
    be compiled, the useful move is not to review it harder but to make it smaller.
 
+   Five of the six are fixed outright. The sixth, the timeout, is fixed only as policy: the rule is
+   in `GattSession.tick` and tested, but nothing calls `CoreBluetoothTransport.checkTimeout`, so on
+   iOS an instrument that is off or out of range still hangs the connection attempt. Driving it
+   needs a run loop, which needs a host, which needs a Mac.
+
+   And making the file smaller did not make it safe. A later review of the ~200 lines that remain
+   found two errors that would stop it compiling at all — anonymous delegate types, and two pairs of
+   Objective-C selectors that collapse onto one Kotlin signature — plus a missing `BetaInteropApi`
+   opt-in, a failed scan that never stopped the radio, and a `disconnect()` that never reported
+   itself. All are fixed, and all were found by reading, which is precisely the method the previous
+   paragraph says not to rely on. Take that as the calibration for this file: small enough to review
+   is not the same as verified, and the number that matters is still zero — it has never been built.
+
 8. **The specific bug worth quoting.** The first
    `CoreBluetoothTransport` compared `CBUUID.UUIDString` against the profile's 128-bit UUIDs as
    plain strings. Assigned-number UUIDs — which is what BRIC4 and BRIC5 use for *all four* of their
