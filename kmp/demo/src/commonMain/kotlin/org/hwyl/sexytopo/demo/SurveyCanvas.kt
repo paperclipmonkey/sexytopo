@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -167,7 +168,14 @@ fun SurveyCanvas(
                 }
         }
 
-    Box(modifier = modifier.then(gestures)) {
+    // Clipping is stated rather than inherited. `drawGrid` starts its first line at
+    // `floor(topLeft.y / spacing) * spacing`, which is by definition at or above the top of the
+    // view - the same arithmetic GraphView uses, where an Android View's own clip makes it free. It
+    // is free here too today: render the demo with this modifier removed and that line still does
+    // not appear, so something up the tree is already clipping. But "something up the tree" is a
+    // layout change away from not being true, and the failure it would produce is the cave painting
+    // over the app bar. One modifier is a cheap way not to depend on an ancestor for that.
+    Box(modifier = modifier.clipToBounds().then(gestures)) {
         Canvas(Modifier.fillMaxSize()) {
             // Read both counters so a gesture or a toolbar button repaints; the values themselves
             // are not used.
@@ -549,7 +557,8 @@ private val LightPalette =
         centreline = SexyTopoColours.leg,
         splay = SexyTopoColours.splay,
         station = SexyTopoColours.station,
-        stationLabel = SexyTopoColours.legend,
+        // `stationPaint`, not `legendPaint`: red numerals beside red dots. GraphView.java:1635.
+        stationLabel = SexyTopoColours.station,
         symbol = SexyTopoColours.crossSectionIndicator,
         crossSection = SexyTopoColours.crossSectionConnection,
         scaleBar = SexyTopoColours.legend,
@@ -563,10 +572,10 @@ private val DarkPalette =
         centreline = SexyTopoColours.legNight,
         splay = SexyTopoColours.splayNight,
         station = SexyTopoColours.stationNight,
-        stationLabel = SexyTopoColours.legendNight,
-        symbol = SexyTopoColours.crossSectionIndicator,
+        stationLabel = SexyTopoColours.stationNight,
+        symbol = SexyTopoColours.crossSectionIndicatorNight,
         crossSection = SexyTopoColours.crossSectionConnection,
         scaleBar = SexyTopoColours.legendNight,
         grid = SexyTopoColours.gridNight,
-        activeStation = SexyTopoColours.activeStation,
+        activeStation = SexyTopoColours.activeStationNight,
     )

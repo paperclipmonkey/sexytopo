@@ -296,10 +296,13 @@ private fun ScreenContent(
 @Composable
 private fun InstrumentBar(state: DemoState) {
     val session = state.session
+    val dark = state.darkMode
     Row(
         Modifier
             .fillMaxWidth()
-            .background(SexyTopoColours.innerPanel)
+            .background(
+                if (dark) SexyTopoColours.innerPanelNight else SexyTopoColours.innerPanel,
+            )
             .padding(horizontal = 12.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -313,7 +316,7 @@ private fun InstrumentBar(state: DemoState) {
                 }
             },
             style = MaterialTheme.typography.bodySmall,
-            color = SexyTopoColours.legend,
+            color = if (dark) SexyTopoColours.legendNight else SexyTopoColours.legend,
         )
         Spacer(Modifier.weight(1f))
     }

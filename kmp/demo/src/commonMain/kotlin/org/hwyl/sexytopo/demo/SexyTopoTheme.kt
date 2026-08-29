@@ -31,7 +31,9 @@ object SexyTopoColours {
 
     /** `innerPanelBackground` / `dividerColour`. */
     val innerPanel = Color(0xFFDDDDDD)
+    val innerPanelNight = Color(0xFF2A2A2A)
     val divider = Color(0xFFA9A9A9)
+    val dividerNight = Color(0xFF7F7F7F)
 
     // -- The survey itself ----------------------------------------------------------------
 
@@ -52,18 +54,25 @@ object SexyTopoColours {
 
     /** `activeStationHighlight`: where the next leg will start from. */
     val activeStation = Color(0xFFFFC107)
+    val activeStationNight = Color(0xFFFFD54F)
 
     /** `grid`. */
     val grid = Color(0xFFD3D3D3)
     val gridNight = Color(0xFF505050)
 
-    /** `legend`: station labels and the scale bar. */
+    /**
+     * `legend`: the scale bar, the compass and the survey label — and nothing else.
+     *
+     * Not station names. `GraphView` draws those with `stationPaint`, i.e. in [station], which is
+     * the one label colour a SexyTopo user would actually recognise: red numerals beside red dots.
+     */
     val legend = Color(0xFF000000)
     val legendNight = Color(0xFFD3D3D3)
 
     /** `crossSectionConnection` and `crossSectionIndicator`. */
     val crossSectionConnection = Color(0xFFC0C0C0)
     val crossSectionIndicator = Color(0xFF8B0000)
+    val crossSectionIndicatorNight = Color(0xFFFF0000)
 
     // -- Text ------------------------------------------------------------------------------
 
