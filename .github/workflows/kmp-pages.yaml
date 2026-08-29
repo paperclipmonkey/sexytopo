@@ -11,12 +11,19 @@
 # this UI is usable on a phone-shaped iOS screen, with a finger, by a caver. It costs one workflow
 # and answers that in ten seconds instead of a week.
 #
-# `configure-pages` is asked to enable Pages itself, which works on a public repository whose owner
-# has not already configured it. Where it cannot - a private repository on a free plan, or an
-# organisation that reserves the setting - the deploy is skipped rather than failed, and the setting
-# is Settings -> Pages -> Build and deployment -> Source -> "GitHub Actions". Hosting a demo is a
-# convenience; it must not be able to turn the pull request red over a repository setting nobody in
-# CI can change. The build itself still fails loudly, because that part is a real check.
+# Publishing needs one manual setting, once:
+#
+#     Settings -> Pages -> Build and deployment -> Source -> "GitHub Actions"
+#
+# It cannot be automated. Asking `configure-pages` to do it (`enablement: true`) was tried and the
+# API refused: "Create Pages site failed. Error: Resource not accessible by integration" - the
+# workflow's GITHUB_TOKEN may deploy to a Pages site but may not create one, whatever permissions
+# the job declares. That takes a repository admin.
+#
+# So until somebody flips it, the deploy is skipped with a warning naming the setting, rather than
+# turning the pull request red. Hosting a demo is a convenience and must not be able to fail a
+# review over a setting nobody in CI can change. The build itself still fails loudly, because that
+# part is a real check.
 name: KMP browser demo
 
 on:
@@ -60,17 +67,16 @@ jobs:
         working-directory: kmp
         run: ./gradlew :demo:wasmJsBrowserDistribution
 
+      # continue-on-error, so `outcome` below is the real result while `conclusion` stays green.
       - id: pages
         uses: actions/configure-pages@v5
         continue-on-error: true
-        with:
-          enablement: true
 
       - if: steps.pages.outcome != 'success'
         run: |
           echo "::warning::Pages is not configured for this repository, so the demo was built" \
-               "but not published. Enable it at Settings -> Pages -> Build and deployment ->" \
-               "Source -> GitHub Actions, then re-run this workflow."
+               "but not published. A repository admin can enable it at Settings -> Pages ->" \
+               "Build and deployment -> Source -> GitHub Actions; then re-run this workflow."
 
       - if: steps.pages.outcome == 'success'
         uses: actions/upload-pages-artifact@v3
