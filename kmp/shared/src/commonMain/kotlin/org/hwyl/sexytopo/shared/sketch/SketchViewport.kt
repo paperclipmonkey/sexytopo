@@ -35,6 +35,17 @@ object SketchDefaults {
     /** A symbol is stamped at this size on screen, then converted to metres through the zoom. */
     const val SYMBOL_STARTING_SIZE_DP: Float = 25.0f
 
+    /**
+     * How big a station is drawn, from `GeneralPreferences.getStationCrossDiameterDp`.
+     *
+     * A preference in the app, with this as its default. The active-station highlight is drawn at
+     * 1.1 times it, and the stroke at 1.25 times the station's own.
+     */
+    const val STATION_CROSS_DIAMETER_DP: Float = 10.0f
+
+    /** `GraphView.STATION_STROKE_WIDTH_DP`. */
+    const val STATION_STROKE_WIDTH_DP: Float = 2.0f
+
     /** Text is placed at this size on screen (scale-independent pixels), likewise. */
     const val TEXT_STARTING_SIZE_SP: Float = 16.0f
 

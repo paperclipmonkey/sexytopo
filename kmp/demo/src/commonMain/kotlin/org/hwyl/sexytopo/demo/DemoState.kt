@@ -92,6 +92,20 @@ class DemoState(
         if (editor.redo()) noteSketchEdited()
     }
 
+    /**
+     * Make [stationName] the station the next leg starts from.
+     *
+     * Only meaningful on the live survey: the demo cave is already complete, and moving its active
+     * station would change nothing visible except the highlight. It is allowed anyway, because
+     * seeing the brackets follow your finger is how somebody works out what the tool does.
+     */
+    fun selectStation(stationName: String): Boolean {
+        val station = survey.getStationByName(stationName) ?: return false
+        if (station === survey.activeStation) return false
+        survey.activeStation = station
+        return true
+    }
+
     val displayOptions: DisplayOptions
         get() =
             DisplayOptions(
@@ -169,9 +183,11 @@ val BRUSH_COLOURS = BrushColour.entries.map { it.colour }
  *
  * The rest — placing symbols and labels, and the four cross-section gestures — need chrome this
  * demo does not have: a symbol palette, a text field, a cross-section editor screen. The shared
- * model supports them already.
+ * model supports them already, which is why the toolbar draws their buttons greyed rather than
+ * leaving gaps.
  */
-val DEMO_TOOLS = listOf(SketchTool.MOVE, SketchTool.DRAW, SketchTool.ERASE)
+val DEMO_TOOLS =
+    listOf(SketchTool.MOVE, SketchTool.DRAW, SketchTool.ERASE, SketchTool.SELECT)
 
 /** Toolbar labels. The shared enum carries behaviour, not display strings. */
 val SketchTool.label: String
@@ -180,6 +196,7 @@ val SketchTool.label: String
             SketchTool.MOVE -> "Move"
             SketchTool.DRAW -> "Draw"
             SketchTool.ERASE -> "Erase"
+            SketchTool.SELECT -> "Select"
             else -> name.lowercase().replaceFirstChar { it.uppercase() }
         }
 
@@ -222,6 +239,7 @@ fun summarise(state: DemoState, compact: Boolean): String {
             when (state.tool) {
                 SketchTool.MOVE -> "drag to pan, pinch to zoom"
                 SketchTool.ERASE -> "tap a line to rub it out"
+                SketchTool.SELECT -> "tap a station to survey on from it"
                 else -> "drag to draw a passage wall"
             }
         }

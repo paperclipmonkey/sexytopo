@@ -64,11 +64,11 @@ import org.jetbrains.compose.resources.painterResource
  * Row one is the eight brush colours and zoom in. Row two is the tools — move, draw, symbol, erase,
  * select — then the drawing menu, undo, redo and zoom out.
  *
- * Two of those buttons are drawn but disabled: the symbol and select tools exist in the shared
- * model (`SketchTool.SYMBOL`, `SketchTool.SELECT`) and this demo has no symbol palette or station
- * menu to drive them. Showing them greyed rather than leaving gaps keeps the layout honest in both
- * directions: the toolbar is the app's, and what the demo cannot do is visible rather than quietly
- * missing.
+ * One of those buttons is drawn but disabled: the symbol tool, which the shared model supports
+ * (`SketchTool.SYMBOL`) and this demo has no palette to drive - the app's symbol artwork is SVG in
+ * its assets rather than the PNGs the toolbar uses, so it is not carried across. Showing it greyed
+ * rather than leaving a gap keeps the layout honest in both directions: the toolbar is the app's,
+ * and what the demo cannot do is visible rather than quietly missing.
  */
 @Composable
 fun SketchToolbar(
@@ -124,13 +124,7 @@ fun SketchToolbar(
                 onClick = {},
             )
             ToolButton(state, SketchTool.ERASE, painterResource(Res.drawable.eraser), "Erase")
-            ToolbarButton(
-                painter = painterResource(Res.drawable.select),
-                description = "Select",
-                modifier = Modifier.weight(1f),
-                enabled = false,
-                onClick = {},
-            )
+            ToolButton(state, SketchTool.SELECT, painterResource(Res.drawable.select), "Select")
 
             Box(Modifier.weight(1f)) {
                 ToolbarButton(

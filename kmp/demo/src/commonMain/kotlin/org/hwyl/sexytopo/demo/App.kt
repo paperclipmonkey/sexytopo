@@ -281,6 +281,7 @@ private fun ScreenContent(
                 tool = state.tool,
                 revision = state.revision,
                 onSketchEdit = { state.noteSketchEdited() },
+                onSelectStation = { state.selectStation(it) },
             )
     }
 }

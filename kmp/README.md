@@ -87,6 +87,7 @@ missing.
   hit-tests through the same visibility rule the renderer uses, so you cannot rub out what is too
   small to see.
 - **Cross-sections**, drawn on the plan where the surveyor parked them.
+- **The active station**, in the app's amber corner brackets, and the select tool that moves them.
 - **Export** to Survex `.svx` and Therion `.th`, and to the app's own JSON — the same bytes the
   Android app would read back.
 - **Plan and extended elevation**, the latter exercising the cave-unrolling maths.

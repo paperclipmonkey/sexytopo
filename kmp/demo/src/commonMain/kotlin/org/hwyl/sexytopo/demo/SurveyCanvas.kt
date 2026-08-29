@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.hwyl.sexytopo.shared.math.getDistance
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
@@ -65,6 +66,8 @@ fun SurveyCanvas(
     tool: SketchTool = SketchTool.MOVE,
     revision: Int = 0,
     onSketchEdit: () -> Unit = {},
+    /** Returns true if the station was taken as the new active one. */
+    onSelectStation: (String) -> Boolean = { false },
 ) {
     val textMeasurer = rememberTextMeasurer()
     val fontFamily = LocalAppFontFamily.current
@@ -92,6 +95,21 @@ fun SurveyCanvas(
                             panChange.toCoord2D(),
                             zoomChange,
                         )
+                    }
+                }
+
+            SketchTool.SELECT ->
+                Modifier.pointerInput(scene) {
+                    // Tap a station to make it the one the next leg starts from. The reach is the
+                    // app's own SELECTION_SENSITIVITY_DP, which is much larger than the eraser's -
+                    // a station is a 10dp dot and a cold finger is not precise.
+                    detectTapGestures { offset ->
+                        val reach =
+                            viewport.toSurveyDistance(
+                                SketchDefaults.SELECTION_SENSITIVITY_DP.dp.toPx(),
+                            )
+                        val chosen = scene.stationNearest(viewport.toSurvey(offset), reach)
+                        if (chosen != null && onSelectStation(chosen)) onSketchEdit()
                     }
                 }
 
@@ -189,6 +207,8 @@ class SurveyScene private constructor(
     val splays: List<Pair<Coord2D, Coord2D>>,
     /** The live sketch, not a copy: a stroke in progress grows in place and draws as it goes. */
     val sketch: Sketch,
+    /** Which station the next leg will start from; drawn with the app's amber brackets. */
+    val activeStationName: String,
     /** Everything drawn, centreline and ink alike — what the opening zoom is fitted to. */
     val bounds: Bounds,
     /**
@@ -200,6 +220,26 @@ class SurveyScene private constructor(
      */
     val surveyBounds: Bounds,
 ) {
+    /**
+     * The nearest station within [reach] metres of [point], or null.
+     *
+     * Nearest rather than first: at a junction several stations sit within a finger's width of each
+     * other, and picking whichever happened to come first out of the projection would make the
+     * choice feel arbitrary.
+     */
+    fun stationNearest(point: Coord2D, reach: Float): String? {
+        var best: String? = null
+        var bestDistance = reach
+        for ((name, coord) in stations) {
+            val distance = getDistance(point, coord)
+            if (distance <= bestDistance) {
+                best = name
+                bestDistance = distance
+            }
+        }
+        return best
+    }
+
     companion object {
         fun from(survey: Survey, projection: Projection2D): SurveyScene {
             val space = projection.project(survey)
@@ -232,7 +272,15 @@ class SurveyScene private constructor(
                     },
                 )
 
-            return SurveyScene(stations, legs, splays, sketch, bounds, surveyBounds)
+            return SurveyScene(
+                stations,
+                legs,
+                splays,
+                sketch,
+                survey.activeStation.name,
+                bounds,
+                surveyBounds,
+            )
         }
     }
 }
@@ -244,6 +292,39 @@ class DisplayOptions(
     val showGrid: Boolean = true,
     val darkMode: Boolean = false,
 )
+
+/**
+ * The four amber corner brackets the app puts round the station the next leg will start from.
+ *
+ * Ported from `GraphView.highlightActiveStation`, geometry and all: a box 1.1 times the station
+ * diameter, with a gap of a third of that left open in the middle of each side, so what is drawn is
+ * four corners rather than a square. It reads as a viewfinder, which is exactly right — it is
+ * showing you where the survey is about to grow from — and it is the single most recognisable thing
+ * on the screen after the red centreline. Leaving it out made the plan look subtly wrong in a way
+ * that was hard to name.
+ */
+private fun DrawScope.drawActiveStationHighlight(centre: Offset, palette: Palette) {
+    val diameter = SketchDefaults.STATION_CROSS_DIAMETER_DP.dp.toPx() * 1.1f
+    val gap = diameter / 3f
+    val half = diameter / 2f
+    val arm = (diameter - gap) / 2f
+    val stroke = SketchDefaults.STATION_STROKE_WIDTH_DP.dp.toPx() * 1.25f
+
+    val left = centre.x - half
+    val right = centre.x + half
+    val top = centre.y - half
+    val bottom = centre.y + half
+
+    fun corner(x: Float, y: Float, dx: Float, dy: Float) {
+        drawLine(palette.activeStation, Offset(x, y), Offset(x + dx * arm, y), stroke)
+        drawLine(palette.activeStation, Offset(x, y), Offset(x, y + dy * arm), stroke)
+    }
+
+    corner(left, top, 1f, 1f)
+    corner(right, top, -1f, 1f)
+    corner(left, bottom, 1f, -1f)
+    corner(right, bottom, -1f, -1f)
+}
 
 /**
  * The metre grid the Android app draws under everything else.
@@ -335,6 +416,9 @@ private fun DrawScope.drawSurvey(
     for ((name, coord) in scene.stations) {
         val centre = project(coord)
         drawCircle(palette.station, radius = 3.5f, center = centre)
+        if (name == scene.activeStationName) {
+            drawActiveStationHighlight(centre, palette)
+        }
         if (options.showStationLabels &&
             viewport.pixelsPerMetre > LABEL_VISIBILITY_PIXELS_PER_METRE
         ) {
@@ -449,6 +533,7 @@ class Palette(
     val crossSection: Color,
     val scaleBar: Color,
     val grid: Color,
+    val activeStation: Color,
 )
 
 /**
@@ -469,6 +554,7 @@ private val LightPalette =
         crossSection = SexyTopoColours.crossSectionConnection,
         scaleBar = SexyTopoColours.legend,
         grid = SexyTopoColours.grid,
+        activeStation = SexyTopoColours.activeStation,
     )
 
 private val DarkPalette =
@@ -482,4 +568,5 @@ private val DarkPalette =
         crossSection = SexyTopoColours.crossSectionConnection,
         scaleBar = SexyTopoColours.legendNight,
         grid = SexyTopoColours.gridNight,
+        activeStation = SexyTopoColours.activeStation,
     )
