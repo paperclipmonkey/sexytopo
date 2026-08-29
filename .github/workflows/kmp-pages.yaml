@@ -11,8 +11,12 @@
 # this UI is usable on a phone-shaped iOS screen, with a finger, by a caver. It costs one workflow
 # and answers that in ten seconds instead of a week.
 #
-# Requires the repository's Pages source to be set to "GitHub Actions"
-# (Settings -> Pages -> Build and deployment -> Source).
+# `configure-pages` is asked to enable Pages itself, which works on a public repository whose owner
+# has not already configured it. Where it cannot - a private repository on a free plan, or an
+# organisation that reserves the setting - the deploy is skipped rather than failed, and the setting
+# is Settings -> Pages -> Build and deployment -> Source -> "GitHub Actions". Hosting a demo is a
+# convenience; it must not be able to turn the pull request red over a repository setting nobody in
+# CI can change. The build itself still fails loudly, because that part is a real check.
 name: KMP browser demo
 
 on:
@@ -39,6 +43,9 @@ jobs:
   build:
     name: Build the browser demo
     runs-on: ubuntu-latest
+    outputs:
+      # Whether there is anything for the deploy job to deploy.
+      published: ${{ steps.pages.outcome == 'success' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -53,15 +60,27 @@ jobs:
         working-directory: kmp
         run: ./gradlew :demo:wasmJsBrowserDistribution
 
-      - uses: actions/configure-pages@v5
+      - id: pages
+        uses: actions/configure-pages@v5
+        continue-on-error: true
+        with:
+          enablement: true
 
-      - uses: actions/upload-pages-artifact@v3
+      - if: steps.pages.outcome != 'success'
+        run: |
+          echo "::warning::Pages is not configured for this repository, so the demo was built" \
+               "but not published. Enable it at Settings -> Pages -> Build and deployment ->" \
+               "Source -> GitHub Actions, then re-run this workflow."
+
+      - if: steps.pages.outcome == 'success'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: kmp/demo/build/dist/wasmJs/productionExecutable
 
   deploy:
     name: Deploy
     needs: build
+    if: needs.build.outputs.published == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
