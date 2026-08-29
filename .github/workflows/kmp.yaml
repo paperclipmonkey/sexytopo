@@ -40,6 +40,10 @@ jobs:
         working-directory: kmp
         run: ./gradlew :shared:wasmJsNodeTest
 
+      - name: Test the interactive drawing layer
+        working-directory: kmp
+        run: ./gradlew :demo:jvmTest
+
       - name: Render the shared Compose UI headlessly
         working-directory: kmp
         run: ./gradlew :demo:renderDemoPng

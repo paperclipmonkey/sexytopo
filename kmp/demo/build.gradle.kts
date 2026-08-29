@@ -34,6 +34,9 @@ kotlin {
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
         }
+        jvmTest.dependencies {
+            implementation(kotlin("test"))
+        }
         wasmJsMain.dependencies {
             implementation("org.jetbrains.kotlinx:kotlinx-browser:0.3")
         }
