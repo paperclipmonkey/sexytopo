@@ -29,9 +29,16 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Run the ported test suite
+      - name: Run the ported test suite (JVM)
         working-directory: kmp
         run: ./gradlew :shared:jvmTest
+
+      # The same tests on a non-JVM target. Kotlin/Wasm, like Kotlin/Native for iOS, has no
+      # java.* at all, so this is the closest thing to proving the shared core will compile and
+      # run for iOS without a Mac to try it on.
+      - name: Run the ported test suite (Kotlin/Wasm, non-JVM)
+        working-directory: kmp
+        run: ./gradlew :shared:wasmJsNodeTest
 
       - name: Render the shared Compose UI headlessly
         working-directory: kmp

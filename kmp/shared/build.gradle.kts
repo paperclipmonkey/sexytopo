@@ -9,7 +9,13 @@ kotlin {
     jvm()
 
     // Browser target: lets the same shared core and UI be demonstrated without a Mac.
-    wasmJs { browser() }
+    wasmJs {
+        browser()
+        // Node lets the shared tests run on a NON-JVM target headlessly. That matters more than
+        // it looks: Kotlin/Wasm, like Kotlin/Native for iOS, has no java.* at all, so a green run
+        // here is real evidence the core carries no JVM-only dependency.
+        nodejs()
+    }
 
     // Declared so the shared core builds for iOS. These compile only on a macOS
     // host; on other hosts kotlin.native.ignoreDisabledTargets keeps them inert.
