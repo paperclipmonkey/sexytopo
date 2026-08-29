@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 372 tests. The UI
+Survex and Therion exporters and the native file format are ported and covered by just under 400 tests. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
 tests the claim.
@@ -34,7 +34,7 @@ Being precise about this matters more than the demo looking good.
 | The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
 | The BLE connection logic is platform-free | **Verified** | `GattLinkTest` and `GattSessionTest` — the profile matrix *and* the connection lifecycle; only callback plumbing is left in `iosMain` |
 | Shared Compose UI draws, and can be drawn on | **Verified** | `./gradlew :demo:renderDemoPng`; drawing/erasing/undo covered by tests |
-| **The shared core has no JVM-only dependencies** | **Verified** | all 343 shared tests pass on **Kotlin/Wasm** as well as the JVM |
+| **The shared core has no JVM-only dependencies** | **Verified** | every shared test passes on **Kotlin/Wasm** as well as the JVM |
 | The same code compiles for iOS | **Not verified** | Kotlin/Native for Apple targets needs macOS; this was authored on Linux |
 | The iOS app runs on a device | **Not verified** | needs Xcode |
 | `CoreBluetoothTransport` works | **Not verified** | written, never compiled — but its logic now lives in `GattLink` and `GattSession`, which are; see its KDoc |
@@ -110,9 +110,9 @@ Everything below works on Linux/macOS/Windows except where noted.
 ```bash
 cd kmp
 
-./gradlew :shared:jvmTest          # the ported test suite (343)
+./gradlew :shared:jvmTest          # the ported test suite
 ./gradlew :shared:wasmJsNodeTest   # the same tests on a NON-JVM target
-./gradlew :demo:jvmTest            # the UI's use of the shared editor (29)
+./gradlew :demo:jvmTest            # the UI's use of the shared editor
 ./gradlew :demo:compileKotlinWasmJs      # the UI compiled for a non-JVM target
 ./gradlew :demo:renderDemoPng            # render the shared UI to PNGs, no display needed
 ./gradlew :demo:run                      # the desktop app (needs a display)
