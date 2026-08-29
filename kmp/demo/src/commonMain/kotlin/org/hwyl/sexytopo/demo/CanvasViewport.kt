@@ -3,6 +3,7 @@ package org.hwyl.sexytopo.demo
 import androidx.compose.ui.geometry.Offset
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.sketch.SketchViewport
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -33,8 +34,8 @@ fun SketchViewport.toSurvey(point: Offset): Coord2D = toSurvey(point.toCoord2D()
 /**
  * Zoom and centre so the whole of [bounds] is visible with [padding] pixels to spare.
  *
- * Called once, the first time the canvas is drawn at a known size — after that the surveyor's own
- * panning and zooming is left alone, which is why this is not recomputed on every frame.
+ * Called the first time the canvas is drawn at a known size, and again whenever the survey grows —
+ * see [ViewportFit] for when that stops.
  */
 fun SketchViewport.fitTo(bounds: Bounds, width: Float, height: Float, padding: Float = 48f) {
     val fit =
@@ -94,7 +95,7 @@ class Bounds(val minX: Float, val minY: Float, val maxX: Float, val maxY: Float)
 }
 
 /**
- * Whether the canvas has already been fitted to the survey.
+ * Tracks whether the canvas still gets to choose its own viewport, and what it last chose.
  *
  * Deliberately a plain holder rather than Compose state: the fit happens *inside* the draw, because
  * that is the first moment the real canvas size is known — on the very first frame, and in the
@@ -102,7 +103,37 @@ class Bounds(val minX: Float, val minY: Float, val maxX: Float, val maxY: Float)
  * has not arrived yet and the survey would be drawn at one pixel per metre. Writing Compose state
  * from a draw would schedule another frame; this does not need one, since the fitted values are
  * used by the very draw that computes them.
+ *
+ * It re-fits as the survey grows, not just once. Live surveying starts from a single station and
+ * adds a leg every few readings, so a one-shot fit leaves the cave walking off the screen within a
+ * minute. The moment the surveyor pans or zooms, the viewport becomes theirs and this stops
+ * touching it — an app that re-frames the view under somebody's finger is worse than one that
+ * never frames it at all.
  */
-class FitOnce {
-    var done: Boolean = false
+class ViewportFit {
+    var userHasTakenControl: Boolean = false
+
+    private var fittedTo: Bounds? = null
+
+    fun shouldFitTo(bounds: Bounds): Boolean {
+        if (userHasTakenControl) return false
+        val last = fittedTo ?: return true
+        return !last.matches(bounds)
+    }
+
+    fun noteFitted(bounds: Bounds) {
+        fittedTo = bounds
+    }
 }
+
+/**
+ * Whether two extents are the same to within a millimetre.
+ *
+ * Compared by value rather than by identity because a fresh [Bounds] is built on every scene
+ * rebuild, so identity would report a change on every frame.
+ */
+private fun Bounds.matches(other: Bounds): Boolean =
+    abs(minX - other.minX) < 0.001f &&
+        abs(minY - other.minY) < 0.001f &&
+        abs(maxX - other.maxX) < 0.001f &&
+        abs(maxY - other.maxY) < 0.001f

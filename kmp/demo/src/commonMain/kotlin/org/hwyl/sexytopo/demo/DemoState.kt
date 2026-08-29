@@ -8,6 +8,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
+import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.BrushColour
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
@@ -103,16 +104,27 @@ class DemoState(
 /**
  * The editor for whichever sketch is currently showing.
  *
- * Keyed on both the survey and the projection: the plan and the extended elevation are different
- * sketches and get separate undo stacks, exactly as in the Android app.
+ * One editor per *sketch*, held for as long as the app is running, rather than one per current
+ * selection. The plan and the extended elevation are different sketches and so get separate undo
+ * stacks — that part matches the Android app — but they have to keep them. Rebuilding the editor
+ * whenever the projection changed meant flipping to the elevation and back silently emptied the
+ * plan's history, which is a nasty thing for a drawing app to do: the surveyor's stroke is still
+ * there, and undo has quietly forgotten it ever happened.
+ *
+ * The map is keyed by identity, since [Sketch] does not override equals — which is what is wanted:
+ * two sketches are the same sketch only if they are the same object.
  */
 @Composable
 fun rememberSketchEditor(state: DemoState): SketchEditor {
-    val survey = state.survey
-    val projection = state.projection
-    return remember(survey, projection) {
-        SketchEditor(survey.getSketch(projection)).also { it.activeColour = state.brushColour }
-    }
+    val editors = remember(state) { mutableMapOf<Sketch, SketchEditor>() }
+    val sketch = state.survey.getSketch(state.projection)
+    val editor =
+        editors.getOrPut(sketch) {
+            SketchEditor(sketch).also { it.activeColour = state.brushColour }
+        }
+    // The brush is a property of the toolbar, not of the sketch, so it follows the surveyor across.
+    editor.activeColour = state.brushColour
+    return editor
 }
 
 /**

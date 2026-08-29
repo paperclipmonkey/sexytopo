@@ -53,7 +53,7 @@ class ReviewRegressionsTest {
     @Test
     fun aNameLoadedFromFileIsSanitisedOnTheWayIn() {
         // An imported .data.json could carry anything.
-        val survey = SurveyJson.parse("""{"surveyName": "bad/name", "stations": []}""")
+        val survey = SurveyJson.parse("""{"name": "bad/name", "stations": []}""")
         assertEquals("badname", survey.name)
     }
 

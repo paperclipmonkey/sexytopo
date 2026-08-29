@@ -93,7 +93,10 @@ object SurvexTherionWriter {
             if (trip.comments.isNotEmpty()) {
                 append('\n')
                 append(comment).append("Comment from SexyTopo trip information\n")
-                for (line in trip.comments.split("\n")) {
+                // dropLastWhile because Java's String.split discards trailing empty strings
+                // and Kotlin's keeps them: a comment ending in a newline would otherwise emit a
+                // bare comment character on a line of its own, once per trailing newline.
+                for (line in trip.comments.split("\n").dropLastWhile { it.isEmpty() }) {
                     append(comment).append(line).append('\n')
                 }
             }
@@ -325,15 +328,23 @@ object SurvexTherionWriter {
         val directionName = current.name.lowercase()
 
         val inherited: ExtendedElevationDirection?
-        if (!current.propagates) {
+        if (!current.propagates && fromStation != null) {
             builder.append(marker)
                 .append("extend ")
                 .append(directionName)
                 .append(' ')
-                .append(fromStation?.name)
+                .append(fromStation.name)
                 .append(' ')
                 .append(station.name)
                 .append('\n')
+            inherited = lastDirection
+        } else if (!current.propagates) {
+            // The origin with a non-propagating direction — a survey that starts down a pitch.
+            // A non-propagating direction names the *leg* it applies to, and the origin has no
+            // incoming leg, so there is nothing to name. The Java dereferences the null station
+            // here and throws; writing the start command instead keeps the file valid and loses
+            // only a direction that could not have been expressed anyway.
+            builder.append(marker).append("extend start ").append(station.name).append('\n')
             inherited = lastDirection
         } else {
             if (lastDirection == null) {

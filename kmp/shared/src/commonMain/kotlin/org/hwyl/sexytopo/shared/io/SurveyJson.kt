@@ -3,6 +3,7 @@ package org.hwyl.sexytopo.shared.io
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -41,9 +42,25 @@ import org.hwyl.sexytopo.shared.model.survey.Trip
 @OptIn(ExperimentalSerializationApi::class)
 object SurveyJson {
 
-    const val VERSION_NAME_TAG = "versionName"
-    const val VERSION_CODE_TAG = "versionCode"
-    const val SURVEY_NAME_TAG = "surveyName"
+    // From JsonTranslaterConstants, and not guessable: the survey name is written under "name",
+    // not "surveyName", and the version tags carry the app's own name. Getting these wrong is
+    // invisible in a round trip through this port alone - it writes and reads its own spelling
+    // quite happily - and total when a file crosses to or from the Android app.
+    const val VERSION_NAME_TAG = "sexyTopoVersionName"
+    const val VERSION_CODE_TAG = "sexyTopoVersionCode"
+
+    /**
+     * The survey's name at the root of the file.
+     *
+     * The Java writes it for provenance and then ignores it on load, taking the name from the
+     * directory instead. This port reads it, because a name in the file is better than a name in a
+     * path that a platform's file picker may not even expose - but it writes the same tag, so an
+     * Android app reading this file sees exactly what it expects to see and ignores it as usual.
+     *
+     * Note it collides in spelling, though not in scope, with [STATION_NAME_TAG]: both are "name",
+     * one at the root and one inside a station object.
+     */
+    const val SURVEY_NAME_TAG = "name"
 
     const val STATIONS_TAG = "stations"
     const val STATION_NAME_TAG = "name"
@@ -497,8 +514,21 @@ object SurveyJson {
 // Tolerant accessors, mirroring the original's "load what you can" behaviour
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * A string field, or null when it is absent or JSON `null`.
+ *
+ * Note what is *not* treated as absent: the four-character string `"null"`. An earlier version
+ * compared `content` against `"null"`, which is how kotlinx renders the JSON null literal — and
+ * also how it renders a perfectly ordinary string somebody typed. A station called "null" is
+ * unlikely; a survey called "null" is not, and neither is a trip comment. [JsonNull] is the
+ * unambiguous test, and it is what the JSON literal actually parses to.
+ */
 internal fun JsonObject.stringOrNull(key: String): String? =
-    (this[key] as? JsonPrimitive)?.contentOrNullSafe()
+    when (val element = this[key]) {
+        null, JsonNull -> null
+        is JsonPrimitive -> element.content
+        else -> null
+    }
 
 internal fun JsonObject.floatOrNull(key: String): Float? =
     (this[key] as? JsonPrimitive)?.let { runCatching { it.float }.getOrNull() }
@@ -514,5 +544,3 @@ internal fun JsonObject.booleanOrNull(key: String): Boolean? =
             else -> null
         }
     }
-
-private fun JsonPrimitive.contentOrNullSafe(): String? = if (this.content == "null") null else content

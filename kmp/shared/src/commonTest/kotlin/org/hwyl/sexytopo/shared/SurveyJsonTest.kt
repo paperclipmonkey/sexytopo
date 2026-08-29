@@ -24,9 +24,9 @@ class SurveyJsonTest {
     private val androidWrittenSurvey =
         """
         {
-          "versionName": "1.12.3",
-          "versionCode": 97,
-          "surveyName": "Test Cave",
+          "sexyTopoVersionName": "1.12.3",
+          "sexyTopoVersionCode": 97,
+          "name": "Test Cave",
           "stations": [
             {
               "name": "1",
@@ -143,7 +143,7 @@ class SurveyJsonTest {
         // The Android loader deliberately loads what it can rather than failing outright.
         val damaged =
             """
-            { "surveyName": "Broken", "stations": [
+            { "name": "Broken", "stations": [
                 { "name": "1", "legs": [
                     { "distance": 5.0, "azimuth": 0.0, "inclination": 0.0, "destination": "2" },
                     { "distance": 5.0, "azimuth": 999.0, "inclination": 0.0, "destination": "-" }
@@ -163,7 +163,7 @@ class SurveyJsonTest {
         val sketchJson =
             """
             {
-              "surveyName": "Test Cave",
+              "name": "Test Cave",
               "paths": [
                 { "colour": "BLACK", "points": [
                     {"x": 0.0, "y": 0.0}, {"x": 1.5, "y": -2.5}, {"x": 3.0, "y": -4.0}

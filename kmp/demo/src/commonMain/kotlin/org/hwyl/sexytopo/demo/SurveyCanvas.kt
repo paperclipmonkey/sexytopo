@@ -25,6 +25,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
@@ -71,7 +72,7 @@ fun SurveyCanvas(
     val scene = remember(survey, projection, revision) { SurveyScene.from(survey, projection) }
 
     val viewport = remember(survey, projection) { SketchViewport() }
-    val fit = remember(survey, projection) { FitOnce() }
+    val fit = remember(survey, projection) { ViewportFit() }
 
     // The viewport and the editor are plain objects, not Compose state, so a gesture that changes
     // one has to say so. Two counters rather than one: a stroke in progress only needs a repaint,
@@ -89,26 +90,37 @@ fun SurveyCanvas(
                         // viewport's zoom range rather than clamping, exactly as the Java does.
                         viewport.adjustZoomBy(zoomChange, centroid.toCoord2D())
                         viewport.panBy(panChange.toCoord2D())
+                        // From here on the viewport is the surveyor's, not the app's.
+                        fit.userHasTakenControl = true
                         viewTick++
                     }
                 }
 
             SketchTool.ERASE ->
-                // A tap, not a drag: the Android app erases on touch-down only, so the eraser is a
-                // tapping tool rather than a rubbing one. Reproduced deliberately - rubbing would
-                // feel better but would diverge from what a surveyor's muscle memory expects.
                 Modifier.pointerInput(scene) {
-                    detectTapGestures { offset ->
-                        val erased =
-                            editor.eraseAt(
-                                point = viewport.toSurvey(offset),
-                                toleranceInMetres =
-                                    viewport.toSurveyDistance(SketchDefaults.DELETE_DETAILS_WITHIN_DP),
-                                pixelsPerMetre = viewport.pixelsPerMetre,
-                                showCrossSections = options.showSketch,
-                            )
-                        if (erased) onSketchEdit()
-                    }
+                    // onPress, not onTap: the Android app erases on touch-*down*, so the eraser is
+                    // a tapping tool rather than a rubbing one. onTap would additionally not fire
+                    // at all if the finger moved before lifting, so a press-drag-release - which is
+                    // exactly what erasing feels like it should be - would quietly erase nothing.
+                    detectTapGestures(
+                        onPress = { offset ->
+                            val erased =
+                                editor.eraseAt(
+                                    point = viewport.toSurvey(offset),
+                                    // The constant is in dp; the viewport thinks in pixels. Passing
+                                    // it straight through made the eraser's reach depend on the
+                                    // display density, and drew a circle of the wrong size to say
+                                    // so.
+                                    toleranceInMetres =
+                                        viewport.toSurveyDistance(
+                                            SketchDefaults.DELETE_DETAILS_WITHIN_DP.dp.toPx(),
+                                        ),
+                                    pixelsPerMetre = viewport.pixelsPerMetre,
+                                    showCrossSections = options.showSketch,
+                                )
+                            if (erased) onSketchEdit()
+                        },
+                    )
                 }
 
             else ->
@@ -148,9 +160,19 @@ fun SurveyCanvas(
 
             // Fit here rather than from onSizeChanged: this is the first moment the real size is
             // known, and in the single-frame headless render there is no later moment at all.
-            if (!fit.done && size.width > 0f && size.height > 0f) {
+            //
+            // And re-fit as the survey grows, until the surveyor pans or zooms. Live surveying
+            // starts from a single station and adds a leg every few readings; a fit that happened
+            // once would leave the cave walking off the edge of the screen within a minute, which
+            // is precisely the moment somebody is watching. Once they have moved the view
+            // themselves it is theirs, and re-fitting under them would be rude.
+            //
+            // The trigger is the *centreline's* extent, not the whole scene's. A drawn stroke
+            // enlarges the scene too, and re-framing the view because somebody drew near the edge
+            // would move the paper out from under the pen.
+            if (fit.shouldFitTo(scene.surveyBounds) && size.width > 0f && size.height > 0f) {
                 viewport.fitTo(scene.bounds, size.width, size.height)
-                fit.done = true
+                fit.noteFitted(scene.surveyBounds)
             }
 
             drawSurvey(scene, options, viewport, textMeasurer, fontFamily, tool)
@@ -165,7 +187,16 @@ class SurveyScene private constructor(
     val splays: List<Pair<Coord2D, Coord2D>>,
     /** The live sketch, not a copy: a stroke in progress grows in place and draws as it goes. */
     val sketch: Sketch,
+    /** Everything drawn, centreline and ink alike — what the opening zoom is fitted to. */
     val bounds: Bounds,
+    /**
+     * The centreline alone.
+     *
+     * Kept apart from [bounds] because it answers a different question: "has the *survey* grown",
+     * which is worth re-framing the view for, as against "has anything on screen moved", which
+     * includes the stroke currently under somebody's finger and is not.
+     */
+    val surveyBounds: Bounds,
 ) {
     companion object {
         fun from(survey: Survey, projection: Projection2D): SurveyScene {
@@ -181,12 +212,17 @@ class SurveyScene private constructor(
 
             val sketch = survey.getSketch(projection)
 
+            val surveyPoints = buildList {
+                stations.forEach { add(it.second) }
+                legs.forEach { add(it.first); add(it.second) }
+                splays.forEach { add(it.first); add(it.second) }
+            }
+            val surveyBounds = Bounds.of(surveyPoints)
+
             val bounds =
                 Bounds.of(
                     buildList {
-                        stations.forEach { add(it.second) }
-                        legs.forEach { add(it.first); add(it.second) }
-                        splays.forEach { add(it.first); add(it.second) }
+                        addAll(surveyPoints)
                         sketch.pathDetails.forEach { addAll(it.path) }
                         sketch.textDetails.forEach { add(it.position) }
                         sketch.symbolDetails.forEach { add(it.position) }
@@ -194,7 +230,7 @@ class SurveyScene private constructor(
                     },
                 )
 
-            return SurveyScene(stations, legs, splays, sketch, bounds)
+            return SurveyScene(stations, legs, splays, sketch, bounds, surveyBounds)
         }
     }
 }

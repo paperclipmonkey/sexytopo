@@ -34,7 +34,7 @@ class SurveyLoaderFidelityTest {
         val text =
             """
             {
-              "surveyName": "Broken Cave",
+              "name": "Broken Cave",
               "stations": [
                 {
                   "name": "1", "eeDirection": "right", "comment": "",
@@ -84,7 +84,7 @@ class SurveyLoaderFidelityTest {
         val text =
             """
             {
-              "surveyName": "Old Format Cave",
+              "name": "Old Format Cave",
               "stations": [
                 {
                   "name": "1", "eeDirection": "right", "comment": "",
@@ -134,7 +134,7 @@ class SurveyLoaderFidelityTest {
         val text =
             """
             {
-              "surveyName": "Backwards Cave",
+              "name": "Backwards Cave",
               "stations": [
                 { "name": "2", "eeDirection": "right", "comment": "", "legs": [] },
                 {
@@ -173,7 +173,7 @@ class SurveyLoaderFidelityTest {
         val text =
             """
             {
-              "surveyName": "Doubled Cave",
+              "name": "Doubled Cave",
               "stations": [
                 {
                   "name": "1", "eeDirection": "right", "comment": "",
@@ -217,7 +217,7 @@ class SurveyLoaderFidelityTest {
         val text =
             """
             {
-              "surveyName": "Confused Cave",
+              "name": "Confused Cave",
               "stations": [
                 { "name": "1", "eeDirection": "right", "comment": "first", "legs": [] },
                 { "name": "1", "eeDirection": "right", "comment": "second", "legs": [] }
@@ -292,7 +292,7 @@ class SurveyLoaderFidelityTest {
         val text =
             """
             {
-              "surveyName": "Historic Cave",
+              "name": "Historic Cave",
               "stations": [
                 { "name": "1", "eeDirection": "right", "comment": "", "legs": [] }
               ],
@@ -327,7 +327,7 @@ class SurveyLoaderFidelityTest {
         val text =
             """
             {
-              "surveyName": "Salvageable Cave",
+              "name": "Salvageable Cave",
               "stations": [
                 {
                   "name": "1", "eeDirection": "right", "comment": "",

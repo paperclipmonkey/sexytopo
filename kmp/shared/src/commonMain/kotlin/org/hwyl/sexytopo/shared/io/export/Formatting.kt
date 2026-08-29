@@ -32,9 +32,13 @@ fun formatFixed(value: Double, decimalPlaces: Int, alwaysSigned: Boolean = false
     val whole = scaled / scale
     val fraction = scaled % scale
 
+    // The sign comes from the input, not from the rounded result: -0.001 at two decimal places
+    // is "-0.00" in Java, not "0.00". Negative zero needs the reciprocal test, because -0.0 < 0
+    // is false in IEEE arithmetic while Java's Formatter still writes it with a minus sign.
+    val isNegative = value < 0 || (value == 0.0 && 1.0 / value < 0)
     val sign =
         when {
-            value < 0 -> "-"
+            isNegative -> "-"
             alwaysSigned -> "+"
             else -> ""
         }
