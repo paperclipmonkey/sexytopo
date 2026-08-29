@@ -5,25 +5,43 @@ import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
 
 /**
- * The slice of `control/util/SurveyUpdater` and `StationNamer` this proof of concept needs:
- * turning a shot into a new station, and hanging splays off a station.
+ * The deliberate, "I know where this leg goes" half of the survey engine: hanging a named station
+ * off a shot, and recording splays. The reactive half — watching a stream of readings and deciding
+ * when they amount to a new station — lives in [SurveyUpdater].
  *
- * A full port would bring across the rest of SurveyUpdater — triple-shot promotion, the three
- * pluggable leg-amalgamation algorithms, splay upgrade/downgrade, leg editing and subtree-aware
- * deletion — all of which is plain logic in the Java original.
+ * Ported from the correspondingly-named methods of `control/util/SurveyUpdater`.
  */
 object SurveyBuilder {
 
-    /** Promotes a shot to a full leg pointing at a newly named station, which becomes active. */
+    /**
+     * Promotes a shot to a full leg pointing at a newly named station, which becomes active.
+     *
+     * A shot that already carries a destination (the surveyor typed a station name, or is linking
+     * to a known station) keeps it; only an unnamed shot gets a generated name.
+     *
+     * @return the station the leg now points at.
+     */
     fun updateWithNewStation(survey: Survey, leg: Leg): Station {
-        val from = survey.activeStation
-        val newStation = Station(nextStationName(survey, from))
-        val fullLeg = Leg(leg.distance, leg.azimuth, leg.inclination, newStation)
-        fullLeg.comment = leg.comment
-        from.addOnwardLeg(fullLeg)
-        survey.addLegRecord(fullLeg)
-        survey.activeStation = newStation
-        return newStation
+        val activeStation = survey.activeStation
+        val fullLeg =
+            if (leg.hasDestination()) {
+                leg
+            } else {
+                val newStation = Station(StationNamer.generateNextStationName(survey, activeStation))
+                Leg.upgradeSplayToConnectedLeg(leg, newStation)
+            }
+        addLegFromStation(survey, activeStation, fullLeg)
+        return fullLeg.destination
+    }
+
+    /** Hangs [leg] off [fromStation], and makes its destination active if it has one. */
+    fun addLegFromStation(survey: Survey, fromStation: Station, leg: Leg) {
+        fromStation.addOnwardLeg(leg)
+        survey.isSaved = false
+        survey.addLegRecord(leg)
+        if (leg.hasDestination()) {
+            survey.activeStation = leg.destination
+        }
     }
 
     /** Records a splay: a leg with no destination station. */
@@ -32,21 +50,7 @@ object SurveyBuilder {
         survey.addLegRecord(leg)
     }
 
-    /**
-     * Advances the trailing number of the originating station's name, skipping names already in
-     * use. The Android original also handles branch suffixes such as "2a1".
-     */
-    fun nextStationName(survey: Survey, from: Station): String {
-        val existing = survey.getAllStations().map { it.name }.toSet()
-        val trailing = Regex("(\\d+)$").find(from.name)
-        if (trailing != null) {
-            val prefix = from.name.dropLast(trailing.value.length)
-            var number = trailing.value.toInt() + 1
-            while ("$prefix$number" in existing) number++
-            return "$prefix$number"
-        }
-        var suffix = 1
-        while ("${from.name}$suffix" in existing) suffix++
-        return "${from.name}$suffix"
-    }
+    /** @see StationNamer.generateNextStationName */
+    fun nextStationName(survey: Survey, from: Station): String =
+        StationNamer.generateNextStationName(survey, from)
 }

@@ -29,6 +29,7 @@ kotlin {
             implementation(compose.foundation)
             implementation(compose.material3)
             implementation(compose.ui)
+            implementation(compose.components.resources)
         }
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
@@ -37,6 +38,12 @@ kotlin {
             implementation("org.jetbrains.kotlinx:kotlinx-browser:0.3")
         }
     }
+}
+
+compose.resources {
+    publicResClass = true
+    packageOfResClass = "org.hwyl.sexytopo.demo.resources"
+    generateResClass = auto
 }
 
 compose.desktop {
