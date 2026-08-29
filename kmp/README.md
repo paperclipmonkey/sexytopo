@@ -32,12 +32,12 @@ Being precise about this matters more than the demo looking good.
 | Native JSON survey/sketch formats read and written compatibly | **Verified** | round-trip tests against Android-shaped fixtures, including corrupt and old-format files |
 | Survex and Therion export byte-identically | **Verified** | golden tests asserting the full file, metadata block included |
 | The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
-| The BLE connection logic is platform-free | **Verified** | `GattLinkTest`; only the CoreBluetooth callback plumbing is left in `iosMain` |
+| The BLE connection logic is platform-free | **Verified** | `GattLinkTest` and `GattSessionTest` — the profile matrix *and* the connection lifecycle; only callback plumbing is left in `iosMain` |
 | Shared Compose UI draws, and can be drawn on | **Verified** | `./gradlew :demo:renderDemoPng`; drawing/erasing/undo covered by tests |
 | **The shared core has no JVM-only dependencies** | **Verified** | all 343 shared tests pass on **Kotlin/Wasm** as well as the JVM |
 | The same code compiles for iOS | **Not verified** | Kotlin/Native for Apple targets needs macOS; this was authored on Linux |
 | The iOS app runs on a device | **Not verified** | needs Xcode |
-| `CoreBluetoothTransport` works | **Not verified** | written, never compiled — but its logic now lives in `GattLink`, which is tested; see its KDoc |
+| `CoreBluetoothTransport` works | **Not verified** | written, never compiled — but its logic now lives in `GattLink` and `GattSession`, which are; see its KDoc |
 | The whole app runs in a browser | **Verified** | a headless-Chromium smoke test in CI loads the page, draws a stroke and undoes it |
 | The same UI builds and packages for **Android** | **Verified** | `:androidApp:assembleDebug` in CI; the APK is a build artifact |
 
@@ -217,7 +217,18 @@ These are the things that would actually shape a real port.
    pulled out into a tested `GattLink`. That was the feasibility study's central claim about this
    layer and it holds up.
 
-7. **Extracting the untestable code found a bug in it immediately.** The first
+7. **Extracting the untestable code found bugs in it immediately, twice.** The first pass moved
+   the profile matching out and exposed the UUID bug below. A later review of what was left found
+   six more — a second `connect()` leaking a scanning central manager, a callback reporting a
+   connection after the surveyor disconnected, Bluetooth being toggled silently reconnecting an
+   app that had been disconnected, a connection reported before the subscriptions were confirmed
+   (so a failed subscribe gave a "connected" instrument that recorded nothing), a missing
+   characteristic producing silence rather than an error, and no timeout at all. Every one was a
+   *lifecycle* question rather than a Bluetooth question, which is why they could all move to
+   `GattSession` in `commonMain` and get a test each. The lesson generalises: when a file cannot
+   be compiled, the useful move is not to review it harder but to make it smaller.
+
+8. **The specific bug worth quoting.** The first
    `CoreBluetoothTransport` compared `CBUUID.UUIDString` against the profile's 128-bit UUIDs as
    plain strings. Assigned-number UUIDs — which is what BRIC4 and BRIC5 use for *all four* of their
    characteristics — have a 16-bit short form, and CoreBluetooth reports whichever width the UUID

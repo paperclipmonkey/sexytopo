@@ -71,11 +71,18 @@ class GattLinkTest {
         assertEquals(GattLink.Role.WRITE, link.discovered("58E1"))
         assertEquals(GattLink.Role.NOTIFY, link.discovered("58D1"))
         assertEquals(GattLink.Role.NOTIFY, link.discovered("58D2"))
-        assertFalse(link.isReady, "two of BRIC's three indications is not enough")
+        assertFalse(link.hasFoundEverything, "two of BRIC's three indications is not enough")
         assertEquals(GattLink.Role.NOTIFY, link.discovered("58D3"))
 
-        assertTrue(link.isReady)
+        assertTrue(link.hasFoundEverything)
         assertEquals(emptyList(), link.missing)
+
+        // Found is not the same as subscribed, and only subscribed means measurements arrive.
+        assertFalse(link.isReady)
+        link.subscribed("58D1")
+        link.subscribed("58D2")
+        link.subscribed("58D3")
+        assertTrue(link.isReady)
     }
 
     // -----------------------------------------------------------------------------------------
@@ -94,7 +101,7 @@ class GattLinkTest {
         link.discovered(InstrumentProfile.FCL.writeCharacteristicUuid)
         link.discovered(InstrumentProfile.FCL.notifyCharacteristicUuids[0])
 
-        assertFalse(link.isReady)
+        assertFalse(link.hasFoundEverything)
         assertEquals(
             listOf(InstrumentProfile.FCL.notifyCharacteristicUuids[1]),
             link.missing,
@@ -141,7 +148,7 @@ class GattLinkTest {
             link.discovered(uuid)
         }
 
-        assertTrue(link.isReady, "measurements are what a BRIC is for")
+        assertTrue(link.hasFoundEverything, "measurements are what a BRIC is for")
         assertEquals(emptyList(), link.missing)
     }
 
@@ -150,7 +157,7 @@ class GattLinkTest {
         for (profile in InstrumentProfile.ALL.filter { it.requiresWriteCharacteristic }) {
             val link = GattLink(profile)
             for (uuid in profile.notifyCharacteristicUuids) link.discovered(uuid)
-            assertFalse(link.isReady, "${profile.name} cannot be commanded without it")
+            assertFalse(link.hasFoundEverything, "${profile.name} cannot be commanded without it")
         }
     }
 
@@ -160,7 +167,10 @@ class GattLinkTest {
         link.discovered(InstrumentProfile.DISTOX_BLE.notifyCharacteristicUuids[0])
 
         assertTrue(InstrumentProfile.DISTOX_BLE.requiresWriteCharacteristic)
-        assertFalse(link.isReady, "commands could not be sent, so this is not a usable link")
+        assertFalse(
+            link.hasFoundEverything,
+            "commands could not be sent, so this is not a usable link",
+        )
         assertEquals(listOf(InstrumentProfile.DISTOX_BLE.writeCharacteristicUuid), link.missing)
     }
 
@@ -171,6 +181,7 @@ class GattLinkTest {
             link.discovered(profile.writeCharacteristicUuid)
             for (uuid in profile.notifyCharacteristicUuids) {
                 link.discovered(uuid)
+                link.subscribed(uuid)
             }
             assertTrue(link.isReady, "${profile.name} should be ready")
         }
@@ -181,7 +192,7 @@ class GattLinkTest {
     fun anUnrelatedCharacteristicIsIgnored() {
         val link = GattLink(InstrumentProfile.SAP6)
         assertEquals(GattLink.Role.IGNORED, link.discovered("2a19")) // battery level
-        assertFalse(link.isReady)
+        assertFalse(link.hasFoundEverything)
     }
 
     /** A device that reports the same characteristic twice must not be counted twice. */
@@ -191,7 +202,10 @@ class GattLinkTest {
         link.discovered(InstrumentProfile.BRIC4.writeCharacteristicUuid)
         repeat(3) { link.discovered(InstrumentProfile.BRIC4.notifyCharacteristicUuids[0]) }
 
-        assertFalse(link.isReady, "one indication seen three times is still one indication")
+        assertFalse(
+            link.hasFoundEverything,
+            "one indication seen three times is still one indication",
+        )
         assertEquals(2, link.missing.size)
     }
 
@@ -200,6 +214,7 @@ class GattLinkTest {
         val link = GattLink(InstrumentProfile.DISTOX_BLE)
         link.discovered(InstrumentProfile.DISTOX_BLE.writeCharacteristicUuid)
         link.discovered(InstrumentProfile.DISTOX_BLE.notifyCharacteristicUuids[0])
+        link.subscribed(InstrumentProfile.DISTOX_BLE.notifyCharacteristicUuids[0])
         assertTrue(link.isReady)
 
         link.reset()

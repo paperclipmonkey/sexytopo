@@ -5,6 +5,7 @@ import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
 import org.hwyl.sexytopo.shared.comms.BaseInstrumentTransport
 import org.hwyl.sexytopo.shared.comms.GattLink
+import org.hwyl.sexytopo.shared.comms.GattSession
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
 import org.hwyl.sexytopo.shared.comms.WriteType
 import platform.CoreBluetooth.CBAdvertisementDataLocalNameKey
@@ -19,9 +20,11 @@ import platform.CoreBluetooth.CBPeripheralDelegateProtocol
 import platform.CoreBluetooth.CBService
 import platform.CoreBluetooth.CBUUID
 import platform.Foundation.NSData
+import platform.Foundation.NSDate
 import platform.Foundation.NSError
 import platform.Foundation.NSNumber
 import platform.Foundation.create
+import platform.Foundation.timeIntervalSince1970
 import platform.darwin.NSObject
 import platform.posix.memcpy
 
@@ -32,23 +35,27 @@ import platform.posix.memcpy
  *
  * This file was authored on Linux, where there is no Xcode and no Kotlin/Native Apple toolchain, so
  * it has **not been compiled or run**. Expect to fix selector signatures and nullability on the
- * first real build. What has changed since the first draft is how much that matters: every decision
- * this class used to make itself now lives in [GattLink] in `commonMain`, under test on the JVM and
- * on Kotlin/Wasm. What is left here is translation — CoreBluetooth's callbacks in, [GattLink]
- * questions out — so a compile error is the worst thing likely to be wrong with it, rather than a
- * logic error nobody could have run.
+ * first real build.
  *
- * That was not a theoretical improvement. Pulling the logic out immediately exposed a real defect:
- * this class used to compare `CBUUID.UUIDString` against the profile's 128-bit UUIDs as plain
- * strings, which silently fails for every characteristic BRIC4 and BRIC5 have. See
- * [GattLink.normaliseUuid].
+ * What has changed since the first draft is how much that matters. It used to hold the whole
+ * connection lifecycle — and an adversarial review found six defects in it, none of which anybody
+ * could have run a test against. All six were lifecycle questions rather than Bluetooth questions,
+ * so they now live in [GattSession] and [GattLink] in `commonMain`, under test on the JVM and on
+ * Kotlin/Wasm. What is left here is translation: CoreBluetooth's callbacks in, the session's
+ * [GattSession.Action] out.
  *
- * ## Why it is short
+ * That is worth stating plainly, because it is the whole argument for the split. The riskiest file
+ * in the port is now the one with the least in it.
  *
- * This is the entire iOS-specific Bluetooth surface. The feasibility study's central claim was that
- * the instrument layer splits into portable protocol logic and a thin platform transport; this is
- * the thin part. Everything above it — packet decoding, the command vocabulary, the survey engine —
- * is shared code already exercised by tests.
+ * ## Why each attempt gets its own manager and delegates
+ *
+ * CoreBluetooth callbacks arrive whenever they arrive, including after the surveyor has pressed
+ * disconnect. Every attempt therefore creates a fresh [CBCentralManager] with fresh delegates that
+ * capture the session generation they were made under, and hands it back on every callback. A
+ * callback from an abandoned attempt carries an old generation and the session discards it — which
+ * is what stops a disconnected app from reconnecting itself, and stops a stale callback from
+ * reporting a connection nobody asked for. Releasing the manager with the attempt is also what
+ * stops a second `connect()` leaving the first one scanning for ever.
  *
  * ## What it deliberately cannot do
  *
@@ -60,40 +67,64 @@ import platform.posix.memcpy
 @OptIn(ExperimentalForeignApi::class)
 class CoreBluetoothTransport(profile: InstrumentProfile) : BaseInstrumentTransport() {
 
-    private val link = GattLink(profile)
+    private val session = GattSession(profile)
 
     private var central: CBCentralManager? = null
     private var peripheral: CBPeripheral? = null
     private var writeCharacteristic: CBCharacteristic? = null
-    private var connectedFlag = false
+
+    /**
+     * Held so ARC does not collect them: `CBCentralManager.delegate` is a weak reference, and a
+     * delegate nothing else retains is deallocated immediately, after which no callback ever
+     * arrives and the connection silently never happens.
+     */
+    private var delegates: Delegates? = null
 
     override val isConnected: Boolean
-        get() = connectedFlag
+        get() = session.isConnected
 
     // ---------------------------------------------------------------------------------------
     // Lifecycle
     // ---------------------------------------------------------------------------------------
 
     override fun connect() {
-        // Passing a null queue means callbacks arrive on the main queue, which matches the
+        if (session.start(nowMillis()) != GattSession.Action.SCAN) {
+            // Already scanning or connected; starting again would strand the attempt in flight.
+            return
+        }
+        val delegates = Delegates(session.generation)
+        this.delegates = delegates
+        // A null queue means callbacks arrive on the main queue, which matches the
         // single-threaded contract InstrumentTransport documents.
-        central = CBCentralManager(delegate = centralDelegate, queue = null)
-        // Scanning starts once the manager reports poweredOn; see centralManagerDidUpdateState.
+        central = CBCentralManager(delegate = delegates.centralDelegate, queue = null)
+        // Scanning itself starts once the manager reports poweredOn; see the delegate below.
     }
 
     override fun disconnect() {
-        peripheral?.let { central?.cancelPeripheralConnection(it) }
+        session.stop()
+        releasePeripheral()
         central?.stopScan()
-        peripheral = null
-        writeCharacteristic = null
-        link.reset()
-        connectedFlag = false
+        central = null
+        delegates = null
+    }
+
+    /**
+     * Give up if the attempt has taken too long.
+     *
+     * Not driven by a timer here on purpose. Scheduling one means `NSTimer` or `dispatch_after`,
+     * both of which are cinterop surface this file cannot compile to check — and getting the
+     * timeout wrong is a worse failure than not having one, since an unbalanced timer keeps the
+     * radio awake. The host calls this from wherever it already has a run loop; the session decides
+     * what it means. See [GattSession.tick].
+     */
+    fun checkTimeout() {
+        apply(session.tick(nowMillis()))
     }
 
     override fun send(bytes: ByteArray) {
         val characteristic = writeCharacteristic
         val target = peripheral
-        if (characteristic == null || target == null) {
+        if (characteristic == null || target == null || !session.isConnected) {
             emitFailure("not connected")
             return
         }
@@ -101,7 +132,7 @@ class CoreBluetoothTransport(profile: InstrumentProfile) : BaseInstrumentTranspo
         // only, so writing with one to them fails and the command never reaches the instrument -
         // which would look exactly like a broken cable and be very hard to diagnose in a cave.
         val writeType =
-            when (link.profile.writeType) {
+            when (session.profile.writeType) {
                 WriteType.WITH_RESPONSE -> CBCharacteristicWriteWithResponse
                 WriteType.WITHOUT_RESPONSE -> CBCharacteristicWriteWithoutResponse
             }
@@ -109,137 +140,223 @@ class CoreBluetoothTransport(profile: InstrumentProfile) : BaseInstrumentTranspo
     }
 
     // ---------------------------------------------------------------------------------------
-    // Central manager: discovery and connection
+    // Turning the session's decisions into CoreBluetooth calls
     // ---------------------------------------------------------------------------------------
 
-    private val centralDelegate =
-        object : NSObject(), CBCentralManagerDelegateProtocol {
+    private fun apply(action: GattSession.Action) {
+        when (action) {
+            GattSession.Action.NONE -> Unit
 
-            override fun centralManagerDidUpdateState(central: CBCentralManager) {
-                if (central.state == CBManagerStatePoweredOn) {
-                    // Scanning for all services rather than filtering: several instruments
-                    // advertise no service UUID at all, and matching is by name anyway.
-                    central.scanForPeripheralsWithServices(null, null)
-                } else {
-                    emitFailure("bluetooth unavailable (state ${central.state})")
-                }
-            }
+            // Scanning for all services rather than filtering: several instruments advertise no
+            // service UUID at all, and matching is by name anyway.
+            GattSession.Action.SCAN -> central?.scanForPeripheralsWithServices(null, null)
 
-            override fun centralManager(
-                central: CBCentralManager,
-                didDiscoverPeripheral: CBPeripheral,
-                advertisementData: Map<Any?, *>,
-                RSSI: NSNumber,
-            ) {
-                // The advertisement's local name is the live one; the peripheral's cached name can
-                // be stale or absent on a device iOS has not seen before.
-                val advertisedName =
-                    advertisementData[CBAdvertisementDataLocalNameKey] as? String
-                        ?: didDiscoverPeripheral.name
-                if (!link.matches(advertisedName)) return
+            GattSession.Action.CONNECT ->
+                peripheral?.let { central?.connectPeripheral(it, null) }
 
-                central.stopScan()
-                peripheral = didDiscoverPeripheral
-                didDiscoverPeripheral.delegate = peripheralDelegate
-                central.connectPeripheral(didDiscoverPeripheral, null)
-            }
-
-            override fun centralManager(
-                central: CBCentralManager,
-                didConnectPeripheral: CBPeripheral,
-            ) {
-                didConnectPeripheral.discoverServices(
-                    link.servicesToDiscover.map { CBUUID.UUIDWithString(it) },
+            GattSession.Action.DISCOVER_SERVICES ->
+                peripheral?.discoverServices(
+                    session.link.servicesToDiscover.map { CBUUID.UUIDWithString(it) },
                 )
-            }
 
-            override fun centralManager(
-                central: CBCentralManager,
-                didFailToConnectPeripheral: CBPeripheral,
-                error: NSError?,
-            ) {
-                connectedFlag = false
-                emitFailure(error?.localizedDescription ?: "failed to connect")
-            }
+            GattSession.Action.REPORT_CONNECTED -> emitConnected()
 
-            override fun centralManager(
-                central: CBCentralManager,
-                didDisconnectPeripheral: CBPeripheral,
-                error: NSError?,
-            ) {
-                connectedFlag = false
-                writeCharacteristic = null
-                link.reset()
-                emitDisconnected(error?.localizedDescription)
+            GattSession.Action.REPORT_FAILURE ->
+                emitFailure(session.failure ?: "could not connect")
+
+            GattSession.Action.DISCONNECT_AND_REPORT_FAILURE -> {
+                releasePeripheral()
+                emitFailure(session.failure ?: "could not connect")
             }
         }
+    }
+
+    private fun releasePeripheral() {
+        peripheral?.let { central?.cancelPeripheralConnection(it) }
+        peripheral = null
+        writeCharacteristic = null
+    }
+
+    /** Milliseconds since the epoch; only differences of it are ever used. */
+    private fun nowMillis(): Long = (NSDate().timeIntervalSince1970 * 1000.0).toLong()
 
     // ---------------------------------------------------------------------------------------
-    // Peripheral: characteristics and inbound frames
+    // The delegates, one pair per attempt
     // ---------------------------------------------------------------------------------------
 
-    private val peripheralDelegate =
-        object : NSObject(), CBPeripheralDelegateProtocol {
+    private inner class Delegates(val generation: Int) {
 
-            override fun peripheral(peripheral: CBPeripheral, didDiscoverServices: NSError?) {
-                if (didDiscoverServices != null) {
-                    emitFailure(didDiscoverServices.localizedDescription)
-                    return
+        val centralDelegate =
+            object : NSObject(), CBCentralManagerDelegateProtocol {
+
+                override fun centralManagerDidUpdateState(central: CBCentralManager) {
+                    val poweredOn = central.state == CBManagerStatePoweredOn
+                    apply(
+                        session.radioStateChanged(
+                            poweredOn = poweredOn,
+                            description = "state ${central.state}",
+                            generation = generation,
+                        ),
+                    )
                 }
-                for (service in peripheral.services.orEmpty().filterIsInstance<CBService>()) {
-                    peripheral.discoverCharacteristics(null, service)
+
+                override fun centralManager(
+                    central: CBCentralManager,
+                    didDiscoverPeripheral: CBPeripheral,
+                    advertisementData: Map<Any?, *>,
+                    RSSI: NSNumber,
+                ) {
+                    // The advertisement's local name is the live one; the peripheral's cached name
+                    // can be stale or absent on a device iOS has not seen before.
+                    val advertisedName =
+                        advertisementData[CBAdvertisementDataLocalNameKey] as? String
+                            ?: didDiscoverPeripheral.name
+
+                    val action = session.peripheralDiscovered(advertisedName, generation)
+                    if (action != GattSession.Action.CONNECT) return
+
+                    central.stopScan()
+                    // Qualified because `peripheral` alone would bind to the CBPeripheral this
+                    // callback is about, not to the transport's own field.
+                    this@CoreBluetoothTransport.peripheral = didDiscoverPeripheral
+                    didDiscoverPeripheral.delegate = peripheralDelegate
+                    apply(action)
+                }
+
+                override fun centralManager(
+                    central: CBCentralManager,
+                    didConnectPeripheral: CBPeripheral,
+                ) {
+                    apply(session.peripheralConnected(generation))
+                }
+
+                override fun centralManager(
+                    central: CBCentralManager,
+                    didFailToConnectPeripheral: CBPeripheral,
+                    error: NSError?,
+                ) {
+                    apply(session.connectionFailed(error?.localizedDescription, generation))
+                }
+
+                override fun centralManager(
+                    central: CBCentralManager,
+                    didDisconnectPeripheral: CBPeripheral,
+                    error: NSError?,
+                ) {
+                    if (session.peripheralDisconnected(error?.localizedDescription, generation)) {
+                        releasePeripheral()
+                        emitDisconnected(error?.localizedDescription)
+                    }
                 }
             }
 
-            override fun peripheral(
-                peripheral: CBPeripheral,
-                didDiscoverCharacteristicsForService: CBService,
-                error: NSError?,
-            ) {
-                if (error != null) {
-                    emitFailure(error.localizedDescription)
-                    return
-                }
+        val peripheralDelegate =
+            object : NSObject(), CBPeripheralDelegateProtocol {
 
-                val characteristics =
-                    didDiscoverCharacteristicsForService.characteristics
-                        .orEmpty()
-                        .filterIsInstance<CBCharacteristic>()
-
-                for (characteristic in characteristics) {
-                    when (link.discovered(characteristic.UUID.UUIDString)) {
-                        GattLink.Role.WRITE -> writeCharacteristic = characteristic
-                        // CoreBluetooth writes the CCCD itself, so unlike the Android drivers there
-                        // is no descriptor to poke.
-                        GattLink.Role.NOTIFY -> peripheral.setNotifyValue(true, characteristic)
-                        GattLink.Role.IGNORED -> Unit
+                override fun peripheral(peripheral: CBPeripheral, didDiscoverServices: NSError?) {
+                    if (didDiscoverServices != null) {
+                        apply(
+                            session.connectionFailed(
+                                didDiscoverServices.localizedDescription,
+                                generation,
+                            ),
+                        )
+                        return
+                    }
+                    val services = peripheral.services.orEmpty().filterIsInstance<CBService>()
+                    if (services.isEmpty()) {
+                        apply(session.serviceDiscoveryFinished(generation))
+                        return
+                    }
+                    for (service in services) {
+                        peripheral.discoverCharacteristics(null, service)
                     }
                 }
 
-                // Only report success once every characteristic the profile needs has turned up;
-                // see GattLink.isReady for why a half-configured link is worse than none.
-                if (link.isReady && !connectedFlag) {
-                    connectedFlag = true
-                    emitConnected()
-                }
-            }
+                override fun peripheral(
+                    peripheral: CBPeripheral,
+                    didDiscoverCharacteristicsForService: CBService,
+                    error: NSError?,
+                ) {
+                    if (error != null) {
+                        apply(session.connectionFailed(error.localizedDescription, generation))
+                        return
+                    }
 
-            override fun peripheral(
-                peripheral: CBPeripheral,
-                didUpdateValueForCharacteristic: CBCharacteristic,
-                error: NSError?,
-            ) {
-                if (error != null) {
-                    emitFailure(error.localizedDescription)
-                    return
+                    val characteristics =
+                        didDiscoverCharacteristicsForService.characteristics
+                            .orEmpty()
+                            .filterIsInstance<CBCharacteristic>()
+
+                    for (characteristic in characteristics) {
+                        val role =
+                            session.characteristicDiscovered(
+                                characteristic.UUID.UUIDString,
+                                generation,
+                            )
+                        when (role) {
+                            GattLink.Role.WRITE -> writeCharacteristic = characteristic
+                            // CoreBluetooth writes the CCCD itself, so unlike the Android drivers
+                            // there is no descriptor to poke. Success or failure comes back as
+                            // didUpdateNotificationStateForCharacteristic.
+                            GattLink.Role.NOTIFY ->
+                                peripheral.setNotifyValue(true, characteristic)
+                            GattLink.Role.IGNORED -> Unit
+                        }
+                    }
+
+                    // Only once *every* requested service has answered. Asking after each one
+                    // would reject a device whose second service simply had not replied yet.
+                    if (haveAllServicesReported(peripheral)) {
+                        apply(session.serviceDiscoveryFinished(generation))
+                    }
                 }
-                val data = didUpdateValueForCharacteristic.value ?: return
-                emitFrame(
-                    data.toByteArray(),
-                    link.channelFor(didUpdateValueForCharacteristic.UUID.UUIDString),
-                )
+
+                override fun peripheral(
+                    peripheral: CBPeripheral,
+                    didUpdateNotificationStateForCharacteristic: CBCharacteristic,
+                    error: NSError?,
+                ) {
+                    apply(
+                        session.subscriptionConfirmed(
+                            uuid = didUpdateNotificationStateForCharacteristic.UUID.UUIDString,
+                            error = error?.localizedDescription,
+                            generation = generation,
+                        ),
+                    )
+                }
+
+                override fun peripheral(
+                    peripheral: CBPeripheral,
+                    didUpdateValueForCharacteristic: CBCharacteristic,
+                    error: NSError?,
+                ) {
+                    if (error != null) {
+                        emitFailure(error.localizedDescription)
+                        return
+                    }
+                    val data = didUpdateValueForCharacteristic.value ?: return
+                    emitFrame(
+                        data.toByteArray(),
+                        session.link.channelFor(
+                            didUpdateValueForCharacteristic.UUID.UUIDString,
+                        ),
+                    )
+                }
             }
-        }
+    }
+
+    /**
+     * Whether every service we asked for has now reported its characteristics.
+     *
+     * BRIC is the reason this is not simply "the first callback": its write characteristic is in a
+     * second service, so judging the device on the first service to answer would reject it.
+     */
+    private fun haveAllServicesReported(peripheral: CBPeripheral): Boolean =
+        peripheral.services
+            .orEmpty()
+            .filterIsInstance<CBService>()
+            .all { it.characteristics != null }
 }
 
 // -------------------------------------------------------------------------------------------

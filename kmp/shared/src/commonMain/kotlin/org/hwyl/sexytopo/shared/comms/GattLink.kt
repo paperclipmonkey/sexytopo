@@ -34,6 +34,7 @@ class GattLink(val profile: InstrumentProfile) {
 
     private var writeFound = false
     private val notifyFound = mutableSetOf<String>()
+    private val notifySubscribed = mutableSetOf<String>()
 
     /**
      * The services to ask the peripheral for.
@@ -64,6 +65,19 @@ class GattLink(val profile: InstrumentProfile) {
         }
     }
 
+    /**
+     * Records that a subscribe to [characteristicUuid] was *confirmed* by the device.
+     *
+     * Distinct from [discovered] on purpose. Finding a notify characteristic and successfully
+     * subscribing to it are two different events with two different callbacks, and only the second
+     * one means measurements will arrive. Treating the first as sufficient produces the worst kind
+     * of bug: the app says connected, and nothing is ever recorded.
+     */
+    fun subscribed(characteristicUuid: String) {
+        val uuid = normaliseUuid(characteristicUuid)
+        if (uuid in notifyUuids) notifySubscribed.add(uuid)
+    }
+
     /** Records a discovered characteristic and returns what the transport must now do with it. */
     fun discovered(characteristicUuid: String): Role {
         val role = roleOf(characteristicUuid)
@@ -91,6 +105,16 @@ class GattLink(val profile: InstrumentProfile) {
      * delivers measurements. See [InstrumentProfile.requiresWriteCharacteristic].
      */
     val isReady: Boolean
+        get() = hasFoundEverything && notifySubscribed.size == notifyUuids.size
+
+    /**
+     * Whether every characteristic the profile names has turned up.
+     *
+     * The halfway point: enough to know the device is what it says it is, not yet enough to use it
+     * — see [isReady], which additionally wants the subscriptions confirmed. Service discovery
+     * checks this one, because a device failing it is the wrong device rather than a broken link.
+     */
+    val hasFoundEverything: Boolean
         get() =
             (writeFound || !profile.requiresWriteCharacteristic) &&
                 notifyFound.size == notifyUuids.size
@@ -130,6 +154,7 @@ class GattLink(val profile: InstrumentProfile) {
     fun reset() {
         writeFound = false
         notifyFound.clear()
+        notifySubscribed.clear()
     }
 
     companion object {
