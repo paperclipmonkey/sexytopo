@@ -12,6 +12,8 @@ import org.hwyl.sexytopo.shared.model.graph.ExtendedElevationDirection
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.model.survey.SurveyDate
+import org.hwyl.sexytopo.shared.model.survey.Trip
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -78,6 +80,10 @@ class ExportTest {
         val expected =
             "*begin Test\n" +
                 "; Created with SexyTopo on 2026-08-29\n" +
+                // With no trip there is no copyright line and no metadata block, but the newlines
+                // that follow them are unconditional in the original, so the blank lines remain.
+                "\n" +
+                "\n" +
                 "*data normal from to tape compass clino ignoreall\n" +
                 "1\t2\t5.000\t90.00\t10.00\t\n" +
                 "2\t..\t1.500\t180.00\t0.00\t\n" +
@@ -106,7 +112,14 @@ class ExportTest {
                 "survey Test\n" +
                 "# Created with SexyTopo on 2026-08-29\n" +
                 "\n" +
+                // Where the `input "....th2"` lines go; the port has no .th2 exporter yet, but the
+                // blank line the original leaves around them is kept.
+                "\n" +
+                "\n" +
                 "centreline\n" +
+                // No trip, so no copyright line and no metadata - but metadata's trailing newline
+                // is unconditional.
+                "\n" +
                 "data normal from to tape compass clino ignoreall\n" +
                 "1\t2\t5.000\t90.00\t10.00\t\n" +
                 "2\t-\t1.500\t180.00\t0.00\t\n" +
@@ -204,6 +217,150 @@ class ExportTest {
 
         val output = SurvexTherionWriter.extendedElevationExtensions(survey, SurveyFormat.SURVEX)
         assertEquals("*extend start 1\n*extend vertical 1 2\n", output)
+    }
+
+    // -------------------------------------------------------------------------------------
+    // Trip metadata
+    // -------------------------------------------------------------------------------------
+
+    /** A fully filled-in trip, of the kind a club would actually publish from. */
+    private fun documentedSurvey(): Survey {
+        val survey = simpleSurvey()
+        val trip = Trip(SurveyDate(2026, 8, 29))
+        trip.instrument = "DistoX2"
+        trip.copyrightHolder = "Some Caving Club"
+        trip.licence = "CC-BY-SA-4.0"
+        trip.comments = "Wet.\nVery wet."
+        trip.team =
+            listOf(
+                Trip.TeamEntry("Alice", listOf(Trip.Role.BOOK, Trip.Role.INSTRUMENTS)),
+                Trip.TeamEntry("Bob", listOf(Trip.Role.DOG, Trip.Role.EXPLORATION)),
+                Trip.TeamEntry("Carol", emptyList()),
+            )
+        survey.trip = trip
+        return survey
+    }
+
+    @Test
+    fun survexEmitsTheWholeTripBlock() {
+        val expected =
+            "*begin Test\n" +
+                "; Created with SexyTopo on 2026-08-29\n" +
+                "*copyright 2026 \"Some Caving Club\" ;\"CC-BY-SA-4.0\"\n" +
+                "\n" +
+                "*date 2026.08.29\n" +
+                "*instrument insts \"DistoX2\"\n" +
+                // Survex has one team list, so an explorer is just another role on it. Carol has
+                // no roles at all and is left out entirely.
+                "*team \"Alice\" notes instruments\n" +
+                "*team \"Bob\" assistant explorer\n" +
+                "\n" +
+                // No explicit exploration date, and the trip says it is linked to the survey date.
+                "*date explored 2026.08.29\n" +
+                "\n" +
+                // No space after the comment char here, unlike the "Created with" line above -
+                // the original is inconsistent about it and the file has to match.
+                ";Comment from SexyTopo trip information\n" +
+                ";Wet.\n" +
+                ";Very wet.\n" +
+                "\n" +
+                "*data normal from to tape compass clino ignoreall\n" +
+                "1\t2\t5.000\t90.00\t10.00\t\n" +
+                "2\t..\t1.500\t180.00\t0.00\t\n" +
+                "\n" +
+                "\n" +
+                "*extend start 1\n" +
+                "*end Test\n"
+
+        assertEquals(expected, SurvexExporter.export(documentedSurvey(), createdOn = "2026-08-29"))
+    }
+
+    @Test
+    fun therionSplitsTheTeamFromTheExplorers() {
+        val output = TherionExporter.export(documentedSurvey(), createdOn = "2026-08-29")
+
+        assertTrue(output.contains("\nteam \"Alice\" notes instruments\n"), "was:\n$output")
+        // Bob explored and held the tape, so he appears on both lists - but the exploration role
+        // is stripped from the team line, because Therion says that with explo-team instead.
+        assertTrue(output.contains("\nteam \"Bob\" assistant\n"), "was:\n$output")
+        assertTrue(output.contains("\nexplo-team \"Bob\"\n"), "was:\n$output")
+        assertTrue(!output.contains("explorer"), "Therion has no explorer role; was:\n$output")
+
+        assertTrue(output.contains("\ncopyright 2026 \"Some Caving Club\" #\"CC-BY-SA-4.0\"\n"))
+        assertTrue(output.contains("\nexplo-date 2026.08.29\n"), "was:\n$output")
+        assertTrue(output.contains("\n#Comment from SexyTopo trip information\n"))
+    }
+
+    /** Somebody whose only role was exploring is not on the survey team at all. */
+    @Test
+    fun anExplorerOnlyMemberIsLeftOffTherionsTeamLine() {
+        val survey = simpleSurvey()
+        val trip = Trip(SurveyDate(2026, 8, 29))
+        trip.team = listOf(Trip.TeamEntry("Dave", listOf(Trip.Role.EXPLORATION)))
+        survey.trip = trip
+
+        val output = TherionExporter.export(survey, createdOn = "x")
+        assertTrue(!output.contains("team \"Dave\" \n"), "no empty role list; was:\n$output")
+        assertTrue(!output.contains("\nteam \"Dave\""), "Dave did not survey; was:\n$output")
+        assertTrue(output.contains("explo-team \"Dave\"\n"), "but he did explore; was:\n$output")
+
+        // Survex has no such split, so there he is simply on the team as an explorer.
+        assertTrue(SurvexExporter.export(survey, createdOn = "x").contains("*team \"Dave\" explorer\n"))
+    }
+
+    /**
+     * A blank field is written commented-out rather than omitted. That is deliberate in the
+     * original: the exported file doubles as a form, so somebody editing it afterwards can see the
+     * slot and fill it in.
+     */
+    @Test
+    fun blankTripFieldsAreWrittenAsCommentedPlaceholders() {
+        val survey = simpleSurvey()
+        val trip = Trip(SurveyDate(2026, 8, 29))
+        trip.explorationDateLinked = false
+        survey.trip = trip
+
+        val output = SurvexExporter.export(survey, createdOn = "x")
+        assertTrue(output.contains("\n;*instrument insts \"\"\n"), "was:\n$output")
+        assertTrue(output.contains("\n;*date explored \n"), "was:\n$output")
+        // Neither a copyright holder nor a licence, so no copyright line at all.
+        assertTrue(!output.contains("copyright"), "was:\n$output")
+        // And no comment block, since there are no comments.
+        assertTrue(!output.contains("Comment from SexyTopo"), "was:\n$output")
+    }
+
+    @Test
+    fun anUnlinkedExplorationDateIsWrittenAsItself() {
+        val survey = simpleSurvey()
+        val trip = Trip(SurveyDate(2026, 8, 29))
+        trip.explorationDateLinked = false
+        trip.explorationDate = SurveyDate(1998, 12, 1)
+        survey.trip = trip
+
+        assertTrue(
+            SurvexExporter.export(survey, createdOn = "x").contains("*date explored 1998.12.01\n"),
+            "the passage was found long before it was surveyed",
+        )
+    }
+
+    /** A licence with no copyright holder still gets a line, with an empty pair of quotes. */
+    @Test
+    fun aLicenceWithoutAHolderStillWritesTheLine() {
+        val survey = simpleSurvey()
+        val trip = Trip(SurveyDate(2026, 8, 29))
+        trip.licence = "CC0-1.0"
+        survey.trip = trip
+
+        val output = SurvexExporter.export(survey, createdOn = "x")
+        assertTrue(output.contains("*copyright 2026 \"\" ;\"CC0-1.0\"\n"), "was:\n$output")
+    }
+
+    @Test
+    fun aSurveyWithNoTripEmitsNoMetadataAtAll() {
+        val output = SurvexExporter.export(simpleSurvey(), createdOn = "x")
+        assertTrue(!output.contains("*date"), "was:\n$output")
+        assertTrue(!output.contains("instrument"), "was:\n$output")
+        assertTrue(!output.contains("team"), "was:\n$output")
     }
 
     @Test

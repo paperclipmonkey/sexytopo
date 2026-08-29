@@ -10,6 +10,8 @@ import org.hwyl.sexytopo.shared.model.sketch.PathDetail
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.model.survey.SurveyDate
+import org.hwyl.sexytopo.shared.model.survey.Trip
 import org.hwyl.sexytopo.shared.survey.CrossSectioner
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
 import kotlin.random.Random
@@ -45,7 +47,27 @@ object ExampleSurvey {
         addWallLines(survey, random)
         addCrossSections(survey, random)
         addAnnotations(survey)
+        survey.trip = exampleTrip()
         return survey
+    }
+
+    /**
+     * Trip metadata, so the export screen shows the block a real survey carries rather than a bare
+     * centreline. The date is fixed rather than read from a clock: the exported text is compared
+     * against golden files and rendered into the demo screenshots.
+     */
+    private fun exampleTrip(): Trip {
+        val trip = Trip(SurveyDate(2026, 8, 29))
+        trip.instrument = "DistoX2"
+        trip.copyrightHolder = "Demo Caving Club"
+        trip.licence = "CC-BY-SA-4.0"
+        trip.comments = "Demo data. Entrance series only; the sump is not surveyed."
+        trip.team =
+            listOf(
+                Trip.TeamEntry("A. Surveyor", listOf(Trip.Role.BOOK)),
+                Trip.TeamEntry("B. Caver", listOf(Trip.Role.INSTRUMENTS, Trip.Role.EXPLORATION)),
+            )
+        return trip
     }
 
     // -----------------------------------------------------------------------------------------
