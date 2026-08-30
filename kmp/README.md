@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by over 630 tests. The UI
+Survex and Therion exporters and the native file format are ported and covered by over 640 tests. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
 tests the claim.
@@ -292,8 +292,8 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   On iOS that is CoreBluetooth; in Chrome, including on Android, it is Web Bluetooth. Neither has
   met real hardware — see the table above — but the acknowledgement handshake four of these
   instruments need is implemented and tested, which is the part that fails silently.
-- **Take it home.** Survex, Therion, Compass, PocketTopo, the native JSON — or the drawing itself
-  as SVG, which is the whole plan or extended elevation with its passage walls, centreline, splays,
+- **Take it home.** Survex, Therion, Compass, PocketTopo, the native JSON, Therion's own `.xvi`
+  tracing image — or the drawing itself as SVG, which is the whole plan or extended elevation with its passage walls, centreline, splays,
   station labels, symbols and cross-sections, openable in Inkscape or any browser. The SVG carries
   a legend below the drawing: title, date, who was there, surveyed length and vertical range, the
   copyright line, a scale bar and — in plan, where it means something — a north arrow. A drawing
@@ -341,6 +341,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `control/util/SurveyUpdater`, `amalgamation/*`, `StationNamer` | `shared/survey/` | Triple-shot promotion, all three amalgamation algorithms, real default tolerances |
 | `model/sketch/*` | `shared/model/sketch/` | Needed no translation — see below |
 | `model/sketch/Symbol` + 19 vector drawables | `shared/model/sketch/Symbol.kt` | **Generated** from the drawables; artwork drawn by `math/SvgPath.kt`, arcs included |
+| `io/thirdparty/xvi/*` | `shared/io/export/Xvi.kt`, `XviGlyphs.kt`, `XviSymbolPaths.kt` | The glyph font and the symbol polylines are **generated** from the Java, as `Symbol` and `Colour` were |
 | `io/thirdparty/svg/SvgExporter` | `shared/io/export/Svg.kt`, `SvgLegend.kt` | Deterministic where the Java's `HashMap` order is not; legend laid out with the Java's own arithmetic, ISO dates instead of a locale's |
 | `control/util/SurveyStats` | `shared/survey/SurveyStats.kt` | Including the two pieces of arithmetic that look like mistakes |
 | `model/sketch/Colour` (150 values) | `shared/model/sketch/Colour.kt` | **Generated** from the Java enum so values cannot drift |
@@ -553,23 +554,22 @@ JVM — just a static file host.
 
 This is a proof of concept. It does **not** include:
 
-- **Real Bluetooth on any platform.** `CoreBluetoothTransport` compiles for iOS and has never
-  reached a radio — the simulator has no Bluetooth stack, so this one genuinely needs an instrument
-  in hand. There is no Android transport here either (the Android app keeps its own).
-- **Symbol artwork.** The shared model places symbols; the SVG assets are not carried, so a symbol
-  draws as a marked point. The symbol, text and cross-section *tools* exist in the shared model but
-  the demo has no palette, text field or cross-section editor to drive them.
-- **The other exporters** — SVG, XVI, and Therion's `.th2` sketch files. Survex, Therion `.th`,
-  Compass `.dat` and PocketTopo `.txt` are done and tested against the Android app's own output.
-- **A real filesystem.** The storage layer is written and tested, but only an in-memory
-  `FileStore` exists; the `NSFileManager` and Android implementations behind it are not written.
-  Cross-survey links are deliberately deferred too - they are stored as absolute `content://` URIs,
-  which are meaningless off Android and already break when a folder moves, so replacing them is a
-  format decision to take with upstream rather than a porting one.
-- **The rest of the Android UI**: settings, stats, the 3D view, the manual.
+- **Real Bluetooth on any platform.** `CoreBluetoothTransport` and `WebBluetoothTransport` are
+  both written, both reachable from the app, and both driven end to end against a *fake*
+  instrument — but neither has met a radio. The iOS simulator has no Bluetooth stack, so this one
+  genuinely needs an instrument in hand. There is no Android transport here either (the Android app
+  keeps its own).
+- **Therion's `.th2` sketch file.** Its `.xvi` half — the tracing image — is done and tested;
+  the scrap file that positions it and carries the semantic points is not. Every other exporter is:
+  Survex, Therion `.th`, Compass `.dat`, PocketTopo `.txt`, SVG and the native JSON.
+- **Importing anything but this app's own files.** The Java's Survex, Therion and PocketTopo
+  importers are not ported.
+- **Cross-survey links.** They are stored as absolute `content://` URIs, which are meaningless off
+  Android and already break when a folder moves, so replacing them is a format decision to take
+  with upstream rather than a porting one. Nothing here draws a neighbouring survey.
+- **The rest of the Android UI**: the statistics screen, the 3D view, the manual.
 - **The Android app adopting this core.** That is the step that would make the work pay for itself
-  regardless of the iOS outcome, and it is deliberately not attempted yet — it also needs an Android
-  SDK, which the machine this was written on did not have.
+  regardless of the iOS outcome, and it is deliberately not attempted yet.
 
 ---
 
@@ -581,10 +581,9 @@ Roughly the order that keeps every intermediate state shippable:
 2. **Licensing, in parallel and early.** GPL-3.0 on the App Store needs a Section 7 "App Store
    exception" from every copyright holder — Rich, the eight named contributors, and Beat Heeb for
    the calibration algorithm. It gates release, not development, so it should start first.
-3. Finish the exporters — Survex, Therion `.th`, Compass and PocketTopo are done here; `.th2`,
-   SVG and XVI are not. Gate all of them on byte-identical output against the existing
-   `exportTherionFixtures` / `exportSvgFixtures` golden bundles, which is a stronger check than the
-   hand-written goldens in this branch.
+3. Finish the exporters — everything but Therion's `.th2` is done here. Gate all of them on
+   byte-identical output against the existing `exportTherionFixtures` / `exportSvgFixtures` golden
+   bundles, which is a stronger check than the hand-written goldens in this branch.
 4. **Point the Android app at the shared core and ship it.** After this the effort has paid for
    itself even if iOS never happens.
 5. Then the iOS-specific work. "Compile it and fix what the first build finds" is **done** — it cost

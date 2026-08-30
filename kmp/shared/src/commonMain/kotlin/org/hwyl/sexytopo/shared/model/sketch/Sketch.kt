@@ -170,6 +170,39 @@ class Sketch {
         return copy
     }
 
+    /**
+     * Everything in this sketch scaled about the origin, and everything in it moved.
+     *
+     * Ported from `Sketch.scale` and `Sketch.translate`. Used when a cross-section's sub-sketch —
+     * which is drawn in the section's own station-relative coordinates — has to be placed on the
+     * main drawing, which is what the XVI exporter does for each section.
+     *
+     * Cross-sections are carried across unchanged: `CrossSectionDetail.scale` returns itself in the
+     * original, and cross-sections do not nest anyway.
+     */
+    fun scale(factor: Float): Sketch {
+        val scaled = Sketch()
+        scaled.pathDetails = pathDetails.map { it.scale(factor) }.toMutableList()
+        scaled.symbolDetails = symbolDetails.map { it.scale(factor) }.toMutableList()
+        scaled.textDetails = textDetails.map { it.scale(factor) }.toMutableList()
+        scaled.crossSectionDetails = crossSectionDetails.toMutableList()
+        scaled.crossSectionScale = crossSectionScale
+        scaled.activeColour = activeColour
+        return scaled
+    }
+
+    fun translate(translation: Coord2D): Sketch {
+        val moved = Sketch()
+        moved.pathDetails = pathDetails.map { it.translate(translation) }.toMutableList()
+        moved.symbolDetails = symbolDetails.map { it.translate(translation) }.toMutableList()
+        moved.textDetails = textDetails.map { it.translate(translation) }.toMutableList()
+        moved.crossSectionDetails =
+            crossSectionDetails.map { it.translate(translation) }.toMutableList()
+        moved.crossSectionScale = crossSectionScale
+        moved.activeColour = activeColour
+        return moved
+    }
+
     fun startNewPath(start: Coord2D, colour: Colour = activeColour): PathDetail {
         val path = PathDetail(start, colour)
         pathDetails.add(path)

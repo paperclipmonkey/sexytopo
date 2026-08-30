@@ -149,3 +149,20 @@ enum class ExtendedElevationDirection(val propagates: Boolean) {
             entries.firstOrNull { it.name.equals(text, ignoreCase = true) } ?: DEFAULT
     }
 }
+
+/**
+ * Ported from `Space2DUtils.translate`: every station and leg moved by the same offset.
+ *
+ * Used to put a cross-section's own projection — which is drawn around the origin — where the
+ * section sits on the main drawing.
+ */
+fun Space<Coord2D>.translate(translation: Coord2D): Space<Coord2D> {
+    val translated = Space<Coord2D>()
+    for ((station, coord) in stationMap) {
+        translated.addStation(station, coord + translation)
+    }
+    for ((leg, line) in legMap) {
+        translated.addLeg(leg, Line(line.start + translation, line.end + translation))
+    }
+    return translated
+}

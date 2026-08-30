@@ -6,6 +6,7 @@ import org.hwyl.sexytopo.shared.model.graph.Coord3D
 import org.hwyl.sexytopo.shared.model.graph.Line
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.graph.Space
+import org.hwyl.sexytopo.shared.model.graph.translate
 import org.hwyl.sexytopo.shared.model.survey.Station
 
 /**
@@ -109,14 +110,3 @@ class CrossSectionDetail(
     fun scale(scale: Float): CrossSectionDetail = this
 }
 
-/** Ported from `Space2DUtils.translate`; only cross-sections need it so far. */
-private fun Space<Coord2D>.translate(translation: Coord2D): Space<Coord2D> {
-    val translated = Space<Coord2D>()
-    for ((station, coord) in stationMap) {
-        translated.addStation(station, coord + translation)
-    }
-    for ((leg, line) in legMap) {
-        translated.addLeg(leg, Line(line.start + translation, line.end + translation))
-    }
-    return translated
-}

@@ -29,6 +29,7 @@ import org.hwyl.sexytopo.shared.io.export.PocketTopoExporter
 import org.hwyl.sexytopo.shared.io.export.SurvexExporter
 import org.hwyl.sexytopo.shared.io.export.SvgExporter
 import org.hwyl.sexytopo.shared.io.export.TherionExporter
+import org.hwyl.sexytopo.shared.io.export.XviExporter
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.survey.SurveyDate
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -43,6 +44,7 @@ enum class ExportFormat(val label: String, val extension: String) {
     SURVEX("Survex .svx", "svx"),
     THERION("Therion .th", "th"),
     SVG("Drawing .svg", "svg"),
+    XVI("Tracing .xvi", "xvi"),
     COMPASS("Compass .dat", "dat"),
     POCKET_TOPO("PocketTopo .txt", "txt"),
     NATIVE("SexyTopo JSON", "data.json"),
@@ -82,6 +84,19 @@ fun ExportView(
                 ExportFormat.SVG -> SvgExporter.export(survey, projection)
                 ExportFormat.COMPASS ->
                     CompassExporter.export(survey, fallbackDate = SurveyDate.parseOrNull(today))
+                // Therion's own background-image format: the drawing as line segments, to trace
+                // over in xtherion. The scale and frame are the SVG exporter's, so the two files
+                // describe the same drawing at the same size.
+                ExportFormat.XVI ->
+                    XviExporter.export(
+                        sketch = survey.getSketch(projection),
+                        space = projection.project(survey),
+                        scale = SvgExporter.SCALE.toFloat(),
+                        gridFrame =
+                            SvgExporter.addBorder(SvgExporter.exportFrame(survey, projection))
+                                .scale(SvgExporter.SCALE.toFloat()),
+                    )
+
                 ExportFormat.POCKET_TOPO -> PocketTopoExporter.export(survey)
                 ExportFormat.NATIVE -> SurveyJson.write(survey)
             }
