@@ -241,6 +241,7 @@ class SurveySession(
 
                     if (stationCreated) {
                         note("station ${survey.activeStation.name} created from 3 readings")
+                        onStationCreated?.invoke()
                     } else {
                         note("reading ${format(leg)}")
                     }
@@ -347,6 +348,15 @@ class SurveySession(
         logRevision++
         onLogged?.invoke()
     }
+
+    /**
+     * Called when three readings promote to a station.
+     *
+     * `NewStationNotificationService` in the Android app, which listens for the same event and
+     * vibrates. A callback rather than a broadcast, and set by the app rather than by the session,
+     * because whether it buzzes is a preference and preferences are not this class's business.
+     */
+    var onStationCreated: (() -> Unit)? = null
 
     /**
      * Called after every log line, so the app can write the log out.

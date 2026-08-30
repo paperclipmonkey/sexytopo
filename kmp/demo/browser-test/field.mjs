@@ -187,9 +187,10 @@ function menuRow(name, savedSurveys) {
 const savedSurveyDelete = (nth) => [392, menuRowY(MENU_BEFORE_SURVEYS.length + nth)]
 const IMPORT_CHOOSE = [284, 494]
 const IMPORT_FIRST_ROW = [210, 446]
-const SETTING_DISTANCE = [210, 448]
-const SETTING_ANGLE = [210, 524]
-const SETTINGS_SAVE = [317, 676]
+const SETTING_DISTANCE = [210, 410]
+const SETTING_ANGLE = [210, 486]
+const SETTING_BUZZ = [320, 641]
+const SETTINGS_SAVE = [317, 715]
 const TRIP_ADD_NAME = [177, 340]
 const TRIP_ADD_BUTTON = [317, 336]
 const TRIP_ROLE_BOOK = [106, 298]
@@ -699,8 +700,23 @@ await at(...OVERFLOW); await page.waitForTimeout(500)
 await at(...menuRow('surveying', 1)); await page.waitForTimeout(800)
 await retype(SETTING_DISTANCE, '0.5')
 await retype(SETTING_ANGLE, '12')
+// And the one preference on this screen, on the way past: a buzz when a station is made, which is
+// how a surveyor with the phone in a pocket learns the leg went in.
+await at(...SETTING_BUZZ); await page.waitForTimeout(300)
 await page.screenshot({ path: join(shotDir, 'field-surveying-settings.png') })
 await at(...SETTINGS_SAVE); await page.waitForTimeout(700)
+
+const savedPreferences = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('preferences.txt'))
+  return key ? localStorage.getItem(key) : null
+})
+if (savedPreferences === null) {
+  fail('the app preferences were not written to storage')
+} else if (!savedPreferences.includes('buzzOnNewStation=false')) {
+  fail(`turning the buzz off was not saved (${savedPreferences.trim()})`)
+} else {
+  pass('the new-station buzz can be turned off, and stays off')
+}
 
 for (const [d, a, i] of sloppy) await reading(d, a, i)
 if ((await connectingLegs()) !== beforeSloppy + 1) {

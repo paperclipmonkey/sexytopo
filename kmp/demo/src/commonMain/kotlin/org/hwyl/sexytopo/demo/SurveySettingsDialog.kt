@@ -4,14 +4,17 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -19,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -42,8 +46,9 @@ import org.hwyl.sexytopo.shared.survey.amalgamation.LegAmalgamationAlgorithm
 @Composable
 fun SurveySettingsDialog(
     settings: SurveySettings,
+    preferences: AppPreferences,
     onDismiss: () -> Unit,
-    onSave: (SurveySettings) -> Unit,
+    onSave: (SurveySettings, AppPreferences) -> Unit,
 ) {
     var algorithm by remember { mutableStateOf(settings.legAmalgamationAlgorithm) }
     var distance by remember { mutableStateOf(settings.maxDistanceDelta.toString()) }
@@ -51,6 +56,7 @@ fun SurveySettingsDialog(
     var endpoint by remember { mutableStateOf(settings.maxEndpointDelta.toString()) }
     var pairwise by remember { mutableStateOf(settings.maxPairwiseError.toString()) }
     var repeats by remember { mutableStateOf(settings.numberOfRepeatsForNewStation.toString()) }
+    var buzz by remember { mutableStateOf(preferences.buzzOnNewStation) }
 
     val edited =
         settingsFrom(algorithm, distance, angle, endpoint, pairwise, repeats, settings)
@@ -100,12 +106,43 @@ fun SurveySettingsDialog(
                 }
 
                 NumberField(repeats, { repeats = it }, "Readings to make a station")
+
+                HorizontalDivider()
+
+                // `pref_vibrate_on_new_station`, which lives in the Android app's general
+                // preferences. It is here because this port has one settings screen, and because
+                // this is the setting somebody reaches for the moment they take the phone
+                // underground rather than looking at it on a desk.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Buzz when a station is made", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            if (canBuzz()) {
+                                "So you can look at the rock instead of the phone."
+                            } else {
+                                "This device cannot vibrate."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = buzz && canBuzz(),
+                        enabled = canBuzz(),
+                        onCheckedChange = {
+                            buzz = it
+                            // Feel it as you turn it on, which is the only way to know the phone
+                            // is actually going to do it.
+                            if (it) buzz()
+                        },
+                    )
+                }
             }
         },
         confirmButton = {
             TextButton(
                 enabled = edited != null,
-                onClick = { edited?.let(onSave) },
+                onClick = { edited?.let { onSave(it, AppPreferences(buzzOnNewStation = buzz)) } },
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

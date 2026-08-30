@@ -119,6 +119,34 @@ class DemoState(
 
     fun loadSettings() {
         surveySettings = library.loadSettings()
+        preferences = library.loadPreferences()
+        session.onStationCreated = ::noteStationCreated
+    }
+
+    /** The app's own preferences: what it does, rather than what a reading means. */
+    var preferences by mutableStateOf(AppPreferences.DEFAULT)
+        private set
+
+    /**
+     * A station has been made.
+     *
+     * `NewStationNotificationService` listens for the same event on the Android app's own broadcast
+     * and vibrates for 200 ms. It matters because of where it happens: the surveyor is holding an
+     * instrument, looking at rock, in the dark, and the phone is in a pocket or on a strap. Without
+     * this, the third shot of every leg is followed by finding the screen and reading it.
+     *
+     * Called from both paths that can create one - the instrument, and readings typed in by hand -
+     * because the Java's event is broadcast from `SurveyManager` and so covers both.
+     */
+    fun noteStationCreated() {
+        if (preferences.buzzOnNewStation) buzz()
+    }
+
+    fun updatePreferences(updated: AppPreferences) {
+        preferences = updated
+        if (!library.savePreferences(updated)) {
+            storageProblem = library.lastError ?: "could not save preferences"
+        }
     }
 
     fun updateSettings(settings: SurveySettings) {

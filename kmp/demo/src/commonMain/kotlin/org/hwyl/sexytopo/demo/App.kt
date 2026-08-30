@@ -253,9 +253,11 @@ private fun SexyTopoAppBar(state: DemoState) {
     if (editingSettings) {
         SurveySettingsDialog(
             settings = state.surveySettings,
+            preferences = state.preferences,
             onDismiss = { editingSettings = false },
-            onSave = {
-                state.updateSettings(it)
+            onSave = { settings, preferences ->
+                state.updateSettings(settings)
+                state.updatePreferences(preferences)
                 editingSettings = false
             },
         )
@@ -627,8 +629,10 @@ private fun FieldBar(state: DemoState) {
                     // A splay is wall detail, taken where you stand. There is no far end to have
                     // stood at, so the input mode does not apply to one.
                     SurveyBuilder.addSplay(survey, survey.activeStation, leg)
-                } else {
+                } else if (
                     SurveyUpdater.update(survey, leg, state.inputMode, state.surveySettings)
+                ) {
+                    state.noteStationCreated()
                 }
                 state.noteSketchEdited()
                 entering = false

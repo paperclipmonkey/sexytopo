@@ -75,6 +75,14 @@ class SurveyLibrary(private val store: FileStore = platformFileStore()) {
     /** The surveying tolerances, which outlive any one survey. */
     fun loadSettings(): SurveySettings = SurveySettingsStore.load(store)
 
+    /** The app's own preferences, which outlive everything. */
+    fun loadPreferences(): AppPreferences = AppPreferencesStore.load(store)
+
+    fun savePreferences(preferences: AppPreferences): Boolean =
+        AppPreferencesStore.save(store, preferences).also {
+            if (!it) lastError = "could not save preferences"
+        }
+
     fun saveSettings(settings: SurveySettings): Boolean =
         SurveySettingsStore.save(store, settings).also {
             if (!it) lastError = "could not save settings"
