@@ -173,6 +173,31 @@ class IosPlatformTest {
         DocumentsFileStore().delete(listOf("exports", name))
     }
 
+    /**
+     * The tolerances a surveyor sets at the entrance. Written through the same store as the
+     * surveys, so this is really asking whether a small file at the storage root round-trips —
+     * which is a different path from the nested survey directories above.
+     */
+    @Test
+    fun theSurveyingTolerancesSurviveOnDisk() {
+        val store = DocumentsFileStore()
+        val original = store.readText(SurveySettingsStore.PATH)
+        try {
+            val settings =
+                org.hwyl.sexytopo.shared.survey.SurveySettings.DEFAULT.copy(maxAngleDelta = 7.5f)
+
+            assertTrue(SurveySettingsStore.save(store, settings))
+            assertEquals(settings, SurveySettingsStore.load(store))
+        } finally {
+            // Leave the simulator as it was found, so a later run reads its own defaults.
+            if (original == null) {
+                store.delete(SurveySettingsStore.PATH)
+            } else {
+                store.writeText(SurveySettingsStore.PATH, original)
+            }
+        }
+    }
+
     @Test
     fun theClipboardAccepts() {
         // UIPasteboard on a simulator is real, so this exercises the interop rather than mocking

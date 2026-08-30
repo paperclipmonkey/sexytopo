@@ -240,23 +240,44 @@ Three things go wrong, in roughly this order of likelihood:
   or use a paid developer account, which lasts a year. Worth knowing before a weekend underground:
   build it the day before, not a week before.
 
-#### What to expect once it is on the phone
+#### What you can do on the phone
+
+Everything in this list is walked end to end by `field.mjs` on a 420-pixel screen on every push,
+and the iOS file handling underneath it runs in a simulator on the macOS runner:
+
+- **Record a trip.** Name a survey, type readings off the instrument's display, and watch three
+  that agree promote to a station under the app's own tolerance rules. *Forward*, *Backsight* and
+  *Fore + back* all mean what they mean in the app, and the field bar says which is on.
+- **Fix a mistake.** Tap a table row to correct a reading, delete it, or promote a splay to a
+  station. A correction keeps the destination station, so it cannot silently take the rest of the
+  cave with it.
+- **Name the junction.** Stations take a name, a comment and the extended-elevation direction that
+  decides which way a branch unrolls.
+- **Sketch it**, in plan and extended elevation, each with its own strokes and its own undo
+  history — and write on it: *sump*, *boulder choke*, *continues*.
+- **Say who was there.** Trip details records the date, the team and their roles, the instrument,
+  and the copyright and licence terms, and every exporter writes them.
+- **Match the tolerances to the instrument.** The defaults assume a DistoX; a compass and tape
+  needs looser ones, and without that nothing ever promotes to a station. *Surveying* sets them,
+  and they persist.
+- **Take it home.** Survex, Therion, Compass, PocketTopo or the native JSON, dated from the phone's
+  own clock, to the clipboard or to a real file with the right extension. On iOS the files land in
+  the Files app under *On My iPhone → SexyTopo KMP*, because `UIFileSharingEnabled` is set.
+- **Lose nothing.** Every change is written immediately, the survey is there after a restart, and
+  the app opens with no signal at all.
+
+#### What to expect that is missing
 
 Honest limits, so nothing is a surprise in a cave:
 
 - **No instrument.** `CoreBluetoothTransport` compiles and has never spoken to a DistoX; the iOS
   simulator has no Bluetooth stack, so nothing in CI has exercised it either. Readings are typed —
-  which is exactly what the *Add reading* button is for, and everything the radio would drive
-  applies to a typed reading identically: three that agree promote to a station, and *Forward*,
-  *Backsight* and *Fore + back* all mean what they mean in the app.
-- **Surveys are files in the Files app**, under *On My iPhone → SexyTopo KMP*, because
-  `UIFileSharingEnabled` is set. *Export* writes Survex, Therion, Compass, PocketTopo or the native
-  JSON — *Save file* puts one in `exports/` beside them, *Copy* puts it on the clipboard — and the
-  files are dated from the phone's own clock.
-- **The screen stays on** while the app is open, and goes back to normal when you leave it.
-- **This is a port, not the app.** Trip metadata, cross-sections, calibration and the settings screen
-  are not wired to the UI even where the logic underneath them is ported and tested. Use it beside a
-  notebook, not instead of one.
+  which is exactly what the *Add reading* button is for.
+- **No importing.** A survey can leave the app in five formats and can only come back in by being
+  a folder this app itself wrote.
+- **No cross-sections, no symbol palette, no calibration screen**, even though the logic under all
+  three is ported and tested. The symbol artwork is SVG this port does not carry.
+- **This is a port, not the app.** Use it beside a notebook, not instead of one.
 
 ---
 
