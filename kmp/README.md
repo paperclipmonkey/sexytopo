@@ -37,6 +37,7 @@ Being precise about this matters more than the demo looking good.
 | Native JSON survey/sketch formats read and written compatibly | **Verified** | round-trip tests against Android-shaped fixtures, including corrupt and old-format files |
 | Survex and Therion export byte-identically | **Verified** | golden tests asserting the full file, metadata block included |
 | Compass `.dat` exports byte-identically | **Verified** | a golden captured by *running* the Android app's own exporter, not by reading it — which caught a transcription slip on the first attempt |
+| PocketTopo `.txt` exports the same survey data | **Verified** | its DATA section is golden against the Android app; its station sections deliberately diverge, because the Java's are not reproducible even against themselves |
 | The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
 | The BLE connection logic is platform-free | **Verified** | `GattLinkTest` and `GattSessionTest` — the profile matrix *and* the connection lifecycle; only callback plumbing is left in `iosMain` |
 | The DistoX calibration solver reproduces the Java exactly | **Verified** | the Android app's own two 56-shot datasets, asserting the *iteration counts* (43, 75, 53) as well as the errors — reproduced on the JVM, Kotlin/Wasm **and Kotlin/Native** |
@@ -313,6 +314,29 @@ These are the things that would actually shape a real port.
 
 ---
 
+## A defect worth reporting upstream
+
+The Android app's **PocketTopo export is not reproducible**. `Space` keys its station and leg maps
+on `Station` and `Leg`, neither of which overrides `hashCode`, so iteration follows identity hash
+codes and changes between runs. Building one survey twice in a single JVM and exporting both gave
+the STATIONS and SHOTS lines in completely different orders.
+
+Nobody can depend on an order that is undefined, so this port picks a defined one - stations and
+legs in the order they were surveyed. That makes an export diffable, reviewable and testable, none
+of which the original's are. It is the only deliberate divergence in that exporter; everything the
+Java defines is reproduced exactly, including two things that look like mistakes and are left for
+the maintainer to judge:
+
+- the y of a *sketch* point is negated and the y of a *station* is not, which should leave the
+  drawing mirrored against the centreline it belongs to;
+- a survey with no trip gets a blank line after the date and a survey with a trip does not.
+
+The same class of bug is in the Compass exporter, differently: its splay counter resets whenever
+the from-station changes, so a surveyor who shoots splays off a station, moves on, and later
+returns gets a second run numbered from zero and two splays sharing a name.
+
+---
+
 ## A portability trap worth knowing about
 
 `Float.toString()` is not the same function on every Kotlin target. Java - and so Kotlin/JVM, and so
@@ -379,8 +403,8 @@ This is a proof of concept. It does **not** include:
 - **Symbol artwork.** The shared model places symbols; the SVG assets are not carried, so a symbol
   draws as a marked point. The symbol, text and cross-section *tools* exist in the shared model but
   the demo has no palette, text field or cross-section editor to drive them.
-- **The other exporters** — PocketTopo, SVG, XVI, and Therion's `.th2` sketch files.
-  Survex, Therion `.th` and Compass `.dat` are done and golden-tested.
+- **The other exporters** — SVG, XVI, and Therion's `.th2` sketch files. Survex, Therion `.th`,
+  Compass `.dat` and PocketTopo `.txt` are done and tested against the Android app's own output.
 - **The rest of the Android UI**: settings, stats, the 3D view, the manual.
 - **The Android app adopting this core.** That is the step that would make the work pay for itself
   regardless of the iOS outcome, and it is deliberately not attempted yet — it also needs an Android
@@ -396,8 +420,8 @@ Roughly the order that keeps every intermediate state shippable:
 2. **Licensing, in parallel and early.** GPL-3.0 on the App Store needs a Section 7 "App Store
    exception" from every copyright holder — Rich, the eight named contributors, and Beat Heeb for
    the calibration algorithm. It gates release, not development, so it should start first.
-3. Finish the exporters — Survex, Therion `.th` and Compass are done here; `.th2`, SVG and
-   PocketTopo are not. Gate all of them on byte-identical output against the existing
+3. Finish the exporters — Survex, Therion `.th`, Compass and PocketTopo are done here; `.th2`,
+   SVG and XVI are not. Gate all of them on byte-identical output against the existing
    `exportTherionFixtures` / `exportSvgFixtures` golden bundles, which is a stronger check than the
    hand-written goldens in this branch.
 4. **Point the Android app at the shared core and ship it.** After this the effort has paid for
