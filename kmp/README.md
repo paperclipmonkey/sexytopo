@@ -36,6 +36,7 @@ Being precise about this matters more than the demo looking good.
 | The whole chain works end to end | **Verified** | `SurveyingEndToEndTest`: simulated instrument → packet decode → station promotion → JSON round-trip |
 | Native JSON survey/sketch formats read and written compatibly | **Verified** | round-trip tests against Android-shaped fixtures, including corrupt and old-format files |
 | Survex and Therion export byte-identically | **Verified** | golden tests asserting the full file, metadata block included |
+| A PocketTopo text export imports, drawing included | **Verified** | the Android app's own `FAKE_TEXT` fixture and its three assertions, on three targets, plus the four files that crash the Java |
 | A Survex or Therion file from other software imports | **Verified** | round-trip tests through the ported exporters, plus a `.svx` written by hand — team, date, backsights, splays, station comments and leg comments — and `field.mjs` brings one into the browser build end to end |
 | Compass `.dat` exports byte-identically | **Verified** | a golden captured by *running* the Android app's own exporter, not by reading it — which caught a transcription slip on the first attempt |
 | PocketTopo `.txt` exports the same survey data | **Verified** | its DATA section is golden against the Android app; its station sections deliberately diverge, because the Java's are not reproducible even against themselves |
@@ -130,8 +131,9 @@ missing.
 - **The active station**, in the app's amber corner brackets, and the select tool that moves them.
 - **Export** to Survex `.svx`, Therion `.th` and `.th2`, an `.xvi` tracing image, Compass `.dat`,
   PocketTopo `.txt`, SVG, and the app's own JSON — the same bytes the Android app would read back.
-- **Import** of a Survex `.svx` or Therion `.th` from any other software, as well as the app's own
-  files: the club's existing survey of the cave, opened here to be extended.
+- **Import** of a Survex `.svx`, Therion `.th` or PocketTopo `.txt` from any other software, as
+  well as the app's own files: the club's existing survey of the cave, opened here to be extended.
+  The PocketTopo one brings the *drawing* in as well as the centreline.
 - **An instrument log you can read underground**, kept as it happens and copied off the phone with
   one tap — because a DistoX that will not pair does it in a cave, with no signal and no console.
 - **A buzz when a station is made**, so the surveyor can look at the rock instead of the phone.
@@ -442,6 +444,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `res/menu/drawing.xml` | `demo/.../SketchToolbar.kt` | The display toggles behind the gear |
 | `model/sketch/Sketch`'s twin history stacks | `shared/sketch/SketchEditor.kt` | `DeletedDetail` becomes a sealed type |
 | `control/io/thirdparty/{survex,therion,survextherion}` | `shared/io/export/` | Golden-tested, metadata block included |
+| `PocketTopoTxtImporter` | `shared/io/imports/PocketTopoTxtImport.kt` | The only import that brings a drawing in too; four crashes in the Java are fixed rather than reproduced |
 | `SurvexImporter`, `TherionImporter`, `SurvexTherionImporter`, `SexyTopoVersion` | `shared/io/imports/` | Round-tripped against the exporters above; fixes a station-comment bug found doing so |
 | `NewStationNotificationService` | `demo/.../Haptics.kt`, `AppPreferences.kt` | A haptic rather than a timed buzz on iOS, which has no public API for one |
 | `control/Log`, `SystemLogActivity` | `shared/log/`, `shared/io/LogJson.kt`, `demo/.../LogDialog.kt` | Instances rather than statics, so it can be tested; the file format is the Android app's, `isError` written as a string and all |
@@ -576,7 +579,18 @@ These are the things that would actually shape a real port.
    to whichever field of view is narrower fixes both at once, and is checked here by projecting
    every station from 128 different angles and asserting none of them leaves the screen.
 
-13. **The vibrate-on-new-station setting says on and behaves as off.** `preferences_general.xml`
+13. **`PocketTopoTxtImporter` has four crash paths on files it should read or refuse.** All four
+   are exceptions rather than wrong answers, and an import that crashes takes the app down with a
+   file the surveyor then cannot get in at all. `parseDataAndUpdateSurvey` guards on
+   `fields.length < 3` and then reads `fields[3]` and `fields[4]`. `getSection` calls
+   `matcher.find()` without checking the result and then `matcher.group(1)`, so a file exported
+   before anything was drawn — no PLAN block — raises `IllegalStateException`.
+   `getOffsetForNamedStation` reads `tokens[2]` unguarded. And the offset fallback, reached when the
+   origin station is not named in the drawing, calls `.minus(...)` on the offset it has just failed
+   to find and looks up a projected position that can be absent too. The port refuses those files
+   instead, and has a test for each.
+
+14. **The vibrate-on-new-station setting says on and behaves as off.** `preferences_general.xml`
    declares `android:defaultValue="true"` for `pref_vibrate_on_new_station`, so the checkbox on the
    settings screen appears ticked on a fresh install. But nothing in the app calls
    `PreferenceManager.setDefaultValues`, and a `defaultValue` is not written to `SharedPreferences`
@@ -678,10 +692,10 @@ This is a proof of concept. It does **not** include:
   instrument — but neither has met a radio. The iOS simulator has no Bluetooth stack, so this one
   genuinely needs an instrument in hand. There is no Android transport here either (the Android app
   keeps its own).
-- **Importing PocketTopo.** Survex `.svx` and Therion `.th` both import — a club's existing survey
-  of the cave, opened here to be extended — but the Java's PocketTopo importer is not ported.
-  Every *exporter* is: Survex, Therion `.th` and `.th2`, the `.xvi` tracing image, Compass `.dat`,
-  PocketTopo `.txt`, SVG and the native JSON.
+- **Reading PocketTopo's own `.top` file.** Its *text* export imports, drawing included, but the
+  binary format its Save writes does not: [FileStore] is text-only, and giving it bytes means four
+  new actuals and base64 in the browser store. Every *exporter* is here: Survex, Therion `.th` and
+  `.th2`, the `.xvi` tracing image, Compass `.dat`, PocketTopo `.txt`, SVG and the native JSON.
 - **Cross-survey links.** They are stored as absolute `content://` URIs, which are meaningless off
   Android and already break when a folder moves, so replacing them is a format decision to take
   with upstream rather than a porting one. Nothing here draws a neighbouring survey.

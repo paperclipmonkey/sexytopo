@@ -43,11 +43,44 @@ class SurveyImportTest {
         val store = store()
         store.writeText(listOf("Eastwater.svx"), ";")
         store.writeText(listOf("Eastwater.th"), "#")
+        store.writeText(listOf("Eastwater.txt"), POCKET_TOPO)
         // The drawing, not the centreline. This app writes it but cannot read it back, and
         // offering something that can only fail is worse than not offering it.
         store.writeText(listOf("Eastwater.th2"), "encoding utf-8")
 
-        assertEquals(listOf("Eastwater.svx", "Eastwater.th"), SurveyImport.candidates(store).sorted())
+        assertEquals(
+            listOf("Eastwater.svx", "Eastwater.th", "Eastwater.txt"),
+            SurveyImport.candidates(store).sorted(),
+        )
+    }
+
+    /**
+     * `.txt` belongs to everything, unlike every other extension here. On a phone whose Documents
+     * folder is visible in the Files app, offering every text file as a survey would bury the one
+     * that is.
+     */
+    @Test
+    fun aTextFileThatIsNotAPocketTopoExportIsNotOffered() {
+        val store = store()
+        store.writeText(listOf("shopping list.txt"), "milk\nrope\ncarbide")
+        store.writeText(listOf("Eastwater.txt"), POCKET_TOPO)
+
+        assertEquals(listOf("Eastwater.txt"), SurveyImport.candidates(store))
+    }
+
+    /** The only import that brings a drawing in as well as a centreline. */
+    @Test
+    fun aPocketTopoExportBringsItsDrawingToo() {
+        val store = store()
+        store.writeText(listOf("Eastwater.txt"), POCKET_TOPO)
+        val library = SurveyLibrary(store)
+
+        val imported = assertNotNull(SurveyImport.import(library, store, "Eastwater.txt"))
+
+        assertEquals("Eastwater", imported.name)
+        assertEquals(1, imported.origin.onwardLegs.size)
+        assertEquals(1, imported.planSketch.pathDetails.size)
+        assertTrue(library.list().contains("Eastwater"))
     }
 
     /**
@@ -152,4 +185,20 @@ class SurveyImportTest {
         // A file off a Windows machine, or off a case-insensitive filesystem.
         assertEquals("Swildons", SurveyImport.nameFor("Swildons.SVX"))
     }
+
+    /** A minimal PocketTopo text export: one splay and one stroke on the plan. */
+    private val POCKET_TOPO =
+        listOf(
+            "TRIP",
+            "DATE 2026-08-30 ",
+            "DATA",
+            "1.0\t\t90.00\t0.00\t10.000\t>",
+            "",
+            "PLAN",
+            "STATIONS",
+            "0.000\t0.000\t1.0",
+            "POLYLINE RED",
+            "1.000\t1.000",
+            "2.000\t2.000",
+        ).joinToString("\n")
 }

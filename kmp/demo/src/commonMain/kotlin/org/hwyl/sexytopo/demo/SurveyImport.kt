@@ -2,6 +2,7 @@ package org.hwyl.sexytopo.demo
 
 import org.hwyl.sexytopo.shared.io.SurveyJson
 import org.hwyl.sexytopo.shared.io.export.SurveyFormat
+import org.hwyl.sexytopo.shared.io.imports.PocketTopoTxtImporter
 import org.hwyl.sexytopo.shared.io.imports.SurveyImporter
 import org.hwyl.sexytopo.shared.io.store.FileStore
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -42,6 +43,32 @@ object SurveyImport {
     private fun isNative(fileName: String) = fileName.endsWith(".json", ignoreCase = true)
 
     /**
+     * PocketTopo's text export, which is the only one of these that brings a *drawing* in too.
+     *
+     * Not PocketTopo's own `.top`, which is binary and would need a byte-level [FileStore]; this is
+     * the file its Export menu writes.
+     */
+    private fun isPocketTopo(fileName: String) = fileName.endsWith(".txt", ignoreCase = true)
+
+    /**
+     * Whether a `.txt` at the root is a PocketTopo export rather than somebody's notes.
+     *
+     * The only one of these that is decided by *looking*, and the exception is worth stating: every
+     * other extension here belongs to a survey format and nothing else, whereas `.txt` belongs to
+     * everything. On a phone whose Documents folder is visible in the Files app — which is the whole
+     * mechanism this import uses — offering every text file as a survey would bury the one that is.
+     *
+     * The check is the first non-blank line, which a PocketTopo export always spends on a section
+     * header. Reading a few text files at the storage root is bounded work; parsing them would not
+     * be, which is why nothing else here does it.
+     */
+    private fun looksLikePocketTopo(store: FileStore, fileName: String): Boolean {
+        val text = runCatching { store.readText(listOf(fileName)) }.getOrNull() ?: return false
+        val first = text.lineSequence().firstOrNull { it.isNotBlank() }?.trim()
+        return first == "TRIP" || first == "DATA"
+    }
+
+    /**
      * Files at the storage root that look like they might be surveys.
      *
      * Named rather than parsed at this point, because parsing every file in a directory to decide
@@ -50,7 +77,11 @@ object SurveyImport {
      */
     fun candidates(store: FileStore): List<String> =
         runCatching {
-            store.list(emptyList()).filter { isNative(it) || formatOf(it) != null }
+            store.list(emptyList()).filter {
+                isNative(it) ||
+                    formatOf(it) != null ||
+                    (isPocketTopo(it) && looksLikePocketTopo(store, it))
+            }
         }.getOrDefault(emptyList())
 
     /**
@@ -68,7 +99,11 @@ object SurveyImport {
         val survey =
             runCatching {
                 val format = formatOf(fileName)
-                if (format == null) SurveyJson.parse(text) else SurveyImporter.read(text, format, name)
+                when {
+                    format != null -> SurveyImporter.read(text, format, name)
+                    isPocketTopo(fileName) -> PocketTopoTxtImporter.read(text, name)
+                    else -> SurveyJson.parse(text)
+                }
             }.getOrNull() ?: return null
         // An empty survey means the file parsed but held nothing this app understands — a Therion
         // file that is all `scrap`, say. Importing it would put a survey with no legs in the
@@ -92,6 +127,7 @@ object SurveyImport {
             .dropExtension(".data")
             .dropExtension(".svx")
             .dropExtension(".th")
+            .dropExtension(".txt")
             .ifBlank { "Imported survey" }
 
     /** [String.removeSuffix], but a file called `CAVE.SVX` is the same file as `cave.svx`. */

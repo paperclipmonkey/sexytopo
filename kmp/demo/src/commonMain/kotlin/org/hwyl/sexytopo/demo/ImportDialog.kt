@@ -23,9 +23,9 @@ import kotlinx.coroutines.delay
  * Bringing a survey in from outside.
  *
  * The list is whatever survey-shaped file is sitting in the app's own storage root: this app's own
- * `.data.json`, or a Survex `.svx` or Therion `.th` from anywhere else. On iOS that is the folder
- * the Files app shows, so importing is: AirDrop or download the file, put it in *On My iPhone →
- * SexyTopo KMP*, come back here. In the browser there is no such folder, so the chooser writes the
+ * `.data.json`, or a Survex `.svx`, Therion `.th` or PocketTopo `.txt` from anywhere else. On iOS
+ * that is the folder the Files app shows, so importing is: AirDrop or download the file, put it in
+ * *On My iPhone → SexyTopo KMP*, come back here. In the browser there is no such folder, so the chooser writes the
  * file into that same place first and the rest is identical.
  *
  * The list is re-read while the dialog is open rather than once when it opens. The browser's file
@@ -56,10 +56,10 @@ fun ImportDialog(
                 if (candidates.isEmpty()) {
                     Text(
                         if (canPickFiles()) {
-                            "Choose a .data.json, .svx or .th survey to bring in."
+                            "Choose a .data.json, .svx, .th or PocketTopo .txt survey."
                         } else {
-                            "Put a .data.json, .svx or .th survey in this app's folder — on iOS " +
-                                "that is Files, under On My iPhone — and it will appear here."
+                            "Put a survey in this app's folder — on iOS that is Files, under " +
+                                "On My iPhone — and it will appear here."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
