@@ -28,6 +28,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: org.hwyl.sexytopo.kmpdemo
         PRODUCT_NAME: SexyTopo KMP
         INFOPLIST_FILE: iosApp/Info.plist
+        # Names the icon set inside iosApp/Assets.xcassets. Without it Xcode compiles the
+        # catalogue but ships no icon, and the home screen shows a blank white tile.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_VERSION: "5.0"
         GENERATE_INFOPLIST_FILE: NO
         # Xcode 14+ sandboxes script phases by default, which stops Gradle running.

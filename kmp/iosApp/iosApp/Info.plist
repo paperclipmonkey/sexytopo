@@ -44,8 +44,18 @@
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
 	</dict>
+	<!--
+	    An empty UILaunchScreen dictionary is a plain white screen. Naming a colour from the asset
+	    catalogue paints the launch screen in the same green as the app's panels, so the seconds
+	    before Compose has drawn anything look like the app starting rather than like nothing
+	    happening. There is no storyboard here on purpose: a launch screen may not run code, so
+	    Compose cannot draw it, and a colour is the whole of what is worth saying.
+	-->
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
 	<!--
 	    arm64, not the armv7 the old Xcode template emits: armv7 is 32-bit ARM, which nothing
 	    running iOS 11 or later has, and Kotlin/Native builds this app for iosArm64 only.

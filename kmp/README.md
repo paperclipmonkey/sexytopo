@@ -309,6 +309,37 @@ it — so it is written out in full, including the three places it is known to g
 7. **Trust the developer on the phone.** *Settings → General → VPN & Device Management → your Apple
    ID → Trust*. Until you do, the app installs and refuses to launch.
 
+**If you would rather not install XcodeGen**, the same project can be made by hand. Everything below
+is what `project.yml` says, typed into Xcode's own interface instead — which is also the honest
+reason the spec is committed rather than the `.xcodeproj`: this list is short enough to check by
+eye, a `.pbxproj` written on a machine with no Xcode is not.
+
+1. *File → New → Project → iOS → App*. Interface **SwiftUI**, Language **Swift**. Save it
+   **outside** the repository: a new project saved on top of `kmp/iosApp` collides with the files
+   already there.
+2. Delete the `ContentView.swift` and `…App.swift` that Xcode generated. Then *File → Add Files*,
+   **untick** *Copy items if needed*, and add all four of `kmp/iosApp/iosApp/iOSApp.swift`,
+   `ContentView.swift`, `Info.plist` and `Assets.xcassets`.
+3. In the target's *Build Settings*, set: **Info.plist File** to the one you just added and
+   **Generate Info.plist File** to *No*; **Primary App Icon Set Name** to `AppIcon`; **User Script
+   Sandboxing** to *No*; **Framework Search Paths** to the absolute path of
+   `kmp/demo/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)`; **Other Linker Flags** to
+   `-framework SexyTopoDemo`; and the deployment target to **iOS 15**.
+4. In *Build Phases*, add a **Run Script** phase, drag it **above** *Compile Sources*, untick *Based
+   on dependency analysis*, and give it:
+   ```bash
+   cd /absolute/path/to/sexytopo/kmp
+   if [ -z "${JAVA_HOME:-}" ] && [ -x /usr/libexec/java_home ]; then
+     JAVA_HOME="$(/usr/libexec/java_home -v 21 2>/dev/null || /usr/libexec/java_home 2>/dev/null)"
+     export JAVA_HOME
+   fi
+   ./gradlew :demo:embedAndSignAppleFrameworkForXcode
+   ```
+
+Then carry on from step 3 above. This path has not been run here either — there is no Xcode on the
+machine this was written on — but every value in it is copied from the spec XcodeGen would have
+used, and the whole point of listing them is that you can compare the two.
+
 Three things go wrong, in roughly this order of likelihood:
 
 - **"Unable to locate a Java Runtime"** in the build log. Xcode runs script phases with a stripped
@@ -324,12 +355,17 @@ Three things go wrong, in roughly this order of likelihood:
 - **`xcrun: error: unable to find utility`, or a linker that cannot find the iOS SDK.** `xcode-select`
   is pointing at the Command Line Tools rather than at Xcode; see step 1.
 
-Two cosmetic things that are not faults:
+One cosmetic thing, and one honest caveat about it:
 
-- **The app has no icon.** There is no asset catalog in `iosApp/`, so iOS draws the default white
-  tile. Adding one is a five-minute job in Xcode and nothing depends on it.
-- **The launch screen is blank.** `UILaunchScreen` is an empty dictionary, which iOS reads as
-  "plain background".
+- **The icon and the launch screen have never been seen.** `iosApp/Assets.xcassets` holds a
+  1024×1024 icon — a cave centreline drawn on a pale panel, in the app's own colours — and a colour
+  called `LaunchBackground` that `UILaunchScreen` names, so the first moment shows the panel green
+  rather than white. Both were written on Linux, where there is no Xcode to compile an asset
+  catalogue, so neither has ever been rendered. The catalogue is deliberately in the stock
+  single-size form Xcode 14 and later accept (one `1024x1024` universal entry, opaque RGB, no alpha
+  — iOS rounds the corners itself), so the worst plausible outcome is a build warning and the white
+  tile you would have had anyway. If it does complain, delete `iosApp/Assets.xcassets` and rebuild:
+  nothing else refers to it.
 
 #### Before you demo it: what has and has not been run
 
