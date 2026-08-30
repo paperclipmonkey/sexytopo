@@ -257,7 +257,8 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
 - **Name the junction.** Stations take a name, a comment and the extended-elevation direction that
   decides which way a branch unrolls.
 - **Sketch it**, in plan and extended elevation, each with its own strokes and its own undo
-  history — and write on it: *sump*, *boulder choke*, *continues*.
+  history — write on it (*sump*, *boulder choke*, *continues*), and drop a cross-section at a
+  station, drawn from that station's own splays.
 - **Say who was there.** Trip details records the date, the team and their roles, the instrument,
   and the copyright and licence terms, and every exporter writes them.
 - **Match the tolerances to the instrument.** The defaults assume a DistoX; a compass and tape
@@ -285,8 +286,11 @@ Honest limits, so nothing is a surprise in a cave:
   from profile to saved station is driven against a *fake* instrument in CI. No real one has been
   tried on either platform, and the iOS simulator has no Bluetooth stack, so it cannot be. Expect to
   type readings, which is what *Add reading* is for and which behaves identically.
-- **No cross-sections, no symbol palette, no calibration screen**, even though the logic under all
-  three is ported and tested. The symbol artwork is SVG this port does not carry.
+- **No symbol palette and no calibration screen**, even though the logic under both is ported and
+  tested. The symbol artwork is SVG this port does not carry.
+- **A cross-section can be placed but not re-aimed or moved.** The bearing comes from the app's own
+  heuristic — bisect the corner mid-passage, follow the single leg at a dead end — and the rotate
+  and move tools are not ported.
 - **The original DistoX and DistoX2 will never work here.** They speak Bluetooth Classic RFCOMM,
   which iOS has no public API for and no browser implements. That is permanent, and not a gap this
   project can close.

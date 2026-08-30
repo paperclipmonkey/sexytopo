@@ -300,7 +300,7 @@ private fun SexyTopoAppBar(state: DemoState) {
                 // Survey management first, because in the field it is what the menu is for.
                 DropdownMenuItem(
                     text = { Text("New survey…") },
-                    leadingIcon = { Text(" ") },
+                    leadingIcon = { CheckDot(false) },
                     onClick = {
                         naming = NamingIntent.NEW
                         menuOpen = false
@@ -308,7 +308,7 @@ private fun SexyTopoAppBar(state: DemoState) {
                 )
                 DropdownMenuItem(
                     text = { Text("Rename survey…") },
-                    leadingIcon = { Text(" ") },
+                    leadingIcon = { CheckDot(false) },
                     onClick = {
                         // Both of these edit the surveyor's own survey, so show it: editing the
                         // name or the team of something the screen is not displaying is the kind
@@ -320,7 +320,7 @@ private fun SexyTopoAppBar(state: DemoState) {
                 )
                 DropdownMenuItem(
                     text = { Text("Trip details…") },
-                    leadingIcon = { Text(if (state.liveSurvey.trip != null) "✓" else " ") },
+                    leadingIcon = { CheckDot(state.liveSurvey.trip != null) },
                     onClick = {
                         state.mode = SurveyMode.LIVE
                         editingTrip = true
@@ -331,21 +331,18 @@ private fun SexyTopoAppBar(state: DemoState) {
                     DropdownMenuItem(
                         text = { Text(name) },
                         leadingIcon = {
-                            Text(
-                                if (state.mode == SurveyMode.LIVE &&
-                                    state.liveSurvey.name == name
-                                ) {
-                                    "✓"
-                                } else {
-                                    " "
-                                },
+                            CheckDot(
+                                state.mode == SurveyMode.LIVE && state.liveSurvey.name == name,
                             )
                         },
                         // Deleting is on the row rather than behind a "manage surveys" screen, and
                         // it asks first: a survey is a trip somebody cannot repeat.
                         trailingIcon = {
+                            // "×" and not "✕": the bundled font has Latin-1 and no Dingbats, so
+                            // the prettier cross renders as a missing-glyph box.
                             Text(
-                                "✕",
+                                "×",
+                                style = MaterialTheme.typography.titleMedium,
                                 modifier = Modifier.clickable {
                                     deleting = name
                                     menuOpen = false
@@ -360,7 +357,7 @@ private fun SexyTopoAppBar(state: DemoState) {
                 }
                 DropdownMenuItem(
                     text = { Text(SurveyMode.EXAMPLE.label) },
-                    leadingIcon = { Text(if (state.mode == SurveyMode.EXAMPLE) "✓" else " ") },
+                    leadingIcon = { CheckDot(state.mode == SurveyMode.EXAMPLE) },
                     onClick = {
                         state.mode = SurveyMode.EXAMPLE
                         menuOpen = false
@@ -368,7 +365,7 @@ private fun SexyTopoAppBar(state: DemoState) {
                 )
                 DropdownMenuItem(
                     text = { Text("Export") },
-                    leadingIcon = { Text(if (state.screen == Screen.EXPORT) "✓" else " ") },
+                    leadingIcon = { CheckDot(state.screen == Screen.EXPORT) },
                     onClick = {
                         state.screen = Screen.EXPORT
                         menuOpen = false
@@ -376,7 +373,7 @@ private fun SexyTopoAppBar(state: DemoState) {
                 )
                 DropdownMenuItem(
                     text = { Text("Instrument…") },
-                    leadingIcon = { Text(if (state.session.connected) "✓" else " ") },
+                    leadingIcon = { CheckDot(state.session.connected) },
                     onClick = {
                         state.mode = SurveyMode.LIVE
                         connecting = true
@@ -385,7 +382,7 @@ private fun SexyTopoAppBar(state: DemoState) {
                 )
                 DropdownMenuItem(
                     text = { Text("Import…") },
-                    leadingIcon = { Text(" ") },
+                    leadingIcon = { CheckDot(false) },
                     onClick = {
                         importing = true
                         menuOpen = false
@@ -393,7 +390,7 @@ private fun SexyTopoAppBar(state: DemoState) {
                 )
                 DropdownMenuItem(
                     text = { Text("Surveying…") },
-                    leadingIcon = { Text(" ") },
+                    leadingIcon = { CheckDot(false) },
                     onClick = {
                         editingSettings = true
                         menuOpen = false
@@ -401,7 +398,7 @@ private fun SexyTopoAppBar(state: DemoState) {
                 )
                 DropdownMenuItem(
                     text = { Text("Dark mode") },
-                    leadingIcon = { Text(if (state.darkMode) "✓" else " ") },
+                    leadingIcon = { CheckDot(state.darkMode) },
                     onClick = { state.darkMode = !state.darkMode },
                 )
             }

@@ -162,6 +162,8 @@ const LABEL_PLACE = [316, 518]
 const toolColumn = box.width / 9
 const TOOL_ROW_Y = box.height - 20
 const toolCell = (index) => [toolColumn * (index + 0.5), TOOL_ROW_Y]
+// The drawing menu opens upwards from its toolbar cell: Centre view, then the cross-section tool.
+const DRAWING_MENU_CROSS_SECTION = [186, 628]
 const CANCEL_DELETE_SURVEY = [237, 516]
 const CONFIRM_DELETE_SURVEY = [312, 516]
 const EXPORT_SAVE_FILE = [117, 132]
@@ -226,6 +228,35 @@ await reading(5.42, 12.5, -3.0)
 await reading(5.43, 12.7, -2.9)
 await reading(5.41, 12.4, -3.1)
 await page.screenshot({ path: join(shotDir, 'field-readings.png') })
+
+// ---- a cross-section at a station -----------------------------------------------------------
+// What a caver draws when the plan alone cannot say what shape the passage is. Placed here, right
+// after the readings, because this is the one moment the test knows where a station is on screen:
+// the view has just refitted around two of them, and field-readings.png shows station 1 at the
+// bottom left.
+//
+// The whole model, the projection and the bearing heuristic were ported and tested long ago; what
+// this checks is that the tool reaches them and that the result is saved with the sketch.
+await at(...toolCell(5)); await page.waitForTimeout(500)
+await at(...DRAWING_MENU_CROSS_SECTION); await page.waitForTimeout(500)
+await at(140, 712); await page.waitForTimeout(900)
+await page.screenshot({ path: join(shotDir, 'field-cross-section.png') })
+
+const sections = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  if (!key) return null
+  return (JSON.parse(localStorage.getItem(key))['x-sections'] ?? []).length
+})
+if (sections === null) {
+  fail('the plan sketch was not saved, so the cross-section could not be checked')
+} else if (sections < 1) {
+  fail('tapping a station with the cross-section tool did not add one')
+} else {
+  pass('a cross-section can be dropped at a station, and is saved with the sketch')
+}
+
+// Back to drawing, so nothing after this drops a section by accident.
+await at(...toolCell(1)); await page.waitForTimeout(400)
 
 // Reads the saved survey back. The checks below assert against the file rather than the screen,
 // because the file is what the surveyor takes home and hands to Therion.

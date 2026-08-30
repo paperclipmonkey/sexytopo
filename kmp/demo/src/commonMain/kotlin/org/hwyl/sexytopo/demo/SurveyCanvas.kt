@@ -37,6 +37,7 @@ import org.hwyl.sexytopo.shared.sketch.SketchDefaults
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.sketch.SketchViewport
+import org.hwyl.sexytopo.shared.survey.CrossSectioner
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.log10
@@ -114,6 +115,33 @@ fun SurveyCanvas(
                             panChange.toCoord2D(),
                             zoomChange,
                         )
+                    }
+                }
+
+            SketchTool.POSITION_CROSS_SECTION ->
+                Modifier.pointerInput(scene, tool) {
+                    // Tap a station. The Android app splits this in two — a context-menu item that
+                    // names the station, then a tap that positions the drawing — because it has a
+                    // long-press menu to hang the first half on. One tap does both here: the
+                    // nearest station within the app's own selection reach is the subject, and the
+                    // point tapped is where the section is drawn, so a surveyor can put it in the
+                    // white space beside the passage rather than on top of it.
+                    detectTapGestures { offset ->
+                        val reach =
+                            viewport.toSurveyDistance(
+                                SketchDefaults.SELECTION_SENSITIVITY_DP.dp.toPx(),
+                            )
+                        val where = viewport.toSurvey(offset)
+                        val name = scene.stationNearest(where, reach)
+                        val station = name?.let { survey.getStationByName(it) }
+                        if (station != null) {
+                            // The bearing comes from CrossSectioner's own heuristic: bisect the
+                            // corner mid-passage, follow the single leg at a dead end, give up and
+                            // use north where there is nothing to go on. Rotating it afterwards is
+                            // the app's separate tool and is not ported.
+                            editor.addCrossSection(CrossSectioner.section(survey, station), where)
+                            onSketchEdit()
+                        }
                     }
                 }
 

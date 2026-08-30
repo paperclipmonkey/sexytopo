@@ -179,6 +179,18 @@ private fun DrawingMenu(
                 onDismiss()
             },
         )
+        // A menu item rather than a tenth button in a nine-column toolbar — and the app puts it in
+        // a menu too, on the station's own long-press menu, which this port has no equivalent of.
+        DropdownMenuItem(
+            text = { Text("Cross-section at a station") },
+            leadingIcon = {
+                CheckDot(state.tool == SketchTool.POSITION_CROSS_SECTION)
+            },
+            onClick = {
+                state.tool = SketchTool.POSITION_CROSS_SECTION
+                onDismiss()
+            },
+        )
         for (toggle in VIEW_TOGGLES) {
             DropdownMenuItem(
                 text = { Text(toggle.label) },
@@ -304,12 +316,3 @@ private fun RowScope.ColourButton(
     }
 }
 
-/** A tick, for the checkable items in the drawing menu. */
-@Composable
-private fun CheckDot(checked: Boolean) {
-    Text(
-        if (checked) "✓" else " ",
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.primary,
-    )
-}
