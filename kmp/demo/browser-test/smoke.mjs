@@ -172,6 +172,77 @@ if (afterUndo.length >= afterDraw.length) {
   pass('undo restores the sketch')
 }
 
+// A *second* consecutive tool switch, which is the thing that was broken and that nothing above
+// would have caught.
+//
+// `Modifier.pointerInput` restarts its gesture loop only when one of its keys changes. Keyed on the
+// scene alone, choosing a new tool swapped the lambda and left the old loop running, so the canvas
+// kept doing whatever the previous tool did. The checks above missed it because they only ever make
+// one switch, from the default straight to the pencil.
+//
+// Measured in ink rather than in PNG size. Compressed size is a fine proxy for "did anything
+// change", and a bad one for "did this specific stroke go away" - it was blunt enough here to
+// report a working fix as broken. Counting near-black pixels in a narrow band containing the stroke
+// answers the actual question.
+const strokeY = 480
+const band = { x: box.x + 190, y: box.y + strokeY - 12, width: 480, height: 24 }
+
+const inkInBand = async () => {
+  const b64 = (await page.screenshot({ clip: band })).toString('base64')
+  return page.evaluate(async (data) => {
+    const img = new Image()
+    await new Promise((r) => {
+      img.onload = r
+      img.src = 'data:image/png;base64,' + data
+    })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    let dark = 0
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i] < 90 && px[i + 1] < 90 && px[i + 2] < 90) dark++
+    }
+    return dark
+  }, b64)
+}
+
+const inkBefore = await inkInBand()
+
+// Row two, cell one: the pencil again. Draw a straight stroke across the band.
+await page.mouse.click(cellCentre(1), toolRowY)
+await page.waitForTimeout(400)
+await page.mouse.move(box.x + 200, box.y + strokeY)
+await page.mouse.down()
+for (let i = 0; i <= 30; i++) await page.mouse.move(box.x + 200 + i * 15, box.y + strokeY)
+await page.mouse.up()
+await page.waitForTimeout(800)
+const inkDrawn = await inkInBand()
+
+if (inkDrawn <= inkBefore) {
+  fail(`no ink in the band after drawing (${inkBefore} -> ${inkDrawn} dark pixels)`)
+} else {
+  pass(`a stroke leaves ink (${inkBefore} -> ${inkDrawn} dark pixels)`)
+}
+
+// Row two, cell four: the eraser. Tap the middle of the stroke.
+await page.mouse.click(cellCentre(3), toolRowY)
+await page.waitForTimeout(400)
+await page.mouse.click(box.x + 425, box.y + strokeY)
+await page.waitForTimeout(800)
+const inkErased = await inkInBand()
+
+if (inkErased >= inkDrawn) {
+  fail(
+    `the eraser did nothing (${inkDrawn} -> ${inkErased} dark pixels). ` +
+      'The second tool switch has stopped taking effect - see pointerInput keys in SurveyCanvas.',
+  )
+} else {
+  pass(`switching to the eraser and tapping removes it (${inkDrawn} -> ${inkErased})`)
+}
+
 if (pageErrors.length > 0) {
   fail(`the page threw while being used:\n      ${pageErrors.join('\n      ')}`)
 }

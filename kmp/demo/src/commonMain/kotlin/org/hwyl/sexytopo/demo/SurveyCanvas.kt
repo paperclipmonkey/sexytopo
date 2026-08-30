@@ -83,10 +83,19 @@ fun SurveyCanvas(
     // needs repainting. The viewport says so through the controller's own revision.
     var strokeTick by remember { mutableIntStateOf(0) }
 
+    // Keyed on `tool` as well as `scene`, and that is the whole reason the toolbar works.
+    //
+    // `Modifier.pointerInput` runs a suspending gesture loop that restarts only when one of its
+    // keys changes. Every branch below sits at the same position in the modifier chain, so Compose
+    // sees one node: keyed on `scene` alone, picking a new tool swapped the *lambda* and left the
+    // previously started loop running, and the canvas went on panning. It looked as though tool
+    // selection worked, because switching between the table and a sketch rebuilds `scene` and the
+    // loop restarted with whatever tool was current by then - so the fix was always one view
+    // switch away, which is exactly how the bug was reported.
     val gestures =
         when (tool) {
             SketchTool.MOVE ->
-                Modifier.pointerInput(scene) {
+                Modifier.pointerInput(scene, tool) {
                     detectTransformGestures { centroid, panChange, zoomChange, _ ->
                         // Zoom about the pinch centre first, then pan, so the point under the
                         // fingers stays under them. adjustZoomBy refuses to leave the shared
@@ -100,7 +109,7 @@ fun SurveyCanvas(
                 }
 
             SketchTool.SELECT ->
-                Modifier.pointerInput(scene) {
+                Modifier.pointerInput(scene, tool) {
                     // Tap a station to make it the one the next leg starts from. The reach is the
                     // app's own SELECTION_SENSITIVITY_DP, which is much larger than the eraser's -
                     // a station is a 10dp dot and a cold finger is not precise.
@@ -115,7 +124,7 @@ fun SurveyCanvas(
                 }
 
             SketchTool.ERASE ->
-                Modifier.pointerInput(scene) {
+                Modifier.pointerInput(scene, tool) {
                     // onPress, not onTap: the Android app erases on touch-*down*, so the eraser is
                     // a tapping tool rather than a rubbing one. onTap would additionally not fire
                     // at all if the finger moved before lifting, so a press-drag-release - which is
@@ -142,7 +151,7 @@ fun SurveyCanvas(
                 }
 
             else ->
-                Modifier.pointerInput(scene) {
+                Modifier.pointerInput(scene, tool) {
                     detectDragGestures(
                         onDragStart = { offset ->
                             editor.startPath(viewport.toSurvey(offset))
