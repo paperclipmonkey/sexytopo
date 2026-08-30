@@ -46,7 +46,13 @@ object SvgExporter {
     const val STATION_FONT = 15
 
     /**
-     * What to draw, defaulting to the preference defaults in `GeneralPreferences`.
+     * What to draw. The names and meanings are `SvgExportOptions`'; two of the defaults are not.
+     *
+     * `whiteBackground` and `showGrid` are false in the Java, which exports a transparent,
+     * grid-less drawing for compositing in Inkscape. They are true here because this port's export
+     * goes straight to a phone's Files app or a browser download, where a transparent SVG opens as
+     * an invisible drawing on a dark viewer and looks broken. Everything else matches, and both are
+     * one argument away from the Java's behaviour.
      *
      * Stroke widths are in pixels at [SCALE] and are the app's own: sketch lines 1, centreline legs
      * 2, splays 1.
@@ -60,6 +66,13 @@ object SvgExporter {
         val showCentreline: Boolean = true,
         val showSplays: Boolean = true,
         val showStations: Boolean = true,
+        /** The strip under the drawing: title, date, team, stats, scale bar and north arrow. */
+        val showLegend: Boolean = true,
+        val showNorthArrow: Boolean = true,
+        val showScaleBar: Boolean = true,
+        val showTeam: Boolean = true,
+        val showCopyright: Boolean = true,
+        val showTagline: Boolean = true,
         val sketchStrokeWidth: Int = 1,
         val legStrokeWidth: Int = 2,
         val splayStrokeWidth: Int = 1,
@@ -78,7 +91,23 @@ object SvgExporter {
         val space = projection.project(survey)
 
         val content = exportFrame(survey, projection).scale(SCALE.toFloat())
-        val frame = addBorder(exportFrame(survey, projection)).scale(SCALE.toFloat())
+        var frame = addBorder(exportFrame(survey, projection)).scale(SCALE.toFloat())
+
+        // The legend gets a strip of its own beneath the drawing, and the page grows to hold it,
+        // so it can never end up on top of the cave. Left-aligned with the *content* rather than
+        // with the page edge, which is what makes it look attached to the drawing.
+        val legend =
+            if (options.showLegend) {
+                SvgLegend.of(survey, projection, frame, SCALE, options)
+            } else {
+                null
+            }
+        val legendLeft = content.left.toDouble()
+        val legendTop = content.bottom + STATION_FONT * 2.0
+        if (legend != null) {
+            val needed = legendTop + legend.totalHeight + STATION_FONT * 2.0
+            frame = frame.copy(bottom = max(frame.bottom.toDouble(), needed).toFloat())
+        }
 
         val out = StringBuilder(4096)
         out.append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""").append('\n')
@@ -96,8 +125,11 @@ object SvgExporter {
         out.append("  <title>").append(escape(survey.name)).append("</title>\n")
         survey.trip?.let { trip ->
             if (trip.hasCopyrightHolder() || trip.hasLicence()) {
+                // The same line the legend prints, so a drawing cannot claim one thing in its
+                // metadata and another on its face. It used to be "holder, licence" here, which
+                // was neither the Java's wording nor the legend's.
                 out.append("  <desc>")
-                    .append(escape(copyrightLine(trip.copyrightHolder, trip.licence)))
+                    .append(escape(SvgLegend.copyrightLine(trip)))
                     .append("</desc>\n")
             }
         }
@@ -190,9 +222,140 @@ object SvgExporter {
         }
         out.append("  </g>\n")
 
+        if (legend != null) writeLegend(out, legend, legendLeft, legendTop)
+
         out.append("</svg>\n")
         return out.toString()
     }
+
+    // -------------------------------------------------------------------------------------
+    // The legend
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * The strip below the drawing: title, date, team, stats, copyright, tagline, scale bar and, in
+     * plan, a north arrow.
+     *
+     * Ported from `SvgExporter.writeLegend` and `writeNorthArrow`; [SvgLegend] does the layout and
+     * this only writes it out. Everything is placed inside one translated group, so the whole
+     * legend moves as a unit and every coordinate below is relative to its top-left corner.
+     */
+    private fun writeLegend(out: StringBuilder, legend: SvgLegend, left: Double, top: Double) {
+        out.append("  <g id=\"legend\" transform=\"translate(")
+            .append(number(left)).append(',').append(number(top))
+            .append(")\" font-family=\"sans-serif\" fill=\"black\">\n")
+
+        writeLegendText(out, 0.0, legend.titleY, legend.titleFont, "bold", "start", legend.title)
+
+        for ((index, line) in legend.bodyLines.withIndex()) {
+            writeLegendText(
+                out,
+                0.0,
+                legend.bodyYs[index],
+                legend.bodyFont,
+                "normal",
+                "start",
+                line,
+            )
+        }
+
+        if (legend.showNorthArrow) {
+            writeNorthArrow(out, legend)
+        }
+
+        if (legend.showTagline) {
+            writeLegendText(
+                out,
+                0.0,
+                legend.taglineY,
+                legend.taglineFont,
+                "italic",
+                "start",
+                TAGLINE,
+            )
+        }
+
+        if (legend.showScaleBar) {
+            out.append("    <g id=\"scale-bar\" stroke=\"black\" stroke-width=\"")
+                .append(legend.strokeWidth)
+                .append("\" fill=\"none\">\n      <polyline points=\"")
+                .append("0,").append(number(legend.barTopY)).append(' ')
+                .append("0,").append(number(legend.barBaselineY)).append(' ')
+                .append(number(legend.barLengthInPixels)).append(',')
+                .append(number(legend.barBaselineY)).append(' ')
+                .append(number(legend.barLengthInPixels)).append(',')
+                .append(number(legend.barTopY))
+                .append("\"/>\n    </g>\n")
+
+            writeLegendText(
+                out,
+                legend.barLengthInPixels / 2.0,
+                legend.scaleLabelY,
+                legend.scaleLabelFont,
+                "normal",
+                "middle",
+                SvgLegend.scaleBarLabel(legend.barLengthInMetres),
+            )
+        }
+
+        out.append("  </g>\n")
+    }
+
+    /** A triangular head on a straight shaft, with an N under it. */
+    private fun writeNorthArrow(out: StringBuilder, legend: SvgLegend) {
+        val height = legend.arrowBottomY - legend.arrowTopY
+        val headHeight = height * 0.28
+        val headHalfWidth = height * 0.08
+        val centreX = legend.arrowCentreX
+
+        out.append("    <g id=\"north-arrow\" stroke=\"black\" stroke-width=\"")
+            .append(legend.strokeWidth)
+            .append("\" fill=\"black\">\n      <polygon points=\"")
+            .append(number(centreX)).append(',').append(number(legend.arrowTopY)).append(' ')
+            .append(number(centreX - headHalfWidth)).append(',')
+            .append(number(legend.arrowTopY + headHeight)).append(' ')
+            .append(number(centreX + headHalfWidth)).append(',')
+            .append(number(legend.arrowTopY + headHeight))
+            .append("\"/>\n      <polyline points=\"")
+            .append(number(centreX)).append(',')
+            .append(number(legend.arrowTopY + headHeight)).append(' ')
+            .append(number(centreX)).append(',').append(number(legend.arrowBottomY))
+            .append("\" fill=\"none\"/>\n    </g>\n")
+
+        writeLegendText(
+            out,
+            centreX,
+            legend.arrowBottomY + legend.bodyFont,
+            legend.bodyFont,
+            "bold",
+            "middle",
+            "N",
+        )
+    }
+
+    private fun writeLegendText(
+        out: StringBuilder,
+        x: Double,
+        y: Double,
+        fontSize: Double,
+        style: String,
+        anchor: String,
+        text: String,
+    ) {
+        out.append("    <text")
+            .append(" x=\"").append(number(x)).append('"')
+            .append(" y=\"").append(number(y)).append('"')
+            .append(" font-size=\"").append(number(fontSize)).append('"')
+        when (style) {
+            "bold" -> out.append(" font-weight=\"bold\"")
+            "italic" -> out.append(" font-style=\"italic\"")
+        }
+        if (anchor != "start") out.append(" text-anchor=\"").append(anchor).append('"')
+        out.append('>').append(escape(text)).append("</text>\n")
+    }
+
+    /** What the Android app signs its exports with. */
+    private const val TAGLINE = "Surveyed with SexyTopo"
 
     // -------------------------------------------------------------------------------------
     // The frame
@@ -405,8 +568,7 @@ object SvgExporter {
      */
     internal fun number(value: Float): String = formatFixedTrimmed(value, 3)
 
-    private fun copyrightLine(holder: String, licence: String): String =
-        listOf(holder, licence).filter { it.isNotBlank() }.joinToString(", ")
+    internal fun number(value: Double): String = formatFixedTrimmed(value, 3)
 
     private fun escape(text: String): String =
         buildString(text.length) {

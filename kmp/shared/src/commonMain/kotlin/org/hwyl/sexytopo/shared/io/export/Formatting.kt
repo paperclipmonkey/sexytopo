@@ -72,8 +72,20 @@ fun formatInclination(degrees: Float): String = formatFixed(degrees, 2)
  * is what `Float.toString` produces for small values, differently on the JVM and on Kotlin/Wasm —
  * is not valid inside a path and makes a file that silently will not open.
  */
-fun formatFixedTrimmed(value: Float, decimalPlaces: Int): String {
-    val fixed = formatFixed(value, decimalPlaces)
+fun formatFixedTrimmed(value: Float, decimalPlaces: Int): String =
+    trimTrailingZeroes(formatFixed(value, decimalPlaces))
+
+/**
+ * The same for a Double.
+ *
+ * The SVG legend lays itself out in Double arithmetic — the Java's `LegendModel` does, and the
+ * layout is reproduced exactly — so its coordinates would otherwise round through Float on the way
+ * out.
+ */
+fun formatFixedTrimmed(value: Double, decimalPlaces: Int): String =
+    trimTrailingZeroes(formatFixed(value, decimalPlaces))
+
+private fun trimTrailingZeroes(fixed: String): String {
     if ('.' !in fixed) return fixed
     val trimmed = fixed.trimEnd('0').trimEnd('.')
     // "-0" reads as a mistake even though it is the same number.

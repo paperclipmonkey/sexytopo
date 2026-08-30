@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by over 570 tests. The UI
+Survex and Therion exporters and the native file format are ported and covered by over 590 tests. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
 tests the claim.
@@ -282,8 +282,11 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   instruments need is implemented and tested, which is the part that fails silently.
 - **Take it home.** Survex, Therion, Compass, PocketTopo, the native JSON — or the drawing itself
   as SVG, which is the whole plan or extended elevation with its passage walls, centreline, splays,
-  station labels, symbols and cross-sections, openable in Inkscape or any browser. Dated from the
-  phone's own clock, to the clipboard or to a real file with the right extension. On iOS the files land in
+  station labels, symbols and cross-sections, openable in Inkscape or any browser. The SVG carries
+  a legend below the drawing: title, date, who was there, surveyed length and vertical range, the
+  copyright line, a scale bar and — in plan, where it means something — a north arrow. A drawing
+  without those is a picture rather than a survey, and no club will take it. Dated from the phone's
+  own clock, to the clipboard or to a real file with the right extension. On iOS the files land in
   the Files app under *On My iPhone → SexyTopo KMP*, because `UIFileSharingEnabled` is set.
 - **Bring one back in.** Put a `.data.json` in the app's folder — on iOS that is Files, under *On
   My iPhone* — and *Import* offers it. It never overwrites a survey already in the library, which
@@ -328,7 +331,8 @@ Honest limits, so nothing is a surprise in a cave:
 | `control/util/SurveyUpdater`, `amalgamation/*`, `StationNamer` | `shared/survey/` | Triple-shot promotion, all three amalgamation algorithms, real default tolerances |
 | `model/sketch/*` | `shared/model/sketch/` | Needed no translation — see below |
 | `model/sketch/Symbol` + 19 vector drawables | `shared/model/sketch/Symbol.kt` | **Generated** from the drawables; artwork drawn by `math/SvgPath.kt`, arcs included |
-| `io/thirdparty/svg/SvgExporter` | `shared/io/export/Svg.kt` | Deterministic where the Java's `HashMap` order is not; legend and north arrow not ported |
+| `io/thirdparty/svg/SvgExporter` | `shared/io/export/Svg.kt`, `SvgLegend.kt` | Deterministic where the Java's `HashMap` order is not; legend laid out with the Java's own arithmetic, ISO dates instead of a locale's |
+| `control/util/SurveyStats` | `shared/survey/SurveyStats.kt` | Including the two pieces of arithmetic that look like mistakes |
 | `model/sketch/Colour` (150 values) | `shared/model/sketch/Colour.kt` | **Generated** from the Java enum so values cannot drift |
 | `comms/distox/*`, `distoxble/`, `bric4/`, `cavwayx1/`, `sap6/`, `fcl/` | `shared/comms/` | Protocol only, no transport |
 | `control/calibration/*`, `model/calibration/*` | `shared/calibration/` | Beat Heeb's solver; results returned rather than left in statics |
