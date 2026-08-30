@@ -55,12 +55,94 @@ class DemoState(
     var showLabels by mutableStateOf(true)
     var showGrid by mutableStateOf(true)
 
-    /** The survey built live from the simulated instrument, kept even while it is not shown. */
-    val liveSurvey = Survey("Live Survey")
-    val session = SurveySession(liveSurvey)
+    /**
+     * Where surveys are kept between runs. On the browser host this is real storage; elsewhere it
+     * is in-memory until WP3 lands, and [SurveyLibrary] reports rather than throws either way.
+     */
+    val library = SurveyLibrary()
+
+    /**
+     * The survey being built, kept even while the demo cave is showing.
+     *
+     * A `var` rather than a `val` because a survey can now be opened from storage, which replaces
+     * it wholesale. [session] follows it, since a session is bound to one survey.
+     */
+    var liveSurvey by mutableStateOf(Survey("Live Survey"))
+        private set
+
+    var session by mutableStateOf(SurveySession(liveSurvey))
+        private set
+
+    /** Names of the saved surveys, refreshed whenever the library changes. */
+    var savedSurveys by mutableStateOf<List<String>>(emptyList())
+        private set
+
+    /** Set when a save fails, so the UI can say so without interrupting the surveyor. */
+    var storageProblem by mutableStateOf<String?>(null)
+        private set
 
     val survey: Survey
         get() = if (mode == SurveyMode.EXAMPLE) exampleSurvey else liveSurvey
+
+    // -------------------------------------------------------------------------------------
+    // Persistence
+    // -------------------------------------------------------------------------------------
+
+    fun refreshLibrary() {
+        savedSurveys = library.list()
+    }
+
+    /**
+     * Writes the live survey out.
+     *
+     * Called after every change rather than on a timer. A survey is small, the write is
+     * synchronous, and the alternative - losing the last few legs when a phone dies in a cave - is
+     * exactly the failure this exists to prevent. The demo cave is never saved: it is a fixture,
+     * and writing it would clutter the surveyor's own list.
+     */
+    fun saveLiveSurvey() {
+        if (liveSurvey.getAllLegsInChronoOrder().isEmpty() && liveSurvey.planSketch.isEmpty()) return
+        val ok = library.save(liveSurvey)
+        storageProblem = if (ok) null else (library.lastError ?: "could not save")
+        if (ok) refreshLibrary()
+    }
+
+    fun openSurvey(name: String): Boolean {
+        val loaded = library.open(name) ?: run {
+            storageProblem = library.lastError ?: "could not open $name"
+            return false
+        }
+        adopt(loaded)
+        return true
+    }
+
+    fun newSurvey(name: String) {
+        adopt(Survey(library.uniqueName(name)))
+        saveLiveSurvey()
+    }
+
+    fun renameLiveSurvey(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty() || trimmed == liveSurvey.name) return
+        val previous = liveSurvey.name
+        liveSurvey.name = library.uniqueName(trimmed)
+        if (library.save(liveSurvey)) {
+            // The old directory is named after the old name, so it would otherwise linger as a
+            // stale copy that reopening would resurrect.
+            library.delete(previous)
+            refreshLibrary()
+        }
+        sketchRevision++
+    }
+
+    private fun adopt(survey: Survey) {
+        liveSurvey = survey
+        session = SurveySession(survey)
+        mode = SurveyMode.LIVE
+        storageProblem = null
+        sketchRevision++
+        refreshLibrary()
+    }
 
     /**
      * Sketches are mutated in place rather than replaced, so nothing about editing one is
@@ -218,7 +300,8 @@ fun subtitle(state: DemoState): String {
     // Splays are left out: there are typically four per station, so the number is large, dull and
     // the first thing to be truncated on a narrow phone - where it would push out the counts that
     // actually say how big the cave is.
-    return "${space.stationMap.size} stations · $legs legs · ${sketch.pathDetails.size} lines"
+    return "${plural(space.stationMap.size, "station")} · ${plural(legs, "leg")} · " +
+        plural(sketch.pathDetails.size, "line")
 }
 
 /** The one-line status used by the desktop window title and the tests. */
@@ -260,3 +343,12 @@ fun summarise(state: DemoState, compact: Boolean): String {
         hint,
     ).joinToString("  ·  ")
 }
+
+/**
+ * "1 station", "2 stations".
+ *
+ * Trivial, and worth doing: this line is the first thing on the screen, and a survey that reports
+ * "1 legs" reads as unfinished software to exactly the person whose confidence the demo needs.
+ */
+internal fun plural(count: Int, noun: String): String =
+    if (count == 1) "1 $noun" else "$count ${noun}s"

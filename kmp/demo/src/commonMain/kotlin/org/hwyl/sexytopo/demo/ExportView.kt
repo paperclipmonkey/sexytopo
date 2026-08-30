@@ -4,6 +4,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -12,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +45,7 @@ enum class ExportFormat(val label: String) {
 @Composable
 fun ExportView(survey: Survey, revision: Int, modifier: Modifier = Modifier) {
     var format by remember { mutableStateOf(ExportFormat.SURVEX) }
+    var copied by remember(format) { mutableStateOf(false) }
 
     val text =
         remember(survey, revision, format) {
@@ -61,6 +64,12 @@ fun ExportView(survey: Survey, revision: Int, modifier: Modifier = Modifier) {
         ) {
             for (f in ExportFormat.entries) {
                 FilterChip(format == f, { format = f }, { Text(f.label) })
+            }
+            Spacer(Modifier.weight(1f))
+            // The only way off the phone. A survey that cannot leave the device it was recorded on
+            // is a survey that has to be typed up again from a photograph of a screen.
+            TextButton(onClick = { copied = copyToClipboard(text) }) {
+                Text(if (copied) "Copied" else "Copy")
             }
         }
 

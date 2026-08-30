@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +44,8 @@ import org.hwyl.sexytopo.shared.demo.ExampleSurvey
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
+import org.hwyl.sexytopo.shared.survey.SurveyBuilder
+import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.jetbrains.compose.resources.painterResource
 
@@ -86,6 +89,21 @@ fun App(
     val editor = rememberSketchEditor(state)
     val canvas = rememberCanvasController(state)
 
+    // Pick up where the surveyor left off. A cave trip is not one sitting: the phone goes in a
+    // pocket, the app is killed by the OS, and coming back to an empty screen would lose the
+    // survey. Opening the most recent one is what makes this usable rather than a toy.
+    LaunchedEffect(Unit) {
+        state.refreshLibrary()
+        state.savedSurveys.lastOrNull()?.let { state.openSurvey(it) }
+    }
+
+    // Save after every change rather than on a timer. A survey is a few tens of kilobytes and the
+    // write is synchronous, so the cost is nothing against the thing it prevents: losing the last
+    // few legs when a phone dies underground.
+    LaunchedEffect(state.revision, state.liveSurvey) {
+        if (state.revision > 0) state.saveLiveSurvey()
+    }
+
     WithBundledFont { typography ->
         MaterialTheme(
             colorScheme = if (state.darkMode) darkColorScheme() else lightColorScheme(),
@@ -114,7 +132,7 @@ fun App(
                     )
 
                     if (state.mode == SurveyMode.LIVE) {
-                        InstrumentBar(state)
+                        FieldBar(state)
                     }
 
                     if (state.screen == Screen.SKETCH) {
@@ -141,6 +159,23 @@ fun App(
 @Composable
 private fun SexyTopoAppBar(state: DemoState) {
     var menuOpen by remember { mutableStateOf(false) }
+    var naming by remember { mutableStateOf(NamingIntent.NONE) }
+
+    if (naming != NamingIntent.NONE) {
+        SurveyNameDialog(
+            intent = naming,
+            current = state.liveSurvey.name,
+            onDismiss = { naming = NamingIntent.NONE },
+            onConfirm = { name ->
+                when (naming) {
+                    NamingIntent.NEW -> state.newSurvey(name)
+                    NamingIntent.RENAME -> state.renameLiveSurvey(name)
+                    NamingIntent.NONE -> Unit
+                }
+                naming = NamingIntent.NONE
+            },
+        )
+    }
     val panel =
         if (state.darkMode) {
             SexyTopoColours.panelBackgroundNight
@@ -207,18 +242,51 @@ private fun SexyTopoAppBar(state: DemoState) {
                     .padding(horizontal = 12.dp, vertical = 10.dp),
             )
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                // What the demo adds to the app's own menus: which survey is showing, and a look
-                // at what it exports as.
-                for (mode in SurveyMode.entries) {
+                // Survey management first, because in the field it is what the menu is for.
+                DropdownMenuItem(
+                    text = { Text("New survey…") },
+                    leadingIcon = { Text(" ") },
+                    onClick = {
+                        naming = NamingIntent.NEW
+                        menuOpen = false
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Rename survey…") },
+                    leadingIcon = { Text(" ") },
+                    onClick = {
+                        naming = NamingIntent.RENAME
+                        menuOpen = false
+                    },
+                )
+                for (name in state.savedSurveys) {
                     DropdownMenuItem(
-                        text = { Text(mode.label) },
-                        leadingIcon = { Text(if (state.mode == mode) "✓" else " ") },
+                        text = { Text(name) },
+                        leadingIcon = {
+                            Text(
+                                if (state.mode == SurveyMode.LIVE &&
+                                    state.liveSurvey.name == name
+                                ) {
+                                    "✓"
+                                } else {
+                                    " "
+                                },
+                            )
+                        },
                         onClick = {
-                            state.mode = mode
+                            state.openSurvey(name)
                             menuOpen = false
                         },
                     )
                 }
+                DropdownMenuItem(
+                    text = { Text(SurveyMode.EXAMPLE.label) },
+                    leadingIcon = { Text(if (state.mode == SurveyMode.EXAMPLE) "✓" else " ") },
+                    onClick = {
+                        state.mode = SurveyMode.EXAMPLE
+                        menuOpen = false
+                    },
+                )
                 DropdownMenuItem(
                     text = { Text("Export") },
                     leadingIcon = { Text(if (state.screen == Screen.EXPORT) "✓" else " ") },
@@ -287,16 +355,38 @@ private fun ScreenContent(
 }
 
 /**
- * The live-survey controls. Each press decodes one real DistoX packet; three agreeing readings
- * promote to a station, which is the core interaction of the whole app.
+ * The field controls: where a reading gets into the survey.
  *
- * In the Android app this is not a bar at all — readings arrive over Bluetooth while the phone is
- * in a pocket. It is here because the demo has no radio, and a button is the honest stand-in.
+ * Two ways in, and the first is the one that matters on iOS. **Safari has no Web Bluetooth**, so on
+ * the platform this port exists for there is no way to hear from an instrument at all — a surveyor
+ * reads the DistoX display and types it. "Take reading" keeps the simulated instrument alongside,
+ * because it is still the quickest way to show somebody what the app does without an instrument in
+ * the room.
+ *
+ * Both paths feed the same ported [SurveyUpdater], so a typed reading behaves exactly as a radioed
+ * one: three that agree within tolerance promote to a station.
  */
 @Composable
-private fun InstrumentBar(state: DemoState) {
+private fun FieldBar(state: DemoState) {
     val session = state.session
     val dark = state.darkMode
+    var entering by remember { mutableStateOf(false) }
+
+    if (entering) {
+        ManualReadingDialog(
+            onDismiss = { entering = false },
+            onAdd = { leg, asSplay ->
+                if (asSplay) {
+                    SurveyBuilder.addSplay(state.survey, state.survey.activeStation, leg)
+                } else {
+                    SurveyUpdater.update(state.survey, leg)
+                }
+                state.noteSketchEdited()
+                entering = false
+            },
+        )
+    }
+
     Row(
         Modifier
             .fillMaxWidth()
@@ -307,16 +397,23 @@ private fun InstrumentBar(state: DemoState) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Button(onClick = { session.takeReading() }) { Text("Take reading") }
+        Button(onClick = { entering = true }) { Text("Add reading") }
+        Button(onClick = { session.takeReading() }) { Text("Simulate") }
         Text(
             buildString {
-                append("${session.readingsTaken} readings")
+                append("${state.survey.getAllStationsInChronoOrder().size} stations")
                 session.lastReading?.let {
                     append("  ·  ${oneDp(it.distance)}m ${oneDp(it.azimuth)}°")
                 }
+                state.storageProblem?.let { append("  ·  not saved: $it") }
             },
             style = MaterialTheme.typography.bodySmall,
-            color = if (dark) SexyTopoColours.legendNight else SexyTopoColours.legend,
+            color =
+                when {
+                    state.storageProblem != null -> MaterialTheme.colorScheme.error
+                    dark -> SexyTopoColours.legendNight
+                    else -> SexyTopoColours.legend
+                },
         )
         Spacer(Modifier.weight(1f))
     }

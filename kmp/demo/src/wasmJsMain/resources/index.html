@@ -3,13 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <title>SexyTopo — Kotlin Multiplatform demo</title>
+    <title>SexyTopo</title>
+    <link rel="manifest" href="./manifest.webmanifest">
+    <meta name="theme-color" content="#7FAF7F">
+    <!-- iOS ignores the manifest for Add to Home Screen, so it needs these as well: without
+         apple-mobile-web-app-capable the app opens in Safari chrome rather than full screen. -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="SexyTopo">
+    <link rel="apple-touch-icon" href="./icon-192.png">
     <style>
         html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
         canvas { display: block; outline: none; }
     </style>
 </head>
 <body>
+<script>
+  // Keep the screen on while the app is open.
+  //
+  // A surveyor has wet gloves, a head torch and both hands busy. A phone that dims after 30
+  // seconds and needs a tap to wake is one they will put away. The Wake Lock API is supported by
+  // iOS Safari 16.4 and later; where it is not, this does nothing and the app still works.
+  //
+  // The lock is dropped by the browser whenever the page is hidden, so it has to be taken again on
+  // every return to the foreground - which is exactly what happens each time the phone goes back
+  // in a pocket and comes out again.
+  (function () {
+    if (!('wakeLock' in navigator)) return
+    var lock = null
+    function acquire() {
+      if (document.visibilityState !== 'visible') return
+      navigator.wakeLock.request('screen').then(
+        function (l) { lock = l },
+        function () { /* denied, e.g. on low battery: not worth telling the surveyor */ },
+      )
+    }
+    document.addEventListener('visibilitychange', acquire)
+    window.addEventListener('load', acquire)
+  })()
+</script>
 <script src="demo.js"></script>
+<script>
+  // Registered after the app script so a failure here can never stop the app loading. Offline is
+  // what makes this usable underground, but a surveyor with a working app and no cache is far
+  // better off than one staring at an error.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('./sw.js').catch(function (e) {
+        console.warn('offline support unavailable:', e)
+      })
+    })
+  }
+</script>
 </body>
 </html>

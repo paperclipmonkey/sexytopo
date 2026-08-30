@@ -185,6 +185,20 @@ jobs:
         working-directory: kmp/demo/browser-test
         run: node smoke.mjs http://localhost:8731/index.html screenshots
 
+      # Whether a caver could actually record a survey: named survey, typed readings, triple-shot
+      # promotion, persistence across a restart, and loading with the network cut. None of that is
+      # visible in a screenshot, and every one of them would make the app useless underground.
+      - name: Test the field workflow
+        working-directory: kmp/demo/browser-test
+        run: node field.mjs http://localhost:8731/index.html field-screenshots
+
+      - name: Upload field screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: field-screenshots
+          path: kmp/demo/browser-test/field-screenshots/*.png
+
       - name: Upload browser screenshots
         if: always()
         uses: actions/upload-artifact@v4
