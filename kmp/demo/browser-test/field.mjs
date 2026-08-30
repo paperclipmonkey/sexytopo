@@ -167,7 +167,7 @@ const STATION_SAVE = [317, 700]
 // somewhere unrelated. Computing the row from the menu's own order means one list to update.
 const MENU_BEFORE_SURVEYS = ['new', 'rename', 'trip']
 const MENU_AFTER_SURVEYS =
-  ['demo', 'export', 'instrument', 'stats', 'calibrate', 'import', 'surveying', 'dark']
+  ['demo', 'export', 'instrument', '3d', 'stats', 'calibrate', 'import', 'surveying', 'dark']
 const MENU_FIRST_ROW_Y = 80
 const MENU_ROW_HEIGHT = 48
 
@@ -242,6 +242,8 @@ const CONFIRM_DELETE_SURVEY = [312, 516]
 const EXPORT_SAVE_FILE = [117, 132]
 // The cross-section editor's own bar: Cancel at the left, Done at the right.
 const EDITOR_CANCEL = [46, 24]
+// The 3D view's own bar: Close at the left, Reset at the right.
+const THREE_D_CLOSE = [42, 24]
 const EDITOR_DONE = [382, 24]
 
 // ---- the app opens on the demo cave, and offers a way out of it ------------------------
@@ -989,6 +991,74 @@ if (survex === null) {
   } else {
     pass("a Survex file from other software can be brought in and read")
   }
+}
+
+// ---- the cave in three dimensions -------------------------------------------------------------
+// Last of all, because it takes the whole screen and has its own gestures. The demo cave rather
+// than whichever survey happened to be open: two legs prove the projection runs, a whole cave
+// proves it draws a cave.
+const savedCount = await page.evaluate(() => {
+  const prefix = 'sexytopo:f:surveys/'
+  const names = Object.keys(localStorage)
+    .filter((k) => k.startsWith(prefix))
+    .map((k) => k.slice(prefix.length).split('/')[0])
+  return new Set(names).size
+})
+await at(...OVERFLOW); await page.waitForTimeout(600)
+await at(...menuRow('demo', savedCount)); await page.waitForTimeout(900)
+await at(...OVERFLOW); await page.waitForTimeout(600)
+await at(...menuRow('3d', savedCount)); await page.waitForTimeout(1400)
+await page.screenshot({ path: join(shotDir, 'field-3d.png') })
+
+// The legs are drawn in the renderer's own red, which nothing else on this screen uses.
+const legPixels = async () => {
+  const clip = { x: box.x, y: box.y + 60, width: 420, height: 700 }
+  const b64 = (await page.screenshot({ clip })).toString('base64')
+  return page.evaluate(async (data) => {
+    const img = new Image()
+    await new Promise((r) => {
+      img.onload = r
+      img.src = 'data:image/png;base64,' + data
+    })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    let red = 0
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i] > 120 && px[i + 1] < 110 && px[i + 2] < 110) red++
+    }
+    return red
+  }, b64)
+}
+
+const drawnIn3D = await legPixels()
+if (drawnIn3D < 100) {
+  fail(`the 3D view drew almost nothing (${drawnIn3D} leg pixels)`)
+} else {
+  pass(`the survey is drawn in three dimensions (${drawnIn3D} leg pixels)`)
+}
+
+const beforeTurning = await page.screenshot({ clip: { x: box.x, y: box.y + 60, width: 420, height: 700 } })
+await drag([120, 400], [320, 300]); await page.waitForTimeout(900)
+await page.screenshot({ path: join(shotDir, 'field-3d-turned.png') })
+const afterTurning = await page.screenshot({ clip: { x: box.x, y: box.y + 60, width: 420, height: 700 } })
+if (Buffer.compare(beforeTurning, afterTurning) === 0) {
+  fail('dragging did not turn the cave')
+} else if ((await legPixels()) < 100) {
+  fail('turning the cave lost it')
+} else {
+  pass('one finger turns the cave, and it is still there afterwards')
+}
+
+await at(...THREE_D_CLOSE); await page.waitForTimeout(900)
+const backToTheSketch = await page.evaluate(() => document.querySelectorAll('canvas').length)
+if (backToTheSketch === 0) {
+  fail('closing the 3D view left no canvas at all')
+} else {
+  pass('the 3D view closes back to the survey')
 }
 
 if (pageErrors.length > 0) {

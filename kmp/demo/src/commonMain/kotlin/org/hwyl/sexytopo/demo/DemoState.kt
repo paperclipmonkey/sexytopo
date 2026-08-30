@@ -127,6 +127,15 @@ class DemoState(
     var editingCrossSection by mutableStateOf<CrossSectionDetail?>(null)
 
     /**
+     * Whether the 3D view has the screen.
+     *
+     * Another Android activity turned into a state, for the same reason: it is a different way of
+     * looking at the same survey, with its own gestures, and leaving the sketch toolbar under it
+     * would be a lie about what the buttons do.
+     */
+    var viewing3D by mutableStateOf(false)
+
+    /**
      * Whether a new stroke jumps to the end of a nearby one.
      *
      * A passage wall is drawn as a series of strokes and the joins between them are where a

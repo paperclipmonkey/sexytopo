@@ -147,6 +147,13 @@ fun App(
                                 state.noteSketchEdited()
                             },
                         )
+                    } else if (state.viewing3D) {
+                        ThreeDView(
+                            survey = state.survey,
+                            revision = state.revision,
+                            darkMode = state.darkMode,
+                            onClose = { state.viewing3D = false },
+                        )
                     } else {
                         SexyTopoAppBar(state)
 
@@ -413,6 +420,15 @@ private fun SexyTopoAppBar(state: DemoState) {
                     onClick = {
                         state.mode = SurveyMode.LIVE
                         connecting = true
+                        menuOpen = false
+                    },
+                )
+                // Next to Statistics, where the Android app's View submenu puts it.
+                DropdownMenuItem(
+                    text = { Text("3D") },
+                    leadingIcon = { CheckDot(state.viewing3D) },
+                    onClick = {
+                        state.viewing3D = true
                         menuOpen = false
                     },
                 )

@@ -43,6 +43,7 @@ Being precise about this matters more than the demo looking good.
 | The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
 | The BLE connection logic is platform-free | **Verified** | `GattLinkTest` and `GattSessionTest` — the profile matrix *and* the connection lifecycle; only callback plumbing is left in `iosMain` |
 | The DistoX calibration solver reproduces the Java exactly | **Verified** | the Android app's own two 56-shot datasets, asserting the *iteration counts* (43, 75, 53) as well as the errors — reproduced on the JVM, Kotlin/Wasm **and Kotlin/Native** |
+| The 3D view's camera and projection port off OpenGL | **Verified** | `Matrix4Test` and `Camera3DTest` — the Android `Matrix` routines the renderer uses, and the camera on top of them, including that the whole survey stays on a portrait screen through 128 different angles; `field.mjs` opens it in the browser, counts what got drawn and turns it |
 | Shared Compose UI draws, and can be drawn on | **Verified** | `./gradlew :demo:renderDemoPng`; drawing/erasing/undo covered by tests |
 | **The shared core has no JVM-only dependencies** | **Verified** | every shared test passes on **Kotlin/Wasm** as well as the JVM |
 | **The same code compiles for iOS** | **Verified** | `:shared:compileKotlinIosSimulatorArm64` in CI on a macOS runner — `iosMain`, `CoreBluetoothTransport` included |
@@ -121,6 +122,9 @@ missing.
   hit-tests through the same visibility rule the renderer uses, so you cannot rub out what is too
   small to see.
 - **Cross-sections**, drawn on the plan where the surveyor parked them.
+- **The cave in 3D**, turned with a finger. The Android app draws this with OpenGL ES; here the
+  projection is arithmetic and the drawing is the same 2D canvas as everything else, so it runs on
+  iOS, Android, the desktop and the web from one file.
 - **The active station**, in the app's amber corner brackets, and the select tool that moves them.
 - **Export** to Survex `.svx`, Therion `.th` and `.th2`, an `.xvi` tracing image, Compass `.dat`,
   PocketTopo `.txt`, SVG, and the app's own JSON — the same bytes the Android app would read back.
@@ -423,6 +427,8 @@ Honest limits, so nothing is a surprise in a cave:
 | `GraphView.handle{Move,Rotate}CrossSection` | `demo/.../CrossSectionDrag.kt` | One value drives the preview *and* the commit, so they cannot disagree |
 | `CrossSectionActivity`, `CrossSectionView` | `demo/.../CrossSectionEditor.kt` | The same canvas over the section's own world; `SurveyScene.forCrossSection` is the whole difference |
 | `control/graph/GraphView` — drawing and touch plumbing | `demo/.../SurveyCanvas.kt` | **Rewritten**, not ported |
+| `control/threed/SurveyRenderer` — the camera | `shared/math/Camera3D.kt`, `Matrix4.kt` | Including `android.opengl.Matrix`, which exists nowhere else |
+| `control/threed/*`, `ThreeDViewActivity` | `demo/.../ThreeDView.kt` | The GL half **rewritten** as a 2D canvas: no shaders, no vertex buffers, and it runs on all four targets |
 | `res/layout/activity_graph.xml` | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied |
 | `res/values/colors.xml` (+ `values-night`) | `demo/.../SexyTopoTheme.kt` | The app's own palette |
 | `res/drawable-hdpi/*.png` | `demo/src/commonMain/composeResources/drawable/` | The app's own icons |
@@ -548,6 +554,19 @@ These are the things that would actually shape a real port.
    round-trips, and is therefore a deliberate divergence rather than a translation of what the Java
    does. It is round-trip corruption of a surveyor's own notes, so it is worth fixing upstream too.
 
+12. **The 3D view's gestures and its fit are both worth changing.** Two divergences, both in
+   `ThreeDView.kt` and both deliberate. `SurveyView3D` pans with one finger and rotates with two —
+   and reaching the rotate needs both fingers moving together *without* changing their spacing,
+   which is also how a pinch starts, so the gesture the whole view exists for is the hardest one to
+   perform. The first thing anybody does with a 3D view is drag it to spin it, so here one finger
+   turns and two pan and pinch. Separately, `SurveyRenderer.buildGeometry` sets the camera distance
+   to the longest side of the bounding box times 1.5, which ignores both the shape of the screen —
+   the field of view is vertical, so a portrait phone's horizontal one is much narrower — and the
+   fact that the view turns, so a passage that was end-on is side-on a moment later and much wider.
+   On a phone the cave hangs off both edges as soon as you drag it. Fitting the bounding *sphere*
+   to whichever field of view is narrower fixes both at once, and is checked here by projecting
+   every station from 128 different angles and asserting none of them leaves the screen.
+
 ---
 
 ## A defect worth reporting upstream
@@ -645,7 +664,7 @@ This is a proof of concept. It does **not** include:
 - **Cross-survey links.** They are stored as absolute `content://` URIs, which are meaningless off
   Android and already break when a folder moves, so replacing them is a format decision to take
   with upstream rather than a porting one. Nothing here draws a neighbouring survey.
-- **The rest of the Android UI**: the 3D view and the manual.
+- **The rest of the Android UI**: the manual.
 - **The Android app adopting this core.** That is the step that would make the work pay for itself
   regardless of the iOS outcome, and it is deliberately not attempted yet.
 
