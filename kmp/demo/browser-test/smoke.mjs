@@ -30,9 +30,16 @@ const pass = (message) => console.log(`ok    ${message}`)
 
 // CI installs the browser Playwright expects, so it needs no help. CHROMIUM_PATH is for an
 // environment that already has a Chromium of its own and would rather not download another.
-const browser = await chromium.launch(
-  process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {},
-)
+//
+// SMOKE_PROXY is for pointing this at a *deployed* URL from a sandbox whose outbound traffic goes
+// through a proxy. Chromium does not inherit HTTPS_PROXY the way curl does, so without it a remote
+// run dies on ERR_CONNECTION_RESET while every local run passes. Deliberately its own variable
+// rather than reading HTTPS_PROXY, so a proxy that happens to be set in some CI environment cannot
+// silently reroute a run that does not want it.
+const launchOptions = {}
+if (process.env.CHROMIUM_PATH) launchOptions.executablePath = process.env.CHROMIUM_PATH
+if (process.env.SMOKE_PROXY) launchOptions.proxy = { server: process.env.SMOKE_PROXY }
+const browser = await chromium.launch(launchOptions)
 const page = await browser.newPage({ viewport: { width: 1100, height: 800 } })
 
 const pageErrors = []

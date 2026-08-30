@@ -13,6 +13,11 @@ is written once in Compose Multiplatform and renders through Skia, which is what
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
 tests the claim.
 
+**Try it now:** <https://paperclipmonkey.github.io/sexytopo/> - the whole app compiled to
+WebAssembly, including in Safari on an iPhone. That is the browser build rather than the
+native one, but the survey core, the sketch engine and the Compose UI in it are the same code
+the iOS build compiles.
+
 Nothing in the existing Android app has been touched. `kmp/` is a separate Gradle build alongside
 it; everything except the Android host builds without an Android SDK at all, which is the clearest
 demonstration that the core no longer depends on one.
@@ -305,6 +310,34 @@ These are the things that would actually shape a real port.
    also dropped every cross-section. Both are the worst failure mode a survey app has: the file
    still opens, and what is missing is a branch of the cave. Anything reimplementing this format
    should start from the tests in `SurveyLoaderFidelityTest`.
+
+---
+
+## A portability trap worth knowing about
+
+`Float.toString()` is not the same function on every Kotlin target. Java - and so Kotlin/JVM, and so
+the Android app - switches to scientific notation outside roughly 1e-3..1e7. Kotlin/Wasm does not:
+
+| value | JVM | Wasm |
+| --- | --- | --- |
+| `1e-5f` | `1.0E-5` | `0.00001` |
+| `1e7f` | `1.0E7` | `10000000.0` |
+
+Ordinary survey magnitudes agree, so this is an edge case, but a real one. Two consequences, both
+pinned by `FloatRenderingTest`:
+
+- **The exporters are safe.** Every number in a Survex, Therion or Compass file goes through
+  `formatFixed`, which builds its output from integers and never calls `Float.toString`. Those
+  formats are byte-identical across targets.
+- **The JSON is value-safe but not byte-safe.** The survey and sketch writers hand raw `Float`s to
+  kotlinx.serialization, so an extreme coordinate can be spelled differently on different
+  platforms. Both spellings are valid JSON for the same number and the Android app parses with
+  `getDouble`, so nothing is lost - but the file is not byte-identical.
+
+Making the JSON byte-identical too would mean reimplementing Java's shortest-round-trip
+`Float.toString`. That is real work for a case no surveyor will hit, so it is documented and
+guarded rather than fixed. Worth knowing before somebody diffs a survey written on an iPhone
+against the same survey written on Android and concludes the port is broken.
 
 ---
 
