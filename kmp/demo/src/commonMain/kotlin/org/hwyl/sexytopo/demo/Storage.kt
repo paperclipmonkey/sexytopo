@@ -1,5 +1,7 @@
 package org.hwyl.sexytopo.demo
 
+import org.hwyl.sexytopo.shared.calibration.CalibrationReading
+import org.hwyl.sexytopo.shared.io.CalibrationJson
 import org.hwyl.sexytopo.shared.io.store.FileStore
 import org.hwyl.sexytopo.shared.io.store.InMemoryFileStore
 import org.hwyl.sexytopo.shared.io.store.SurveyStorage
@@ -64,6 +66,9 @@ class SurveyLibrary(private val store: FileStore = platformFileStore()) {
             if (it == null) lastError = "could not read $fileName"
         }
 
+    /** Where the instrument's calibration lives, in the Android app's own JSON format. */
+    private val CALIBRATION_PATH = listOf("calibration.json")
+
     /** The surveying tolerances, which outlive any one survey. */
     fun loadSettings(): SurveySettings = SurveySettingsStore.load(store)
 
@@ -71,6 +76,24 @@ class SurveyLibrary(private val store: FileStore = platformFileStore()) {
         SurveySettingsStore.save(store, settings).also {
             if (!it) lastError = "could not save settings"
         }
+
+    /**
+     * The calibration readings, which belong to the *instrument* rather than to any one survey —
+     * so they sit beside the settings at the storage root rather than inside a survey's folder.
+     *
+     * Worth persisting for one reason: fifty-six shots is a twenty-minute job, and that is long
+     * enough for a phone to be dropped, a battery to die, or the app to be killed in a pocket.
+     * Losing the run means doing all of it again, in the same cave, in the same cold.
+     */
+    fun loadCalibration(): List<CalibrationReading> =
+        runCatching { store.readText(CALIBRATION_PATH)?.let(CalibrationJson::read) }
+            .getOrNull()
+            .orEmpty()
+
+    fun saveCalibration(readings: List<CalibrationReading>): Boolean =
+        runCatching { store.writeText(CALIBRATION_PATH, CalibrationJson.write(readings)) }
+            .isSuccess
+            .also { if (!it) lastError = "could not save the calibration" }
 
     /**
      * A name that is not already taken, so "New survey" twice does not overwrite the first.

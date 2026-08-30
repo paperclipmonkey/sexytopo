@@ -70,8 +70,12 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
     }
 
     // Read so this recomposes as readings arrive.
-    @Suppress("UNUSED_EXPRESSION")
-    session.calibrationRevision
+    val revision = session.calibrationRevision
+
+    // Saved on every change, keyed on that same counter so it covers every way the run can change
+    // — the buttons here, and a reading arriving from an instrument while nobody is touching the
+    // screen, which is the case that actually matters.
+    LaunchedEffect(revision) { state.noteCalibrationChanged() }
 
     AlertDialog(
         onDismissRequest = onDismiss,

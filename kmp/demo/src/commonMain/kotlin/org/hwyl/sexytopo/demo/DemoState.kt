@@ -78,6 +78,25 @@ class DemoState(
         private set
 
     /** Reads the saved tolerances. Called once at startup, alongside the survey library. */
+    /**
+     * Bring back a calibration that was interrupted.
+     *
+     * A run is loaded once, when the app opens, and saved on every change — see
+     * [noteCalibrationChanged]. Fifty-six shots is twenty minutes, and losing them to a flat
+     * battery means doing all of it again.
+     */
+    fun loadCalibration() {
+        val saved = library.loadCalibration()
+        if (saved.isEmpty()) return
+        session.calibration.clear()
+        saved.forEach(session.calibration::add)
+    }
+
+    /** Called whenever the run changes, so an interrupted calibration survives a restart. */
+    fun noteCalibrationChanged() {
+        library.saveCalibration(session.calibration.readings)
+    }
+
     fun loadSettings() {
         surveySettings = library.loadSettings()
     }

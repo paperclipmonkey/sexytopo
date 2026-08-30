@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by over 620 tests. The UI
+Survex and Therion exporters and the native file format are ported and covered by over 630 tests. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
 tests the claim.
@@ -274,8 +274,10 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   each rolled through four positions, fifty-six shots in all, then Beat Heeb's solver and the
   coefficients written back to the device. An uncalibrated DistoX can be several degrees out, and a
   survey is a chain of bearings, so the error accumulates along the passage — the cave comes back
-  the wrong shape and nothing in the numbers says so. Without an instrument the simulated one
-  replays a real 56-shot calibration, so the whole chain can be seen working.
+  the wrong shape and nothing in the numbers says so. The run is saved as it is taken, in the
+  Android app's own JSON format, so a flat battery twenty minutes into fifty-six shots does not
+  mean starting again. Without an instrument the simulated one replays a real 56-shot calibration,
+  so the whole chain can be seen working.
 - **Draw the passage.** Tap a cross-section and it opens into its own screen — the same canvas,
   tools, viewport and undo stack as the plan, over the section's own world: the station at the
   origin and its splays around it. A star of splays is not a passage; the outline drawn round it,
@@ -347,7 +349,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `DistoXCalibrationActivity` | `shared/calibration/CalibrationRun.kt`, `demo/.../CalibrationDialog.kt` | The 56 positions, the assessment, and the write-back |
 | the `*Manager` classes' device knowledge | `shared/comms/InstrumentProfile.kt` | The BLE device matrix, as data |
 | Nordic `BleManager` subclasses | `shared/iosMain/.../CoreBluetoothTransport.kt` | The whole iOS Bluetooth surface |
-| `control/io/basic/*JsonTranslater` | `shared/io/` | Same tags, same tolerant two-pass load |
+| `control/io/basic/*JsonTranslater` | `shared/io/` | Same tags, same tolerant two-pass load; the calibration file is interchangeable both ways |
 | `control/graph/GraphView` — tools, viewport, hit-testing, snap-to-lines | `shared/sketch/` | Ported; the demo drives it |
 | `GraphView.handle{Move,Rotate}CrossSection` | `demo/.../CrossSectionDrag.kt` | One value drives the preview *and* the commit, so they cannot disagree |
 | `CrossSectionActivity`, `CrossSectionView` | `demo/.../CrossSectionEditor.kt` | The same canvas over the section's own world; `SurveyScene.forCrossSection` is the whole difference |

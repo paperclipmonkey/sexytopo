@@ -347,6 +347,22 @@ if (coefficientWrites.length < 12) {
   pass('a calibration is solved and its coefficients written back to the instrument')
 }
 
+// ---- and an interrupted calibration comes back ------------------------------------------------
+// Fifty-six shots is twenty minutes, and twenty minutes underground is long enough for a phone to
+// be dropped or a battery to go flat. The run is written on every reading, in the Android app's own
+// JSON format, so the two can read each other's calibrations.
+const storedCalibration = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('calibration.json'))
+  return key ? JSON.parse(localStorage.getItem(key)).length : null
+})
+if (storedCalibration === null) {
+  fail('the calibration was never written to storage, so a flat battery would lose it')
+} else if (storedCalibration !== CALIBRATION_ROWS.length) {
+  fail(`${storedCalibration} of ${CALIBRATION_ROWS.length} readings were stored`)
+} else {
+  pass('the calibration is saved as it is taken, so an interrupted run is not lost')
+}
+
 if (pageErrors.length > 0) {
   fail(`the page threw while connected:\n      ${pageErrors.slice(0, 3).join('\n      ')}`)
 }

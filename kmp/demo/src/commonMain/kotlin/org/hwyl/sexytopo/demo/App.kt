@@ -99,6 +99,7 @@ fun App(
         // browser is entitled to reclaim until it has been asked not to. A no-op everywhere else.
         requestDurableStorage()
         state.loadSettings()
+        state.loadCalibration()
         state.refreshLibrary()
         state.savedSurveys.lastOrNull()?.let { state.openSurvey(it) }
     }
