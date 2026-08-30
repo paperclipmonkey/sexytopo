@@ -11,19 +11,25 @@
 # this UI is usable on a phone-shaped iOS screen, with a finger, by a caver. It costs one workflow
 # and answers that in ten seconds instead of a week.
 #
-# Publishing needs one manual setting, once:
+# Publishing needs two manual settings, both one-off and both requiring a repository admin.
 #
-#     Settings -> Pages -> Build and deployment -> Source -> "GitHub Actions"
+#   1. Settings -> Pages -> Build and deployment -> Source -> "GitHub Actions"
 #
-# It cannot be automated. Asking `configure-pages` to do it (`enablement: true`) was tried and the
-# API refused: "Create Pages site failed. Error: Resource not accessible by integration" - the
-# workflow's GITHUB_TOKEN may deploy to a Pages site but may not create one, whatever permissions
-# the job declares. That takes a repository admin.
+#      Cannot be automated. Asking `configure-pages` to do it (`enablement: true`) was tried and
+#      the API refused: "Create Pages site failed. Error: Resource not accessible by integration".
+#      The workflow's GITHUB_TOKEN may deploy to a Pages site but may not create one, whatever
+#      permissions the job declares.
 #
-# So until somebody flips it, the deploy is skipped with a warning naming the setting, rather than
-# turning the pull request red. Hosting a demo is a convenience and must not be able to fail a
-# review over a setting nobody in CI can change. The build itself still fails loudly, because that
-# part is a real check.
+#   2. Settings -> Environments -> github-pages -> Deployment branches and tags -> add `claude/**`
+#
+#      By default that environment only accepts deployments from the default branch, so a feature
+#      branch is rejected before its deploy job runs a single step:
+#      "Branch ... is not allowed to deploy to github-pages due to environment protection rules."
+#      Only needed to preview a branch; merging to the default branch publishes without it.
+#
+# Neither is something CI can do for itself, so neither is allowed to turn the pull request red.
+# The build is the real check and still fails loudly; the deploy is a convenience and reports what
+# to change instead.
 name: KMP browser demo
 
 on:
@@ -88,9 +94,16 @@ jobs:
     needs: build
     if: needs.build.outputs.published == 'true'
     runs-on: ubuntu-latest
+    # A branch the github-pages environment does not allow is rejected before any step runs, so
+    # this has to be tolerated at the job level rather than the step level. See setting 2 above.
+    continue-on-error: true
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Say where it went
+        run: |
+          echo "::notice::Demo published at ${{ steps.deployment.outputs.page_url }}"
