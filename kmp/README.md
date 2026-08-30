@@ -606,7 +606,15 @@ These are the things that would actually shape a real port.
    prefix is decoded in a loop with no width limit, so a run of high-bit bytes shifts past the width
    of an `int` and yields a small plausible length rather than an error.
 
-15. **The vibrate-on-new-station setting says on and behaves as off.** `preferences_general.xml`
+15. **The two PocketTopo importers disagree about splays, and the text one is wrong.** The binary
+   reader attaches legs directly and its comment says why — "to avoid triple-shot detection creating
+   unwanted auto-named stations during import". The text reader hands every splay to
+   `SurveyUpdater.update`, which applies exactly that rule. So a surveyor who shot three careful
+   splays off one station — a passage wall measured properly — gains a station that is not in the
+   file, auto-named, with the rest of the import hanging off it. Two importers in the same package,
+   one of which documents the trap the other falls into.
+
+16. **The vibrate-on-new-station setting says on and behaves as off.** `preferences_general.xml`
    declares `android:defaultValue="true"` for `pref_vibrate_on_new_station`, so the checkbox on the
    settings screen appears ticked on a fresh install. But nothing in the app calls
    `PreferenceManager.setDefaultValues`, and a `defaultValue` is not written to `SharedPreferences`

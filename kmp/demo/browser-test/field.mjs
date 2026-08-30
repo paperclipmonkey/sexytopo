@@ -1015,9 +1015,11 @@ if (survex === null) {
 // nothing else in the app uses, and one that fails silently if it is wrong: a byte lost in a length
 // prefix moves everything after it. The file is the Android app's own `CeiledUp.top`.
 const topFile = readFileSync(new URL('./fixtures/CeiledUp.top', import.meta.url))
+// Only the import candidates, not everything at the root: the settings, the preferences and the
+// device log live there too, and clearing those mid-run would quietly undo checks above.
 await page.evaluate(() => {
   for (const key of Object.keys(localStorage)) {
-    if (key.startsWith('sexytopo:f:') && !key.includes('surveys/')) localStorage.removeItem(key)
+    if (/^sexytopo:f:[^/]+\.(json|svx|th|txt)$/i.test(key)) localStorage.removeItem(key)
   }
 })
 await at(...OVERFLOW); await page.waitForTimeout(600)

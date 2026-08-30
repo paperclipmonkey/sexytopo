@@ -11,7 +11,6 @@ import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.BrushColour
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
-import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 
 /**
  * PocketTopo's text export, read back in.
@@ -98,7 +97,15 @@ object PocketTopoTxtImporter {
 
             if (toStationName.isEmpty()) {
                 // No far end: a splay, shot into the dark to measure the passage.
-                SurveyUpdater.update(survey, Leg(distance, azimuth, inclination))
+                //
+                // `SurveyBuilder.addSplay` rather than the Java's `SurveyUpdater.update`, which
+                // applies the triple-shot promotion rule. A surveyor who shoots three similar
+                // splays off one station — a passage wall measured carefully — would otherwise gain
+                // a phantom station in the middle of an import, auto-named, with the rest of the
+                // file hanging off it. The Java's *binary* PocketTopo importer avoids `SurveyUpdater`
+                // for exactly this reason and says so; its text importer does not, which reads as
+                // an oversight rather than a decision.
+                SurveyBuilder.addSplay(survey, fromStation, Leg(distance, azimuth, inclination))
             } else {
                 val leg = Leg(distance, azimuth, inclination, Station(toStationName))
                 SurveyBuilder.updateWithNewStation(survey, leg)

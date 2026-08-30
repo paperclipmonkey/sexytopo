@@ -251,6 +251,29 @@ class PocketTopoTxtImportTest {
         assertEquals(1, assertNotNull(survey.getStationByName("2.0")).onwardLegs.size)
     }
 
+    /**
+     * Three similar splays off one station are a passage wall measured carefully, not a leg taken
+     * three times. The Java's text importer hands them to `SurveyUpdater.update`, whose triple-shot
+     * rule promotes them into a station that is not in the file — auto-named, with the rest of the
+     * import hanging off it. Its own binary importer avoids `SurveyUpdater` for this reason.
+     */
+    @Test
+    fun repeatedSplaysDoNotInventAStation() {
+        val text =
+            listOf(
+                "DATA",
+                "1.0\t\t90.00\t0.00\t3.000\t>",
+                "1.0\t\t90.10\t0.10\t3.010\t>",
+                "1.0\t\t89.90\t-0.10\t2.990\t>",
+            ).joinToString("\n")
+
+        val survey = PocketTopoTxtImporter.read(text, "Fake")
+
+        assertEquals(1, survey.getAllStations().size, "an extra station appeared from nowhere")
+        assertEquals(3, survey.origin.onwardLegs.size)
+        assertTrue(survey.origin.onwardLegs.none { it.hasDestination() })
+    }
+
     @Test
     fun anEmptyFileIsAnEmptySurveyRatherThanAThrow() {
         val survey = PocketTopoTxtImporter.read("", "Nothing")

@@ -158,6 +158,7 @@ fun ThreeDView(
                             awaitFirstDown(requireUnconsumed = false)
                             var previousCentroid: Offset? = null
                             var previousSpacing = 0f
+                            var previousFingers = 0
                             while (true) {
                                 val event = awaitPointerEvent()
                                 val down = event.changes.filter { it.pressed }
@@ -172,6 +173,13 @@ fun ThreeDView(
                                     } else {
                                         0f
                                     }
+
+                                // A second finger arriving moves the centroid halfway across the
+                                // screen without anything having moved, and a finger leaving does
+                                // the same in reverse. Taking that as a drag throws the cave
+                                // sideways at the start of every pinch. `SurveyView3D` has the same
+                                // guard, spelled as resetting previousX/Y on ACTION_POINTER_DOWN.
+                                if (down.size != previousFingers) previousCentroid = null
 
                                 previousCentroid?.let { previous ->
                                     val moved = centroid - previous
@@ -196,6 +204,7 @@ fun ThreeDView(
 
                                 previousCentroid = centroid
                                 previousSpacing = spacing
+                                previousFingers = down.size
                                 down.forEach { it.consume() }
                             }
                         }
