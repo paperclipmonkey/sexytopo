@@ -238,10 +238,15 @@ The build runs `./gradlew :demo:embedAndSignAppleFrameworkForXcode` as a pre-bui
 compiles the Kotlin/Native framework and embeds it. `kmp/iosApp/project.yml` and the README section
 below it describe a fully manual alternative if you would rather install nothing.
 
-The entire iOS-specific surface is six files: `demo/src/iosMain/.../MainViewController.kt` (one
-function), `Storage.ios.kt`, `Clipboard.ios.kt`, `ScreenAwake.ios.kt` and the two Swift files in
-`iosApp/` — plus, when you want real instruments,
-`shared/src/iosMain/.../CoreBluetoothTransport.kt`.
+The iOS-specific surface is small and every file in it is one screen long:
+`demo/src/iosMain/` holds twelve — `MainViewController.kt` is one function, and the rest are the
+`actual` halves of things a phone has and a browser does not: the Documents file store, the
+clipboard, the file picker, keeping the screen awake, the date and the timestamp, the haptic, the
+export, the storage-durability answer and the instrument transports. `iosApp/` holds two Swift
+files. `shared/src/iosMain/` holds one more, `CoreBluetoothTransport.kt`, for when you want real
+instruments. Everything else — the whole survey engine, every importer and exporter, the sketch
+editor, the calibration solver, the 3D camera and the entire user interface — is the same code the
+Android and browser builds run.
 
 #### Onto your own phone, step by step
 
@@ -276,10 +281,10 @@ it — so it is written out in full, including the three places it is known to g
    do. Xcode will tell you, in red, if the one you picked is taken.
 5. **Turn on Developer Mode on the phone.** iOS 16 and later hide it until you ask: *Settings →
    Privacy & Security → Developer Mode → on*, then restart the phone and confirm after it comes
-   back. The toggle only appears once the phone has been plugged into a Mac running Xcode, so do
-   step 5 first if you cannot find it. Without this the phone accepts the app and refuses to launch
-   it, with a message about the developer being untrusted that looks like step 7's problem but is
-   not.
+   back. The toggle only appears once the phone has been plugged into a Mac running Xcode, so if it
+   is not there, do step 6 first and come back. Without this the phone accepts the app and refuses
+   to launch it, with a message about the developer being untrusted that looks like step 7's
+   problem but is not.
 6. **Plug the phone in** with a USB cable and unlock it. The first time, the phone asks whether to
    *Trust This Computer* — say yes. Pick it from the device menu at the top of the Xcode window
    (next to the scheme), and press ⌘R.
@@ -322,9 +327,10 @@ does not.
 
 **Checked on every push, on a macOS runner:** the shared code compiles for the phone (`iosArm64`,
 a different target from the simulator with its own platform libraries); the whole ported test suite
-passes on Kotlin/Native; the Compose UI links as an iOS framework; and the iOS file handling —
-`DocumentsFileStore`, the date and clipboard code, a survey saved and reopened — *runs* in a
-simulator.
+passes on Kotlin/Native; the Compose UI links as an iOS framework; and the iOS half of the app —
+`DocumentsFileStore`, a survey saved and reopened, a file's exact bytes through the `NSData` copy
+the PocketTopo reader needs, the date, the log's timestamps, the clipboard and the new-station
+haptic — *runs* in a simulator.
 
 **Never run at all:** the app itself, as an app, on any Apple device. Nobody has pressed ⌘R before
 you. The pieces are all verified and the assembly is not, so the plausible failure is something
