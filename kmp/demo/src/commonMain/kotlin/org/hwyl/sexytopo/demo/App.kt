@@ -161,6 +161,32 @@ fun App(
 private fun SexyTopoAppBar(state: DemoState) {
     var menuOpen by remember { mutableStateOf(false) }
     var naming by remember { mutableStateOf(NamingIntent.NONE) }
+    var editingTrip by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf<String?>(null) }
+
+    if (editingTrip) {
+        TripDetailsDialog(
+            survey = state.liveSurvey,
+            today = todayIso(),
+            onDismiss = { editingTrip = false },
+            onSaved = {
+                editingTrip = false
+                state.noteSketchEdited()
+            },
+        )
+    }
+
+    deleting?.let { name ->
+        DeleteSurveyDialog(
+            name = name,
+            isOpen = state.mode == SurveyMode.LIVE && state.liveSurvey.name == name,
+            onDismiss = { deleting = null },
+            onConfirm = {
+                state.deleteSurvey(name)
+                deleting = null
+            },
+        )
+    }
 
     if (naming != NamingIntent.NONE) {
         SurveyNameDialog(
@@ -256,7 +282,20 @@ private fun SexyTopoAppBar(state: DemoState) {
                     text = { Text("Rename survey…") },
                     leadingIcon = { Text(" ") },
                     onClick = {
+                        // Both of these edit the surveyor's own survey, so show it: editing the
+                        // name or the team of something the screen is not displaying is the kind
+                        // of thing that gets noticed three trips later.
+                        state.mode = SurveyMode.LIVE
                         naming = NamingIntent.RENAME
+                        menuOpen = false
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Trip details…") },
+                    leadingIcon = { Text(if (state.liveSurvey.trip != null) "✓" else " ") },
+                    onClick = {
+                        state.mode = SurveyMode.LIVE
+                        editingTrip = true
                         menuOpen = false
                     },
                 )
@@ -272,6 +311,17 @@ private fun SexyTopoAppBar(state: DemoState) {
                                 } else {
                                     " "
                                 },
+                            )
+                        },
+                        // Deleting is on the row rather than behind a "manage surveys" screen, and
+                        // it asks first: a survey is a trip somebody cannot repeat.
+                        trailingIcon = {
+                            Text(
+                                "✕",
+                                modifier = Modifier.clickable {
+                                    deleting = name
+                                    menuOpen = false
+                                }.padding(horizontal = 8.dp, vertical = 4.dp),
                             )
                         },
                         onClick = {

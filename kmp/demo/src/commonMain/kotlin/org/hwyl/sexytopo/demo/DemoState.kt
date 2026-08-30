@@ -79,7 +79,7 @@ class DemoState(
      * A `var` rather than a `val` because a survey can now be opened from storage, which replaces
      * it wholesale. [session] follows it, since a session is bound to one survey.
      */
-    var liveSurvey by mutableStateOf(Survey("Live Survey"))
+    var liveSurvey by mutableStateOf(Survey(DEFAULT_NEW_SURVEY_NAME))
         private set
 
     var session by mutableStateOf(SurveySession(liveSurvey))
@@ -131,6 +131,26 @@ class DemoState(
     fun newSurvey(name: String) {
         adopt(Survey(library.uniqueName(name)))
         saveLiveSurvey()
+    }
+
+    /**
+     * Removes a survey from storage.
+     *
+     * If it is the one open, the app is left holding a survey that no longer exists anywhere, so
+     * it starts a fresh one — better than leaving the surveyor editing something that will not be
+     * saved. The autosave effect only writes a survey with legs in it, so the empty replacement
+     * does not immediately recreate the directory just deleted.
+     */
+    fun deleteSurvey(name: String) {
+        if (!library.delete(name)) {
+            storageProblem = library.lastError ?: "could not delete $name"
+            return
+        }
+        storageProblem = null
+        if (liveSurvey.name == name) {
+            adopt(Survey(DEFAULT_NEW_SURVEY_NAME))
+        }
+        refreshLibrary()
     }
 
     fun renameLiveSurvey(name: String) {
@@ -364,3 +384,6 @@ fun summarise(state: DemoState, compact: Boolean): String {
  */
 internal fun plural(count: Int, noun: String): String =
     if (count == 1) "1 $noun" else "$count ${noun}s"
+
+/** What a survey is called before the surveyor names it. */
+const val DEFAULT_NEW_SURVEY_NAME = "Live Survey"

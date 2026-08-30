@@ -52,3 +52,35 @@ fun SurveyNameDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
+/**
+ * Confirming a deletion.
+ *
+ * A survey is a trip somebody cannot repeat, and on a phone the delete control is a few
+ * millimetres from the one that opens it, so this asks — and says plainly that it is permanent,
+ * because on the browser build there is no file to recover from anywhere.
+ */
+@Composable
+fun DeleteSurveyDialog(
+    name: String,
+    isOpen: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete $name?") },
+        text = {
+            Text(
+                if (isOpen) {
+                    "This is the survey you have open. Deleting it starts a new empty one, and " +
+                        "there is no undo."
+                } else {
+                    "Everything in it goes: readings, sketch and trip details. There is no undo."
+                },
+            )
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Delete") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}

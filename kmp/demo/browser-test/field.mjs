@@ -94,9 +94,20 @@ const STATION_NAME = [210, 352]
 const STATION_COMMENT = [210, 428]
 const STATION_EE_LEFT = [102, 536]
 const STATION_SAVE = [317, 608]
-// The overflow menu lists the saved surveys between "Rename" and "Demo cave", so Export sits one
-// row lower here than it does with an empty library. One saved survey by this point: Swildons.
-const MENU_EXPORT = [312, 272]
+// The overflow menu lists the saved surveys between "Trip details" and "Demo cave", so Export
+// sits one row lower here than it does with an empty library. One saved survey by this point:
+// Swildons. Rows are 48px apart: New(80) Rename(128) Trip(176) Swildons(224) Demo(272)
+// Export(320) Dark(368).
+const MENU_TRIP = [312, 176]
+const MENU_SURVEY_DELETE = [392, 224]
+const MENU_EXPORT = [312, 320]
+const TRIP_ADD_NAME = [177, 340]
+const TRIP_ADD_BUTTON = [317, 336]
+const TRIP_ROLE_BOOK = [106, 298]
+const TRIP_INSTRUMENT = [210, 498]
+const TRIP_SAVE = [317, 810]
+const CANCEL_DELETE_SURVEY = [237, 516]
+const CONFIRM_DELETE_SURVEY = [312, 516]
 const EXPORT_SAVE_FILE = [117, 132]
 
 // ---- the app opens on the demo cave, and offers a way out of it ------------------------
@@ -292,6 +303,33 @@ if (!sump) {
   pass('a station can be named, commented and pointed the right way in the extended elevation')
 }
 
+// ---- who was on the trip ---------------------------------------------------------------
+// Every exporter in the port already knew how to write a team and a date; until there was a
+// dialog, every file this app produced went out anonymous. A survey that does not say who made it
+// cannot be checked against anybody's notebook.
+await at(...OVERFLOW); await page.waitForTimeout(500)
+await at(...MENU_TRIP); await page.waitForTimeout(800)
+await at(...TRIP_ADD_NAME); await page.waitForTimeout(250)
+await page.keyboard.type('L. Waterworth', { delay: 15 })
+await at(...TRIP_ADD_BUTTON); await page.waitForTimeout(600)
+await at(...TRIP_ROLE_BOOK); await page.waitForTimeout(300)
+await at(...TRIP_INSTRUMENT); await page.waitForTimeout(250)
+await page.keyboard.type('DistoX2', { delay: 15 })
+await page.screenshot({ path: join(shotDir, 'field-trip.png') })
+await at(...TRIP_SAVE); await page.waitForTimeout(800)
+
+const trip = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
+  return key ? JSON.parse(localStorage.getItem(key)).trip ?? null : null
+})
+if (!trip) {
+  fail('the trip details were not saved with the survey')
+} else if (!JSON.stringify(trip).includes('L. Waterworth')) {
+  fail(`the team did not reach the saved survey (${JSON.stringify(trip).slice(0, 120)})`)
+} else {
+  pass('a trip records who was there, with what, and on what date')
+}
+
 // ---- and the survey can leave the phone as a file ------------------------------------------
 // The clipboard reaches an email. Only a file reaches Therion, and a survey that cannot get into
 // Therion is a weekend of somebody's life spent producing something they then have to type up
@@ -329,8 +367,10 @@ if (!download) {
     fail(`the export is not dated today (looking for ${stamp}) — the device clock is not reaching it`)
   } else if (!svx.includes('Sump')) {
     fail('the station the surveyor named is not in the export')
+  } else if (!svx.includes('L. Waterworth') || !svx.includes('DistoX2')) {
+    fail('the trip team and instrument did not reach the Survex file')
   } else {
-    pass('the exported file carries the survey, today\'s date and the named station')
+    pass('the exported file carries the survey, the date, the named station and the team')
   }
 }
 await page.screenshot({ path: join(shotDir, 'field-export-saved.png') })
@@ -413,6 +453,39 @@ if (!offlineUp) {
   pass('the app loads and draws with no network at all')
 }
 await ctx.setOffline(false)
+
+// ---- and a survey can be thrown away on purpose ---------------------------------------------
+// Last, because it removes the thing every check above was asserting about. Somebody makes a test
+// survey on the way to the cave and wants it gone; without this the library only ever grows, and
+// on a phone the delete control sits a few millimetres from the one that opens it — so it asks
+// first, and this checks that it asks.
+await at(...OVERFLOW); await page.waitForTimeout(600)
+await at(...MENU_SURVEY_DELETE); await page.waitForTimeout(700)
+await page.screenshot({ path: join(shotDir, 'field-confirm-delete-survey.png') })
+
+// A Cancel that missed its button would leave the dialog up and also leave the survey intact, so
+// this check on its own could pass for the wrong reason. What gives it teeth is the real delete
+// below: that only works from a dismissed dialog, so if Cancel did nothing, the next check fails.
+const beforeCancel = await savedLegs()
+await at(...CANCEL_DELETE_SURVEY); await page.waitForTimeout(700)
+if ((await savedLegs()).length !== beforeCancel.length) {
+  fail('cancelling the delete removed the survey anyway')
+} else {
+  pass('a delete can be called off')
+}
+
+await at(...OVERFLOW); await page.waitForTimeout(600)
+await at(...MENU_SURVEY_DELETE); await page.waitForTimeout(700)
+await at(...CONFIRM_DELETE_SURVEY); await page.waitForTimeout(900)
+
+const left = await page.evaluate(() =>
+  Object.keys(localStorage).filter((k) => k.includes('Swildons')),
+)
+if (left.length > 0) {
+  fail(`deleting left ${left.length} of the survey's files behind: ${left.slice(0, 3).join(', ')}`)
+} else {
+  pass('deleting a survey removes it and everything in it')
+}
 
 if (pageErrors.length > 0) {
   fail(`the page threw while being used:\n      ${pageErrors.slice(0, 3).join('\n      ')}`)
