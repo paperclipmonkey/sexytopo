@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -58,7 +60,12 @@ fun ManualReadingDialog(
         onDismissRequest = onDismiss,
         title = { Text("Add a reading") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Same reason as the station dialog: three numeric fields, the input-mode buttons and
+            // a line of explanation, opened with a keypad covering the bottom of the screen.
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 ReadingFields(
                     distance = distance,
                     onDistance = { distance = it },

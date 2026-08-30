@@ -46,6 +46,7 @@ Being precise about this matters more than the demo looking good.
 | **The view can follow the survey as it grows** | **Verified** | the preference round-trips with every other one, and `field.mjs` turns *Follow the survey* on, promotes a station from three readings, and finds the active station's amber brackets within forty pixels of the middle of the sketch — an assertion about where the view ended up, not merely that the screen changed, which it would have anyway |
 | **A station can be found by name, and the last leg taken back** | **Verified** | `FindStationTest` — names and comments both searched, a station the survey no longer holds has no position rather than a crash, and the last leg is the last one *taken* rather than the last in any walk of the tree — and `field.mjs` finds a station on a phone screen and checks the view moved, then adds a splay, takes it back from the drawing menu and checks only it went |
 | **The plan says which end of the survey you are working at** | **Verified** | `CentrelineDisplayTest` and `DashedLineTest` — the mark follows the last reading *taken*, splay included, as the Java's own paint order does; a leg is matched by identity, because two shots down a straight passage read the same; a pitch is out of the plan's plane and in the extended elevation's; and a leg too short to dash draws nothing rather than one stub that would read as solid — plus `field.mjs` finds the app's magenta on the drawn plan, turns the mark off and checks every magenta pixel went, fades the rest of the cave and checks the drawing got lighter, then brings it back |
+| **It fits a small phone** | **Partly** | `field.mjs` ends by resizing to 375x667 — an iPhone SE — and checking the toolbar is still where it computes it to be and the canvas still takes a stroke, with a screenshot beside it. What is *not* checked there is the keyboard, which takes a third of that screen and which a headless browser does not have: the three dialogs that could not survive it were made scrollable by reading, not by running |
 | **The table and the drawing are joined up** | **Verified** | `StationMenuTest` for the two menus being different in exactly the two ways the Android app's are, and `SurveyTableTest` for which station a cell is about when the shot was booked backwards — and `field.mjs` taps both ends of one leg on a phone screen, checks they offer different menus, and follows *show it on the plan* to a station that lands within forty pixels of the middle |
 | **A reading can be corrected, annotated, reversed or unmade** | **Verified** | `LegActionsTest` and `SurveyUpdaterTest` — which actions each row offers and what they do: a leg with splays hanging off its far end is not offered the downgrade `SurveyUpdater` would throw over, the first reading of a survey is not offered a promotion there is no leg above for, a leg the survey no longer holds answers "no" instead of throwing, and a comment marks the survey unsaved, which the Android app's own dialogs do not — and `field.mjs` counts what the menu offers a splay and a leg on a phone screen, writes a note against a leg, checks the table gains the app's dagger, and turns the shot end for end and back again |
 | **Any station can be reached from the sketch, not just the active one** | **Verified** | `StationMenuTest` for which actions a station offers — the origin has no incoming leg and no delete, cross-sections belong to the plan, a backsight is normalised the way the table normalises it — and `field.mjs` finds a station that is *not* the active one on the drawn plan, holds it, and checks that the menu moved the active station there without marking the paper |
@@ -517,6 +518,21 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   the app opens with no signal at all. In a browser the app also asks for persistent storage on
   startup, because `localStorage` is otherwise storage the browser may reclaim; if it is refused,
   the export screen says so rather than letting you assume the trip is safe.
+
+#### On a smaller phone
+
+The screenshots in this README are from a 420x900 screen. An iPhone SE is 375x667, and two things
+in this app are near that limit: the drawing menu is sixteen rows, which is 768 pixels of menu, and
+the station dialog — a name, a comment, four passage measurements and the elevation direction — is
+most of a screen before a keyboard takes a third of what is left. Material 3 scrolls a dropdown
+that does not fit and *clips* a dialog that does not, so the three dialogs with several fields in
+them were made scrollable: the station dialog, the reading dialog and the edit-reading dialog.
+
+Say plainly what that is worth. `field.mjs` finishes at 375x667 and checks the app still draws and
+still takes a stroke there, and leaves a screenshot; it cannot check the keyboard, because a
+headless browser has none. The scrolling is a fix made by reading the layout, like the density one.
+If a dialog does come up short on your phone, the fix is one modifier and the three that have it
+show where it goes.
 
 #### What to expect that is missing
 

@@ -1962,6 +1962,64 @@ if (backToTheSketch === 0) {
   pass('the 3D view closes back to the survey')
 }
 
+// ---- and all of it has to fit on a smaller phone ---------------------------------------------
+// Everything above ran on a 420x900 screen. An iPhone SE is 375x667, and this app has grown things
+// that do not obviously fit one: a drawing menu that went from thirteen rows to sixteen is 768
+// pixels of menu on 667 pixels of phone, and the station dialog - a name, a comment, four passage
+// measurements and the elevation direction - is most of a screen before a keyboard takes a third
+// of what is left. Material 3 scrolls a dropdown that does not fit and *clips* a dialog that does
+// not, which is why the two tallest dialogs here were made scrollable.
+//
+// What this checks is the floor: at that size the toolbar is still where it is computed to be and
+// the canvas still takes a stroke. The screenshot beside it is for a human to look at, because
+// "does this look usable on a small phone" is not a thing a pixel count answers.
+await page.setViewportSize({ width: 375, height: 667 })
+await page.waitForTimeout(1000)
+const small = await (await page.$('canvas')).boundingBox()
+const tapSmall = (x, y) => page.mouse.click(small.x + x, small.y + y)
+const smallToolRow = small.height - 20
+const smallColumn = small.width / 9
+
+await page.screenshot({ path: join(shotDir, 'field-small-screen.png') })
+
+// Ink over the middle of the sketch, whatever survey happens to be open by now.
+const middleInk = async () => {
+  const b64 = (await page.screenshot({ clip: small })).toString('base64')
+  return page.evaluate(async ([data]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    let ink = 0
+    for (let y = 220; y < 320; y++) {
+      for (let x = 60; x < 320; x++) {
+        const i = (y * c.width + x) * 4
+        const lightest = Math.max(px[i], px[i + 1], px[i + 2])
+        if (lightest < 200) ink += 200 - lightest
+      }
+    }
+    return ink
+  }, [b64])
+}
+
+await tapSmall(smallColumn * 1.5, smallToolRow); await page.waitForTimeout(500)
+const smallInkBefore = await middleInk()
+await page.mouse.move(small.x + 80, small.y + 250)
+await page.mouse.down()
+await page.mouse.move(small.x + 300, small.y + 290, { steps: 12 })
+await page.mouse.up()
+await page.waitForTimeout(700)
+await page.screenshot({ path: join(shotDir, 'field-small-screen-drawn.png') })
+if (!((await middleInk()) > smallInkBefore)) {
+  fail('on a 375x667 screen the toolbar or the canvas was not where it should be — no stroke')
+} else {
+  pass('on an iPhone SE-sized screen the toolbar still works and the sketch still takes a stroke')
+}
+
 if (pageErrors.length > 0) {
   fail(`the page threw while being used:\n      ${pageErrors.slice(0, 3).join('\n      ')}`)
 }

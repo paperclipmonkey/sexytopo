@@ -3,6 +3,8 @@ package org.hwyl.sexytopo.demo
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -229,7 +231,13 @@ private fun EditLegDialog(row: SurveyTableRow, onDismiss: () -> Unit, onSave: (L
         onDismissRequest = onDismiss,
         title = { Text("Edit reading") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Scrollable for the same reason the station dialog is: three fields and a keypad on
+            // a phone leave very little room, and a Compose dialog that does not fit is clipped
+            // from the bottom, which is where Save is.
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 ReadingFields(
                     distance = distance,
                     onDistance = { distance = it },

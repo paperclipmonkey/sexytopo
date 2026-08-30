@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -60,7 +62,17 @@ fun StationActionsDialog(
         onDismissRequest = onDismiss,
         title = { Text("Station ${station.name}") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Scrollable because this dialog is the tallest in the app — a name, a
+                // comment, four passage measurements and the elevation direction — and it is
+                // opened with the keyboard up, which on a phone takes a third of the screen. A
+                // Compose dialog that does not fit is clipped, and what gets clipped off the
+                // bottom of this one is Save. Nothing here can catch that: the browser these
+                // checks run in is 900 pixels tall and has no keyboard. A scroll container that
+                // fits reports the height of its content, so this changes nothing where it does.
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
