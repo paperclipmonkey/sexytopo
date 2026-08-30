@@ -199,8 +199,9 @@ class DemoState(
     var showGrid by mutableStateOf(true)
 
     /**
-     * Where surveys are kept between runs. On the browser host this is real storage; elsewhere it
-     * is in-memory until WP3 lands, and [SurveyLibrary] reports rather than throws either way.
+     * Where surveys are kept between runs: `localStorage` in the browser, the app's own files
+     * directory on Android, Documents on iOS, and the platform's application-data directory on the
+     * desktop. [SurveyLibrary] reports rather than throws when a platform will not have it.
      */
     val library = SurveyLibrary()
 

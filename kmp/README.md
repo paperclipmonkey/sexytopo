@@ -43,6 +43,7 @@ Being precise about this matters more than the demo looking good.
 | PocketTopo `.txt` exports the same survey data | **Verified** | its DATA section is golden against the Android app; its station sections deliberately diverge, because the Java's are not reproducible even against themselves |
 | A station being made can be felt rather than looked at | **Verified** | the callback fires once per station and not once per reading, the preference round-trips, and `field.mjs` turns it off through the settings screen and checks it stayed off |
 | The instrument log is kept, persisted and readable on the phone | **Verified** | `ActivityLogTest` for the bounded queues and the file format; `instrument.mjs` connects a fake DistoX-BLE, takes a calibration, and then reads the log back off the clipboard — count, timestamps and all |
+| The desktop build keeps its surveys too | **Verified** | a survey written by one `SurveyLibrary` and read by a second over the same directory, in SexyTopo's own file layout, plus the three platform conventions for where that directory goes |
 | Surveys save and load through a platform-free storage layer | **Verified** | a full round trip - naming, directories, autosave, listing - over an in-memory `FileStore`, on all three targets. The Android app's equivalent test is `@Ignore`d because `DocumentFile` cannot be mocked |
 | The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
 | The BLE connection logic is platform-free | **Verified** | `GattLinkTest` and `GattSessionTest` — the profile matrix *and* the connection lifecycle; only callback plumbing is left in `iosMain` |
@@ -166,7 +167,7 @@ cd kmp
 ./gradlew :demo:jvmTest            # the UI's use of the shared editor
 ./gradlew :demo:compileKotlinWasmJs      # the UI compiled for a non-JVM target
 ./gradlew :demo:renderDemoPng            # render the shared UI to PNGs, no display needed
-./gradlew :demo:run                      # the desktop app (needs a display)
+./gradlew :demo:run                      # the desktop app (needs a display; keeps its surveys)
 ./gradlew :demo:wasmJsBrowserDistribution  # the browser build — see "The browser target" below
 ./gradlew :androidApp:assembleDebug      # the Android app (needs an Android SDK)
 ```
@@ -206,6 +207,10 @@ platform libraries — device UIKit and CoreBluetooth are not the simulator's �
 build is not evidence that the thing somebody carries underground compiles.
 
 ### Running on iOS (needs macOS + Xcode)
+
+**Before any of this, try `./gradlew :demo:run`.** The desktop build is the same `App()` composable
+the iPhone hosts, it needs no SDK and no simulator, and it now keeps its surveys between runs — so
+it is the cheapest way to see whether the thing is worth putting on a phone at all.
 
 Putting it on a simulator or a phone is where a Mac becomes unavoidable. The Xcode project is
 **generated rather than committed**, because it was authored on Linux where a hand-written
