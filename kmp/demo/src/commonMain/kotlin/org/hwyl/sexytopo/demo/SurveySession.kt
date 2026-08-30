@@ -4,7 +4,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import org.hwyl.sexytopo.shared.calibration.CalibrationPositions
+import org.hwyl.sexytopo.shared.calibration.CalibrationReading
+import org.hwyl.sexytopo.shared.calibration.CalibrationResult
+import org.hwyl.sexytopo.shared.calibration.CalibrationRun
+import org.hwyl.sexytopo.shared.comms.InstrumentCommand
 import org.hwyl.sexytopo.shared.comms.FrameChannel
+import org.hwyl.sexytopo.shared.demo.ExampleCalibration
 import org.hwyl.sexytopo.shared.comms.InstrumentDecoder
 import org.hwyl.sexytopo.shared.comms.InstrumentPacket
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
@@ -69,6 +75,106 @@ class SurveySession(
     var log by mutableStateOf<List<String>>(emptyList())
         private set
 
+    // -------------------------------------------------------------------------------------
+    // Calibration
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * The readings taken since calibration was started.
+     *
+     * A calibration is a run of 56 shots taken with the instrument pointed and rolled in a
+     * prescribed set of positions, which the solver fits sensor corrections to. Kept here rather
+     * than in the survey because it belongs to the *instrument*: one calibration serves every
+     * survey that instrument takes afterwards.
+     */
+    val calibration = CalibrationRun()
+
+    /** Whether the instrument has been told to send calibration readings instead of shots. */
+    var calibrating by mutableStateOf(false)
+        private set
+
+    /** Bumped as readings arrive, so the calibration screen redraws. */
+    var calibrationRevision by mutableIntStateOf(0)
+        private set
+
+    /**
+     * Put the instrument into calibration mode.
+     *
+     * @return false if this instrument has no calibration commands — FCL exposes none — so the
+     *   screen can say so rather than appearing to work.
+     */
+    fun startCalibration(): Boolean {
+        val command = commandFor(InstrumentCommand.START_CALIBRATION) ?: return false
+        decoder.calibrating = true
+        transport.send(command)
+        calibrating = true
+        note("calibration started")
+        return true
+    }
+
+    /** Take the instrument back out of calibration mode, so it sends shots again. */
+    fun stopCalibration() {
+        commandFor(InstrumentCommand.STOP_CALIBRATION)?.let { transport.send(it) }
+        decoder.calibrating = false
+        calibrating = false
+        note("calibration stopped")
+    }
+
+    /**
+     * Write the fitted coefficients back to the instrument.
+     *
+     * This is the step that actually changes anything: until it happens the instrument is still
+     * using whatever coefficients it had. Each command is a four-byte memory write from address
+     * 0x8010, exactly as `WriteCalibrationProtocol` does.
+     */
+    fun writeCalibration(result: CalibrationResult): Int {
+        val commands = calibration.writeCommands(result)
+        for (command in commands) transport.send(command)
+        note("wrote ${commands.size} coefficient blocks to the instrument")
+        return commands.size
+    }
+
+    /**
+     * Have the simulated instrument send the next reading of a real 56-shot calibration.
+     *
+     * The demo equivalent of pressing the instrument's button while it is in calibration mode, and
+     * the only way to drive this screen without hardware. The readings are genuine — one of the
+     * datasets the solver is tested against — so working through all 56 produces the fit that
+     * dataset is known to produce, rather than one that never settles.
+     *
+     * @return false when the 56 are used up, or when a real instrument is attached: this is a
+     *   button for the simulator, and pressing it with a DistoX connected would be pretending.
+     */
+    fun simulateCalibrationReading(): Boolean {
+        if (transport !== simulator) return false
+        val reading = ExampleCalibration.READINGS.getOrNull(calibration.count) ?: return false
+        simulator.emitCalibrationReading(
+            InstrumentPacket.Acceleration(reading.gx, reading.gy, reading.gz),
+            InstrumentPacket.Magnetic(reading.mx, reading.my, reading.mz),
+        )
+        return true
+    }
+
+    fun deleteLastCalibrationReading() {
+        calibration.deleteLast()
+        calibrationRevision++
+    }
+
+    fun clearCalibration() {
+        calibration.clear()
+        calibrationRevision++
+    }
+
+    /**
+     * The bytes that carry [command] to whichever instrument is attached, or null if it has no
+     * such command.
+     *
+     * The single command byte is the same everywhere — the DistoX defined the vocabulary and the
+     * clones adopted it — but how it is wrapped is not, which is what the profile knows.
+     */
+    private fun commandFor(command: InstrumentCommand): ByteArray? =
+        decoder.encodeCommand(command)
+
     private val listener =
         object : InstrumentTransportListener {
             override fun onConnected() {
@@ -102,6 +208,14 @@ class SurveySession(
                     }
                 }
 
+                if (calibrating) {
+                    collectCalibration(packets)
+                    // A calibration reading is not a shot: it must never reach the survey. The
+                    // instrument sends nothing else while it is in calibration mode, but a shot
+                    // arriving here would be one taken by accident and stored as passage.
+                    return
+                }
+
                 for (leg in packets.measurements()) {
                     lastReading = leg
                     readingsTaken++
@@ -117,6 +231,25 @@ class SurveySession(
                 }
             }
         }
+
+    /**
+     * Files the calibration readings that arrive while calibrating.
+     *
+     * The pairing of a classic DistoX's two frames happens in the decoder, where the Android app
+     * does it too — `DistoXCalibrationDecoder`, which also treats a repeated half as a lost
+     * acknowledgement rather than as an error. A DistoX-BLE sends both halves in one notification
+     * and needs none of that. Either way one reading arrives here.
+     */
+    private fun collectCalibration(packets: List<InstrumentPacket>) {
+        for (packet in packets) {
+            if (packet !is InstrumentPacket.CalibrationReading) continue
+            calibration.add(
+                CalibrationReading(packet.gx, packet.gy, packet.gz, packet.mx, packet.my, packet.mz),
+            )
+            calibrationRevision++
+            note("calibration reading ${calibration.count} of ${CalibrationPositions.REQUIRED}")
+        }
+    }
 
     private var subscription: TransportSubscription = transport.observe(listener)
 

@@ -3,6 +3,7 @@ package org.hwyl.sexytopo.shared.comms
 import org.hwyl.sexytopo.shared.comms.bric.Bric4Decoder
 import org.hwyl.sexytopo.shared.comms.cavway.CavwayX1Protocol
 import org.hwyl.sexytopo.shared.comms.distox.DistoXBleFraming
+import org.hwyl.sexytopo.shared.comms.distox.DistoXCalibrationDecoder
 import org.hwyl.sexytopo.shared.comms.distox.DistoXBlePackets
 import org.hwyl.sexytopo.shared.comms.distox.DistoXProtocol
 import org.hwyl.sexytopo.shared.comms.fcl.FclDecodeResult
@@ -50,6 +51,45 @@ abstract class InstrumentDecoder {
     /** Forget any part-assembled state. Called when a link drops. */
     open fun reset() = Unit
 
+    /**
+     * Whether the instrument has been put into calibration mode.
+     *
+     * The Android app models this by swapping protocol objects — `MeasurementProtocol` for shots,
+     * `CalibrationProtocol` for calibration readings — because on the classic DistoX the *same*
+     * packet types mean different things in the two modes, and nothing in a frame says which mode
+     * the device is in. Setting this is the equivalent of that swap, and it discards any
+     * part-assembled state, since a half-read shot is not the first half of a calibration reading.
+     *
+     * Most drivers ignore it: DistoX-BLE, Cavway, BRIC, SAP6 and FCL all tag their frames, so they
+     * can tell a calibration reading from a shot without being told.
+     */
+    var calibrating: Boolean = false
+        set(value) {
+            if (field != value) {
+                field = value
+                reset()
+            }
+        }
+
+    /** Which family this driver speaks for, so a caller can ask what commands it accepts. */
+    abstract val family: InstrumentFamily
+
+    /**
+     * The bytes that carry [command] to this instrument, or null if it has no such command.
+     *
+     * The command byte itself is the same everywhere — the DistoX defined the vocabulary and the
+     * clones adopted it — but the wrapping is not, and that is the whole reason this lives on the
+     * decoder rather than in a constant. The classic DistoX writes the bare byte to an RFCOMM
+     * socket, SAP6 and FCL write it as a single-octet GATT value (`CaveBLE.sendCommand`), and
+     * DistoX-BLE and Cavway wrap it in a `data:` frame — see the override.
+     *
+     * Null rather than a byte for an unsupported command, so a screen can grey out a button
+     * instead of writing something the instrument will ignore. FCL, for instance, has no
+     * calibration commands at all.
+     */
+    open fun encodeCommand(command: InstrumentCommand): ByteArray? =
+        if (command.supportedBy(family)) byteArrayOf(command.byte) else null
+
     companion object {
         /**
          * The decoder for an instrument, by profile.
@@ -89,17 +129,43 @@ abstract class InstrumentDecoder {
 /** The classic DistoX protocol: bare packets, and the same 0x55/0xD5 acknowledgement. */
 private class ClassicDistoXDecoder : InstrumentDecoder() {
 
+    override val family = InstrumentFamily.DISTOX
+
     override val driverName = "DistoX"
 
+    /**
+     * The two halves of a calibration reading, paired.
+     *
+     * `DistoXCalibrationDecoder` was ported with the rest of the protocol and had no caller: this
+     * decoder only ever looked for measurement packets, so a classic DistoX in calibration mode
+     * decoded to nothing at all. The BLE devices do not need it — they tag their frames and send
+     * both halves in one notification — which is exactly why the gap was invisible.
+     */
+    private val calibrationDecoder = DistoXCalibrationDecoder()
+
     override fun decode(channel: FrameChannel, bytes: ByteArray): List<InstrumentPacket> =
-        if (bytes.isNotEmpty() && DistoXProtocol.isDataPacket(bytes)) {
-            listOf(InstrumentPacket.Measurement(DistoXProtocol.parseMeasurement(bytes)))
-        } else {
-            emptyList()
+        when {
+            bytes.isEmpty() -> emptyList()
+
+            // In calibration mode the device sends acceleration/magnetic pairs and no shots. The
+            // decoder holds the first half until the second arrives, and treats a repeat of the
+            // half it already has as a lost acknowledgement rather than an error.
+            //
+            // Its `disconnect` signal — five consecutive duplicates, where the Java closes the
+            // streams — is not acted on here; the link stays up and the readings simply stop
+            // arriving, which the calibration screen shows as a count that has stopped moving.
+            calibrating -> listOfNotNull(calibrationDecoder.receive(bytes).packet)
+
+            DistoXProtocol.isDataPacket(bytes) ->
+                listOf(InstrumentPacket.Measurement(DistoXProtocol.parseMeasurement(bytes)))
+
+            else -> emptyList()
         }
 
     override fun acknowledgementFor(channel: FrameChannel, bytes: ByteArray): ByteArray? =
         if (bytes.isEmpty()) null else DistoXProtocol.createAcknowledgementPacket(bytes)
+
+    override fun reset() = calibrationDecoder.reset()
 }
 
 /**
@@ -110,6 +176,20 @@ private class ClassicDistoXDecoder : InstrumentDecoder() {
  * while decoding means unwrapping one byte.
  */
 private class DistoXBleDecoder : InstrumentDecoder() {
+
+    override val family = InstrumentFamily.DISTOX_BLE
+
+    /**
+     * `DistoXBleManager.createWriteCommandPacket`: the command byte inside a `data:` frame rather
+     * than written raw, because this device's write characteristic carries framed packets.
+     */
+    override fun encodeCommand(command: InstrumentCommand): ByteArray? =
+        if (command.supportedBy(family)) {
+            DistoXBleFraming.createWriteCommandPacket(command.byte)
+        } else {
+            null
+        }
+
 
     override val driverName = "DistoX-BLE"
 
@@ -128,6 +208,20 @@ private class DistoXBleDecoder : InstrumentDecoder() {
 
 /** Cavway X1: the same transport as DistoX-BLE and a protocol of its own. */
 private class CavwayDecoder : InstrumentDecoder() {
+
+    override val family = InstrumentFamily.CAVWAY_X1
+
+    /**
+     * `DistoXBleManager.createWriteCommandPacket`: the command byte inside a `data:` frame rather
+     * than written raw, because this device's write characteristic carries framed packets.
+     */
+    override fun encodeCommand(command: InstrumentCommand): ByteArray? =
+        if (command.supportedBy(family)) {
+            DistoXBleFraming.createWriteCommandPacket(command.byte)
+        } else {
+            null
+        }
+
 
     override val driverName = "Cavway X1"
 
@@ -153,6 +247,8 @@ private class CavwayDecoder : InstrumentDecoder() {
  * through means this port simply does not have that bug.
  */
 private class BricDecoder : InstrumentDecoder() {
+
+    override val family = InstrumentFamily.BRIC4
 
     override val driverName = "BRIC"
 
@@ -182,6 +278,8 @@ private class BricDecoder : InstrumentDecoder() {
  */
 private class Sap6Decoder : InstrumentDecoder() {
 
+    override val family = InstrumentFamily.SAP6
+
     override val driverName = "SAP6"
 
     override fun decode(channel: FrameChannel, bytes: ByteArray): List<InstrumentPacket> =
@@ -204,6 +302,8 @@ private class Sap6Decoder : InstrumentDecoder() {
  * why this decoder holds its last result rather than re-running.
  */
 private class FclDecoderAdapter : InstrumentDecoder() {
+
+    override val family = InstrumentFamily.FCL
 
     override val driverName = "FCL"
 
@@ -237,6 +337,8 @@ private class FclDecoderAdapter : InstrumentDecoder() {
 
 /** A profile with no driver: frames are surfaced as-is rather than silently dropped. */
 private object UnknownDecoder : InstrumentDecoder() {
+
+    override val family = InstrumentFamily.DISTOX
 
     override val driverName = UNKNOWN_DRIVER
 

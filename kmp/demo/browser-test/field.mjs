@@ -146,7 +146,8 @@ const STATION_SAVE = [317, 700]
 // checks that clicked a hard-coded y went on passing while testing the wrong thing or failed
 // somewhere unrelated. Computing the row from the menu's own order means one list to update.
 const MENU_BEFORE_SURVEYS = ['new', 'rename', 'trip']
-const MENU_AFTER_SURVEYS = ['demo', 'export', 'instrument', 'import', 'surveying', 'dark']
+const MENU_AFTER_SURVEYS =
+  ['demo', 'export', 'instrument', 'calibrate', 'import', 'surveying', 'dark']
 const MENU_FIRST_ROW_Y = 80
 const MENU_ROW_HEIGHT = 48
 

@@ -147,4 +147,4 @@ internal fun status(state: DemoState): String {
  * Often enough that a fifteen-second timeout lands within a second of when it should, and rarely
  * enough that it costs nothing. Only runs while this dialog is open.
  */
-private const val TICK_MILLIS = 500L
+internal const val TICK_MILLIS = 500L

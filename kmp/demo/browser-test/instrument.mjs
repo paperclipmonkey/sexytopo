@@ -101,6 +101,27 @@ await ctx.addInitScript(() => {
     },
   }
 
+  // Pushes one calibration reading, the way a DistoX-BLE does: identifier 0x02, then the
+  // acceleration packet at offset 1 and the magnetic packet at offset 9. Both are ordinary
+  // DistoX calibration packets — admin byte, then three little-endian signed 16-bit counts.
+  window.__sendCalibration = (row) => {
+    const frame = new Uint8Array(17)
+    frame[0] = 0x02 // DistoX-BLE calibration identifier
+    const put = (at, type, x, y, z) => {
+      frame[at] = type
+      const v = new DataView(frame.buffer)
+      v.setInt16(at + 1, x, true)
+      v.setInt16(at + 3, y, true)
+      v.setInt16(at + 5, z, true)
+    }
+    put(1, 0x02, row[0], row[1], row[2]) // CALIBRATION_ACCELERATION
+    put(9, 0x03, row[3], row[4], row[5]) // CALIBRATION_MAGNETIC
+    const handler = record.listeners[NOTIFY]
+    if (!handler) return false
+    handler({ target: { value: new DataView(frame.buffer) } })
+    return true
+  }
+
   // Pushes one measurement notification, the way the instrument would.
   window.__sendMeasurement = (distanceMillimetres) => {
     const frame = new Uint8Array(17)
@@ -137,12 +158,28 @@ if (!(await ready())) {
 const box = await (await page.$('canvas')).boundingBox()
 const at = (x, y) => page.mouse.click(box.x + x, box.y + y)
 const OVERFLOW = [box.width - 16, 26]
-// With an empty library: New(80) Rename(128) Trip(176) Demo(224) Export(272) Instrument(320)
-const MENU_INSTRUMENT = [312, 320]
+// The overflow menu, by name — the saved surveys sit in the middle, so every row below them moves
+// as soon as this test has recorded one, which is exactly what happens between its two halves.
+const MENU_BEFORE_SURVEYS = ['new', 'rename', 'trip']
+const MENU_AFTER_SURVEYS =
+  ['demo', 'export', 'instrument', 'calibrate', 'import', 'surveying', 'dark']
+function menuRow(name, savedSurveys) {
+  const before = MENU_BEFORE_SURVEYS.indexOf(name)
+  const after = MENU_AFTER_SURVEYS.indexOf(name)
+  if (before < 0 && after < 0) throw new Error(`no menu item called ${name}`)
+  const index = before >= 0 ? before : MENU_BEFORE_SURVEYS.length + savedSurveys + after
+  return [312, 80 + 48 * index]
+}
+// The calibration dialog. Its layout is fixed once the first reading has arrived and added the
+// "Last:" line; before that the buttons sit one line higher.
+const INSTRUMENT_CLOSE = [212, 759]
+const CALIBRATION_START = [103, 415]
+const CALIBRATION_SOLVE = [103, 611]
+const CALIBRATION_WRITE = [150, 700]
 const FIRST_INSTRUMENT = [210, 306]
 
 await at(...OVERFLOW); await page.waitForTimeout(600)
-await at(...MENU_INSTRUMENT); await page.waitForTimeout(900)
+await at(...menuRow('instrument', 0)); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'instrument-list.png') })
 
 // ---- the profile reaches the browser API ---------------------------------------------------
@@ -195,6 +232,119 @@ if (survey === null) {
   fail(`three readings from the instrument did not make a station (${JSON.stringify(survey)})`)
 } else {
   pass('three readings over Bluetooth promote to a station and are saved')
+}
+
+// ---- and the instrument can be calibrated ----------------------------------------------------
+// The last part of the app that could not be tried at all without hardware. Beat Heeb's solver was
+// ported and tested against the Android app's own datasets early on, and the packet decoders and
+// the memory writes with it — but nothing could ask an instrument to start, so none of it had ever
+// been driven end to end. Here the fake DistoX-BLE is put into calibration mode, fed sixteen real
+// readings, and the coefficients are written back to it.
+//
+// The readings are the real 56-shot dataset the shared tests fit — one of the two from the Android
+// app's own test suite — so this ends in the answer that data is known to produce (0.60 in 43
+// iterations) rather than in whatever noise gives. Those numbers are pinned on three targets by the
+// shared tests; what is checked here is the chain either side of them.
+const CALIBRATION_ROWS = [
+  [12545, 155, 1529, 17916, 5305, 5435],
+  [12563, -490, 660, 18069, -5257, 5596],
+  [12529, 90, -95, 17831, -6762, -4037],
+  [12558, 846, 475, 17559, 4644, -5383],
+  [-15265, -256, 1275, -15908, -7485, 3364],
+  [-15258, 1029, 1000, -15910, 3346, 7294],
+  [-15250, 674, -217, -16244, 6953, -2846],
+  [-15293, -394, 8, -16231, -3702, -7191],
+  [-2256, 14202, 633, 6650, 17342, 419],
+  [-2191, 2272, 14380, 7225, 2625, 17556],
+  [-2288, -13659, 2137, 6899, -17969, 1800],
+  [-2473, -1891, -13041, 6168, -3497, -17212],
+  [-185, 1018, 14485, -4364, -295, 17751],
+  [-320, 14126, -598, -5040, 17503, 331],
+  [-366, 146, -13215, -5376, 677, -17361],
+  [-443, -13747, 261, -5005, -18035, -2011],
+  [-501, 14193, 556, 2643, 16880, 7923],
+  [-350, 838, 14540, 3171, -6868, 17092],
+  [-516, -13762, 681, 2425, -17529, -7635],
+  [-633, 131, -13217, 1960, 6851, -16472],
+  [-2126, 14229, 644, -1194, 17018, -5863],
+  [-2023, 427, 14551, -408, 6673, 17513],
+  [-2090, -13727, 1481, -531, -17288, 7172],
+  [-2189, -94, -13173, -1229, -7523, -17129],
+  [-12118, 836, 9421, -15525, 5225, 7209],
+  [-12240, -8542, 916, -15400, -7474, 5173],
+  [-12330, 1066, -7979, -15801, -4817, -7616],
+  [-12401, 8971, 924, -15940, 6965, -4371],
+  [9382, -81, 9566, 17469, -5886, 6897],
+  [9434, 9073, 1468, 17352, 6354, 6137],
+  [9322, 749, -8137, 16983, 5346, -6285],
+  [9509, -8554, 133, 17201, -7039, -5651],
+  [-8218, -1311, 12591, -11536, -7259, 11530],
+  [-8315, -11840, -715, -12035, -12247, -6960],
+  [-8452, 2007, -11186, -12306, 6859, -11071],
+  [-8352, 12387, 2087, -11803, 11643, 7393],
+  [5750, 112, 12714, 13993, 4513, 12914],
+  [5527, -11988, 329, 13716, -13337, 4205],
+  [5496, 1032, -11263, 13137, -4538, -12932],
+  [5583, 12349, 1139, 13272, 12558, -3814],
+  [-9520, -1257, 11869, -4428, -7482, 15834],
+  [-9544, -11143, 376, -4929, -17271, -5698],
+  [-9617, 1520, -10450, -5349, 6365, -15753],
+  [-9672, 11460, 2362, -4926, 15805, 8037],
+  [6595, -878, 12138, 6748, 2411, 17732],
+  [6529, 11647, -813, 5896, 16263, -5711],
+  [6491, -2406, -10443, 5805, -8548, -15896],
+  [6631, -10996, 3212, 6761, -16322, 7469],
+  [-10512, -165, 11212, -6355, 3673, 16712],
+  [-10644, -10193, -353, -6572, -17075, 2599],
+  [-10686, 797, -9668, -7297, -4341, -16321],
+  [-10709, 10726, 1640, -7118, 16365, -2443],
+  [7782, -10321, -376, 8261, -16015, -7317],
+  [7631, -555, -9738, 7758, 3780, -16056],
+  [7806, 10780, 805, 8383, 15902, 6079],
+  [7683, -270, -9688, 7841, 4231, -15895],
+]
+
+// The instrument dialog is still up from the connection checks, and its scrim would swallow the
+// first click at the overflow menu.
+await at(...INSTRUMENT_CLOSE); await page.waitForTimeout(700)
+await at(...OVERFLOW); await page.waitForTimeout(600)
+await page.screenshot({ path: join(shotDir, 'calibration-menu.png') })
+await at(...menuRow('calibrate', 1)); await page.waitForTimeout(900)
+await page.screenshot({ path: join(shotDir, 'calibration-open.png') })
+
+const writesBefore = (await page.evaluate(() => window.__fakeInstrument.written)).length
+await at(...CALIBRATION_START); await page.waitForTimeout(700)
+
+const startCommand = await page.evaluate(() => window.__fakeInstrument.written.slice(-1)[0])
+// A `data:`-framed 0x31, which is START_CALIBRATION.
+if (!startCommand || !startCommand.includes(0x31)) {
+  fail(`starting calibration did not send the command (${JSON.stringify(startCommand)})`)
+} else {
+  pass('the instrument is told to enter calibration mode')
+}
+
+for (const row of CALIBRATION_ROWS) {
+  const sent = await page.evaluate((r) => window.__sendCalibration(r), row)
+  if (!sent) fail('the calibration notification handler was never registered')
+  await page.waitForTimeout(60)
+}
+await page.screenshot({ path: join(shotDir, 'calibration-readings.png') })
+
+await at(...CALIBRATION_SOLVE); await page.waitForTimeout(3000)
+await page.screenshot({ path: join(shotDir, 'calibration-solved.png') })
+await at(...CALIBRATION_WRITE); await page.waitForTimeout(1500)
+await page.screenshot({ path: join(shotDir, 'calibration-written.png') })
+
+const allWrites = await page.evaluate(() => window.__fakeInstrument.written)
+// Twelve four-byte memory writes from 0x8010, each `[0x39, addrLow, addrHigh, b0..b3]`.
+const coefficientWrites = allWrites.filter((w) => w.includes(0x39) && w.length >= 7)
+if (coefficientWrites.length < 12) {
+  fail(
+    `only ${coefficientWrites.length} of 12 coefficient blocks reached the instrument ` +
+      `(${allWrites.length - writesBefore} writes in total)`,
+  )
+} else {
+  pass('a calibration is solved and its coefficients written back to the instrument')
 }
 
 if (pageErrors.length > 0) {

@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by over 600 tests. The UI
+Survex and Therion exporters and the native file format are ported and covered by over 620 tests. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
 tests the claim.
@@ -50,6 +50,7 @@ Being precise about this matters more than the demo looking good.
 | **The same code compiles for a real iPhone** | **Verified** | `:shared:compileKotlinIosArm64` and `:demo:linkDebugFrameworkIosArm64` — a separate Kotlin/Native target from the simulator, with its own platform libraries, so a green simulator build does not imply it |
 | The iOS app runs on a device | **Not verified** | needs Xcode, an Apple developer account and a physical phone |
 | **The app can ask to connect to an instrument** | **Verified** | `instrument.mjs` in CI stands a stub where `navigator.bluetooth` would be and makes it behave like a DistoX-BLE: the profile's name prefix and UUIDs reach the browser API, the notification arrives as a frame, the decoder reads it, the acknowledgement goes back, and three readings make a station in a saved survey |
+| **A calibration can be taken, solved and written back** | **Verified** | `instrument.mjs` puts the fake DistoX-BLE into calibration mode, feeds it the Android app's own 56-shot dataset over Web Bluetooth, and checks the twelve coefficient blocks reach the device |
 | `CoreBluetoothTransport` works | **Not verified** | it compiles, it now has a caller, and it has still never talked to a radio; the simulator has no Bluetooth stack, so this needs a real instrument |
 | Web Bluetooth works against real hardware | **Not verified** | the chain is driven end to end against a fake instrument in CI; no real one has been near it |
 | The whole app runs in a browser | **Verified** | a headless-Chromium smoke test in CI loads the page, draws a stroke and undoes it |
@@ -269,6 +270,12 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
 - **Join the wall up.** *Snap to lines*, in the drawing menu, makes a new stroke start and finish
   exactly on the end of a nearby one. A passage wall is drawn as a series of strokes, and a wall
   with gaps in it is one no tracing tool downstream can close. Off by default, as in the app.
+- **Calibrate the instrument.** *Calibrate* runs the app's own procedure: fourteen directions,
+  each rolled through four positions, fifty-six shots in all, then Beat Heeb's solver and the
+  coefficients written back to the device. An uncalibrated DistoX can be several degrees out, and a
+  survey is a chain of bearings, so the error accumulates along the passage — the cave comes back
+  the wrong shape and nothing in the numbers says so. Without an instrument the simulated one
+  replays a real 56-shot calibration, so the whole chain can be seen working.
 - **Draw the passage.** Tap a cross-section and it opens into its own screen — the same canvas,
   tools, viewport and undo stack as the plan, over the section's own world: the station at the
   origin and its splays around it. A star of splays is not a passage; the outline drawn round it,
@@ -308,8 +315,6 @@ Honest limits, so nothing is a surprise in a cave:
   from profile to saved station is driven against a *fake* instrument in CI. No real one has been
   tried on either platform, and the iOS simulator has no Bluetooth stack, so it cannot be. Expect to
   type readings, which is what *Add reading* is for and which behaves identically.
-- **No calibration screen**, even though the solver under it is ported and tested against the
-  Android app's own two datasets.
 - **A cross-section holds only lines.** It can be placed, re-aimed, moved and drawn into, but its
   own editor keeps paths and drops symbols and labels on commit — which is what the Android app's
   editor does too, so this matches rather than diverges.
@@ -339,6 +344,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `model/sketch/Colour` (150 values) | `shared/model/sketch/Colour.kt` | **Generated** from the Java enum so values cannot drift |
 | `comms/distox/*`, `distoxble/`, `bric4/`, `cavwayx1/`, `sap6/`, `fcl/` | `shared/comms/` | Protocol only, no transport |
 | `control/calibration/*`, `model/calibration/*` | `shared/calibration/` | Beat Heeb's solver; results returned rather than left in statics |
+| `DistoXCalibrationActivity` | `shared/calibration/CalibrationRun.kt`, `demo/.../CalibrationDialog.kt` | The 56 positions, the assessment, and the write-back |
 | the `*Manager` classes' device knowledge | `shared/comms/InstrumentProfile.kt` | The BLE device matrix, as data |
 | Nordic `BleManager` subclasses | `shared/iosMain/.../CoreBluetoothTransport.kt` | The whole iOS Bluetooth surface |
 | `control/io/basic/*JsonTranslater` | `shared/io/` | Same tags, same tolerant two-pass load |
@@ -443,7 +449,15 @@ These are the things that would actually shape a real port.
    still opens, and what is missing is a branch of the cave. Anything reimplementing this format
    should start from the tests in `SurveyLoaderFidelityTest`.
 
-9. **A throw inside a Compose composition is invisible on the web.** The cross-section editor
+9. **The app's own reference calibrations would fail its own test.** Both 56-shot datasets in the
+   Android app's test suite fit at about 0.60, and `DistoXCalibrationActivity.MAX_ERROR` — the
+   threshold for a good calibration — is 0.50. So the data the algorithm is verified against is
+   data the app would tell a surveyor to take again. The port reproduces the deltas to six figures,
+   so this is not a translation error: either the threshold is optimistic or those two calibrations
+   are mediocre, and nothing in the app says which. Worth settling before anybody reads much into
+   the number.
+
+10. **A throw inside a Compose composition is invisible on the web.** The cross-section editor
    appeared to do nothing at all: the tool ran, the hit test found the section, the state was set,
    the composition took the right branch — and the screen went on showing the plan. It was throwing
    during composition (`Survey.getSketch` rejects `CROSS_SECTION`, which the editor passes on

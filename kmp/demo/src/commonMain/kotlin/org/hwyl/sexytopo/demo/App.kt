@@ -188,6 +188,7 @@ private fun SexyTopoAppBar(state: DemoState) {
     var editingSettings by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
     var connecting by remember { mutableStateOf(false) }
+    var calibrating by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<String?>(null) }
 
     if (editingTrip) {
@@ -204,6 +205,10 @@ private fun SexyTopoAppBar(state: DemoState) {
 
     if (connecting) {
         InstrumentDialog(state = state, onDismiss = { connecting = false })
+    }
+
+    if (calibrating) {
+        CalibrationDialog(state = state, onDismiss = { calibrating = false })
     }
 
     if (importing) {
@@ -398,6 +403,15 @@ private fun SexyTopoAppBar(state: DemoState) {
                     onClick = {
                         state.mode = SurveyMode.LIVE
                         connecting = true
+                        menuOpen = false
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Calibrate…") },
+                    leadingIcon = { CheckDot(state.session.calibrating) },
+                    onClick = {
+                        state.mode = SurveyMode.LIVE
+                        calibrating = true
                         menuOpen = false
                     },
                 )
