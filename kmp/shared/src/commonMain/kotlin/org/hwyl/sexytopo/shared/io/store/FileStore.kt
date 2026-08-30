@@ -42,6 +42,16 @@ interface FileStore {
     /** Writes UTF-8 text, creating the file and any missing parent directories. */
     fun writeText(path: List<String>, content: String)
 
+    /**
+     * Reads a file as bytes, or null if it is absent.
+     *
+     * Here for exactly one caller: PocketTopo's `.top` file is binary, and reading it as text
+     * mangles it in a way that is silent — a lost byte in a length prefix moves everything after
+     * it. Everything else this app touches is text, which is why this is the only binary operation
+     * on the interface and why there is no `writeBytes` to go with it: nothing writes one.
+     */
+    fun readBytes(path: List<String>): ByteArray?
+
     /** Creates a directory and any missing parents. Succeeds if it already exists. */
     fun createDirectory(path: List<String>)
 
@@ -59,6 +69,7 @@ interface FileStore {
 class InMemoryFileStore : FileStore {
 
     private val files = mutableMapOf<String, String>()
+    private val binaries = mutableMapOf<String, ByteArray>()
     private val directories = mutableSetOf<String>()
 
     init {
@@ -67,8 +78,10 @@ class InMemoryFileStore : FileStore {
 
     private fun key(path: List<String>): String = path.joinToString("/")
 
+    private val allNames: Set<String> get() = files.keys + binaries.keys
+
     override fun exists(path: List<String>): Boolean =
-        files.containsKey(key(path)) || directories.contains(key(path))
+        allNames.contains(key(path)) || directories.contains(key(path))
 
     override fun isDirectory(path: List<String>): Boolean = directories.contains(key(path))
 
@@ -76,7 +89,7 @@ class InMemoryFileStore : FileStore {
         val prefix = key(path)
         val depth = if (path.isEmpty()) 0 else path.size
         val names = mutableSetOf<String>()
-        for (candidate in files.keys + directories) {
+        for (candidate in allNames + directories) {
             if (candidate.isEmpty()) continue
             val parts = candidate.split("/")
             if (parts.size != depth + 1) continue
@@ -90,7 +103,18 @@ class InMemoryFileStore : FileStore {
 
     override fun writeText(path: List<String>, content: String) {
         createDirectory(path.dropLast(1))
+        binaries.remove(key(path))
         files[key(path)] = content
+    }
+
+    override fun readBytes(path: List<String>): ByteArray? =
+        binaries[key(path)] ?: files[key(path)]?.encodeToByteArray()
+
+    /** Not on the interface: only tests need to put binary content into a store. */
+    fun writeBytes(path: List<String>, content: ByteArray) {
+        createDirectory(path.dropLast(1))
+        files.remove(key(path))
+        binaries[key(path)] = content
     }
 
     override fun createDirectory(path: List<String>) {
@@ -101,12 +125,12 @@ class InMemoryFileStore : FileStore {
 
     override fun delete(path: List<String>): Boolean {
         val target = key(path)
-        val removedFile = files.remove(target) != null
+        val removedFile = files.remove(target) != null || binaries.remove(target) != null
         val removedDirectory = directories.remove(target)
         // A directory takes its contents with it.
         val prefix = "$target/"
-        val descendants = files.keys.filter { it.startsWith(prefix) }
-        descendants.forEach { files.remove(it) }
+        files.keys.filter { it.startsWith(prefix) }.forEach { files.remove(it) }
+        binaries.keys.filter { it.startsWith(prefix) }.forEach { binaries.remove(it) }
         directories.removeAll { it.startsWith(prefix) }
         return removedFile || removedDirectory
     }

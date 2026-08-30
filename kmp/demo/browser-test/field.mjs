@@ -1009,6 +1009,57 @@ if (survex === null) {
   }
 }
 
+// ---- and PocketTopo's own binary file ----------------------------------------------------------
+// The one import that is not text. `localStorage` holds strings, so the chooser stores a `.top` as
+// base64 under the store's binary key prefix and `BrowserFileStore.readBytes` decodes it — a path
+// nothing else in the app uses, and one that fails silently if it is wrong: a byte lost in a length
+// prefix moves everything after it. The file is the Android app's own `CeiledUp.top`.
+const topFile = readFileSync(new URL('./fixtures/CeiledUp.top', import.meta.url))
+await page.evaluate(() => {
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith('sexytopo:f:') && !key.includes('surveys/')) localStorage.removeItem(key)
+  }
+})
+await at(...OVERFLOW); await page.waitForTimeout(600)
+await at(...menuRow('import', 2)); await page.waitForTimeout(900)
+
+chosenFile = { name: 'CeiledUp.top', mimeType: 'application/octet-stream', buffer: topFile }
+const choosersBeforeTop = fileChoosersOpened
+await at(...IMPORT_CHOOSE)
+await page.waitForTimeout(2500)
+if (fileChoosersOpened === choosersBeforeTop) {
+  fail('the file chooser never opened for the PocketTopo file')
+} else {
+  const stored = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => k.startsWith('sexytopo:b:'))
+    return key ? localStorage.getItem(key).length : 0
+  })
+  if (stored === 0) {
+    fail('the chosen .top was not stored as binary')
+  } else {
+    await page.screenshot({ path: join(shotDir, 'field-import-top.png') })
+    await at(...IMPORT_FIRST_ROW); await page.waitForTimeout(1600)
+
+    const survey = await page.evaluate(() => {
+      const key = Object.keys(localStorage).find((k) => k.includes('CeiledUp/CeiledUp.data.json'))
+      return key ? JSON.parse(localStorage.getItem(key)) : null
+    })
+    const plan = await page.evaluate(() => {
+      const key = Object.keys(localStorage).find((k) => k.includes('CeiledUp/CeiledUp.plan.json'))
+      return key ? JSON.parse(localStorage.getItem(key)) : null
+    })
+    if (survey === null) {
+      fail('the PocketTopo file did not become a survey in the library')
+    } else if ((survey.stations ?? []).length !== 12) {
+      fail(`the imported .top has ${(survey.stations ?? []).length} stations, not the 12 it holds`)
+    } else if ((plan?.paths ?? []).length !== 162) {
+      fail(`the imported .top drew ${(plan?.paths ?? []).length} strokes, not the 162 it holds`)
+    } else {
+      pass("PocketTopo's own binary file imports, drawing and all")
+    }
+  }
+}
+
 // ---- the cave in three dimensions -------------------------------------------------------------
 // Last of all, because it takes the whole screen and has its own gestures. The demo cave rather
 // than whichever survey happened to be open: two legs prove the projection runs, a whole cave

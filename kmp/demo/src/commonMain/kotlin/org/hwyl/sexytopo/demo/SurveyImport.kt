@@ -2,6 +2,7 @@ package org.hwyl.sexytopo.demo
 
 import org.hwyl.sexytopo.shared.io.SurveyJson
 import org.hwyl.sexytopo.shared.io.export.SurveyFormat
+import org.hwyl.sexytopo.shared.io.imports.PocketTopoImporter
 import org.hwyl.sexytopo.shared.io.imports.PocketTopoTxtImporter
 import org.hwyl.sexytopo.shared.io.imports.SurveyImporter
 import org.hwyl.sexytopo.shared.io.store.FileStore
@@ -50,6 +51,9 @@ object SurveyImport {
      */
     private fun isPocketTopo(fileName: String) = fileName.endsWith(".txt", ignoreCase = true)
 
+    /** PocketTopo's own binary file, which its Save writes rather than its Export. */
+    private fun isPocketTopoBinary(fileName: String) = fileName.endsWith(".top", ignoreCase = true)
+
     /**
      * Whether a `.txt` at the root is a PocketTopo export rather than somebody's notes.
      *
@@ -80,6 +84,7 @@ object SurveyImport {
             store.list(emptyList()).filter {
                 isNative(it) ||
                     formatOf(it) != null ||
+                    isPocketTopoBinary(it) ||
                     (isPocketTopo(it) && looksLikePocketTopo(store, it))
             }
         }.getOrDefault(emptyList())
@@ -94,23 +99,34 @@ object SurveyImport {
      * inside the file that a hand-assembled one may not have at all.
      */
     fun import(library: SurveyLibrary, store: FileStore, fileName: String): Survey? {
-        val text = runCatching { store.readText(listOf(fileName)) }.getOrNull() ?: return null
         val name = nameFor(fileName)
-        val survey =
-            runCatching {
-                val format = formatOf(fileName)
-                when {
-                    format != null -> SurveyImporter.read(text, format, name)
-                    isPocketTopo(fileName) -> PocketTopoTxtImporter.read(text, name)
-                    else -> SurveyJson.parse(text)
-                }
-            }.getOrNull() ?: return null
+        val survey = runCatching { parse(store, fileName, name) }.getOrNull() ?: return null
         // An empty survey means the file parsed but held nothing this app understands — a Therion
         // file that is all `scrap`, say. Importing it would put a survey with no legs in the
         // library and look like success.
         if (survey.origin.onwardLegs.isEmpty()) return null
         survey.name = library.uniqueName(name)
         return if (library.save(survey)) survey else null
+    }
+
+    /**
+     * Whichever reader the extension calls for.
+     *
+     * `.top` is the only one that asks the store for bytes; everything else this app imports is
+     * text, which is why [FileStore.readBytes] exists for exactly this line.
+     */
+    private fun parse(store: FileStore, fileName: String, name: String): Survey? {
+        if (isPocketTopoBinary(fileName)) {
+            val bytes = store.readBytes(listOf(fileName)) ?: return null
+            return PocketTopoImporter.read(bytes, name)
+        }
+        val text = store.readText(listOf(fileName)) ?: return null
+        val format = formatOf(fileName)
+        return when {
+            format != null -> SurveyImporter.read(text, format, name)
+            isPocketTopo(fileName) -> PocketTopoTxtImporter.read(text, name)
+            else -> SurveyJson.parse(text)
+        }
     }
 
     /**
@@ -128,6 +144,7 @@ object SurveyImport {
             .dropExtension(".svx")
             .dropExtension(".th")
             .dropExtension(".txt")
+            .dropExtension(".top")
             .ifBlank { "Imported survey" }
 
     /** [String.removeSuffix], but a file called `CAVE.SVX` is the same file as `cave.svx`. */

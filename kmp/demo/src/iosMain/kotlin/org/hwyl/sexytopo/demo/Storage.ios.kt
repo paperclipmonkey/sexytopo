@@ -1,7 +1,10 @@
 package org.hwyl.sexytopo.demo
 
 import kotlinx.cinterop.BetaInteropApi
+import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.get
+import kotlinx.cinterop.reinterpret
 import org.hwyl.sexytopo.shared.io.store.FileStore
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSFileManager
@@ -72,6 +75,20 @@ class DocumentsFileStore : FileStore {
     override fun writeText(path: List<String>, content: String) {
         createDirectory(path.dropLast(1))
         (content as NSString).writeToURL(urlOf(path), true, NSUTF8StringEncoding, null)
+    }
+
+    /**
+     * The bytes of a file, for the one caller that needs them: PocketTopo's binary `.top`.
+     *
+     * `NSData` copied into a Kotlin `ByteArray` rather than wrapped, because the array outlives
+     * this function and the `NSData`'s buffer is only guaranteed while it is alive.
+     */
+    override fun readBytes(path: List<String>): ByteArray? {
+        val data = fileManager.contentsAtPath(pathOf(path)) ?: return null
+        val length = data.length.toInt()
+        if (length == 0) return ByteArray(0)
+        val bytes = data.bytes ?: return null
+        return ByteArray(length) { index -> bytes.reinterpret<ByteVar>()[index] }
     }
 
     override fun createDirectory(path: List<String>) {

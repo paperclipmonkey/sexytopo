@@ -31,6 +31,9 @@ private class FilesDirFileStore(private val root: File) : FileStore {
         file.writeText(content)
     }
 
+    override fun readBytes(path: List<String>): ByteArray? =
+        fileFor(path).takeIf { it.isFile }?.readBytes()
+
     override fun createDirectory(path: List<String>) {
         fileFor(path).mkdirs()
     }

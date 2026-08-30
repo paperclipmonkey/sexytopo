@@ -36,6 +36,7 @@ Being precise about this matters more than the demo looking good.
 | The whole chain works end to end | **Verified** | `SurveyingEndToEndTest`: simulated instrument → packet decode → station promotion → JSON round-trip |
 | Native JSON survey/sketch formats read and written compatibly | **Verified** | round-trip tests against Android-shaped fixtures, including corrupt and old-format files |
 | Survex and Therion export byte-identically | **Verified** | golden tests asserting the full file, metadata block included |
+| **PocketTopo's own binary `.top` imports** | **Verified** | the format's primitives against the Android app's own `PocketTopoFileTest`, the shot-ordering and repeat-averaging rules against its `PocketTopoImporterTest` fixtures byte for byte, and its real `CeiledUp.top` — 12 stations, 68 legs, 203 strokes — read identically on the JVM, Kotlin/Wasm and Kotlin/Native, and through the file chooser in a browser |
 | A PocketTopo text export imports, drawing included | **Verified** | the Android app's own `FAKE_TEXT` fixture and its three assertions, on three targets, plus the four files that crash the Java |
 | A Survex or Therion file from other software imports | **Verified** | round-trip tests through the ported exporters, plus a `.svx` written by hand — team, date, backsights, splays, station comments and leg comments — and `field.mjs` brings one into the browser build end to end |
 | Compass `.dat` exports byte-identically | **Verified** | a golden captured by *running* the Android app's own exporter, not by reading it — which caught a transcription slip on the first attempt |
@@ -131,9 +132,9 @@ missing.
 - **The active station**, in the app's amber corner brackets, and the select tool that moves them.
 - **Export** to Survex `.svx`, Therion `.th` and `.th2`, an `.xvi` tracing image, Compass `.dat`,
   PocketTopo `.txt`, SVG, and the app's own JSON — the same bytes the Android app would read back.
-- **Import** of a Survex `.svx`, Therion `.th` or PocketTopo `.txt` from any other software, as
-  well as the app's own files: the club's existing survey of the cave, opened here to be extended.
-  The PocketTopo one brings the *drawing* in as well as the centreline.
+- **Import** of a Survex `.svx`, Therion `.th`, PocketTopo `.txt` or PocketTopo's own binary
+  `.top`, as well as the app's own files: the club's existing survey of the cave, opened here to be
+  extended. Both PocketTopo readers bring the *drawing* in as well as the centreline.
 - **An instrument log you can read underground**, kept as it happens and copied off the phone with
   one tap — because a DistoX that will not pair does it in a cave, with no signal and no console.
 - **A buzz when a station is made**, so the surveyor can look at the rock instead of the phone.
@@ -444,6 +445,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `res/menu/drawing.xml` | `demo/.../SketchToolbar.kt` | The display toggles behind the gear |
 | `model/sketch/Sketch`'s twin history stacks | `shared/sketch/SketchEditor.kt` | `DeletedDetail` becomes a sealed type |
 | `control/io/thirdparty/{survex,therion,survextherion}` | `shared/io/export/` | Golden-tested, metadata block included |
+| `PocketTopoFile`, `PocketTopoImporter` | `shared/io/imports/PocketTopoFile.kt`, `PocketTopoImport.kt` | A cursor over a byte array rather than an `InputStream`; the calendar arithmetic `new Date()` used to do, written out |
 | `PocketTopoTxtImporter` | `shared/io/imports/PocketTopoTxtImport.kt` | The only import that brings a drawing in too; four crashes in the Java are fixed rather than reproduced |
 | `SurvexImporter`, `TherionImporter`, `SurvexTherionImporter`, `SexyTopoVersion` | `shared/io/imports/` | Round-tripped against the exporters above; fixes a station-comment bug found doing so |
 | `NewStationNotificationService` | `demo/.../Haptics.kt`, `AppPreferences.kt` | A haptic rather than a timed buzz on iOS, which has no public API for one |
@@ -590,7 +592,16 @@ These are the things that would actually shape a real port.
    to find and looks up a projected position that can be absent too. The port refuses those files
    instead, and has a test for each.
 
-14. **The vibrate-on-new-station setting says on and behaves as off.** `preferences_general.xml`
+14. **The `.top` reader trusts four bytes of a corrupt file with an allocation.** Every count in a
+   PocketTopo file — trips, shots, references, points in a polygon — is read as a 32-bit integer
+   and handed straight to `new ArrayList<>(count)`, then looped that many times. A truncated or
+   mangled file is therefore an `OutOfMemoryError` or a very long wait rather than an error message.
+   The port checks each count against the bytes that are actually left, which is a bound that costs
+   nothing and cannot be wrong. Its string reader has the same shape of problem: the 7-bit length
+   prefix is decoded in a loop with no width limit, so a run of high-bit bytes shifts past the width
+   of an `int` and yields a small plausible length rather than an error.
+
+15. **The vibrate-on-new-station setting says on and behaves as off.** `preferences_general.xml`
    declares `android:defaultValue="true"` for `pref_vibrate_on_new_station`, so the checkbox on the
    settings screen appears ticked on a fresh install. But nothing in the app calls
    `PreferenceManager.setDefaultValues`, and a `defaultValue` is not written to `SharedPreferences`
@@ -685,17 +696,18 @@ JVM — just a static file host.
 
 ## Deliberate gaps
 
-This is a proof of concept. It does **not** include:
+This is a proof of concept. File formats are no longer one of the gaps: every importer and every
+exporter the Android app has is ported. In come Survex, Therion, PocketTopo `.txt` and PocketTopo's
+binary `.top`; out go Survex, Therion `.th` and `.th2`, the `.xvi` tracing image, Compass `.dat`,
+PocketTopo `.txt`, SVG and the native JSON.
+
+What it does **not** include:
 
 - **Real Bluetooth on any platform.** `CoreBluetoothTransport` and `WebBluetoothTransport` are
   both written, both reachable from the app, and both driven end to end against a *fake*
   instrument — but neither has met a radio. The iOS simulator has no Bluetooth stack, so this one
   genuinely needs an instrument in hand. There is no Android transport here either (the Android app
   keeps its own).
-- **Reading PocketTopo's own `.top` file.** Its *text* export imports, drawing included, but the
-  binary format its Save writes does not: [FileStore] is text-only, and giving it bytes means four
-  new actuals and base64 in the browser store. Every *exporter* is here: Survex, Therion `.th` and
-  `.th2`, the `.xvi` tracing image, Compass `.dat`, PocketTopo `.txt`, SVG and the native JSON.
 - **Cross-survey links.** They are stored as absolute `content://` URIs, which are meaningless off
   Android and already break when a folder moves, so replacing them is a format decision to take
   with upstream rather than a porting one. Nothing here draws a neighbouring survey.

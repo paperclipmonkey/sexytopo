@@ -9,6 +9,7 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -66,6 +67,50 @@ class SurveyImportTest {
         store.writeText(listOf("Eastwater.txt"), POCKET_TOPO)
 
         assertEquals(listOf("Eastwater.txt"), SurveyImport.candidates(store))
+    }
+
+    /**
+     * PocketTopo's own binary file, which is what is actually on the phone somebody hands you —
+     * its text export is something they have to know to produce.
+     *
+     * The format itself is tested in the shared module against a real `.top`; what is being checked
+     * here is the plumbing, which is different from every other import: the bytes have to reach the
+     * parser as bytes.
+     */
+    @Test
+    fun aPocketTopoBinaryFileImportsThroughTheSameFlow() {
+        val store = store()
+        store.writeBytes(listOf("Ceiled Up.top"), MINIMAL_TOP_FILE)
+        val library = SurveyLibrary(store)
+
+        assertEquals(listOf("Ceiled Up.top"), SurveyImport.candidates(store))
+
+        val imported = assertNotNull(SurveyImport.import(library, store, "Ceiled Up.top"))
+
+        assertEquals("Ceiled Up", imported.name)
+        assertEquals(2, imported.getAllStations().size)
+        assertTrue(library.list().contains("Ceiled Up"))
+    }
+
+    /**
+     * Bytes are not text. A `.top` put through a text-only store comes back with every byte that is
+     * not valid UTF-8 replaced, which for a binary format moves a length prefix and ruins
+     * everything after it — silently.
+     */
+    @Test
+    fun aBinaryFileSurvivesTheStoreIntact() {
+        val store = store()
+        store.writeBytes(listOf("Ceiled Up.top"), MINIMAL_TOP_FILE)
+
+        val read = assertNotNull(store.readBytes(listOf("Ceiled Up.top")))
+
+        assertTrue(MINIMAL_TOP_FILE.contentEquals(read))
+        // And the same bytes read as text and back are not the same bytes.
+        assertFalse(
+            MINIMAL_TOP_FILE.contentEquals(
+                assertNotNull(store.readText(listOf("Ceiled Up.top")) ?: "").encodeToByteArray(),
+            ),
+        )
     }
 
     /** The only import that brings a drawing in as well as a centreline. */
@@ -201,4 +246,46 @@ class SurveyImportTest {
             "1.000\t1.000",
             "2.000\t2.000",
         ).joinToString("\n")
+
+    /**
+     * The smallest valid `.top`: a header, no trips, one leg from 0.0 to 0.1, no references, and
+     * two empty drawings. Little-endian throughout, because the format is a .NET `BinaryWriter`
+     * dump.
+     */
+    private val MINIMAL_TOP_FILE: ByteArray =
+        buildList {
+            fun int16(value: Int) {
+                add((value and 0xFF).toByte())
+                add(((value shr 8) and 0xFF).toByte())
+            }
+            fun int32(value: Int) {
+                for (shift in 0 until 4) add(((value shr (shift * 8)) and 0xFF).toByte())
+            }
+            fun mapping() {
+                int32(0)
+                int32(0)
+                int32(1000)
+            }
+
+            add('T'.code.toByte())
+            add('o'.code.toByte())
+            add('p'.code.toByte())
+            add(3)
+            int32(0) // no trips
+            int32(1) // one shot
+            int32(0x00000000) // from 0.0
+            int32(0x00000001) // to 0.1
+            int32(3500) // 3.5 m
+            int16(0x4000) // due east
+            int16(0) // level
+            add(0) // no flags
+            add(0) // roll
+            int16(-1) // no trip
+            int32(0) // no references
+            mapping() // the overview's
+            mapping() // the plan's
+            add(0) // and it is empty
+            mapping() // the elevation's
+            add(0) // and so is that
+        }.toByteArray()
 }
