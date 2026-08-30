@@ -254,8 +254,11 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
 - **Fix a mistake.** Tap a table row to correct a reading, delete it, or promote a splay to a
   station. A correction keeps the destination station, so it cannot silently take the rest of the
   cave with it.
-- **Name the junction.** Stations take a name, a comment and the extended-elevation direction that
-  decides which way a branch unrolls.
+- **Name the junction, and measure the passage.** Stations take a name, a comment and the
+  extended-elevation direction that decides which way a branch unrolls — and four tape
+  measurements, left, right, up and down, which become ordinary splays. That is how a survey is
+  booked when there is no instrument in the party, and it is what lets a cross-section be drawn
+  from a hand-booked survey.
 - **Sketch it**, in plan and extended elevation, each with its own strokes and its own undo
   history — write on it (*sump*, *boulder choke*, *continues*), and drop a cross-section at a
   station, drawn from that station's own splays.

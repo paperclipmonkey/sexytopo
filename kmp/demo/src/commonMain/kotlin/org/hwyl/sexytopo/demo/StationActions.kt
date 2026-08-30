@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -12,14 +13,19 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.model.graph.ExtendedElevationDirection
 import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.survey.Lrud
+import org.hwyl.sexytopo.shared.survey.LrudMode
+import org.hwyl.sexytopo.shared.survey.SurveyBuilder
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 
 /**
@@ -46,6 +52,7 @@ fun StationActionsDialog(
     var name by remember(station) { mutableStateOf(station.name) }
     var comment by remember(station) { mutableStateOf(station.comment) }
     var direction by remember(station) { mutableStateOf(station.extendedElevationDirection) }
+    val lrud = remember(station) { mutableStateListOf("", "", "", "") }
 
     val problem = renameProblem(survey, station, name)
 
@@ -69,6 +76,27 @@ fun StationActionsDialog(
                     placeholder = { Text("Continues, too tight") },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Text("Passage size", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "Four tape measurements instead of four instrument shots. They become ordinary " +
+                        "splays, so the cross-section is drawn from them like any other.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for ((index, side) in Lrud.entries.withIndex()) {
+                        OutlinedTextField(
+                            value = lrud[index],
+                            onValueChange = { lrud[index] = it },
+                            label = { Text(side.name.take(1)) },
+                            singleLine = true,
+                            keyboardOptions =
+                                KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+
                 Text(
                     "In the extended elevation, this station's passage unrolls:",
                     style = MaterialTheme.typography.bodySmall,
@@ -97,6 +125,7 @@ fun StationActionsDialog(
                 enabled = problem == null,
                 onClick = {
                     applyStationEdit(survey, station, name, comment, direction)
+                    addLruds(survey, station, lrud.toList())
                     onEdited()
                 },
             ) { Text("Save") }
@@ -145,4 +174,35 @@ internal fun applyStationEdit(
     station.comment = comment
     station.extendedElevationDirection = direction
     survey.isSaved = false
+}
+
+/**
+ * Turns typed passage dimensions into splays.
+ *
+ * The traditional way of recording passage size when there is a tape and no instrument: four
+ * numbers per station rather than four full compass-and-clino shots, with the app inventing the
+ * directions. Left and right go square to the passage — [LrudMode.SURVEY], which bisects the
+ * corner at a bend, and is what most cavers mean by a left-hand wall measurement — while up and
+ * down are vertical.
+ *
+ * They become ordinary splays, which is what makes cross-sections and the exporters' passage
+ * dimensions work on a hand-booked survey exactly as on an instrument-fed one.
+ *
+ * A blank or unreadable field adds nothing, and a zero is skipped too: [Leg] rejects a
+ * non-positive distance by throwing, and "0" is what somebody types for a wall they are standing
+ * against.
+ */
+internal fun addLruds(survey: Survey, station: Station, distances: List<String>): Int {
+    var added = 0
+    for ((index, side) in Lrud.entries.withIndex()) {
+        val distance = distances.getOrNull(index)?.trim()?.replace(',', '.')?.toFloatOrNull()
+        if (distance == null || distance <= 0f) continue
+        SurveyBuilder.addSplay(
+            survey,
+            station,
+            side.createSplay(survey, station, LrudMode.DEFAULT, distance),
+        )
+        added++
+    }
+    return added
 }

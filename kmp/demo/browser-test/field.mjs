@@ -117,10 +117,12 @@ const EDIT_DISTANCE = [140, 384]
 const EDIT_SAVE = [309, 552]
 const CONFIRM_DELETE = [292, 496]
 const STATION_CHIP = [310, 790]
-const STATION_NAME = [210, 352]
-const STATION_COMMENT = [210, 428]
-const STATION_EE_LEFT = [102, 536]
-const STATION_SAVE = [317, 608]
+const STATION_NAME = [210, 260]
+const STATION_COMMENT = [210, 336]
+const STATION_LRUD_LEFT = [106, 520]
+const STATION_LRUD_RIGHT = [175, 520]
+const STATION_EE_LEFT = [102, 628]
+const STATION_SAVE = [317, 700]
 // The overflow menu, by name rather than by pixel.
 //
 // It lists the saved surveys in the middle, so every row below them moves when the library grows,
@@ -371,6 +373,10 @@ await page.screenshot({ path: join(shotDir, 'field-station.png') })
 await retype(STATION_NAME, 'Sump')
 await at(...STATION_COMMENT); await page.waitForTimeout(250)
 await page.keyboard.type('Continues, too tight for me', { delay: 15 })
+// Passage size from a tape rather than an instrument: two numbers become two splays, square to
+// the passage, and a cross-section can then be drawn from a hand-booked survey.
+await retype(STATION_LRUD_LEFT, '1.5')
+await retype(STATION_LRUD_RIGHT, '2')
 await at(...STATION_EE_LEFT); await page.waitForTimeout(250)
 await page.screenshot({ path: join(shotDir, 'field-station-named.png') })
 await at(...STATION_SAVE); await page.waitForTimeout(900)
@@ -388,6 +394,15 @@ if (!sump) {
   fail(`the extended-elevation direction was not kept (${sump.eeDirection})`)
 } else {
   pass('a station can be named, commented and pointed the right way in the extended elevation')
+}
+
+const walls = (sump?.legs ?? []).filter(isSplay)
+if (walls.length !== 2) {
+  fail(`the tape measurements did not become splays (${walls.length} of 2)`)
+} else if (!walls.some((w) => Math.abs(w.distance - 1.5) < 0.001)) {
+  fail(`the left-hand wall measurement is not in the survey: ${JSON.stringify(walls)}`)
+} else {
+  pass('passage size can be booked with a tape, and becomes splays like any other')
 }
 
 // ---- and the words that are not numbers ----------------------------------------------------
