@@ -225,6 +225,8 @@ const DRAWING_MENU = [
   'cross-section',
   're-aim',
   'move',
+  'find',
+  'delete-last-leg',
   'splays',
   'sketch',
   'labels',
@@ -268,6 +270,77 @@ const EDITOR_CANCEL = [46, 24]
 const DIALOG_CARD = [236, 230, 240]
 const DIALOG_FIRST_ROW_FROM_TOP = 96
 
+/**
+ * The y of every band of primary-coloured text inside the dialog card — its clickable rows.
+ *
+ * Material draws a TextButton's label in the primary colour and nothing else on the card uses it,
+ * so a row that can be tapped is a row with purple in it. Finding the rows rather than counting
+ * fixed heights from the top is what makes a check survive a dialog whose contents depend on the
+ * survey: the station menu is two rows shorter for the origin than for a station mid-passage.
+ */
+const dialogTextRows = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, card]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    // Material 3's default primary, 0x6750A4, and the antialiased shades of it: blue well above
+    // green is the signature, and nothing else on the card has it — the title is black, the field
+    // label and its outline grey, the card itself a pale lavender with the three channels close
+    // together.
+    //
+    // Counted with a threshold of one pixel per scan line rather than a handful, because a station
+    // is called "1": a single numeral four pixels wide, which a threshold tuned on the word
+    // "Close" misses entirely and reports as a dialog with no stations in it.
+    const isLabel = (x, y) => {
+      const i = (y * c.width + x) * 4
+      const [r, g, b] = [px[i], px[i + 1], px[i + 2]]
+      return b > r && r > g && b - g > 30 && b < 230
+    }
+    // Bounded to the card. The app's own screen shows through around a dialog, and the field bar's
+    // "Add reading" button and the toolbar's purple swatch are the same primary colour — an
+    // unbounded scan reports them as two more rows of the dialog, at the bottom of the screen.
+    const isCard = (x, y) => {
+      const i = (y * c.width + x) * 4
+      return (
+        Math.abs(px[i] - card[0]) < 4 &&
+        Math.abs(px[i + 1] - card[1]) < 4 &&
+        Math.abs(px[i + 2] - card[2]) < 4
+      )
+    }
+    let top = -1
+    let bottom = -1
+    for (let y = 0; y < c.height; y++) {
+      let cardPixels = 0
+      for (let x = 0; x < c.width; x++) if (isCard(x, y)) cardPixels++
+      if (cardPixels > c.width * 0.5) {
+        if (top < 0) top = y
+        bottom = y
+      }
+    }
+    if (top < 0) return []
+
+    const rows = []
+    let from = -1
+    for (let y = top; y <= bottom; y++) {
+      let count = 0
+      for (let x = 70; x < c.width - 60; x++) if (isLabel(x, y)) count++
+      if (count >= 1) {
+        if (from < 0) from = y
+      } else if (from >= 0) {
+        if (y - from >= 6) rows.push(Math.round((from + y) / 2))
+        from = -1
+      }
+    }
+    return rows
+  }, [b64, DIALOG_CARD])
+}
+
 const dialogTop = async () => {
   const b64 = (await page.screenshot({ clip: box })).toString('base64')
   return page.evaluate(async ([data, card]) => {
@@ -299,6 +372,12 @@ const dialogTop = async () => {
     }
     return null
   }, [b64, DIALOG_CARD])
+}
+
+/** The confirm button, which Material puts at the bottom right of the card. */
+const dialogConfirm = async () => {
+  const rows = await dialogTextRows()
+  return rows.length === 0 ? null : [317, rows[rows.length - 1]]
 }
 
 
@@ -748,6 +827,66 @@ if (!spots.other) {
         'any station can be reached from the sketch, not just the active one ' +
           `(${activeBefore} -> ${activeAfter})`,
       )
+    }
+  }
+}
+
+// ---- finding a station, and taking back the last leg ---------------------------------------
+// Two things a surveyor does constantly and this port could not do at all. A survey of any size
+// does not fit on a phone screen, so "where is the station I stopped at" had no answer but pinching
+// out until the whole cave fits — which is exactly the zoom at which the labels are too small to
+// read. And a leg taken from the wrong station wants to be gone before the next one goes in, which
+// through the table is three taps and a scroll away from where the surveyor is standing.
+const savedLegCount = () => page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
+  if (!key) return -1
+  return (JSON.parse(localStorage.getItem(key)).stations ?? []).flatMap((s) => s.legs ?? []).length
+})
+
+const beforeFinding = await page.screenshot({ clip: box })
+await at(...toolCell(5)); await page.waitForTimeout(500)
+await at(...drawingMenuRow('find')); await page.waitForTimeout(900)
+await page.screenshot({ path: join(shotDir, 'field-find-station.png') })
+
+if ((await dialogTop()) === null) {
+  fail('the find-a-station dialog did not open')
+} else {
+  const rows = await dialogTextRows()
+  // The last row is the dialog's own Close button; the ones above it are the stations.
+  if (rows.length < 2) {
+    fail(`the find dialog listed no stations (${rows.length} rows)`)
+    await page.keyboard.press('Escape'); await page.waitForTimeout(400)
+  } else {
+    await at(210, rows[0]); await page.waitForTimeout(900)
+    const afterFinding = await page.screenshot({ clip: box })
+    if (Buffer.compare(beforeFinding, afterFinding) === 0) {
+      fail('going to a station left the view exactly where it was')
+    } else {
+      pass('a station can be found by name and the view taken to it')
+    }
+  }
+}
+
+// Taken back on a splay added for the purpose, so the survey the checks below read is the one they
+// were written for.
+const legsBeforeSplay = await savedLegCount()
+await reading(2.5, 45, -3, { splay: true })
+if ((await savedLegCount()) !== legsBeforeSplay + 1) {
+  fail('the splay that the delete was going to take back was not added')
+} else {
+  await at(...toolCell(5)); await page.waitForTimeout(500)
+  await at(...drawingMenuRow('delete-last-leg')); await page.waitForTimeout(900)
+  await page.screenshot({ path: join(shotDir, 'field-delete-last-leg.png') })
+  const confirm = await dialogConfirm()
+  if ((await dialogTop()) === null || confirm === null) {
+    fail('the delete-the-last-leg dialog did not open')
+  } else {
+    await at(...confirm); await page.waitForTimeout(900)
+    const after = await savedLegCount()
+    if (after !== legsBeforeSplay) {
+      fail(`the last leg was not taken back (${legsBeforeSplay + 1} legs became ${after})`)
+    } else {
+      pass('the last leg can be taken back from the drawing menu, and only it')
     }
   }
 }

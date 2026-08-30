@@ -73,6 +73,21 @@ class CanvasController {
         }
     }
 
+    /**
+     * Put [surveyPoint] in the middle of the view — `GraphView.centreViewOnSurveyPoint`.
+     *
+     * The zoom is left alone, deliberately: somebody who has just asked to be taken to a station
+     * has already chosen how close in they are working, and re-fitting the whole cave to show them
+     * one station would undo that. Marks the viewport as theirs, so the automatic re-fit as the
+     * survey grows stops here rather than pulling the view off the station again on the next leg.
+     */
+    fun centreOn(surveyPoint: Coord2D) {
+        if (viewWidth <= 0f || viewHeight <= 0f) return
+        viewport.centreOn(surveyPoint, viewWidth, viewHeight)
+        fit.userHasTakenControl = true
+        invalidate()
+    }
+
     /** Puts the view back where the app would have put it. The app's "centre view" menu action. */
     fun refit() {
         fit.userHasTakenControl = false

@@ -172,6 +172,32 @@ private fun DrawingMenu(
     onDismiss: () -> Unit,
 ) {
     var choosingSymbol by remember { mutableStateOf(false) }
+    var finding by remember { mutableStateOf(false) }
+    var deletingLastLeg by remember { mutableStateOf(false) }
+
+    if (finding) {
+        FindStationDialog(
+            survey = state.survey,
+            onDismiss = { finding = false },
+            onGo = { station ->
+                stationPositionIn(state.survey, state.projection, station)
+                    ?.let(canvas::centreOn)
+                finding = false
+            },
+        )
+    }
+
+    if (deletingLastLeg) {
+        DeleteLastLegDialog(
+            survey = state.survey,
+            onDismiss = { deletingLastLeg = false },
+            onDelete = {
+                state.survey.undoAddLeg()
+                state.noteSketchEdited()
+                deletingLastLeg = false
+            },
+        )
+    }
 
     if (choosingSymbol) {
         SymbolPaletteDialog(
@@ -230,6 +256,27 @@ private fun DrawingMenu(
             leadingIcon = { CheckDot(state.tool == SketchTool.MOVE_CROSS_SECTION) },
             onClick = {
                 state.tool = SketchTool.MOVE_CROSS_SECTION
+                onDismiss()
+            },
+        )
+        // `action_find_station`, from the Android app's tools menu. It is here rather than behind
+        // the three dots because it is a *drawing* action: the answer is a change to what the
+        // canvas is showing.
+        DropdownMenuItem(
+            text = { Text("Find a station…") },
+            onClick = {
+                finding = true
+                onDismiss()
+            },
+        )
+        // `buttonDeleteLastLeg`. The one destructive action a surveyor reaches for often: a shot
+        // taken by accident, or one taken from the wrong station, wants to be gone before the next
+        // one goes in — and going to the table to find it is three taps and a scroll away from
+        // where they are standing.
+        DropdownMenuItem(
+            text = { Text("Delete the last leg") },
+            onClick = {
+                deletingLastLeg = true
                 onDismiss()
             },
         )
