@@ -7,15 +7,23 @@ import org.hwyl.sexytopo.shared.io.export.TherionExporter
 import org.hwyl.sexytopo.shared.io.imports.SurveyImporter
 import org.hwyl.sexytopo.shared.math.Space3DTransformer
 import org.hwyl.sexytopo.shared.math.Wireframe
+import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.ExtendedElevationDirection
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
+import org.hwyl.sexytopo.shared.model.sketch.Colour
+import org.hwyl.sexytopo.shared.model.sketch.PathDetail
+import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.sketch.SketchEditor
+import org.hwyl.sexytopo.shared.sketch.boundsOf
+import org.hwyl.sexytopo.shared.sketch.findNearestVisibleItemWithin
 import org.hwyl.sexytopo.shared.survey.SurveyStats
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -168,6 +176,45 @@ class BigSurveyTest {
 
         assertEquals(2, stations.size)
         assertEquals(setOf("1", "2"), stations.map { it.name }.toSet())
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // The drawing on top of it
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * A cave that size has a drawing to match: thousands of strokes, drawn over many trips.
+     *
+     * Nothing here was broken when this was written — every operation is linear in the number of
+     * details, and the worst of them costs a couple of milliseconds on eight thousand strokes. The
+     * test exists so it stays that way, because the ones that would not be linear are easy to
+     * write: a hit test that measures bounds it has already measured, an erase that rebuilds the
+     * list, an undo that copies the sketch.
+     */
+    @Test
+    fun aBigDrawingCanStillBeDrawnOnAndRubbedOut() {
+        val strokes = 8000
+        val sketch = Sketch()
+        for (i in 0 until strokes) {
+            val x = (i % 100) * 2f
+            val y = (i / 100) * 2f
+            sketch.pathDetails.add(
+                PathDetail(List(12) { Coord2D(x + it * 0.1f, y + (it % 3) * 0.1f) }, Colour.BLACK),
+            )
+        }
+
+        assertNotNull(boundsOf(sketch))
+        // A tap lands on the stroke it is nearest to, out of eight thousand.
+        assertNotNull(findNearestVisibleItemWithin(sketch, Coord2D(0.2f, 0.1f), 1f, 50f))
+
+        val editor = SketchEditor(sketch)
+        var erased = 0
+        for (i in 0 until 50) {
+            if (editor.eraseAt(Coord2D((i % 100) * 2f, (i / 100) * 2f), 1f, 50f)) erased++
+        }
+        assertTrue(erased > 0, "nothing was rubbed out of a drawing covered in strokes")
+        repeat(erased) { assertTrue(editor.undo()) }
+        assertEquals(strokes, sketch.pathDetails.size, "undo did not put the drawing back")
     }
 
     /** And so does looking for something in it. */

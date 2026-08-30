@@ -45,7 +45,7 @@ Being precise about this matters more than the demo looking good.
 | A station being made can be felt rather than looked at | **Verified** | the callback fires once per station and not once per reading, the preference round-trips, and `field.mjs` turns it off through the settings screen and checks it stayed off |
 | The instrument log is kept, persisted and readable on the phone | **Verified** | `ActivityLogTest` for the bounded queues and the file format; `instrument.mjs` connects a fake DistoX-BLE, takes a calibration, and then reads the log back off the clipboard — count, timestamps and all |
 | The desktop build keeps its surveys too | **Verified** | a survey written by one `SurveyLibrary` and read by a second over the same directory, in SexyTopo's own file layout, plus the three platform conventions for where that directory goes |
-| **A real-sized cave works, not just a demo one** | **Verified** | `BigSurveyTest` builds a four-thousand-station passage — past where every tree walk in this port used to overflow the stack — and projects it to a plan and an extended elevation, builds its wireframe, counts its statistics, exports it to Survex and Therion and reads it back, on all three targets |
+| **A real-sized cave works, not just a demo one** | **Verified** | `BigSurveyTest` builds a four-thousand-station passage — past where every tree walk in this port used to overflow the stack — and projects it to a plan and an extended elevation, builds its wireframe, counts its statistics, exports it to Survex and Therion and reads it back, on all three targets — and rubs out and undoes on a drawing of eight thousand strokes |
 | Surveys save and load through a platform-free storage layer | **Verified** | a full round trip - naming, directories, autosave, listing - over an in-memory `FileStore`, on all three targets. The Android app's equivalent test is `@Ignore`d because `DocumentFile` cannot be mocked |
 | The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
 | The BLE connection logic is platform-free | **Verified** | `GattLinkTest` and `GattSessionTest` — the profile matrix *and* the connection lifecycle; only callback plumbing is left in `iosMain` |
@@ -346,7 +346,10 @@ Everything above the radio — the profiles, the decoders, the acknowledgement h
 calibration — is driven end to end against a fake instrument in CI, so if the radio works the rest
 should follow.
 
-**Unmeasured:** sketching latency under a finger or an Apple Pencil.
+**Unmeasured:** sketching latency under a finger or an Apple Pencil, on a phone. The engine
+underneath it *has* been measured, at sizes a real cave reaches: with eight thousand strokes on the
+drawing, a tap costs about two milliseconds to resolve and an erase about the same, both linear in
+the number of strokes. What is left unknown is the rendering, which is Skia's and not this port's.
 
 #### What you can do on the phone
 
