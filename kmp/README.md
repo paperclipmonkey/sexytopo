@@ -239,7 +239,13 @@ it — so it is written out in full, including the three places it is known to g
 4. **Change the bundle identifier** to something nobody else has used — `org.hwyl.sexytopo.kmpdemo`
    is in this repository, so somebody may already have registered it. `uk.co.yourname.sexytopo` will
    do. Xcode will tell you, in red, if the one you picked is taken.
-5. **Plug the phone in** with a USB cable and unlock it. The first time, the phone asks whether to
+5. **Turn on Developer Mode on the phone.** iOS 16 and later hide it until you ask: *Settings →
+   Privacy & Security → Developer Mode → on*, then restart the phone and confirm after it comes
+   back. The toggle only appears once the phone has been plugged into a Mac running Xcode, so do
+   step 5 first if you cannot find it. Without this the phone accepts the app and refuses to launch
+   it, with a message about the developer being untrusted that looks like step 7's problem but is
+   not.
+6. **Plug the phone in** with a USB cable and unlock it. The first time, the phone asks whether to
    *Trust This Computer* — say yes. Pick it from the device menu at the top of the Xcode window
    (next to the scheme), and press ⌘R.
 
@@ -249,7 +255,7 @@ it — so it is written out in full, including the three places it is known to g
    Later builds are seconds unless Kotlin changes.
 
    The iPhone needs **iOS 15 or later**, which is anything from an iPhone 6s onwards.
-6. **Trust the developer on the phone.** *Settings → General → VPN & Device Management → your Apple
+7. **Trust the developer on the phone.** *Settings → General → VPN & Device Management → your Apple
    ID → Trust*. Until you do, the app installs and refuses to launch.
 
 Three things go wrong, in roughly this order of likelihood:
