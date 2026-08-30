@@ -95,6 +95,9 @@ fun App(
     // pocket, the app is killed by the OS, and coming back to an empty screen would lose the
     // survey. Opening the most recent one is what makes this usable rather than a toy.
     LaunchedEffect(Unit) {
+        // Before anything is read, let alone written: in a browser, saved surveys are storage the
+        // browser is entitled to reclaim until it has been asked not to. A no-op everywhere else.
+        requestDurableStorage()
         state.loadSettings()
         state.refreshLibrary()
         state.savedSurveys.lastOrNull()?.let { state.openSurvey(it) }

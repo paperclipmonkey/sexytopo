@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -40,6 +41,7 @@ import org.hwyl.sexytopo.shared.sketch.SketchDefaults
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.sketch.SketchViewport
+import org.hwyl.sexytopo.shared.sketch.findCrossSectionBodyAt
 import org.hwyl.sexytopo.shared.survey.CrossSectioner
 import kotlin.math.abs
 import kotlin.math.floor
@@ -102,6 +104,22 @@ fun SurveyCanvas(
     // The editor is a plain object, not Compose state, so a stroke in progress has to say when it
     // needs repainting. The viewport says so through the controller's own revision.
     var strokeTick by remember { mutableIntStateOf(0) }
+
+    // The cross-section drag in progress, if any. Read inside the draw block so the preview
+    // follows the finger; null between gestures, which is also what says "draw everything
+    // normally".
+    var sectionDrag by remember { mutableStateOf<SectionDrag?>(null) }
+
+    /** Grab whatever cross-section is under the finger, for a [mode] drag. */
+    fun grab(mode: SectionDragMode, at: Coord2D): SectionDrag? {
+        val detail = findCrossSectionBodyAt(scene.sketch, at) ?: return null
+        return SectionDrag(
+            mode = mode,
+            detail = detail,
+            from = at,
+            pivot = scene.positionOf(detail.station.name),
+        )
+    }
 
     // Keyed on `tool` as well as `scene`, and that is the whole reason the toolbar works.
     //
@@ -170,6 +188,36 @@ fun SurveyCanvas(
                     }
             }
 
+            SketchTool.MOVE_CROSS_SECTION, SketchTool.ROTATE_CROSS_SECTION -> {
+                // One gesture loop for both, because they are the same gesture: press on a
+                // section, drag, lift. Only what the drag means differs, and SectionDrag holds
+                // that.
+                //
+                // A drag rather than a tap, deliberately - a section that could be picked up by a
+                // tap would be picked up by every stray touch on a drawing covered in them.
+                val mode =
+                    if (tool == SketchTool.MOVE_CROSS_SECTION) SectionDragMode.MOVE
+                    else SectionDragMode.ROTATE
+
+                Modifier.pointerInput(scene, tool) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            sectionDrag = grab(mode, viewport.toSurvey(offset))
+                        },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            sectionDrag =
+                                sectionDrag?.movedTo(viewport.toSurvey(change.position))
+                        },
+                        onDragEnd = {
+                            if (sectionDrag?.commit(editor) == true) onSketchEdit()
+                            sectionDrag = null
+                        },
+                        onDragCancel = { sectionDrag = null },
+                    )
+                }
+            }
+
             SketchTool.POSITION_CROSS_SECTION ->
                 Modifier.pointerInput(scene, tool) {
                     // Tap a station. The Android app splits this in two — a context-menu item that
@@ -189,8 +237,8 @@ fun SurveyCanvas(
                         if (station != null) {
                             // The bearing comes from CrossSectioner's own heuristic: bisect the
                             // corner mid-passage, follow the single leg at a dead end, give up and
-                            // use north where there is nothing to go on. Rotating it afterwards is
-                            // the app's separate tool and is not ported.
+                            // use north where there is nothing to go on. It is a guess, and
+                            // SketchTool.ROTATE_CROSS_SECTION is how a surveyor overrules it.
                             editor.addCrossSection(CrossSectioner.section(survey, station), where)
                             onSketchEdit()
                         }
@@ -316,7 +364,7 @@ fun SurveyCanvas(
                 fit.noteFitted(scene.surveyBounds)
             }
 
-            drawSurvey(scene, options, viewport, textMeasurer, fontFamily, tool)
+            drawSurvey(scene, options, viewport, textMeasurer, fontFamily, tool, sectionDrag)
         }
     }
 }
@@ -348,6 +396,10 @@ class SurveyScene private constructor(
      * other, and picking whichever happened to come first out of the projection would make the
      * choice feel arbitrary.
      */
+    /** Where a station sits in this projection, or null if it is not in it at all. */
+    fun positionOf(name: String): Coord2D? =
+        stations.firstOrNull { it.first == name }?.second
+
     fun stationNearest(point: Coord2D, reach: Float): String? {
         var best: String? = null
         var bestDistance = reach
@@ -503,6 +555,7 @@ private fun DrawScope.drawSurvey(
     textMeasurer: TextMeasurer,
     fontFamily: FontFamily,
     tool: SketchTool,
+    sectionDrag: SectionDrag? = null,
 ) {
     val palette = if (options.darkMode) DarkPalette else LightPalette
 
@@ -598,13 +651,21 @@ private fun DrawScope.drawSurvey(
         }
 
         // Cross-sections: the passage profile at a station, drawn where it was placed on the plan.
+        //
+        // A section being dragged is drawn where the finger has it rather than where it still is
+        // in the sketch, and in the indicator colour so it is obvious which one is moving. The
+        // preview comes from SectionDrag, which is also what commits the edit - so what is drawn
+        // during the drag cannot disagree with what the drag leaves behind.
         val sectionScale = scene.sketch.crossSectionScale
         for (detail in scene.sketch.crossSectionDetails) {
-            val centre = project(detail.position)
-            for (line in detail.crossSection.getProjection().legMap.values) {
+            val dragged = sectionDrag != null && sectionDrag.detail === detail
+            val shown = if (dragged) sectionDrag.preview() else detail
+            val colour = if (dragged) palette.symbol else palette.crossSection
+            val centre = project(shown.position)
+            for (line in shown.crossSection.getProjection().legMap.values) {
                 val end = line.end.scale(sectionScale)
                 drawLine(
-                    palette.crossSection,
+                    colour,
                     centre,
                     Offset(
                         centre.x + end.x * viewport.pixelsPerMetre,
@@ -614,7 +675,22 @@ private fun DrawScope.drawSurvey(
                     StrokeCap.Round,
                 )
             }
-            drawCircle(palette.crossSection, radius = 2.5f, center = centre)
+            drawCircle(colour, radius = 2.5f, center = centre)
+        }
+
+        // While re-aiming, the line the section is being aimed along: station to finger. Without
+        // it the gesture is a section spinning for no visible reason - this is the thing being
+        // pointed at the passage, and the pivot it swings about is not otherwise marked.
+        if (sectionDrag != null && sectionDrag.mode == SectionDragMode.ROTATE) {
+            sectionDrag.pivot?.let { pivot ->
+                drawLine(
+                    palette.symbol,
+                    project(pivot),
+                    project(sectionDrag.finger),
+                    1f,
+                    StrokeCap.Round,
+                )
+            }
         }
     }
 
@@ -735,9 +811,14 @@ private const val SYMBOL_STROKE_UNITS = 1f
  * Screen y grows downwards, so a drag towards the top of the screen is north. A drag of no length
  * leaves the symbol upright rather than snapping it to an arbitrary direction.
  */
-internal fun bearingOf(delta: Offset): Float {
-    if (delta.x == 0f && delta.y == 0f) return 0f
-    val degrees =
-        kotlin.math.atan2(delta.x.toDouble(), -delta.y.toDouble()) * 180.0 / kotlin.math.PI
+internal fun bearingOf(delta: Offset): Float = bearingOf(delta.x, delta.y)
+
+/**
+ * The same, from a raw vector — shared with the cross-section rotate gesture, which measures in
+ * survey metres rather than in pixels but wants the identical answer.
+ */
+internal fun bearingOf(dx: Float, dy: Float): Float {
+    if (dx == 0f && dy == 0f) return 0f
+    val degrees = kotlin.math.atan2(dx.toDouble(), -dy.toDouble()) * 180.0 / kotlin.math.PI
     return ((degrees + 360.0) % 360.0).toFloat()
 }

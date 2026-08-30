@@ -60,6 +60,22 @@ const page = await ctx.newPage()
 const pageErrors = []
 page.on('pageerror', (e) => pageErrors.push(e.message))
 
+// Registered here, before anything is clicked, and deliberately not with waitForEvent at the point
+// of use.
+//
+// Playwright intercepts the native file chooser through the DevTools protocol, and turns that
+// interception *on* asynchronously when the first listener is attached. `waitForEvent('filechooser')`
+// immediately followed by the click races that: the chooser opens for real, no event is emitted,
+// and the check reports that the app never opened a chooser. It failed two runs out of three that
+// way while the app was working perfectly - measured at 1 chooser seen in 8 with waitForEvent
+// against 6 in 6 with this listener.
+let fileChoosersOpened = 0
+let chosenFile = null
+page.on('filechooser', async (chooser) => {
+  fileChoosersOpened++
+  if (chosenFile) await chooser.setFiles(chosenFile).catch(() => undefined)
+})
+
 const ready = async () => {
   for (let i = 0; i < 60; i++) {
     await page.waitForTimeout(500)
@@ -164,9 +180,39 @@ const LABEL_PLACE = [316, 518]
 const toolColumn = box.width / 9
 const TOOL_ROW_Y = box.height - 20
 const toolCell = (index) => [toolColumn * (index + 0.5), TOOL_ROW_Y]
-// The drawing menu opens upwards from its toolbar cell: Centre view, then the cross-section tool.
-const DRAWING_MENU_SYMBOL = [186, 580]
-const DRAWING_MENU_CROSS_SECTION = [186, 628]
+// The drawing menu, by name rather than by pixel — for the same reason as the overflow menu.
+//
+// It opens *upwards* from its toolbar cell, so its bottom row stays put and every row above it
+// moves when an item is added. Hard-coded y values for two of these rows had already survived one
+// such addition by silently clicking the wrong item.
+const DRAWING_MENU = [
+  'centre',
+  'symbol',
+  'cross-section',
+  're-aim',
+  'move',
+  'splays',
+  'sketch',
+  'labels',
+  'grid',
+]
+const DRAWING_MENU_LAST_ROW_Y = 820
+const DRAWING_MENU_ROW_HEIGHT = 48
+
+function drawingMenuRow(name) {
+  const index = DRAWING_MENU.indexOf(name)
+  if (index < 0) throw new Error(`no drawing-menu item called ${name}`)
+  const fromBottom = DRAWING_MENU.length - 1 - index
+  return [186, DRAWING_MENU_LAST_ROW_Y - DRAWING_MENU_ROW_HEIGHT * fromBottom]
+}
+
+/** A finger drag on the canvas, in canvas coordinates. */
+async function drag([x0, y0], [x1, y1]) {
+  await page.mouse.move(box.x + x0, box.y + y0)
+  await page.mouse.down()
+  await page.mouse.move(box.x + x1, box.y + y1, { steps: 12 })
+  await page.mouse.up()
+}
 // "Blocks" in the palette: fourth swatch, second column of the second row.
 const PALETTE_BLOCKS = [112, 388]
 const CANCEL_DELETE_SURVEY = [237, 516]
@@ -243,7 +289,7 @@ await page.screenshot({ path: join(shotDir, 'field-readings.png') })
 // The whole model, the projection and the bearing heuristic were ported and tested long ago; what
 // this checks is that the tool reaches them and that the result is saved with the sketch.
 await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...DRAWING_MENU_CROSS_SECTION); await page.waitForTimeout(500)
+await at(...drawingMenuRow('cross-section')); await page.waitForTimeout(500)
 await at(140, 712); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-cross-section.png') })
 
@@ -258,6 +304,59 @@ if (sections === null) {
   fail('tapping a station with the cross-section tool did not add one')
 } else {
   pass('a cross-section can be dropped at a station, and is saved with the sketch')
+}
+
+// ---- and can be corrected afterwards ---------------------------------------------------
+// Both decisions the app makes when a section appears are guesses: the bearing comes from a
+// heuristic and the position comes from wherever a finger landed. A section cutting the passage at
+// the wrong angle is not a rough drawing, it is a wrong one — so being able to say so matters, and
+// the gesture wiring is exactly the sort of thing that can silently do nothing. (It has: the
+// symbol tool stamped nothing at all for a while, because a drag detector never fires for a tap.)
+const firstSection = () => page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  if (!key) return null
+  return (JSON.parse(localStorage.getItem(key))['x-sections'] ?? [])[0] ?? null
+})
+
+const placedSection = await firstSection()
+
+await at(...toolCell(5)); await page.waitForTimeout(500)
+await at(...drawingMenuRow('move')); await page.waitForTimeout(500)
+await drag([140, 712], [210, 660]); await page.waitForTimeout(900)
+await page.screenshot({ path: join(shotDir, 'field-cross-section-moved.png') })
+
+const movedSection = await firstSection()
+if (!placedSection || !movedSection) {
+  fail('the plan sketch was not saved, so moving a cross-section could not be checked')
+} else if (
+  movedSection.location.x === placedSection.location.x &&
+  movedSection.location.y === placedSection.location.y
+) {
+  fail('dragging a cross-section with the move tool did not move it')
+} else if (movedSection.angle !== placedSection.angle) {
+  fail('moving a cross-section also changed its bearing')
+} else {
+  pass('a cross-section can be dragged somewhere clearer on the plan')
+}
+
+await at(...toolCell(5)); await page.waitForTimeout(500)
+await at(...drawingMenuRow('re-aim')); await page.waitForTimeout(500)
+// Grab the section where it now is and swing it round its station.
+await drag([210, 660], [330, 760]); await page.waitForTimeout(900)
+await page.screenshot({ path: join(shotDir, 'field-cross-section-aimed.png') })
+
+const aimedSection = await firstSection()
+if (!aimedSection) {
+  fail('the plan sketch was not saved, so re-aiming a cross-section could not be checked')
+} else if (aimedSection.angle === movedSection.angle) {
+  fail('dragging a cross-section with the re-aim tool did not change its bearing')
+} else if (
+  aimedSection.location.x !== movedSection.location.x ||
+  aimedSection.location.y !== movedSection.location.y
+) {
+  fail('re-aiming a cross-section also moved it')
+} else {
+  pass('a cross-section can be re-aimed when the bearing the app guessed is wrong')
 }
 
 // Back to drawing, so nothing after this drops a section by accident.
@@ -441,7 +540,7 @@ await at(...toolCell(1)); await page.waitForTimeout(400)
 // parser in commonMain. A stamped symbol has to carry the Therion name the canvas looks its
 // artwork up by; if those two ever disagreed every symbol would silently draw as a fallback dot.
 await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...DRAWING_MENU_SYMBOL); await page.waitForTimeout(800)
+await at(...drawingMenuRow('symbol')); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-symbol-palette.png') })
 await at(...PALETTE_BLOCKS); await page.waitForTimeout(700)
 await at(200, 300); await page.waitForTimeout(900)
@@ -636,6 +735,21 @@ if (!restored) {
   pass('the survey survives closing and reopening the app')
 }
 
+// ---- and the browser has been asked not to throw it away ---------------------------------
+// localStorage is best-effort storage by specification: a browser may reclaim it under storage
+// pressure. navigator.storage.persist() is the only way to ask it not to, and a survey the browser
+// is entitled to delete is not really saved. Headless Chromium refuses the request (no engagement
+// history), which is why this asserts the *asking* rather than the granting — and why the app
+// carries a warning for exactly the answer this run gets.
+const durability = await page.evaluate(() =>
+  globalThis.__sexytopoStorage ? globalThis.__sexytopoStorage.state : 'never asked',
+)
+if (durability === 'never asked' || durability === 'asking') {
+  fail(`the app never asked the browser to keep its storage (state: ${durability})`)
+} else {
+  pass(`the app asks the browser to keep saved surveys (this browser answered: ${durability})`)
+}
+
 // ---- and it opens with no signal ---------------------------------------------------------
 await page.waitForTimeout(3000) // let the worker finish caching the module graph
 const worker = await page.evaluate(async () => {
@@ -703,17 +817,17 @@ await page.screenshot({ path: join(shotDir, 'field-import-menu.png') })
 await at(...menuRow('import', 0)); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-import-dialog.png') })
 
-const chooser = page.waitForEvent('filechooser', { timeout: 8000 }).catch(() => null)
+chosenFile = {
+  name: 'Eastwater.data.json',
+  mimeType: 'application/json',
+  buffer: Buffer.from(EXAMPLE_SURVEY_JSON, 'utf8'),
+}
+const choosersBefore = fileChoosersOpened
 await at(...IMPORT_CHOOSE)
-const picker = await chooser
-if (!picker) {
+await page.waitForTimeout(2000)
+if (fileChoosersOpened === choosersBefore) {
   fail('the file chooser never opened, so nothing can be imported in the browser')
 } else {
-  await picker.setFiles({
-    name: 'Eastwater.data.json',
-    mimeType: 'application/json',
-    buffer: Buffer.from(EXAMPLE_SURVEY_JSON, 'utf8'),
-  })
   // The chooser is native and asynchronous; the dialog re-reads its list while it is open.
   await page.waitForTimeout(1600)
   await page.screenshot({ path: join(shotDir, 'field-import.png') })

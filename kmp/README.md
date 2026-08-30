@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by over 400 tests. The UI
+Survex and Therion exporters and the native file format are ported and covered by over 550 tests. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
 tests the claim.
@@ -262,6 +262,10 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
 - **Sketch it**, in plan and extended elevation, each with its own strokes and its own undo
   history — write on it (*sump*, *boulder choke*, *continues*), stamp any of the nineteen UIS
   symbols, and drop a cross-section at a station, drawn from that station's own splays.
+- **Overrule the app.** A cross-section's bearing is a guess and its position is wherever your
+  finger landed. *Re-aim a cross-section* swings it round its station until it cuts the passage
+  square; *Move a cross-section* slides it, drawing and all, off the centreline it is sitting on.
+  Both preview under the finger, and what is previewed is what is committed.
 - **Say who was there.** Trip details records the date, the team and their roles, the instrument,
   and the copyright and licence terms, and every exporter writes them.
 - **Match the tolerances to the instrument.** The defaults assume a DistoX; a compass and tape
@@ -280,7 +284,9 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   My iPhone* — and *Import* offers it. It never overwrites a survey already in the library, which
   matters when a colleague sends you their copy of a cave you are also surveying.
 - **Lose nothing.** Every change is written immediately, the survey is there after a restart, and
-  the app opens with no signal at all.
+  the app opens with no signal at all. In a browser the app also asks for persistent storage on
+  startup, because `localStorage` is otherwise storage the browser may reclaim; if it is refused,
+  the export screen says so rather than letting you assume the trip is safe.
 
 #### What to expect that is missing
 
@@ -293,9 +299,17 @@ Honest limits, so nothing is a surprise in a cave:
   type readings, which is what *Add reading* is for and which behaves identically.
 - **No calibration screen**, even though the solver under it is ported and tested against the
   Android app's own two datasets.
-- **A cross-section can be placed but not re-aimed or moved.** The bearing comes from the app's own
-  heuristic — bisect the corner mid-passage, follow the single leg at a dead end — and the rotate
-  and move tools are not ported.
+- **A cross-section cannot be drawn into.** It can be placed, re-aimed and moved — the bearing the
+  app guesses (bisect the corner mid-passage, follow the single leg at a dead end) is a guess, so
+  *Re-aim a cross-section* and *Move a cross-section* in the drawing menu let a surveyor overrule
+  both of its guesses. What is missing is the editor the Android app opens when you tap the section
+  itself, where the wall outline is drawn inside it. The model carries that sub-sketch and the SVG
+  exporter draws it, so a section imported from the Android app keeps its outline; there is just no
+  way to draw a new one here yet.
+- **Browser storage can still be reclaimed.** The build asks for persistent storage at startup, but
+  a browser may refuse — Chrome grants it silently only to a site you have engaged with or
+  installed to the home screen. When it refuses, the export screen says so. On iOS this does not
+  arise: files in the app's own container stay there.
 - **The original DistoX and DistoX2 will never work here.** They speak Bluetooth Classic RFCOMM,
   which iOS has no public API for and no browser implements. That is permanent, and not a gap this
   project can close.
@@ -321,6 +335,7 @@ Honest limits, so nothing is a surprise in a cave:
 | Nordic `BleManager` subclasses | `shared/iosMain/.../CoreBluetoothTransport.kt` | The whole iOS Bluetooth surface |
 | `control/io/basic/*JsonTranslater` | `shared/io/` | Same tags, same tolerant two-pass load |
 | `control/graph/GraphView` — tools, viewport, hit-testing | `shared/sketch/` | Ported; the demo drives it |
+| `GraphView.handle{Move,Rotate}CrossSection` | `demo/.../CrossSectionDrag.kt` | One value drives the preview *and* the commit, so they cannot disagree |
 | `control/graph/GraphView` — drawing and touch plumbing | `demo/.../SurveyCanvas.kt` | **Rewritten**, not ported |
 | `res/layout/activity_graph.xml` | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied |
 | `res/values/colors.xml` (+ `values-night`) | `demo/.../SexyTopoTheme.kt` | The app's own palette |

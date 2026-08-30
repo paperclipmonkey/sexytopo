@@ -345,12 +345,12 @@ val VIEW_TOGGLES =
 val BRUSH_COLOURS = BrushColour.entries.map { it.colour }
 
 /**
- * The tools the demo offers, out of the eleven [SketchTool] knows about.
+ * The tools the demo offers *as toolbar buttons*, out of the eleven [SketchTool] knows about.
  *
- * The rest — placing symbols and labels, and the four cross-section gestures — need chrome this
- * demo does not have: a symbol palette, a text field, a cross-section editor screen. The shared
- * model supports them already, which is why the toolbar draws their buttons greyed rather than
- * leaving gaps.
+ * The rest are reached from the drawing menu rather than the toolbar — stamping a symbol, placing
+ * a label, and the three cross-section gestures — because a nine-column toolbar has no room for
+ * them and the Android app hangs most of them off menus too. The two genuinely absent ones are the
+ * modal pan gestures, which have no button anywhere: they are entered by a pinch or a hot corner.
  */
 val DEMO_TOOLS =
     listOf(SketchTool.MOVE, SketchTool.DRAW, SketchTool.ERASE, SketchTool.SELECT)
@@ -363,6 +363,11 @@ val SketchTool.label: String
             SketchTool.DRAW -> "Draw"
             SketchTool.ERASE -> "Erase"
             SketchTool.SELECT -> "Select"
+            SketchTool.SYMBOL -> "Symbol"
+            SketchTool.TEXT -> "Label"
+            SketchTool.POSITION_CROSS_SECTION -> "Cross-section"
+            SketchTool.ROTATE_CROSS_SECTION -> "Re-aim"
+            SketchTool.MOVE_CROSS_SECTION -> "Move section"
             else -> name.lowercase().replaceFirstChar { it.uppercase() }
         }
 
@@ -407,6 +412,12 @@ fun summarise(state: DemoState, compact: Boolean): String {
                 SketchTool.MOVE -> "drag to pan, pinch to zoom"
                 SketchTool.ERASE -> "tap a line to rub it out"
                 SketchTool.SELECT -> "tap a station to survey on from it"
+                SketchTool.SYMBOL -> "tap to stamp, drag to aim it"
+                SketchTool.TEXT -> "tap where the label goes"
+                SketchTool.POSITION_CROSS_SECTION -> "tap a station to slice the passage there"
+                SketchTool.ROTATE_CROSS_SECTION ->
+                    "drag a cross-section round its station to re-aim it"
+                SketchTool.MOVE_CROSS_SECTION -> "drag a cross-section somewhere clearer"
                 else -> "drag to draw a passage wall"
             }
         }

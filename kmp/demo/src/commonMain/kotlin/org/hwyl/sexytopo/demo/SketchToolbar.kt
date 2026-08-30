@@ -212,6 +212,25 @@ private fun DrawingMenu(
                 onDismiss()
             },
         )
+        // Both halves of "the app's guess was not quite right". The bearing is guessed by
+        // CrossSectioner and the position by whoever tapped, and a section drawn square to the
+        // wrong axis or sitting on top of the passage is worse than a rough one placed by hand.
+        DropdownMenuItem(
+            text = { Text("Re-aim a cross-section") },
+            leadingIcon = { CheckDot(state.tool == SketchTool.ROTATE_CROSS_SECTION) },
+            onClick = {
+                state.tool = SketchTool.ROTATE_CROSS_SECTION
+                onDismiss()
+            },
+        )
+        DropdownMenuItem(
+            text = { Text("Move a cross-section") },
+            leadingIcon = { CheckDot(state.tool == SketchTool.MOVE_CROSS_SECTION) },
+            onClick = {
+                state.tool = SketchTool.MOVE_CROSS_SECTION
+                onDismiss()
+            },
+        )
         for (toggle in VIEW_TOGGLES) {
             DropdownMenuItem(
                 text = { Text(toggle.label) },

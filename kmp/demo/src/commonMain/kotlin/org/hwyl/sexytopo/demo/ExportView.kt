@@ -135,6 +135,21 @@ fun ExportView(
             )
         }
 
+        // Why the buttons above are worth pressing rather than trusting the app to remember.
+        //
+        // Below them rather than above, deliberately: it is a footnote to the way out, not a
+        // banner over it - and it must not push the controls down, since it appears only on the
+        // platform where they are most needed. Null on every native platform, where a saved file
+        // stays saved and there is nothing to warn about.
+        durabilityWarning()?.let { warning ->
+            Text(
+                warning,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+            )
+        }
+
         Text(
             text = text,
             fontFamily = FontFamily.Monospace,
