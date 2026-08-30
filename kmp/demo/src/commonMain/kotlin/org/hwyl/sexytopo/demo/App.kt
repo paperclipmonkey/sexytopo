@@ -133,9 +133,7 @@ fun App(
                         Modifier.weight(1f).fillMaxWidth().heightIn(min = 120.dp),
                     )
 
-                    if (state.mode == SurveyMode.LIVE) {
-                        FieldBar(state)
-                    }
+                    FieldBar(state)
 
                     if (state.screen == Screen.SKETCH) {
                         SketchToolbar(state, editor, canvas)
@@ -370,15 +368,23 @@ private fun ScreenContent(
  *
  * Two ways in, and the first is the one that matters on iOS. **Safari has no Web Bluetooth**, so on
  * the platform this port exists for there is no way to hear from an instrument at all — a surveyor
- * reads the DistoX display and types it. "Take reading" keeps the simulated instrument alongside,
+ * reads the DistoX display and types it. "Simulate" keeps the simulated instrument alongside,
  * because it is still the quickest way to show somebody what the app does without an instrument in
  * the room.
  *
  * Both paths feed the same ported [SurveyUpdater], so a typed reading behaves exactly as a radioed
  * one: three that agree within tolerance promote to a station.
+ *
+ * They appear only over the surveyor's own survey. Over the demo cave this is a way back to it
+ * instead — see [DemoCaveBar].
  */
 @Composable
 private fun FieldBar(state: DemoState) {
+    if (state.mode == SurveyMode.EXAMPLE) {
+        DemoCaveBar(state)
+        return
+    }
+
     val session = state.session
     val dark = state.darkMode
     var entering by remember { mutableStateOf(false) }
@@ -388,10 +394,13 @@ private fun FieldBar(state: DemoState) {
         ManualReadingDialog(
             onDismiss = { entering = false },
             onAdd = { leg, asSplay ->
+                // liveSurvey, not state.survey: this composable only runs in LIVE mode, and being
+                // explicit here is what stops that ever silently changing.
+                val survey = state.liveSurvey
                 if (asSplay) {
-                    SurveyBuilder.addSplay(state.survey, state.survey.activeStation, leg)
+                    SurveyBuilder.addSplay(survey, survey.activeStation, leg)
                 } else {
-                    SurveyUpdater.update(state.survey, leg)
+                    SurveyUpdater.update(survey, leg)
                 }
                 state.noteSketchEdited()
                 entering = false
@@ -401,8 +410,8 @@ private fun FieldBar(state: DemoState) {
 
     if (namingStation) {
         StationActionsDialog(
-            survey = state.survey,
-            station = state.survey.activeStation,
+            survey = state.liveSurvey,
+            station = state.liveSurvey.activeStation,
             onDismiss = { namingStation = false },
             onEdited = {
                 namingStation = false
@@ -428,8 +437,8 @@ private fun FieldBar(state: DemoState) {
         // is what a surveyor does at a junction the moment they reach one.
         Text(
             buildString {
-                append("From ${state.survey.activeStation.name}")
-                append("  ·  ${plural(state.survey.getAllStationsInChronoOrder().size, "station")}")
+                append("From ${state.liveSurvey.activeStation.name}")
+                append("  ·  ${plural(state.liveSurvey.getAllStationsInChronoOrder().size, "station")}")
                 session.lastReading?.let {
                     append("  ·  ${oneDp(it.distance)}m ${oneDp(it.azimuth)}°")
                 }
@@ -443,6 +452,41 @@ private fun FieldBar(state: DemoState) {
                     else -> SexyTopoColours.legend
                 },
             modifier = Modifier.clickable { namingStation = true },
+        )
+        Spacer(Modifier.weight(1f))
+    }
+}
+
+/**
+ * What the field bar says while the demo cave is showing.
+ *
+ * Recording controls must not appear here: the demo cave is a fixture, it is deliberately never
+ * saved, and anything put into it would vanish at the next restart. Until now the bar was simply
+ * left out over it, which was safe and left the app opening on a screen whose only route to the
+ * surveyor's own survey was a three-dot menu — on the screen a new user sees first, and the moment
+ * they are most likely to be looking for one.
+ *
+ * So the space says what this is and offers the one thing worth doing from here.
+ */
+@Composable
+private fun DemoCaveBar(state: DemoState) {
+    val dark = state.darkMode
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(if (dark) SexyTopoColours.innerPanelNight else SexyTopoColours.innerPanel)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Button(onClick = { state.mode = SurveyMode.LIVE }) {
+            Text(if (state.savedSurveys.isEmpty()) "Start surveying" else "My survey")
+        }
+        Text(
+            "An example. Nothing recorded here is kept.",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (dark) SexyTopoColours.legendNight else SexyTopoColours.legend,
         )
         Spacer(Modifier.weight(1f))
     }

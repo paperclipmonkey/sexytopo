@@ -70,6 +70,8 @@ const MENU_NEW = [336, 80]
 const NAME_FIELD = [210, 442]
 const NAME_CONFIRM = [312, 518]
 const ADD_READING = [74, 790]
+// Same place as "Add reading", because it is the button that becomes it.
+const START_SURVEYING = [83, 790]
 const FIELD_DISTANCE = [140, 384]
 const FIELD_AZIMUTH = [280, 384]
 const FIELD_INCLINATION = [140, 458]
@@ -93,6 +95,25 @@ const STATION_SAVE = [317, 608]
 // row lower here than it does with an empty library. One saved survey by this point: Swildons.
 const MENU_EXPORT = [312, 272]
 const EXPORT_SAVE_FILE = [117, 132]
+
+// ---- the app opens on the demo cave, and offers a way out of it ------------------------
+// The first screen a new surveyor sees is an example survey that is deliberately never saved.
+// Recording controls must not be on it, and something that leads to their own survey must be, or
+// the only route off this screen is a three-dot menu.
+await page.screenshot({ path: join(shotDir, 'field-first-run.png') })
+await at(...START_SURVEYING); await page.waitForTimeout(700)
+
+// That the button leads somewhere usable: the reading dialog is drawn to the canvas, so what is
+// checked is that focusing its first field produces the hidden DOM input Compose types through.
+await at(...ADD_READING); await page.waitForTimeout(700)
+await at(...FIELD_DISTANCE); await page.waitForTimeout(300)
+await page.screenshot({ path: join(shotDir, 'field-started.png') })
+if ((await page.$$('input')).length === 0) {
+  fail('the demo cave has no working way through to a survey you can record into')
+} else {
+  pass('the app opens on the demo cave and offers a way through to your own survey')
+}
+await page.keyboard.press('Escape'); await page.waitForTimeout(500)
 
 // ---- create a named survey -----------------------------------------------------------
 await at(...OVERFLOW); await page.waitForTimeout(500)
@@ -310,6 +331,19 @@ if (!download) {
 }
 await page.screenshot({ path: join(shotDir, 'field-export-saved.png') })
 await at(...PLAN_TAB); await page.waitForTimeout(600)
+
+// ---- and the demo cave stays a demo --------------------------------------------------------
+// The app opens on an example survey, which is where a new surveyor is most likely to press
+// something. Anything recorded there is thrown away at the next restart, so nothing may record
+// there: the buttons over the demo cave are a way back to your own survey and nothing else.
+const demoKeys = await page.evaluate(() =>
+  Object.keys(localStorage).filter((k) => k.toLowerCase().includes('demo')),
+)
+if (demoKeys.length > 0) {
+  fail(`the demo cave was written to storage (${demoKeys.join(', ')}) — readings are going into a fixture`)
+} else {
+  pass('nothing is ever recorded into the demo cave')
+}
 
 // ---- it survives a restart --------------------------------------------------------------
 await page.reload({ waitUntil: 'load' })
