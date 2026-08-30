@@ -36,6 +36,7 @@ Being precise about this matters more than the demo looking good.
 | The whole chain works end to end | **Verified** | `SurveyingEndToEndTest`: simulated instrument → packet decode → station promotion → JSON round-trip |
 | Native JSON survey/sketch formats read and written compatibly | **Verified** | round-trip tests against Android-shaped fixtures, including corrupt and old-format files |
 | Survex and Therion export byte-identically | **Verified** | golden tests asserting the full file, metadata block included |
+| A Survex or Therion file from other software imports | **Verified** | round-trip tests through the ported exporters, plus a `.svx` written by hand — team, date, backsights, splays, station comments and leg comments — and `field.mjs` brings one into the browser build end to end |
 | Compass `.dat` exports byte-identically | **Verified** | a golden captured by *running* the Android app's own exporter, not by reading it — which caught a transcription slip on the first attempt |
 | PocketTopo `.txt` exports the same survey data | **Verified** | its DATA section is golden against the Android app; its station sections deliberately diverge, because the Java's are not reproducible even against themselves |
 | Surveys save and load through a platform-free storage layer | **Verified** | a full round trip - naming, directories, autosave, listing - over an in-memory `FileStore`, on all three targets. The Android app's equivalent test is `@Ignore`d because `DocumentFile` cannot be mocked |
@@ -121,8 +122,10 @@ missing.
   small to see.
 - **Cross-sections**, drawn on the plan where the surveyor parked them.
 - **The active station**, in the app's amber corner brackets, and the select tool that moves them.
-- **Export** to Survex `.svx` and Therion `.th`, and to the app's own JSON — the same bytes the
-  Android app would read back.
+- **Export** to Survex `.svx`, Therion `.th` and `.th2`, an `.xvi` tracing image, Compass `.dat`,
+  PocketTopo `.txt`, SVG, and the app's own JSON — the same bytes the Android app would read back.
+- **Import** of a Survex `.svx` or Therion `.th` from any other software, as well as the app's own
+  files: the club's existing survey of the cave, opened here to be extended.
 - **Plan and extended elevation**, the latter exercising the cave-unrolling maths.
 - **The survey table**, with backwards shots normalised back to the reading as taken.
 - Light and dark, and a layout that collapses to one scrollable toolbar on a phone.
@@ -426,6 +429,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `res/menu/drawing.xml` | `demo/.../SketchToolbar.kt` | The display toggles behind the gear |
 | `model/sketch/Sketch`'s twin history stacks | `shared/sketch/SketchEditor.kt` | `DeletedDetail` becomes a sealed type |
 | `control/io/thirdparty/{survex,therion,survextherion}` | `shared/io/export/` | Golden-tested, metadata block included |
+| `SurvexImporter`, `TherionImporter`, `SurvexTherionImporter`, `SexyTopoVersion` | `shared/io/imports/` | Round-tripped against the exporters above; fixes a station-comment bug found doing so |
 | `model/table/LRUD` | `shared/survey/Lrud.kt` | |
 | `model/survey/Trip` | `shared/model/survey/Trip.kt` | `java.util.Date` becomes a zoneless `SurveyDate` |
 | `control/util/GraphToListTranslator` | `demo/.../SurveyTableView.kt` | Including as-taken normalisation |
@@ -534,6 +538,16 @@ These are the things that would actually shape a real port.
    in logcat. Anything debugging a Compose Multiplatform web app should assume "the UI did nothing"
    means "something threw", and bisect by logging rather than by watching.
 
+11. **Station comments grow four columns every time a survey round-trips through Survex.**
+   `SurvexTherionImporter.parsePassageData` splits a passage row on the *first* run of whitespace
+   and keeps everything after it as the comment. A row is `station left right up down comment`, so
+   a station commented "junction" comes back in as `-	-	-	-	junction` — this app writes the
+   four LRUD columns as hyphens, having no LRUD to put there — and exporting again writes *that*
+   as the comment, so the next round adds four more. Two exports and two imports and the comment is
+   unreadable. The port takes the sixth column onward instead, which is the only reading that
+   round-trips, and is therefore a deliberate divergence rather than a translation of what the Java
+   does. It is round-trip corruption of a surveyor's own notes, so it is worth fixing upstream too.
+
 ---
 
 ## A defect worth reporting upstream
@@ -624,9 +638,10 @@ This is a proof of concept. It does **not** include:
   instrument — but neither has met a radio. The iOS simulator has no Bluetooth stack, so this one
   genuinely needs an instrument in hand. There is no Android transport here either (the Android app
   keeps its own).
-- **Importing anything but this app's own files.** The Java's Survex, Therion and PocketTopo
-  importers are not ported. Every *exporter* is: Survex, Therion `.th` and `.th2`, the `.xvi`
-  tracing image, Compass `.dat`, PocketTopo `.txt`, SVG and the native JSON.
+- **Importing PocketTopo.** Survex `.svx` and Therion `.th` both import — a club's existing survey
+  of the cave, opened here to be extended — but the Java's PocketTopo importer is not ported.
+  Every *exporter* is: Survex, Therion `.th` and `.th2`, the `.xvi` tracing image, Compass `.dat`,
+  PocketTopo `.txt`, SVG and the native JSON.
 - **Cross-survey links.** They are stored as absolute `content://` URIs, which are meaningless off
   Android and already break when a folder moves, so replacing them is a format decision to take
   with upstream rather than a porting one. Nothing here draws a neighbouring survey.

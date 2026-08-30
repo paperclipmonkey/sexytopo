@@ -43,6 +43,26 @@ const EXAMPLE_SURVEY_JSON = JSON.stringify({
   ],
 })
 
+/**
+ * A Survex file as another tool would write it: no SexyTopo version stamp, a `*begin`, a passage
+ * block whose station comment has to survive the LRUD placeholder columns, and a trailing comment
+ * on the data line that a third-party file means for that leg.
+ */
+const EXAMPLE_SURVEX = [
+  '*begin BarPot',
+  '*title "Bar Pot"',
+  '*date 2024.03.17',
+  '*team "A Caver" instruments',
+  '*calibrate declination 0.0',
+  '*data normal from to tape compass clino',
+  '1\t2\t8.00\t45.00\t-5.00\t; rift',
+  '2\t..\t3.10\t120.00\t10.00',
+  '*data passage station left right up down',
+  '1\t-\t-\t-\t-\tentrance',
+  '*end BarPot',
+  '',
+].join('\n')
+
 const failures = []
 const fail = (m) => { failures.push(m); console.error(`FAIL  ${m}`) }
 const pass = (m) => console.log(`ok    ${m}`)
@@ -930,6 +950,44 @@ if (fileChoosersOpened === choosersBefore) {
     fail('the chosen file did not become a survey in the library')
   } else {
     pass('a survey file can be brought in from outside the app')
+  }
+}
+
+// ---- and so can somebody else's Survex file ---------------------------------------------------
+// The case importing actually exists for: a club's existing survey of the cave, in the format the
+// rest of caving uses rather than this app's own. The file is put into the app's storage directly
+// rather than through the chooser — the chooser is proved above, and the same storage root is what
+// iOS shows in the Files app — and the JSON is taken back out so the dialog has one row again and
+// the known row position still points at the file being imported.
+await page.evaluate((svx) => {
+  localStorage.removeItem('sexytopo:f:Eastwater.data.json')
+  localStorage.setItem('sexytopo:f:Bar Pot.svx', svx)
+}, EXAMPLE_SURVEX)
+await at(...OVERFLOW); await page.waitForTimeout(600)
+// One saved survey now: the Eastwater just imported.
+await at(...menuRow('import', 1)); await page.waitForTimeout(1000)
+await page.screenshot({ path: join(shotDir, 'field-import-survex-dialog.png') })
+await at(...IMPORT_FIRST_ROW); await page.waitForTimeout(1400)
+await page.screenshot({ path: join(shotDir, 'field-import-survex.png') })
+
+const survex = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.includes('Bar Pot/Bar Pot.data.json'))
+  return key ? localStorage.getItem(key) : null
+})
+if (survex === null) {
+  fail("a Survex file from another tool did not become a survey in the library")
+} else {
+  const survey = JSON.parse(survex)
+  const stations = survey.stations ?? []
+  const legs = stations.flatMap((station) => station.legs ?? [])
+  if (legs.length !== 2) {
+    fail(`the imported Survex file has ${legs.length} legs, not the 2 it was written with`)
+  } else if (stations[0]?.comment !== 'entrance') {
+    fail(`the imported Survex station comment came in as "${stations[0]?.comment}"`)
+  } else if (Math.abs((legs[0].distance ?? 0) - 8) > 0.005) {
+    fail(`the imported Survex leg is ${legs[0].distance} m, not the 8 it was written with`)
+  } else {
+    pass("a Survex file from other software can be brought in and read")
   }
 }
 

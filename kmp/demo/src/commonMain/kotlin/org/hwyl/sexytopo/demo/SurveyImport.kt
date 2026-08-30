@@ -1,6 +1,8 @@
 package org.hwyl.sexytopo.demo
 
 import org.hwyl.sexytopo.shared.io.SurveyJson
+import org.hwyl.sexytopo.shared.io.export.SurveyFormat
+import org.hwyl.sexytopo.shared.io.imports.SurveyImporter
 import org.hwyl.sexytopo.shared.io.store.FileStore
 import org.hwyl.sexytopo.shared.model.survey.Survey
 
@@ -21,29 +23,58 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
 object SurveyImport {
 
     /**
+     * What the file's extension says it is, or null if this app cannot read it.
+     *
+     * Survex and Therion are here because they are the two formats a caver is actually handed by
+     * somebody else: a club's existing survey of the cave they are about to extend. JSON is this
+     * app's own.
+     */
+    internal fun formatOf(fileName: String): SurveyFormat? =
+        when {
+            fileName.endsWith(".svx", ignoreCase = true) -> SurveyFormat.SURVEX
+            // Therion's own extension. `.th2` is the *drawing*, which this app exports but has no
+            // importer for, so it is deliberately not matched: offering it and then failing to
+            // read it is worse than not offering it.
+            fileName.endsWith(".th", ignoreCase = true) -> SurveyFormat.THERION
+            else -> null
+        }
+
+    private fun isNative(fileName: String) = fileName.endsWith(".json", ignoreCase = true)
+
+    /**
      * Files at the storage root that look like they might be surveys.
      *
-     * Named rather than parsed at this point, because parsing every JSON file in a directory to
-     * decide whether to list it would read the lot on every open of the dialog. A file that turns
-     * out not to be a survey fails at [import], which says so.
+     * Named rather than parsed at this point, because parsing every file in a directory to decide
+     * whether to list it would read the lot on every open of the dialog. A file that turns out not
+     * to be a survey fails at [import], which says so.
      */
     fun candidates(store: FileStore): List<String> =
         runCatching {
-            store.list(emptyList()).filter { it.endsWith(".json", ignoreCase = true) }
+            store.list(emptyList()).filter { isNative(it) || formatOf(it) != null }
         }.getOrDefault(emptyList())
 
     /**
      * Reads one, names it something not already taken, and saves it into the library.
      *
-     * The name comes from the file rather than from the JSON's own `name` field, because the
-     * field is what the survey was called on the phone that wrote it and the filename is what the
-     * person who sent it called it — and when they differ, the filename is the one the surveyor
-     * just looked at.
+     * The name comes from the file rather than from the survey's own name field, because the field
+     * is what the survey was called on the phone that wrote it and the filename is what the person
+     * who sent it called it — and when they differ, the filename is the one the surveyor just
+     * looked at. That is doubly true of Survex and Therion, whose name comes from a `*begin`
+     * inside the file that a hand-assembled one may not have at all.
      */
     fun import(library: SurveyLibrary, store: FileStore, fileName: String): Survey? {
         val text = runCatching { store.readText(listOf(fileName)) }.getOrNull() ?: return null
-        val survey = runCatching { SurveyJson.parse(text) }.getOrNull() ?: return null
-        survey.name = library.uniqueName(nameFor(fileName))
+        val name = nameFor(fileName)
+        val survey =
+            runCatching {
+                val format = formatOf(fileName)
+                if (format == null) SurveyJson.parse(text) else SurveyImporter.read(text, format, name)
+            }.getOrNull() ?: return null
+        // An empty survey means the file parsed but held nothing this app understands — a Therion
+        // file that is all `scrap`, say. Importing it would put a survey with no legs in the
+        // library and look like success.
+        if (survey.origin.onwardLegs.isEmpty()) return null
+        survey.name = library.uniqueName(name)
         return if (library.save(survey)) survey else null
     }
 
@@ -53,11 +84,17 @@ object SurveyImport {
      */
     internal fun nameFor(fileName: String): String =
         fileName
-            .removeSuffix(".json")
+            .dropExtension(".json")
             // Innermost last: the app writes `Name.data.autosave.json`, so `.autosave` has to come
             // off before `.data` is even the suffix. Stripping in the other order leaves
             // "Swildons.data", which is not a cave anybody has heard of.
-            .removeSuffix(".autosave")
-            .removeSuffix(".data")
+            .dropExtension(".autosave")
+            .dropExtension(".data")
+            .dropExtension(".svx")
+            .dropExtension(".th")
             .ifBlank { "Imported survey" }
+
+    /** [String.removeSuffix], but a file called `CAVE.SVX` is the same file as `cave.svx`. */
+    private fun String.dropExtension(extension: String): String =
+        if (endsWith(extension, ignoreCase = true)) dropLast(extension.length) else this
 }

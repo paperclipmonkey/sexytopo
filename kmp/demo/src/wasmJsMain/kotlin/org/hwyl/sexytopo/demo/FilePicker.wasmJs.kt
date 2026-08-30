@@ -14,7 +14,7 @@ private fun openPicker(): Boolean =
           try {
             var input = document.createElement('input');
             input.type = 'file';
-            input.accept = '.json,application/json,text/plain';
+            input.accept = '.json,.svx,.th,application/json,text/plain';
             input.style.display = 'none';
             input.addEventListener('change', function () {
               var file = input.files && input.files[0];

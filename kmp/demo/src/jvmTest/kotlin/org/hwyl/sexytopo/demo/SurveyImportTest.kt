@@ -1,6 +1,8 @@
 package org.hwyl.sexytopo.demo
 
 import org.hwyl.sexytopo.shared.io.SurveyJson
+import org.hwyl.sexytopo.shared.io.export.SurvexExporter
+import org.hwyl.sexytopo.shared.io.export.TherionExporter
 import org.hwyl.sexytopo.shared.io.store.InMemoryFileStore
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -34,6 +36,63 @@ class SurveyImportTest {
         store.writeText(listOf("surveys", "Eastwater", "Eastwater.data.json"), "{}")
 
         assertEquals(listOf("Swildons.data.json"), SurveyImport.candidates(store))
+    }
+
+    @Test
+    fun surveysFromOtherSoftwareAreOfferedToo() {
+        val store = store()
+        store.writeText(listOf("Eastwater.svx"), ";")
+        store.writeText(listOf("Eastwater.th"), "#")
+        // The drawing, not the centreline. This app writes it but cannot read it back, and
+        // offering something that can only fail is worse than not offering it.
+        store.writeText(listOf("Eastwater.th2"), "encoding utf-8")
+
+        assertEquals(listOf("Eastwater.svx", "Eastwater.th"), SurveyImport.candidates(store).sorted())
+    }
+
+    /**
+     * The whole point of reading Survex: a club's existing survey of the cave, exported by
+     * whatever they used, opened here to be extended. Round-tripping our own export is the closest
+     * this can get to that without a third-party file to hand.
+     */
+    @Test
+    fun aSurvexFileFromAnotherToolBecomesASurvey() {
+        val store = store()
+        store.writeText(listOf("Eastwater.svx"), SurvexExporter.export(aSurvey("Eastwater")))
+
+        val imported = assertNotNull(SurveyImport.import(SurveyLibrary(store), store, "Eastwater.svx"))
+
+        assertEquals("Eastwater", imported.name)
+        assertEquals(1, imported.getAllLegsInChronoOrder().size)
+        val leg = imported.getAllLegsInChronoOrder().first()
+        assertEquals(5.42f, leg.distance, 0.005f)
+        assertEquals(12.5f, leg.azimuth, 0.05f)
+        assertEquals(-3f, leg.inclination, 0.05f)
+        assertEquals("entrance", imported.origin.comment)
+    }
+
+    @Test
+    fun aTherionFileFromAnotherToolBecomesASurvey() {
+        val store = store()
+        store.writeText(listOf("Eastwater.th"), TherionExporter.export(aSurvey("Eastwater")))
+
+        val imported = assertNotNull(SurveyImport.import(SurveyLibrary(store), store, "Eastwater.th"))
+
+        assertEquals("Eastwater", imported.name)
+        assertEquals(1, imported.getAllLegsInChronoOrder().size)
+        assertEquals("entrance", imported.origin.comment)
+    }
+
+    /**
+     * A file that parses but yields nothing would otherwise arrive in the library as a survey with
+     * no legs, which looks exactly like a successful import of an empty cave.
+     */
+    @Test
+    fun aFileWithNoCentrelineIsRefusedRatherThanImportedEmpty() {
+        val store = store()
+        store.writeText(listOf("Drawing.th"), "encoding utf-8\nscrap s1 -projection plan\nendscrap")
+
+        assertNull(SurveyImport.import(SurveyLibrary(store), store, "Drawing.th"))
     }
 
     @Test
@@ -88,5 +147,9 @@ class SurveyImportTest {
         assertEquals("Swildons", SurveyImport.nameFor("Swildons.data.json"))
         assertEquals("Swildons", SurveyImport.nameFor("Swildons.data.autosave.json"))
         assertEquals("Eastwater Cavern", SurveyImport.nameFor("Eastwater Cavern.json"))
+        assertEquals("Swildons", SurveyImport.nameFor("Swildons.svx"))
+        assertEquals("Swildons", SurveyImport.nameFor("Swildons.th"))
+        // A file off a Windows machine, or off a case-insensitive filesystem.
+        assertEquals("Swildons", SurveyImport.nameFor("Swildons.SVX"))
     }
 }
