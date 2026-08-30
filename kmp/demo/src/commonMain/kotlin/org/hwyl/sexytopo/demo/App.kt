@@ -45,6 +45,7 @@ import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
+import org.hwyl.sexytopo.shared.survey.InputMode
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.jetbrains.compose.resources.painterResource
@@ -392,15 +393,19 @@ private fun FieldBar(state: DemoState) {
 
     if (entering) {
         ManualReadingDialog(
+            inputMode = state.inputMode,
+            onInputMode = { state.inputMode = it },
             onDismiss = { entering = false },
             onAdd = { leg, asSplay ->
                 // liveSurvey, not state.survey: this composable only runs in LIVE mode, and being
                 // explicit here is what stops that ever silently changing.
                 val survey = state.liveSurvey
                 if (asSplay) {
+                    // A splay is wall detail, taken where you stand. There is no far end to have
+                    // stood at, so the input mode does not apply to one.
                     SurveyBuilder.addSplay(survey, survey.activeStation, leg)
                 } else {
-                    SurveyUpdater.update(survey, leg)
+                    SurveyUpdater.update(survey, leg, state.inputMode)
                 }
                 state.noteSketchEdited()
                 entering = false
@@ -438,6 +443,11 @@ private fun FieldBar(state: DemoState) {
         Text(
             buildString {
                 append("From ${state.liveSurvey.activeStation.name}")
+                // Only when it is not the default. A backsight mode left on by accident reverses
+                // every leg that follows, and nothing in the numbers afterwards shows it happened.
+                if (state.inputMode != InputMode.FORWARD) {
+                    append("  ·  ${labelFor(state.inputMode).lowercase()}")
+                }
                 append("  ·  ${plural(state.liveSurvey.getAllStationsInChronoOrder().size, "station")}")
                 session.lastReading?.let {
                     append("  ·  ${oneDp(it.distance)}m ${oneDp(it.azimuth)}°")

@@ -13,6 +13,7 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.BrushColour
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
+import org.hwyl.sexytopo.shared.survey.InputMode
 
 /** Which screen is showing: the sketch, or the numbers behind it. */
 enum class Screen(val label: String) {
@@ -49,6 +50,17 @@ class DemoState(
     var tool by mutableStateOf(initialTool)
     var brushColour by mutableStateOf(Colour.BLACK)
     var darkMode by mutableStateOf(initialDarkMode)
+
+    /**
+     * How the surveyor is holding the instrument, which decides what a run of repeated readings
+     * means. A mode rather than a per-reading choice, as in the app: a surveyor working back down a
+     * passage takes every shot the same way, and being asked each time would be worse than useless.
+     *
+     * Kept here rather than in the dialog so it survives the dialog closing, and so the field bar
+     * can say when it is not FORWARD — a backsight mode left on by accident reverses every leg that
+     * follows, and there is nothing in the numbers afterwards to show it happened.
+     */
+    var inputMode by mutableStateOf(InputMode.FORWARD)
 
     var showSplays by mutableStateOf(true)
     var showSketch by mutableStateOf(true)

@@ -246,8 +246,9 @@ Honest limits, so nothing is a surprise in a cave:
 
 - **No instrument.** `CoreBluetoothTransport` compiles and has never spoken to a DistoX; the iOS
   simulator has no Bluetooth stack, so nothing in CI has exercised it either. Readings are typed —
-  which is exactly what the *Add reading* button is for, and the triple-shot promotion rule applies
-  to a typed reading identically.
+  which is exactly what the *Add reading* button is for, and everything the radio would drive
+  applies to a typed reading identically: three that agree promote to a station, and *Forward*,
+  *Backsight* and *Fore + back* all mean what they mean in the app.
 - **Surveys are files in the Files app**, under *On My iPhone → SexyTopo KMP*, because
   `UIFileSharingEnabled` is set. *Export* writes Survex, Therion, Compass, PocketTopo or the native
   JSON — *Save file* puts one in `exports/` beside them, *Copy* puts it on the clipboard — and the

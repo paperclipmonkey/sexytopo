@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -24,6 +25,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.model.survey.Leg
+import org.hwyl.sexytopo.shared.survey.InputMode
 
 /**
  * Typing a reading in by hand.
@@ -41,6 +43,8 @@ import org.hwyl.sexytopo.shared.model.survey.Leg
  */
 @Composable
 fun ManualReadingDialog(
+    inputMode: InputMode,
+    onInputMode: (InputMode) -> Unit,
     onDismiss: () -> Unit,
     onAdd: (Leg, Boolean) -> Unit,
 ) {
@@ -64,9 +68,17 @@ fun ManualReadingDialog(
                     onInclination = { inclination = it },
                     lastImeAction = ImeAction.Done,
                 )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (mode in OFFERED_MODES) {
+                        FilterChip(
+                            selected = inputMode == mode,
+                            onClick = { onInputMode(mode) },
+                            label = { Text(labelFor(mode)) },
+                        )
+                    }
+                }
                 Text(
-                    parsed.problem
-                        ?: "Three agreeing readings make a station. A single one is kept as a splay.",
+                    parsed.problem ?: promotionRuleFor(inputMode),
                     style = MaterialTheme.typography.bodySmall,
                     color =
                         if (parsed.problem != null) {
@@ -166,6 +178,35 @@ private fun ReadingField(
         modifier = Modifier.width(140.dp),
     )
 }
+
+/**
+ * The modes worth offering without an instrument attached.
+ *
+ * `CALIBRATION_CHECK` is left out: it exists to hold readings taken to check a DistoX against a
+ * known baseline, and it never promotes anything, so on a build that cannot talk to a DistoX it is
+ * a mode whose only effect would be to stop the app working.
+ */
+val OFFERED_MODES = listOf(InputMode.FORWARD, InputMode.BACKWARD, InputMode.COMBO)
+
+fun labelFor(mode: InputMode): String =
+    when (mode) {
+        InputMode.FORWARD -> "Forward"
+        InputMode.BACKWARD -> "Backsight"
+        InputMode.COMBO -> "Fore + back"
+        InputMode.CALIBRATION_CHECK -> "Calibration"
+    }
+
+/** What it takes to make a station in this mode, which is the thing a surveyor needs to know. */
+fun promotionRuleFor(mode: InputMode): String =
+    when (mode) {
+        InputMode.FORWARD ->
+            "Three agreeing readings make a station. A single one is kept as a splay."
+        InputMode.BACKWARD ->
+            "Shots taken from the far station, looking back. Three agreeing ones make a station."
+        InputMode.COMBO ->
+            "A foresight then a backsight down the same leg makes a station; so do three repeats."
+        InputMode.CALIBRATION_CHECK -> "Readings are kept as splays and never promoted."
+    }
 
 /** A reading, or the reason it is not one yet. */
 data class ParsedReading(val leg: Leg?, val problem: String?)

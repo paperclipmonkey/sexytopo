@@ -72,12 +72,15 @@ const NAME_CONFIRM = [312, 518]
 const ADD_READING = [74, 790]
 // Same place as "Add reading", because it is the button that becomes it.
 const START_SURVEYING = [83, 790]
-const FIELD_DISTANCE = [140, 384]
-const FIELD_AZIMUTH = [280, 384]
-const FIELD_INCLINATION = [140, 458]
-const SIGN_TOGGLE = [255, 454]
-const ADD_SPLAY = [225, 576]
-const ADD_LEG = [309, 576]
+const FIELD_DISTANCE = [144, 355]
+const FIELD_AZIMUTH = [284, 355]
+const FIELD_INCLINATION = [144, 429]
+const SIGN_TOGGLE = [255, 425]
+const MODE_FORWARD = [116, 491]
+const MODE_BACKSIGHT = [214, 491]
+const CANCEL_READING = [139, 605]
+const ADD_SPLAY = [225, 605]
+const ADD_LEG = [309, 605]
 const TABLE_TAB = [281, 26]
 const PLAN_TAB = [325, 26]
 const TABLE_ROW = (n) => [210, 66 + 26 * n]
@@ -139,8 +142,9 @@ await page.screenshot({ path: join(shotDir, 'field-new-survey.png') })
 // ---- three agreeing readings promote to a station -------------------------------------
 // The minus sign is typed with the +/- button rather than the keyboard, because that is the only
 // way it can be entered on a phone: no iOS or Android numeric keypad has a minus key.
-async function reading(d, a, i, splay = false) {
+async function reading(d, a, i, { splay = false, mode = null } = {}) {
   await at(...ADD_READING); await page.waitForTimeout(700)
+  if (mode) { await at(...mode); await page.waitForTimeout(250) }
   await at(...FIELD_DISTANCE); await page.waitForTimeout(200)
   await page.keyboard.type(String(d), { delay: 20 })
   await at(...FIELD_AZIMUTH); await page.waitForTimeout(200)
@@ -160,7 +164,7 @@ await page.screenshot({ path: join(shotDir, 'field-readings.png') })
 // because the file is what the surveyor takes home and hands to Therion.
 const savedLegs = () => page.evaluate(() => {
   const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
-  if (!key) return null
+  if (!key) return []
   return (JSON.parse(localStorage.getItem(key)).stations ?? []).flatMap((st) => st.legs ?? [])
 })
 
@@ -173,7 +177,7 @@ const isConnecting = (leg) => !isSplay(leg)
 // A downward shot only reaches the survey if the +/- button worked, and a downward shot is half of
 // every survey ever made. Nothing else in this file could catch its loss: the readings would land
 // as +3 instead of -3 and the cave would come out mirrored about the horizontal.
-const promoted = (await savedLegs())?.find(isConnecting)
+const promoted = (await savedLegs()).find(isConnecting)
 if (!promoted) {
   fail('three agreeing readings did not promote to a station')
 } else if (!(promoted.inclination < 0)) {
@@ -209,7 +213,7 @@ if (legCount < 1) {
 // The reason this matters more than it sounds: without it the app is a one-way funnel. A surveyor
 // who fat-fingers a bearing underground, by head torch, with cold hands, has no way back, and the
 // survey they carry out is wrong in a way nothing downstream can detect.
-await reading(1.5, 200, 0, true) // a splay, so the correction has something disposable to work on
+await reading(1.5, 200, 0, { splay: true }) // a splay: something disposable to correct
 
 await at(...TABLE_TAB); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-table.png') })
@@ -331,6 +335,33 @@ if (!download) {
 }
 await page.screenshot({ path: join(shotDir, 'field-export-saved.png') })
 await at(...PLAN_TAB); await page.waitForTimeout(600)
+
+// ---- a leg shot from the far end goes in the right way round -------------------------------
+// Backsight mode is how a passage gets surveyed on the way back out, and it is the one setting
+// that can be wrong without the numbers showing it: the readings look perfectly ordinary and the
+// cave comes out pointing the other way. The stored leg has to carry the flag, and the table has
+// to show the reading the way the surveyor took it.
+await reading(4.0, 300, 5, { mode: MODE_BACKSIGHT })
+await reading(4.01, 300.2, 5.1)
+await reading(3.99, 299.8, 4.9)
+// The field bar has to say so while it is on: this is the one setting whose effect is invisible.
+await page.screenshot({ path: join(shotDir, 'field-backsight-mode-on.png') })
+
+const backsights = (await savedLegs()).filter((l) => isConnecting(l) && l.wasShotBackwards)
+if (backsights.length !== 1) {
+  fail(`backsight mode did not store a reversed leg (${backsights.length} found)`)
+} else if (Math.abs(backsights[0].azimuth - 120) > 1) {
+  // Stored pointing the way the passage runs, not the way the instrument was pointed.
+  fail(`the backsight was stored at ${backsights[0].azimuth} degrees rather than turned round`)
+} else {
+  pass('a leg shot from the far end is stored the right way round, and flagged as a backsight')
+}
+
+// Back to forward, so nothing after this inherits it.
+await at(...ADD_READING); await page.waitForTimeout(600)
+await at(...MODE_FORWARD); await page.waitForTimeout(300)
+await page.screenshot({ path: join(shotDir, 'field-input-mode.png') })
+await at(...CANCEL_READING); await page.waitForTimeout(500)
 
 // ---- and the demo cave stays a demo --------------------------------------------------------
 // The app opens on an example survey, which is where a new surveyor is most likely to press
