@@ -28,7 +28,12 @@ const launch = {}
 if (process.env.CHROMIUM_PATH) launch.executablePath = process.env.CHROMIUM_PATH
 if (process.env.SMOKE_PROXY) launch.proxy = { server: process.env.SMOKE_PROXY }
 const browser = await chromium.launch(launch)
-const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } })
+const ctx = await browser.newContext({
+  viewport: { width: 420, height: 900 },
+  // So the log's Copy can be checked rather than merely clicked. A real browser asks the
+  // person, and a tap on Copy is the gesture that lets it.
+  permissions: ['clipboard-read', 'clipboard-write'],
+})
 
 // A DistoX-BLE that is not there. Installed before the page runs, so the app finds it exactly
 // where it would find the real API.
@@ -162,7 +167,7 @@ const OVERFLOW = [box.width - 16, 26]
 // as soon as this test has recorded one, which is exactly what happens between its two halves.
 const MENU_BEFORE_SURVEYS = ['new', 'rename', 'trip']
 const MENU_AFTER_SURVEYS =
-  ['demo', 'export', 'instrument', '3d', 'stats', 'calibrate', 'import', 'surveying', 'dark']
+  ['demo', 'export', 'instrument', '3d', 'stats', 'calibrate', 'log', 'import', 'surveying', 'dark']
 function menuRow(name, savedSurveys) {
   const before = MENU_BEFORE_SURVEYS.indexOf(name)
   const after = MENU_AFTER_SURVEYS.indexOf(name)
@@ -174,6 +179,10 @@ function menuRow(name, savedSurveys) {
 // "Last:" line; before that the buttons sit one line higher.
 const INSTRUMENT_CLOSE = [212, 759]
 const CALIBRATION_START = [103, 415]
+// The calibration dialog's Close, so its scrim stops swallowing clicks at the overflow menu.
+const CALIBRATION_CLOSE = [315, 771]
+// The log dialog's buttons: Clear, Close, Copy, left to right.
+const LOG_COPY = [316, 656]
 const CALIBRATION_SOLVE = [103, 611]
 const CALIBRATION_WRITE = [150, 700]
 const FIRST_INSTRUMENT = [210, 306]
@@ -361,6 +370,59 @@ if (storedCalibration === null) {
   fail(`${storedCalibration} of ${CALIBRATION_ROWS.length} readings were stored`)
 } else {
   pass('the calibration is saved as it is taken, so an interrupted run is not lost')
+}
+
+// ---- and the app can say what the instrument did -----------------------------------------------
+// The one that matters underground. When a DistoX will not pair it does it in a cave, a hundred
+// metres in, on a phone with no signal, no cable and no console. Either the app kept what it saw or
+// the trip is the bug report - so the log is written as it happens, survives a restart, and can be
+// copied out.
+const storedLog = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('device.log.json'))
+  return key ? JSON.parse(localStorage.getItem(key)) : null
+})
+if (storedLog === null) {
+  fail('nothing was written to the device log, so a crash would take the evidence with it')
+} else if (storedLog.length < 3) {
+  fail(`only ${storedLog.length} lines reached the device log`)
+} else if (!storedLog.some((line) => line.text.includes('connect'))) {
+  fail(`the log never mentions connecting: ${JSON.stringify(storedLog.slice(0, 3))}`)
+} else if (typeof storedLog[0].isError !== 'string') {
+  // `Log.Message.marshal` writes it as a string, and the Android app's reader uses getString.
+  fail(`isError was written as ${typeof storedLog[0].isError}, which the Android app cannot read`)
+} else {
+  pass(`the instrument log is written down as it happens (${storedLog.length} lines)`)
+}
+
+// The dialog itself, reached the way a caver would reach it.
+await at(...CALIBRATION_CLOSE); await page.waitForTimeout(700)
+await at(...OVERFLOW); await page.waitForTimeout(600)
+await at(...menuRow('log', 1)); await page.waitForTimeout(900)
+await page.screenshot({ path: join(shotDir, 'instrument-log.png') })
+
+// Copy, and then read back what landed on the clipboard - which is how a log gets off a phone that
+// has been in a cave and into a message to somebody who can fix it.
+await at(...LOG_COPY); await page.waitForTimeout(700)
+const copied = await page.evaluate(() => navigator.clipboard.readText().catch(() => null))
+// Re-read the file rather than reusing the count from above: closing the calibration dialog logged
+// a line of its own between the two, which is the log working rather than the check failing.
+const onDisk = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('device.log.json'))
+  return key ? JSON.parse(localStorage.getItem(key)).length : 0
+})
+if (!copied) {
+  fail('Copy put nothing on the clipboard, so the log cannot leave the phone')
+} else {
+  const lines = copied.split('\n')
+  if (lines.length !== onDisk) {
+    fail(`${lines.length} lines were copied but ${onDisk} are in the log`)
+  } else if (!copied.includes('connected to')) {
+    fail(`the copied log does not mention connecting: ${lines.slice(0, 2).join(' / ')}`)
+  } else if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4} /.test(lines[0])) {
+    fail(`the copied log is not timestamped the way the Android app writes it: ${lines[0]}`)
+  } else {
+    pass(`the log can be read on the phone and copied off it (${lines.length} lines)`)
+  }
 }
 
 if (pageErrors.length > 0) {

@@ -11,6 +11,8 @@ import org.hwyl.sexytopo.shared.calibration.CalibrationRun
 import org.hwyl.sexytopo.shared.comms.InstrumentCommand
 import org.hwyl.sexytopo.shared.comms.FrameChannel
 import org.hwyl.sexytopo.shared.demo.ExampleCalibration
+import org.hwyl.sexytopo.shared.log.ActivityLog
+import org.hwyl.sexytopo.shared.log.LogType
 import org.hwyl.sexytopo.shared.comms.InstrumentDecoder
 import org.hwyl.sexytopo.shared.comms.InstrumentPacket
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
@@ -71,9 +73,23 @@ class SurveySession(
     var lastReading by mutableStateOf<Leg?>(null)
         private set
 
-    /** Newest first, so the UI can show the last few without reversing. */
-    var log by mutableStateOf<List<String>>(emptyList())
+    /**
+     * Everything the instrument has done, oldest first, bounded at a hundred lines.
+     *
+     * The real `Log.LogType.DEVICE`, not a summary of it. The instrument dialog shows the last few;
+     * the log screen shows the lot, and can copy them, because the moment this matters is the one
+     * where a DistoX will not pair in a cave and there is no console, no cable and no signal.
+     *
+     * `logRevision` exists because [ActivityLog] is a plain class rather than Compose state:
+     * mutating it changes nothing Compose is watching, so the counter is what recomposes.
+     */
+    val deviceLog = ActivityLog(LogType.DEVICE)
+
+    var logRevision by mutableIntStateOf(0)
         private set
+
+    /** Newest first, for the connection dialog's last-few-lines summary. */
+    val log: List<String> get() = deviceLog.entries.asReversed().map { it.text }
 
     // -------------------------------------------------------------------------------------
     // Calibration
@@ -191,7 +207,7 @@ class SurveySession(
             override fun onFailure(reason: String) {
                 connected = false
                 failure = reason
-                note(reason)
+                note(reason, isError = true)
             }
 
             override fun onFrame(channel: FrameChannel, bytes: ByteArray) {
@@ -326,9 +342,19 @@ class SurveySession(
         simulator.emitNextShot()
     }
 
-    private fun note(message: String) {
-        log = (listOf(message) + log).take(6)
+    private fun note(message: String, isError: Boolean = false) {
+        deviceLog.add(nowIso(), message, isError)
+        logRevision++
+        onLogged?.invoke()
     }
+
+    /**
+     * Called after every log line, so the app can write the log out.
+     *
+     * Saved as it happens rather than on the way out: the crash, the freeze and the battery dying
+     * are exactly the cases the log is for, and none of them run any tidy-up code.
+     */
+    var onLogged: (() -> Unit)? = null
 
     private fun format(leg: Leg) =
         "${oneDp(leg.distance)}m  ${oneDp(leg.azimuth)}°  ${oneDp(leg.inclination)}°"

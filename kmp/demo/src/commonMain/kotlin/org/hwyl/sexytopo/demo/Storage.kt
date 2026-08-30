@@ -2,9 +2,12 @@ package org.hwyl.sexytopo.demo
 
 import org.hwyl.sexytopo.shared.calibration.CalibrationReading
 import org.hwyl.sexytopo.shared.io.CalibrationJson
+import org.hwyl.sexytopo.shared.io.LogJson
 import org.hwyl.sexytopo.shared.io.store.FileStore
 import org.hwyl.sexytopo.shared.io.store.InMemoryFileStore
 import org.hwyl.sexytopo.shared.io.store.SurveyStorage
+import org.hwyl.sexytopo.shared.log.LogMessage
+import org.hwyl.sexytopo.shared.log.LogType
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.survey.SurveySettings
 
@@ -94,6 +97,22 @@ class SurveyLibrary(private val store: FileStore = platformFileStore()) {
         runCatching { store.writeText(CALIBRATION_PATH, CalibrationJson.write(readings)) }
             .isSuccess
             .also { if (!it) lastError = "could not save the calibration" }
+
+    /**
+     * The instrument log, at the storage root under the name `Log.getLogFile` gives it.
+     *
+     * Failure here is swallowed and *not* reported: the log is what somebody reads when something
+     * else has gone wrong, and "could not save the log" occupying the one line the app has for
+     * telling them what went wrong would be its own small joke.
+     */
+    fun loadLog(type: LogType): List<LogMessage> =
+        runCatching { store.readText(listOf(type.fileName))?.let(LogJson::read) }
+            .getOrNull()
+            .orEmpty()
+
+    fun saveLog(type: LogType, messages: List<LogMessage>) {
+        runCatching { store.writeText(listOf(type.fileName), LogJson.write(messages)) }
+    }
 
     /**
      * A name that is not already taken, so "New survey" twice does not overwrite the first.

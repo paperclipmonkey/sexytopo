@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
+import org.hwyl.sexytopo.shared.log.LogType
 import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -95,6 +96,25 @@ class DemoState(
     /** Called whenever the run changes, so an interrupted calibration survives a restart. */
     fun noteCalibrationChanged() {
         library.saveCalibration(session.calibration.readings)
+    }
+
+    /**
+     * Bring back what the instrument was doing last time, and keep writing it down.
+     *
+     * Loaded once at startup and saved on every line, because the cases the log exists for - a
+     * crash, a freeze, a battery going flat in a cave - are exactly the ones where no tidy-up code
+     * runs. A hundred lines of JSON is a few kilobytes; writing it every line costs nothing next to
+     * losing the reason an instrument would not connect.
+     */
+    fun loadLog() {
+        val saved = library.loadLog(LogType.DEVICE)
+        if (saved.isNotEmpty()) session.deviceLog.replaceAll(saved)
+        session.onLogged = { library.saveLog(LogType.DEVICE, session.deviceLog.entries) }
+    }
+
+    fun clearLog() {
+        session.deviceLog.clear()
+        library.saveLog(LogType.DEVICE, emptyList())
     }
 
     fun loadSettings() {

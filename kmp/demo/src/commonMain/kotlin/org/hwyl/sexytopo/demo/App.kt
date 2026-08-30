@@ -100,6 +100,7 @@ fun App(
         requestDurableStorage()
         state.loadSettings()
         state.loadCalibration()
+        state.loadLog()
         state.refreshLibrary()
         state.savedSurveys.lastOrNull()?.let { state.openSurvey(it) }
     }
@@ -198,6 +199,7 @@ private fun SexyTopoAppBar(state: DemoState) {
     var connecting by remember { mutableStateOf(false) }
     var calibrating by remember { mutableStateOf(false) }
     var showingStats by remember { mutableStateOf(false) }
+    var showingLog by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<String?>(null) }
 
     if (editingTrip) {
@@ -225,6 +227,18 @@ private fun SexyTopoAppBar(state: DemoState) {
             survey = state.survey,
             revision = state.revision,
             onDismiss = { showingStats = false },
+        )
+    }
+
+    if (showingLog) {
+        // Read through `logRevision` rather than straight off the log: `ActivityLog` is a plain
+        // class, so appending to it is invisible to Compose and the dialog would show whatever was
+        // there when it opened.
+        val entries = remember(state.session.logRevision) { state.session.deviceLog.entries }
+        LogDialog(
+            entries = entries,
+            onClear = { state.clearLog() },
+            onDismiss = { showingLog = false },
         )
     }
 
@@ -446,6 +460,14 @@ private fun SexyTopoAppBar(state: DemoState) {
                     onClick = {
                         state.mode = SurveyMode.LIVE
                         calibrating = true
+                        menuOpen = false
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Instrument log…") },
+                    leadingIcon = { CheckDot(false) },
+                    onClick = {
+                        showingLog = true
                         menuOpen = false
                     },
                 )

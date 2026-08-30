@@ -167,7 +167,7 @@ const STATION_SAVE = [317, 700]
 // somewhere unrelated. Computing the row from the menu's own order means one list to update.
 const MENU_BEFORE_SURVEYS = ['new', 'rename', 'trip']
 const MENU_AFTER_SURVEYS =
-  ['demo', 'export', 'instrument', '3d', 'stats', 'calibrate', 'import', 'surveying', 'dark']
+  ['demo', 'export', 'instrument', '3d', 'stats', 'calibrate', 'log', 'import', 'surveying', 'dark']
 const MENU_FIRST_ROW_Y = 80
 const MENU_ROW_HEIGHT = 48
 
