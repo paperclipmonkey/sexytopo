@@ -249,8 +249,9 @@ Honest limits, so nothing is a surprise in a cave:
   which is exactly what the *Add reading* button is for, and the triple-shot promotion rule applies
   to a typed reading identically.
 - **Surveys are files in the Files app**, under *On My iPhone → SexyTopo KMP*, because
-  `UIFileSharingEnabled` is set. That is how you get a `.data.json` off the phone and into Therion
-  or Survex. *Export* plus the clipboard is the other way.
+  `UIFileSharingEnabled` is set. *Export* writes Survex, Therion, Compass, PocketTopo or the native
+  JSON — *Save file* puts one in `exports/` beside them, *Copy* puts it on the clipboard — and the
+  files are dated from the phone's own clock.
 - **The screen stays on** while the app is open, and goes back to normal when you leave it.
 - **This is a port, not the app.** Trip metadata, cross-sections, calibration and the settings screen
   are not wired to the UI even where the logic underneath them is ported and tested. Use it beside a

@@ -3,13 +3,13 @@
 // The smoke test asks whether the app draws. This asks whether it *works* — create a named survey,
 // type readings the way a surveyor reads them off a DistoX display, have three agreeing ones
 // promote to a station, correct one that was typed wrong, throw away one that was not worth
-// keeping, keep the lot across a restart, and still open with the network cut. Each of those is a
-// thing that would make the app useless underground if it broke, and none of them is visible in a
-// screenshot.
+// keeping, name the station at the junction, get the lot out as a Survex file, keep it across a
+// restart, and still open with the network cut. Each of those is a thing that would make the app
+// useless underground if it broke, and none of them is visible in a screenshot.
 //
 //   node field.mjs <url> [screenshotDir]
 import { chromium } from 'playwright'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const url = process.argv[2] ?? 'http://localhost:8080/index.html'
@@ -25,7 +25,10 @@ if (process.env.CHROMIUM_PATH) launch.executablePath = process.env.CHROMIUM_PATH
 if (process.env.SMOKE_PROXY) launch.proxy = { server: process.env.SMOKE_PROXY }
 const browser = await chromium.launch(launch)
 // A phone, because that is where this has to work.
-const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } })
+const ctx = await browser.newContext({
+  viewport: { width: 420, height: 900 },
+  acceptDownloads: true,
+})
 const page = await ctx.newPage()
 const pageErrors = []
 page.on('pageerror', (e) => pageErrors.push(e.message))
@@ -46,6 +49,19 @@ if (!(await ready())) {
 }
 const box = await (await page.$('canvas')).boundingBox()
 const at = (x, y) => page.mouse.click(box.x + x, box.y + y)
+
+// Replaces whatever is in a text field. Backspace and Delete rather than select-all: Compose
+// takes a moment to accept keyboard focus after a click, and a Control+A that lands too early is
+// silently ignored, leaving the new text appended to the old ("1.5002.75") and the test failing
+// somewhere else entirely. Clearing in both directions needs no selection and no caret position.
+async function retype(where, text) {
+  await at(...where)
+  await page.waitForTimeout(300)
+  for (let i = 0; i < 16; i++) await page.keyboard.press('Backspace')
+  for (let i = 0; i < 16; i++) await page.keyboard.press('Delete')
+  await page.keyboard.type(text, { delay: 25 })
+  await page.waitForTimeout(200)
+}
 
 // Positions are computed from the canvas box, so moving a control a few pixels does not break the
 // test while moving it somewhere else rightly does.
@@ -73,6 +89,10 @@ const STATION_NAME = [210, 352]
 const STATION_COMMENT = [210, 428]
 const STATION_EE_LEFT = [102, 536]
 const STATION_SAVE = [317, 608]
+// The overflow menu lists the saved surveys between "Rename" and "Demo cave", so Export sits one
+// row lower here than it does with an empty library. One saved survey by this point: Swildons.
+const MENU_EXPORT = [312, 272]
+const EXPORT_SAVE_FILE = [117, 132]
 
 // ---- create a named survey -----------------------------------------------------------
 await at(...OVERFLOW); await page.waitForTimeout(500)
@@ -181,10 +201,7 @@ if (splayRow < 0) {
   await at(...TABLE_ROW(2)); await page.waitForTimeout(700)
   await page.screenshot({ path: join(shotDir, 'field-leg-actions.png') })
   await at(...ACT_EDIT); await page.waitForTimeout(700)
-  await at(...EDIT_DISTANCE); await page.waitForTimeout(250)
-  await page.keyboard.press('Control+a')
-  await page.keyboard.type('2.75', { delay: 25 })
-  await page.waitForTimeout(250)
+  await retype(EDIT_DISTANCE, '2.75')
   await page.screenshot({ path: join(shotDir, 'field-edit-reading.png') })
   await at(...EDIT_SAVE); await page.waitForTimeout(900)
 
@@ -228,9 +245,7 @@ await at(...PLAN_TAB); await page.waitForTimeout(600)
 // back for.
 await at(...STATION_CHIP); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-station.png') })
-await at(...STATION_NAME); await page.waitForTimeout(250)
-await page.keyboard.press('Control+a')
-await page.keyboard.type('Sump', { delay: 25 })
+await retype(STATION_NAME, 'Sump')
 await at(...STATION_COMMENT); await page.waitForTimeout(250)
 await page.keyboard.type('Continues, too tight for me', { delay: 15 })
 await at(...STATION_EE_LEFT); await page.waitForTimeout(250)
@@ -251,6 +266,50 @@ if (!sump) {
 } else {
   pass('a station can be named, commented and pointed the right way in the extended elevation')
 }
+
+// ---- and the survey can leave the phone as a file ------------------------------------------
+// The clipboard reaches an email. Only a file reaches Therion, and a survey that cannot get into
+// Therion is a weekend of somebody's life spent producing something they then have to type up
+// again from a photograph of a screen.
+await at(...OVERFLOW); await page.waitForTimeout(500)
+await page.screenshot({ path: join(shotDir, 'field-menu.png') })
+await at(...MENU_EXPORT); await page.waitForTimeout(900)
+await page.screenshot({ path: join(shotDir, 'field-export.png') })
+
+const download = await Promise.all([
+  page.waitForEvent('download', { timeout: 10000 }).catch(() => null),
+  at(...EXPORT_SAVE_FILE),
+]).then(([d]) => d)
+
+if (!download) {
+  fail('Save file produced no download — the survey cannot leave the phone as a file')
+} else if (download.suggestedFilename() !== 'Swildons.svx') {
+  fail(`the file came out named ${download.suggestedFilename()}, which Survex will not open`)
+} else {
+  pass('the survey saves as a correctly named Survex file')
+
+  // What is actually in it. A download that arrives empty, or dated by a fixture, or missing the
+  // station the surveyor named, is a file that fails on the laptop rather than on the phone —
+  // which is the worst place to find out.
+  const svx = readFileSync(await download.path(), 'utf8')
+  const today = new Date()
+  const stamp = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, '0'),
+    String(today.getDate()).padStart(2, '0'),
+  ].join('-')
+  if (!svx.includes('*begin Swildons')) {
+    fail('the exported file is not this survey')
+  } else if (!svx.includes(stamp)) {
+    fail(`the export is not dated today (looking for ${stamp}) — the device clock is not reaching it`)
+  } else if (!svx.includes('Sump')) {
+    fail('the station the surveyor named is not in the export')
+  } else {
+    pass('the exported file carries the survey, today\'s date and the named station')
+  }
+}
+await page.screenshot({ path: join(shotDir, 'field-export-saved.png') })
+await at(...PLAN_TAB); await page.waitForTimeout(600)
 
 // ---- it survives a restart --------------------------------------------------------------
 await page.reload({ waitUntil: 'load' })
