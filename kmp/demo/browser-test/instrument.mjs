@@ -162,7 +162,7 @@ const OVERFLOW = [box.width - 16, 26]
 // as soon as this test has recorded one, which is exactly what happens between its two halves.
 const MENU_BEFORE_SURVEYS = ['new', 'rename', 'trip']
 const MENU_AFTER_SURVEYS =
-  ['demo', 'export', 'instrument', 'calibrate', 'import', 'surveying', 'dark']
+  ['demo', 'export', 'instrument', 'stats', 'calibrate', 'import', 'surveying', 'dark']
 function menuRow(name, savedSurveys) {
   const before = MENU_BEFORE_SURVEYS.indexOf(name)
   const after = MENU_AFTER_SURVEYS.indexOf(name)

@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by over 650 tests. The UI
+Survex and Therion exporters and the native file format are ported and covered by over 660 tests. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
 tests the claim.
@@ -303,6 +303,9 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
 - **Bring one back in.** Put a `.data.json` in the app's folder — on iOS that is Files, under *On
   My iPhone* — and *Import* offers it. It never overwrites a survey already in the library, which
   matters when a colleague sends you their copy of a cave you are also surveying.
+- **See how big it is.** *Statistics* is the app's own panel — length, depth, stations, legs,
+  splays, shortest and longest shot — which is what a surveyor asks for underground rather than
+  afterwards.
 - **Lose nothing.** Every change is written immediately, the survey is there after a restart, and
   the app opens with no signal at all. In a browser the app also asks for persistent storage on
   startup, because `localStorage` is otherwise storage the browser may reclaim; if it is refused,
@@ -344,7 +347,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `io/thirdparty/therion/Th2Exporter` | `shared/io/export/Th2.kt` | The scrap file, its cross-section anchors and the `##XTHERION##` block |
 | `io/thirdparty/xvi/*` | `shared/io/export/Xvi.kt`, `XviGlyphs.kt`, `XviSymbolPaths.kt` | The glyph font and the symbol polylines are **generated** from the Java, as `Symbol` and `Colour` were |
 | `io/thirdparty/svg/SvgExporter` | `shared/io/export/Svg.kt`, `SvgLegend.kt` | Deterministic where the Java's `HashMap` order is not; legend laid out with the Java's own arithmetic, ISO dates instead of a locale's |
-| `control/util/SurveyStats` | `shared/survey/SurveyStats.kt` | Including the two pieces of arithmetic that look like mistakes |
+| `control/util/SurveyStats`, `StatsActivity` | `shared/survey/SurveyStats.kt`, `demo/.../StatsDialog.kt` | Including the two pieces of arithmetic that look like mistakes |
 | `model/sketch/Colour` (150 values) | `shared/model/sketch/Colour.kt` | **Generated** from the Java enum so values cannot drift |
 | `comms/distox/*`, `distoxble/`, `bric4/`, `cavwayx1/`, `sap6/`, `fcl/` | `shared/comms/` | Protocol only, no transport |
 | `control/calibration/*`, `model/calibration/*` | `shared/calibration/` | Beat Heeb's solver; results returned rather than left in statics |
@@ -566,7 +569,7 @@ This is a proof of concept. It does **not** include:
 - **Cross-survey links.** They are stored as absolute `content://` URIs, which are meaningless off
   Android and already break when a folder moves, so replacing them is a format decision to take
   with upstream rather than a porting one. Nothing here draws a neighbouring survey.
-- **The rest of the Android UI**: the statistics screen, the 3D view, the manual.
+- **The rest of the Android UI**: the 3D view and the manual.
 - **The Android app adopting this core.** That is the step that would make the work pay for itself
   regardless of the iOS outcome, and it is deliberately not attempted yet.
 

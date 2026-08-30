@@ -190,6 +190,7 @@ private fun SexyTopoAppBar(state: DemoState) {
     var importing by remember { mutableStateOf(false) }
     var connecting by remember { mutableStateOf(false) }
     var calibrating by remember { mutableStateOf(false) }
+    var showingStats by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<String?>(null) }
 
     if (editingTrip) {
@@ -210,6 +211,14 @@ private fun SexyTopoAppBar(state: DemoState) {
 
     if (calibrating) {
         CalibrationDialog(state = state, onDismiss = { calibrating = false })
+    }
+
+    if (showingStats) {
+        StatsDialog(
+            survey = state.survey,
+            revision = state.revision,
+            onDismiss = { showingStats = false },
+        )
     }
 
     if (importing) {
@@ -404,6 +413,14 @@ private fun SexyTopoAppBar(state: DemoState) {
                     onClick = {
                         state.mode = SurveyMode.LIVE
                         connecting = true
+                        menuOpen = false
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Statistics…") },
+                    leadingIcon = { CheckDot(false) },
+                    onClick = {
+                        showingStats = true
                         menuOpen = false
                     },
                 )
