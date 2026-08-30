@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by over 590 tests. The UI
+Survex and Therion exporters and the native file format are ported and covered by over 600 tests. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
 tests the claim.
@@ -266,6 +266,9 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   finger landed. *Re-aim a cross-section* swings it round its station until it cuts the passage
   square; *Move a cross-section* slides it, drawing and all, off the centreline it is sitting on.
   Both preview under the finger, and what is previewed is what is committed.
+- **Join the wall up.** *Snap to lines*, in the drawing menu, makes a new stroke start and finish
+  exactly on the end of a nearby one. A passage wall is drawn as a series of strokes, and a wall
+  with gaps in it is one no tracing tool downstream can close. Off by default, as in the app.
 - **Draw the passage.** Tap a cross-section and it opens into its own screen — the same canvas,
   tools, viewport and undo stack as the plan, over the section's own world: the station at the
   origin and its splays around it. A star of splays is not a passage; the outline drawn round it,
@@ -339,7 +342,7 @@ Honest limits, so nothing is a surprise in a cave:
 | the `*Manager` classes' device knowledge | `shared/comms/InstrumentProfile.kt` | The BLE device matrix, as data |
 | Nordic `BleManager` subclasses | `shared/iosMain/.../CoreBluetoothTransport.kt` | The whole iOS Bluetooth surface |
 | `control/io/basic/*JsonTranslater` | `shared/io/` | Same tags, same tolerant two-pass load |
-| `control/graph/GraphView` — tools, viewport, hit-testing | `shared/sketch/` | Ported; the demo drives it |
+| `control/graph/GraphView` — tools, viewport, hit-testing, snap-to-lines | `shared/sketch/` | Ported; the demo drives it |
 | `GraphView.handle{Move,Rotate}CrossSection` | `demo/.../CrossSectionDrag.kt` | One value drives the preview *and* the commit, so they cannot disagree |
 | `CrossSectionActivity`, `CrossSectionView` | `demo/.../CrossSectionEditor.kt` | The same canvas over the section's own world; `SurveyScene.forCrossSection` is the whole difference |
 | `control/graph/GraphView` — drawing and touch plumbing | `demo/.../SurveyCanvas.kt` | **Rewritten**, not ported |

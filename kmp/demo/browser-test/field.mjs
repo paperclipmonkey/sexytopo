@@ -195,6 +195,7 @@ const DRAWING_MENU = [
   'sketch',
   'labels',
   'grid',
+  'snap',
 ]
 const DRAWING_MENU_LAST_ROW_Y = 820
 const DRAWING_MENU_ROW_HEIGHT = 48
@@ -411,6 +412,44 @@ if ((await subSketchPaths()) !== 2) {
 
 // Back to drawing, so nothing after this drops a section by accident.
 await at(...toolCell(1)); await page.waitForTimeout(400)
+
+// ---- strokes can be made to join up ------------------------------------------------------
+// A passage wall is drawn as a series of strokes, and a wall with gaps in it is one no tracing
+// tool downstream can close. Snapping is off by default, as it is in the Android app, so this
+// turns it on, draws two strokes that nearly meet, and checks the second starts exactly where the
+// first ended rather than near it.
+await at(...toolCell(5)); await page.waitForTimeout(500)
+await at(...drawingMenuRow('snap')); await page.waitForTimeout(600)
+// A toggle deliberately leaves the menu open, so several can be flipped in one visit — which
+// means it has to be dismissed before the canvas can be drawn on again.
+await page.keyboard.press('Escape'); await page.waitForTimeout(500)
+
+await drag([80, 250], [180, 250]); await page.waitForTimeout(500)
+await drag([186, 256], [186, 340]); await page.waitForTimeout(700)
+await page.screenshot({ path: join(shotDir, 'field-snapped.png') })
+
+const strokeEnds = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  if (!key) return null
+  return (JSON.parse(localStorage.getItem(key)).paths ?? []).map((p) => p.points)
+})
+if (strokeEnds === null || strokeEnds.length < 2) {
+  fail(`two strokes were not saved, so snapping could not be checked (${strokeEnds?.length})`)
+} else {
+  const [first, second] = strokeEnds.slice(-2)
+  const end = first[first.length - 1]
+  const start = second[0]
+  if (end.x !== start.x || end.y !== start.y) {
+    fail(`the second stroke did not snap to the first (${JSON.stringify(end)} vs ${JSON.stringify(start)})`)
+  } else {
+    pass('strokes snap to each other, so a passage wall drawn in pieces has no gaps in it')
+  }
+}
+
+// Off again, so nothing later in this file is silently snapped.
+await at(...toolCell(5)); await page.waitForTimeout(500)
+await at(...drawingMenuRow('snap')); await page.waitForTimeout(600)
+await page.keyboard.press('Escape'); await page.waitForTimeout(500)
 
 // Reads the saved survey back. The checks below assert against the file rather than the screen,
 // because the file is what the surveyor takes home and hands to Therion.

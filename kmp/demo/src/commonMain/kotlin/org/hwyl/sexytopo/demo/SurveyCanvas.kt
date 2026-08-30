@@ -355,21 +355,49 @@ fun SurveyCanvas(
                                 ?.let(onOpenCrossSection)
                         }
                     }
-                    .pointerInput(scene, tool) {
+                    .pointerInput(scene, tool, options.snapToLines) {
+                        // A passage wall is drawn as a series of strokes, and the joins between
+                        // them are where a drawing stops looking like a survey — a wall with gaps
+                        // in it is also one no tracing tool can fill. Snapping is ported from
+                        // `GraphView.considerSnapToSketchLine`, ends only and both ends: the start
+                        // jumps on touch-down, and the finish appends the snapped point rather
+                        // than moving the last one, exactly as the original does.
+                        val snapWithin =
+                            viewport.toSurveyDistance(
+                                SketchDefaults.SNAP_TO_LINE_SENSITIVITY_DP.dp.toPx(),
+                            )
+
+                        fun snapped(point: Coord2D): Coord2D =
+                            if (options.snapToLines) {
+                                editor.snapPointNear(point, snapWithin) ?: point
+                            } else {
+                                point
+                            }
+
+                        // onDragEnd is told nothing about where the finger was, so the last
+                        // point is kept here to snap the end against.
+                        var lastPoint = Coord2D.ORIGIN
+
                         detectDragGestures(
                             onDragStart = { offset ->
-                                editor.startPath(viewport.toSurvey(offset))
+                                lastPoint = viewport.toSurvey(offset)
+                                editor.startPath(snapped(lastPoint))
                                 strokeTick++
                             },
                             onDrag = { change, _ ->
                                 change.consume()
-                                editor.extendPath(viewport.toSurvey(change.position))
+                                lastPoint = viewport.toSurvey(change.position)
+                                editor.extendPath(lastPoint)
                                 strokeTick++
                             },
                             onDragEnd = {
                                 // finishPath simplifies the stroke and pushes one undo step; a
                                 // stroke of fewer than two points is still committed, as in the
                                 // original, because a tap is how you draw a dot.
+                                if (options.snapToLines) {
+                                    editor.snapPointNear(lastPoint, snapWithin)
+                                        ?.let { editor.extendPath(it) }
+                                }
                                 editor.finishPath()
                                 onSketchEdit()
                             },
@@ -589,6 +617,8 @@ class DisplayOptions(
     val showStationLabels: Boolean = true,
     val showGrid: Boolean = true,
     val darkMode: Boolean = false,
+    /** Whether a stroke jumps to the end of a nearby one. See [SketchEditor.snapPointNear]. */
+    val snapToLines: Boolean = SketchDefaults.SNAP_TO_LINES_DEFAULT,
 )
 
 /**

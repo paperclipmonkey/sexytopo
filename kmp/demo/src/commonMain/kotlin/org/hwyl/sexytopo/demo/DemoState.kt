@@ -13,6 +13,7 @@ import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.BrushColour
+import org.hwyl.sexytopo.shared.sketch.SketchDefaults
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.survey.InputMode
@@ -105,6 +106,16 @@ class DemoState(
      * a reading arrived would be its own bug.
      */
     var editingCrossSection by mutableStateOf<CrossSectionDetail?>(null)
+
+    /**
+     * Whether a new stroke jumps to the end of a nearby one.
+     *
+     * A passage wall is drawn as a series of strokes and the joins between them are where a
+     * drawing looks amateur — worse, a wall with gaps in it is one no tracing tool can fill. The
+     * Android app defaults this off (`SketchPreferences.Toggle.SNAP_TO_LINES`), and so does this,
+     * because snapping when you did not mean to is its own annoyance.
+     */
+    var snapToLines by mutableStateOf(SketchDefaults.SNAP_TO_LINES_DEFAULT)
 
     var showSplays by mutableStateOf(true)
     var showSketch by mutableStateOf(true)
@@ -291,6 +302,7 @@ class DemoState(
                 showStationLabels = showLabels,
                 showGrid = showGrid,
                 darkMode = darkMode,
+                snapToLines = snapToLines,
             )
 }
 
@@ -347,6 +359,9 @@ val VIEW_TOGGLES =
         ViewToggle("Show sketch", { it.showSketch }, { it.showSketch = !it.showSketch }),
         ViewToggle("Show station labels", { it.showLabels }, { it.showLabels = !it.showLabels }),
         ViewToggle("Show grid", { it.showGrid }, { it.showGrid = !it.showGrid }),
+        // Not a display option at all - it changes what gets drawn, not what is shown - but the
+        // Android app puts it in this same menu, so it is here.
+        ViewToggle("Snap to lines", { it.snapToLines }, { it.snapToLines = !it.snapToLines }),
     )
 
 /**
