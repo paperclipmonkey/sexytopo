@@ -140,7 +140,20 @@ class DemoState(
      */
     fun noteStationCreated() {
         if (preferences.buzzOnNewStation) buzz()
+        stationsCreated++
     }
+
+    /**
+     * How many stations have been made this session — the port's equivalent of the Android app's
+     * `createdReceiver` broadcast, which is what `handleAutoRecentre` listens to.
+     *
+     * A counter rather than a callback because the thing that has to react is the *viewport*, and
+     * the viewport belongs to the canvas composable rather than to this state: see
+     * [rememberCanvasController]. Compose watching a number is the simplest way for one to reach
+     * the other without either owning the other.
+     */
+    var stationsCreated by mutableIntStateOf(0)
+        private set
 
     fun updatePreferences(updated: AppPreferences) {
         preferences = updated

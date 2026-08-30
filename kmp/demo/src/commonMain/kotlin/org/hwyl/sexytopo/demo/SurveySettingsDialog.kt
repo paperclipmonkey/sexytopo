@@ -169,14 +169,7 @@ fun SurveySettingsDialog(
                 enabled = edited != null,
                 onClick = {
                     edited?.let {
-                        onSave(
-                            it,
-                            AppPreferences(
-                                buzzOnNewStation = buzz,
-                                hotCorners = hotCorners,
-                                twoFingerMove = twoFingerMove,
-                            ),
-                        )
+                        onSave(it, preferencesFrom(preferences, buzz, hotCorners, twoFingerMove))
                     }
                 },
             ) { Text("Save") }
@@ -184,6 +177,27 @@ fun SurveySettingsDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
+/**
+ * The preferences this screen describes, on top of the ones it does not.
+ *
+ * A `copy` of what came in rather than a fresh [AppPreferences], and the difference is a silent
+ * data loss: this dialog shows three of the app's preferences, and building a new object from three
+ * values resets every other one to its default. *Follow the survey* is set from the drawing menu,
+ * so a surveyor who turned it on halfway down a passage and then loosened their tolerances would
+ * find it off again with nothing on screen to say so.
+ */
+internal fun preferencesFrom(
+    current: AppPreferences,
+    buzzOnNewStation: Boolean,
+    hotCorners: Boolean,
+    twoFingerMove: Boolean,
+): AppPreferences =
+    current.copy(
+        buzzOnNewStation = buzzOnNewStation,
+        hotCorners = hotCorners,
+        twoFingerMove = twoFingerMove,
+    )
 
 /** A labelled switch with a line of explanation, as the settings rows above it already are. */
 @Composable

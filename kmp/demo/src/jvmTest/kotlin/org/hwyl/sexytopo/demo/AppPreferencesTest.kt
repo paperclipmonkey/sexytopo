@@ -28,6 +28,54 @@ class AppPreferencesTest {
         assertFalse(AppPreferencesStore.load(store).buzzOnNewStation)
     }
 
+    /**
+     * The three sketch-movement preferences keep the Android app's own defaults, which are not all
+     * the same: the corners are on, a two-fingered drag is off, and following the survey is off.
+     */
+    @Test
+    fun theSketchMovementDefaultsAreTheAndroidApps() {
+        assertTrue(AppPreferences.DEFAULT.hotCorners, "pref_hot_corners defaults to true")
+        assertFalse(
+            AppPreferences.DEFAULT.twoFingerMove,
+            "pref_two_finger_movement defaults to false",
+        )
+        assertFalse(AppPreferences.DEFAULT.autoRecentre, "AUTO_RECENTRE defaults to false")
+    }
+
+    @Test
+    fun everyPreferenceSurvivesTheAppBeingClosed() {
+        val store = InMemoryFileStore()
+        // Each one flipped away from its default, so a value that failed to round-trip and fell
+        // back to the default would be a failure rather than an accident.
+        val flipped =
+            AppPreferences(
+                buzzOnNewStation = false,
+                hotCorners = false,
+                twoFingerMove = true,
+                autoRecentre = true,
+            )
+        AppPreferencesStore.save(store, flipped)
+
+        assertEquals(flipped, AppPreferencesStore.load(store))
+    }
+
+    /**
+     * The settings screen shows three preferences and the drawing menu sets a fourth. Building the
+     * saved value from the three on screen resets the fourth to its default with nothing to say so
+     * — which is what happened: turning *Follow the survey* on and then adjusting a tolerance
+     * turned it off again.
+     */
+    @Test
+    fun savingTheSettingsScreenLeavesThePreferencesItDoesNotShowAlone() {
+        val current = AppPreferences(autoRecentre = true)
+        val saved = preferencesFrom(current, buzzOnNewStation = false, hotCorners = false, twoFingerMove = true)
+
+        assertTrue(saved.autoRecentre, "the drawing menu's preference is not this screen's to reset")
+        assertFalse(saved.buzzOnNewStation)
+        assertFalse(saved.hotCorners)
+        assertTrue(saved.twoFingerMove)
+    }
+
     @Test
     fun anAbsentFileMeansTheDefaults() {
         assertEquals(AppPreferences.DEFAULT, AppPreferencesStore.load(InMemoryFileStore()))

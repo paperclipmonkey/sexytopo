@@ -280,6 +280,19 @@ private fun DrawingMenu(
                 onDismiss()
             },
         )
+        // `buttonAutoRecentre`, in the Android app's own behaviour group in this same menu, and
+        // off by its default. It is a *preference* rather than a view toggle because it should
+        // still be on next time: somebody who turned it on did so halfway down a long passage, and
+        // having to find it again after a battery change is the opposite of the point.
+        DropdownMenuItem(
+            text = { Text("Follow the survey") },
+            leadingIcon = { CheckDot(state.preferences.autoRecentre) },
+            onClick = {
+                state.updatePreferences(
+                    state.preferences.copy(autoRecentre = !state.preferences.autoRecentre),
+                )
+            },
+        )
         for (toggle in VIEW_TOGGLES) {
             DropdownMenuItem(
                 text = { Text(toggle.label) },

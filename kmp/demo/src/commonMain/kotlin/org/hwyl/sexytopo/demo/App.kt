@@ -564,6 +564,16 @@ private fun SketchScreen(
     // Position in survey coordinates, and the text size in metres for the current zoom.
     var placing by remember { mutableStateOf<Pair<Coord2D, Float>?>(null) }
 
+    // `GraphActivity.handleAutoRecentre`, which listens for the same station-created broadcast the
+    // buzz does. Keyed on the count rather than run on every recomposition, and skipped at zero so
+    // opening the app does not count as a station having just been made.
+    LaunchedEffect(state.stationsCreated, state.projection) {
+        if (state.stationsCreated > 0 && state.preferences.autoRecentre) {
+            stationPositionIn(state.survey, state.projection, state.survey.activeStation)
+                ?.let(canvas::centreOn)
+        }
+    }
+
     // The station whose menu is open, held by name rather than by object: an edit that renames or
     // deletes it rebuilds the survey's stations, and a menu holding the old object would go on
     // offering actions against a station that is no longer in the survey.

@@ -227,6 +227,7 @@ const DRAWING_MENU = [
   'move',
   'find',
   'delete-last-leg',
+  'auto-recentre',
   'splays',
   'sketch',
   'labels',
@@ -1112,6 +1113,22 @@ if ((await connectingLegs()) !== beforeSloppy) {
   pass('readings too far apart to be the same shot are refused')
 }
 
+// ---- the view can follow the survey ---------------------------------------------------------
+// Without this the view re-fits the *whole cave* as the survey grows, so by the fiftieth station
+// the working end is a few pixels across and the surveyor is pinching in after every leg.
+// `buttonAutoRecentre` keeps the active station in the middle at the zoom they chose. Turned on
+// here and checked against the *next* station the readings below make, then turned off again so
+// the rest of this file sees the app's own default.
+//
+// Turned on *before* the settings screen is saved, deliberately. This preference is set from the
+// drawing menu and the settings screen does not show it — and the first version of that screen
+// built its saved value from the three switches it does show, quietly resetting this one. Doing it
+// in this order means that comes back as a failure here rather than as a surveyor wondering why the
+// view stopped following them after they adjusted a tolerance.
+await at(...toolCell(5)); await page.waitForTimeout(500)
+await at(...drawingMenuRow('auto-recentre')); await page.waitForTimeout(600)
+await page.keyboard.press('Escape'); await page.waitForTimeout(400)
+
 await at(...OVERFLOW); await page.waitForTimeout(500)
 await at(...menuRow('surveying', 1)); await page.waitForTimeout(800)
 await retype(SETTING_DISTANCE, '0.5')
@@ -1183,6 +1200,32 @@ if ((await connectingLegs()) !== beforeSloppy + 1) {
 } else {
   pass('loosened tolerances let a compass-and-tape survey make stations')
 }
+
+// The station those readings just made should now be in the middle of the sketch, which is what
+// "follow the survey" means. Found by its amber brackets — the one thing on the plan drawn in that
+// colour — rather than by trusting that the screen changed, which it would have anyway: a new leg
+// was drawn.
+await page.screenshot({ path: join(shotDir, 'field-auto-recentre.png') })
+const activeSpot = (await stationSpots(sketchTop, sketchBottom)).active
+if (activeSpot === null) {
+  fail('the active station was not on screen at all after a leg went in')
+} else {
+  const middle = [Math.round(box.width / 2), Math.round((sketchTop + sketchBottom) / 2)]
+  const offBy = Math.hypot(activeSpot[0] - middle[0], activeSpot[1] - middle[1])
+  if (offBy > 40) {
+    fail(
+      `following the survey left the active station ${Math.round(offBy)}px from the middle ` +
+        `(${JSON.stringify(activeSpot)} against ${JSON.stringify(middle)})`,
+    )
+  } else {
+    pass('the view follows the survey: a new station lands in the middle of the screen')
+  }
+}
+
+// Off again, so the rest of this file sees the Android app's own default.
+await at(...toolCell(5)); await page.waitForTimeout(500)
+await at(...drawingMenuRow('auto-recentre')); await page.waitForTimeout(600)
+await page.keyboard.press('Escape'); await page.waitForTimeout(400)
 
 // Saved, because a surveyor sets these once at the entrance and the phone may not last the trip.
 const savedSettings = await page.evaluate(() =>

@@ -43,6 +43,7 @@ Being precise about this matters more than the demo looking good.
 | The `.th2` and `.xvi` a Therion user actually needs come out of the app | **Verified** | golden tests on the scrap file and the tracing image, and `field.mjs` picks the `.th2` chip on a 420-pixel screen, saves the file and checks it has an encoding line, a named plan scrap and the `##XTHERION##` block that points it at the `.xvi` |
 | Compass `.dat` exports byte-identically | **Verified** | a golden captured by *running* the Android app's own exporter, not by reading it — which caught a transcription slip on the first attempt |
 | PocketTopo `.txt` exports the same survey data | **Verified** | its DATA section is golden against the Android app; its station sections deliberately diverge, because the Java's are not reproducible even against themselves |
+| **The view can follow the survey as it grows** | **Verified** | the preference round-trips with every other one, and `field.mjs` turns *Follow the survey* on, promotes a station from three readings, and finds the active station's amber brackets within forty pixels of the middle of the sketch — an assertion about where the view ended up, not merely that the screen changed, which it would have anyway |
 | **A station can be found by name, and the last leg taken back** | **Verified** | `FindStationTest` — names and comments both searched, a station the survey no longer holds has no position rather than a crash, and the last leg is the last one *taken* rather than the last in any walk of the tree — and `field.mjs` finds a station on a phone screen and checks the view moved, then adds a splay, takes it back from the drawing menu and checks only it went |
 | **Any station can be reached from the sketch, not just the active one** | **Verified** | `StationMenuTest` for which actions a station offers — the origin has no incoming leg and no delete, cross-sections belong to the plan, a backsight is normalised the way the table normalises it — and `field.mjs` finds a station that is *not* the active one on the drawn plan, holds it, and checks that the menu moved the active station there without marking the paper |
 | **The drawing can be moved without putting the pencil down** | **Verified** | `MultiTouchTest` for the pinch arithmetic and the corner geometry, and `field.mjs` finds the corner squares on the drawn page, drags one, and checks the plan moved, that no stroke was left behind, and that the next stroke still draws — with no toolbar round trip |
@@ -385,6 +386,11 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
 - **Join the wall up.** *Snap to lines*, in the drawing menu, makes a new stroke start and finish
   exactly on the end of a nearby one. A passage wall is drawn as a series of strokes, and a wall
   with gaps in it is one no tracing tool downstream can close. Off by default, as in the app.
+- **Let the view follow you.** *Follow the survey* puts the active station back in the middle each
+  time a new one is made, at the zoom you chose — `buttonAutoRecentre`, and off by default as it is
+  in the app. Worth knowing why it is worth turning on: without it the view re-fits the *whole cave*
+  as the survey grows, so by the fiftieth station the working end is a few pixels across and you are
+  pinching in after every leg.
 - **Find a station.** *Find a station…* searches names **and comments** — stations are called 1, 2,
   3, and what a surveyor remembers is "the one where the draught was" — and takes the view to the
   one you pick without changing the zoom you chose. A survey of any size does not fit on a phone
@@ -494,6 +500,7 @@ Honest limits, so nothing is a surprise in a cave:
 | Nordic `BleManager` subclasses | `shared/iosMain/.../CoreBluetoothTransport.kt` | The whole iOS Bluetooth surface |
 | `control/io/basic/*JsonTranslater` | `shared/io/` | Same tags, same tolerant two-pass load; the calibration file is interchangeable both ways |
 | `control/graph/GraphView` — tools, viewport, hit-testing, snap-to-lines | `shared/sketch/` | Ported; the demo drives it |
+| `GraphActivity.handleAutoRecentre`, `SketchPreferences.Toggle.AUTO_RECENTRE` | `demo/.../App.kt`, `CanvasController.centreOn` | Driven by a counter the canvas watches, because the viewport belongs to the canvas and the station-created event does not |
 | `action_find_station`, `StationSelectorDialog`, `buttonDeleteLastLeg` | `demo/.../FindStation.kt` | The list is shown rather than autocompleted, and comments are searched as well as names |
 | `res/menu/context_station.xml`, `ContextMenuManager`, `GraphView.LongPressListener` | `demo/.../StationMenu.kt`, `SurveyCanvas.detectLongPress` | A dialog rather than a menu anchored at the finger; the links submenu is out, since nothing here draws a neighbouring survey |
 | `GraphView.isModalMoveSelection`, `didEventHitHotCorner`, `ScaleListener` | `shared/sketch/MultiTouch.kt`, `SketchViewport.kt`, `demo/.../SurveyCanvas.kt` | Pan and zoom without leaving the tool; the fourth hot corner is drawn as well as tested |
@@ -744,6 +751,15 @@ These are the things that would actually shape a real port.
    working end of a survey are, so the first place anybody tries is the place it fails. The menu
    here therefore opens on release rather than on the hold. Worth knowing before anybody wires a
    long press to a dialog on this stack.
+
+25. **A settings screen that builds its result from the switches it shows resets the ones it does
+   not.** This port's own bug, caught by ordering a browser check so that a preference set from the
+   drawing menu had to survive a visit to the settings screen. `AppPreferences` is a data class, so
+   `AppPreferences(buzzOnNewStation = …, hotCorners = …, twoFingerMove = …)` compiles perfectly and
+   silently returns every other preference to its default: turning *Follow the survey* on halfway
+   down a passage and then loosening a tolerance turned it off again, with nothing on screen to say
+   so. A `copy` of what came in is the fix, and the general lesson is that a constructor call with
+   named arguments looks exactly like a partial update and is not one.
 
 ---
 

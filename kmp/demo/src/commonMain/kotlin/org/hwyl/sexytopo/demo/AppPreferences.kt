@@ -16,6 +16,8 @@ data class AppPreferences(
     val hotCorners: Boolean = DEFAULT_HOT_CORNERS,
     /** A two-fingered drag pans the sketch, likewise. `pref_two_finger_movement`. */
     val twoFingerMove: Boolean = DEFAULT_TWO_FINGER_MOVE,
+    /** Put the view back on the active station each time one is made. `AUTO_RECENTRE`. */
+    val autoRecentre: Boolean = DEFAULT_AUTO_RECENTRE,
 ) {
     companion object {
         /**
@@ -36,6 +38,16 @@ data class AppPreferences(
          * this port as in the original, where `ScaleGestureDetector` runs ahead of every tool.
          */
         const val DEFAULT_TWO_FINGER_MOVE = false
+
+        /**
+         * Off, as `SketchPreferences.Toggle.AUTO_RECENTRE` is.
+         *
+         * Worth turning on for a long passage, though, and worth knowing why: without it this port
+         * re-fits the *whole cave* as the survey grows, so by the fiftieth station the working end
+         * is a few pixels across and the surveyor is pinching in after every leg. Auto-recentre
+         * keeps the active station in the middle at the zoom they chose instead.
+         */
+        const val DEFAULT_AUTO_RECENTRE = false
 
         val DEFAULT = AppPreferences()
     }
@@ -62,6 +74,7 @@ object AppPreferencesStore {
             appendLine("buzzOnNewStation=${preferences.buzzOnNewStation}")
             appendLine("hotCorners=${preferences.hotCorners}")
             appendLine("twoFingerMove=${preferences.twoFingerMove}")
+            appendLine("autoRecentre=${preferences.autoRecentre}")
         }
 
     fun parse(text: String): AppPreferences {
@@ -84,6 +97,9 @@ object AppPreferencesStore {
             twoFingerMove =
                 values["twoFingerMove"]?.toBooleanStrictOrNull()
                     ?: AppPreferences.DEFAULT_TWO_FINGER_MOVE,
+            autoRecentre =
+                values["autoRecentre"]?.toBooleanStrictOrNull()
+                    ?: AppPreferences.DEFAULT_AUTO_RECENTRE,
         )
     }
 
