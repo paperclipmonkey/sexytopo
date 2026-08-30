@@ -1012,6 +1012,53 @@ JVM — just a static file host.
 
 ---
 
+## Where this is, and what would come next
+
+Written down here rather than left in a commit log, because the useful thing to know on picking
+this up again is which of the remaining items are *blocked* and which are merely *not done*.
+
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 691
+shared tests on three targets, 226 over the UI's own logic, 17 running the iOS half in a simulator,
+64 browser checks driving the real page on a 420-pixel screen and finishing at 375x667. The
+Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
+things that are missing are missing on purpose and are listed below.
+
+**Blocked on something that is not code.**
+
+1. **An instrument.** Both transports are written and both are driven end to end against a fake
+   one; neither has met a radio, and the iOS simulator has no Bluetooth stack, so no amount of work
+   here changes that. Longest lead time of anything: worth starting to borrow one now.
+2. **A Mac with a phone plugged into it.** The build is written out step by step above and CI
+   compiles for `iosArm64`, but nobody has pressed Run. Three changes on this branch are verified by
+   reading rather than by running, and all three would be settled in the first thirty seconds of a
+   device build: the dp conversion (finding 28), the scrolling of the dialogs with several fields in
+   them, and the app icon and launch colour, whose asset catalogue has never been near an `actool`.
+3. **A decision from upstream.** Cross-survey links are absolute `content://` URIs; replacing them
+   is a format question, not a porting one. And GPL-3.0 on the App Store needs a Section 7 exception
+   from every copyright holder, which gates release rather than development and takes as long as it
+   takes.
+
+**Not done, and nothing is stopping it.**
+
+- **The live compass.** `SHOW_COMPASS` swings a north arrow with the phone's heading. The drawing is
+  twenty lines and fully specified in `GraphView.drawCompass`; the heading needs a magnetometer
+  behind an `expect`/`actual` on three platforms, and on iOS a usage-description key that crashes
+  the app on launch if it is wrong. Left out rather than half-done, deliberately, because a crash on
+  launch is the worst thing that can happen to a demo.
+- **The `show_xsections` and `pinch_to_zoom` toggles**, the last two checkable items on
+  `res/menu/drawing.xml` that this port does not carry. Both are an afternoon.
+- **The manual.** `GuideActivity` ships an HTML user guide; bundling it is mechanical.
+- **Culling the sketch as well as the survey.** The legs and stations are culled and measured; the
+  drawn strokes are not, and a heavily traced sketch is the case that would want it. Measure before
+  building it — the last two attempts at guessing where the time went were one right and one wrong.
+
+**The one that matters most, and it is not iOS.** Pointing the Android app at this shared core makes
+the work pay for itself whether or not an iPhone ever runs it, and brings the stack-overflow and
+quadratic-export fixes with it. It is deliberately not attempted here: it is a conversation to have
+before it is a branch to write.
+
+---
+
 ## Deliberate gaps
 
 This is a proof of concept. File formats are no longer one of the gaps: every importer and every
