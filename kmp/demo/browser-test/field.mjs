@@ -121,15 +121,31 @@ const STATION_NAME = [210, 352]
 const STATION_COMMENT = [210, 428]
 const STATION_EE_LEFT = [102, 536]
 const STATION_SAVE = [317, 608]
-// The overflow menu lists the saved surveys between "Trip details" and "Demo cave", so Export
-// sits one row lower here than it does with an empty library. One saved survey by this point:
-// Swildons. Rows are 48px apart: New(80) Rename(128) Trip(176) Swildons(224) Demo(272)
-// Export(320) Dark(368).
-const MENU_TRIP = [312, 176]
-const MENU_SURVEY_DELETE = [392, 224]
-const MENU_EXPORT = [312, 320]
-const MENU_IMPORT_EMPTY_LIBRARY = [312, 320]
-const MENU_SURVEYING = [312, 416]
+// The overflow menu, by name rather than by pixel.
+//
+// It lists the saved surveys in the middle, so every row below them moves when the library grows,
+// and every row moves when a menu item is added. Both have happened repeatedly, and each time the
+// checks that clicked a hard-coded y went on passing while testing the wrong thing or failed
+// somewhere unrelated. Computing the row from the menu's own order means one list to update.
+const MENU_BEFORE_SURVEYS = ['new', 'rename', 'trip']
+const MENU_AFTER_SURVEYS = ['demo', 'export', 'instrument', 'import', 'surveying', 'dark']
+const MENU_FIRST_ROW_Y = 80
+const MENU_ROW_HEIGHT = 48
+
+const menuRowY = (index) => MENU_FIRST_ROW_Y + MENU_ROW_HEIGHT * index
+
+/** The row for a named item, given how many surveys the library is showing above it. */
+function menuRow(name, savedSurveys) {
+  const before = MENU_BEFORE_SURVEYS.indexOf(name)
+  const after = MENU_AFTER_SURVEYS.indexOf(name)
+  if (before < 0 && after < 0) throw new Error(`no menu item called ${name}`)
+  const index =
+    before >= 0 ? before : MENU_BEFORE_SURVEYS.length + savedSurveys + after
+  return [312, menuRowY(index)]
+}
+
+/** The delete cross on the nth saved survey's row, which sits at the right-hand edge. */
+const savedSurveyDelete = (nth) => [392, menuRowY(MENU_BEFORE_SURVEYS.length + nth)]
 const IMPORT_CHOOSE = [284, 494]
 const IMPORT_FIRST_ROW = [210, 446]
 const SETTING_DISTANCE = [210, 448]
@@ -393,7 +409,7 @@ if ((await connectingLegs()) !== beforeSloppy) {
 }
 
 await at(...OVERFLOW); await page.waitForTimeout(500)
-await at(...MENU_SURVEYING); await page.waitForTimeout(800)
+await at(...menuRow('surveying', 1)); await page.waitForTimeout(800)
 await retype(SETTING_DISTANCE, '0.5')
 await retype(SETTING_ANGLE, '12')
 await page.screenshot({ path: join(shotDir, 'field-surveying-settings.png') })
@@ -421,7 +437,7 @@ if (!savedSettings || !savedSettings.includes('maxAngleDelta=12')) {
 // dialog, every file this app produced went out anonymous. A survey that does not say who made it
 // cannot be checked against anybody's notebook.
 await at(...OVERFLOW); await page.waitForTimeout(500)
-await at(...MENU_TRIP); await page.waitForTimeout(800)
+await at(...menuRow('trip', 1)); await page.waitForTimeout(800)
 await at(...TRIP_ADD_NAME); await page.waitForTimeout(250)
 await page.keyboard.type('L. Waterworth', { delay: 15 })
 await at(...TRIP_ADD_BUTTON); await page.waitForTimeout(600)
@@ -449,7 +465,7 @@ if (!trip) {
 // again from a photograph of a screen.
 await at(...OVERFLOW); await page.waitForTimeout(500)
 await page.screenshot({ path: join(shotDir, 'field-menu.png') })
-await at(...MENU_EXPORT); await page.waitForTimeout(900)
+await at(...menuRow('export', 1)); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-export.png') })
 
 const download = await Promise.all([
@@ -573,7 +589,7 @@ await ctx.setOffline(false)
 // on a phone the delete control sits a few millimetres from the one that opens it — so it asks
 // first, and this checks that it asks.
 await at(...OVERFLOW); await page.waitForTimeout(600)
-await at(...MENU_SURVEY_DELETE); await page.waitForTimeout(700)
+await at(...savedSurveyDelete(0)); await page.waitForTimeout(700)
 await page.screenshot({ path: join(shotDir, 'field-confirm-delete-survey.png') })
 
 // A Cancel that missed its button would leave the dialog up and also leave the survey intact, so
@@ -588,7 +604,7 @@ if ((await savedLegs()).length !== beforeCancel.length) {
 }
 
 await at(...OVERFLOW); await page.waitForTimeout(600)
-await at(...MENU_SURVEY_DELETE); await page.waitForTimeout(700)
+await at(...savedSurveyDelete(0)); await page.waitForTimeout(700)
 await at(...CONFIRM_DELETE_SURVEY); await page.waitForTimeout(900)
 
 const left = await page.evaluate(() =>
@@ -608,7 +624,7 @@ if (left.length > 0) {
 // it exactly as iOS does with a file dropped into the Files app.
 await at(...OVERFLOW); await page.waitForTimeout(600)
 await page.screenshot({ path: join(shotDir, 'field-import-menu.png') })
-await at(...MENU_IMPORT_EMPTY_LIBRARY); await page.waitForTimeout(800)
+await at(...menuRow('import', 0)); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-import-dialog.png') })
 
 const chooser = page.waitForEvent('filechooser', { timeout: 8000 }).catch(() => null)

@@ -216,6 +216,25 @@ jobs:
         working-directory: kmp/demo/browser-test
         run: node field.mjs http://localhost:8731/index.html field-screenshots
 
+      # A radio, without a radio.
+      #
+      # CoreBluetoothTransport cannot be exercised anywhere - the iOS simulator has no Bluetooth
+      # stack - but Web Bluetooth is JavaScript, so a stub standing where navigator.bluetooth would
+      # be can behave exactly like a DistoX-BLE. That checks the entire chain the port has never
+      # been able to check: the profile's name prefix and UUIDs reaching the browser API, the
+      # notification arriving as a frame, the decoder reading it, the acknowledgement being written
+      # back, and three of them making a station. Everything except the radio itself.
+      - name: Test the instrument connection against a fake instrument
+        working-directory: kmp/demo/browser-test
+        run: node instrument.mjs http://localhost:8731/index.html instrument-screenshots
+
+      - name: Upload instrument screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrument-screenshots
+          path: kmp/demo/browser-test/instrument-screenshots/*.png
+
       - name: Upload field screenshots
         if: always()
         uses: actions/upload-artifact@v4

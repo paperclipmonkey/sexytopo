@@ -69,9 +69,37 @@ abstract class InstrumentDecoder {
                 else -> UnknownDecoder
             }
 
+        /**
+         * The original DistoX and DistoX2, which speak the classic protocol over RFCOMM.
+         *
+         * Not reachable by [forProfile], and deliberately: [InstrumentProfile] describes BLE
+         * devices, and no phone this port runs on can open an RFCOMM socket — iOS has no public
+         * API for Bluetooth Classic at all, and neither has any browser. It is here because
+         * [org.hwyl.sexytopo.shared.comms.sim.SimulatedInstrument] emits genuine classic packets,
+         * so the simulated instrument and a real one now decode through exactly the same layer
+         * rather than through two code paths that can drift.
+         */
+        fun classicDistoX(): InstrumentDecoder = ClassicDistoXDecoder()
+
         /** [InstrumentDecoder.driverName] for a profile this port has no driver for. */
         const val UNKNOWN_DRIVER = "unknown"
     }
+}
+
+/** The classic DistoX protocol: bare packets, and the same 0x55/0xD5 acknowledgement. */
+private class ClassicDistoXDecoder : InstrumentDecoder() {
+
+    override val driverName = "DistoX"
+
+    override fun decode(channel: FrameChannel, bytes: ByteArray): List<InstrumentPacket> =
+        if (bytes.isNotEmpty() && DistoXProtocol.isDataPacket(bytes)) {
+            listOf(InstrumentPacket.Measurement(DistoXProtocol.parseMeasurement(bytes)))
+        } else {
+            emptyList()
+        }
+
+    override fun acknowledgementFor(channel: FrameChannel, bytes: ByteArray): ByteArray? =
+        if (bytes.isEmpty()) null else DistoXProtocol.createAcknowledgementPacket(bytes)
 }
 
 /**

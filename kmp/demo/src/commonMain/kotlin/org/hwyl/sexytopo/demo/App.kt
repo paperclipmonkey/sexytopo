@@ -166,6 +166,7 @@ private fun SexyTopoAppBar(state: DemoState) {
     var editingTrip by remember { mutableStateOf(false) }
     var editingSettings by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
+    var connecting by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<String?>(null) }
 
     if (editingTrip) {
@@ -178,6 +179,10 @@ private fun SexyTopoAppBar(state: DemoState) {
                 state.noteSketchEdited()
             },
         )
+    }
+
+    if (connecting) {
+        InstrumentDialog(state = state, onDismiss = { connecting = false })
     }
 
     if (importing) {
@@ -366,6 +371,15 @@ private fun SexyTopoAppBar(state: DemoState) {
                     leadingIcon = { Text(if (state.screen == Screen.EXPORT) "✓" else " ") },
                     onClick = {
                         state.screen = Screen.EXPORT
+                        menuOpen = false
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Instrument…") },
+                    leadingIcon = { Text(if (state.session.connected) "✓" else " ") },
+                    onClick = {
+                        state.mode = SurveyMode.LIVE
+                        connecting = true
                         menuOpen = false
                     },
                 )

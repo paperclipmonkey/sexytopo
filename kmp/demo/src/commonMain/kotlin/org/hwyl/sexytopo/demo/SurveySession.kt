@@ -5,8 +5,13 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import org.hwyl.sexytopo.shared.comms.FrameChannel
+import org.hwyl.sexytopo.shared.comms.InstrumentDecoder
+import org.hwyl.sexytopo.shared.comms.InstrumentPacket
+import org.hwyl.sexytopo.shared.comms.InstrumentProfile
+import org.hwyl.sexytopo.shared.comms.InstrumentTransport
 import org.hwyl.sexytopo.shared.comms.InstrumentTransportListener
-import org.hwyl.sexytopo.shared.comms.distox.DistoXProtocol
+import org.hwyl.sexytopo.shared.comms.TransportSubscription
+import org.hwyl.sexytopo.shared.comms.measurements
 import org.hwyl.sexytopo.shared.comms.sim.SimulatedInstrument
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -17,9 +22,14 @@ import org.hwyl.sexytopo.shared.survey.SurveySettings
  * A live surveying session: readings arrive from an instrument, are decoded, and build the survey.
  *
  * This is the whole point of the app, and every layer it touches is the real ported code — the
- * simulated instrument emits genuine DistoX wire-format packets, [DistoXProtocol] decodes them the
- * way the Android driver does, and [SurveyUpdater] applies the real triple-shot promotion rule. The
- * only pretend part is the radio: [SimulatedInstrument] stands where CoreBluetooth would.
+ * decoders are the Android drivers' own, translated byte for byte, and [SurveyUpdater] applies the
+ * real triple-shot promotion rule.
+ *
+ * The radio is now the only thing that varies. A [SimulatedInstrument] emitting genuine classic
+ * DistoX packets and a CoreBluetooth or Web Bluetooth link to a real one both arrive here as an
+ * [InstrumentTransport] and a matching [InstrumentDecoder], and nothing below this line can tell
+ * them apart. That is deliberate: the simulated path is exercised on every push, so the shared
+ * half of the real one is too.
  *
  * Three mutually-agreeing readings promote to a new station, exactly as underground: a surveyor
  * shoots the same leg three times and the app decides they are the same shot.
@@ -28,7 +38,19 @@ class SurveySession(
     val survey: Survey,
     private val settings: SurveySettings = SurveySettings.DEFAULT,
 ) {
-    val instrument = SimulatedInstrument(script = fieldScript(), loop = true)
+    /** Kept so the demo's "Simulate" button can nudge it; a real instrument needs no such help. */
+    val simulator = SimulatedInstrument(script = fieldScript(), loop = true)
+
+    private var transport: InstrumentTransport = simulator
+    private var decoder: InstrumentDecoder = InstrumentDecoder.classicDistoX()
+
+    /** Which instrument is attached, for the connection screen. Null while simulated. */
+    var profile by mutableStateOf<InstrumentProfile?>(null)
+        private set
+
+    /** Set when a connection attempt fails, so the surveyor is told rather than left waiting. */
+    var failure by mutableStateOf<String?>(null)
+        private set
 
     /** Bumped whenever the survey changes, to drive recomposition of the canvas. */
     var revision by mutableIntStateOf(0)
@@ -51,7 +73,8 @@ class SurveySession(
         object : InstrumentTransportListener {
             override fun onConnected() {
                 connected = true
-                note("connected to the simulated instrument")
+                failure = null
+                note("connected to ${profile?.name ?: "the simulated instrument"}")
             }
 
             override fun onDisconnected(reason: String?) {
@@ -59,38 +82,115 @@ class SurveySession(
                 note("disconnected${reason?.let { ": $it" } ?: ""}")
             }
 
+            override fun onFailure(reason: String) {
+                connected = false
+                failure = reason
+                note(reason)
+            }
+
             override fun onFrame(channel: FrameChannel, bytes: ByteArray) {
-                if (!DistoXProtocol.isDataPacket(bytes)) return
+                val packets = decoder.decode(channel, bytes)
 
-                val leg = DistoXProtocol.parseMeasurement(bytes)
-                lastReading = leg
-                readingsTaken++
+                // Before anything else. Four of these instruments will not send the next shot
+                // until the last one is acknowledged, and a reply withheld because this port did
+                // not understand the frame looks, underground, exactly like a flat battery.
+                decoder.acknowledgementFor(channel, bytes)?.let { transport.send(it) }
 
-                val stationCreated = SurveyUpdater.update(survey, leg, settings = settings)
-                revision++
+                for (packet in packets) {
+                    if (packet is InstrumentPacket.DeviceFailure && packet.showToUser) {
+                        note("instrument: ${packet.description}")
+                    }
+                }
 
-                if (stationCreated) {
-                    note("station ${survey.activeStation.name} created from 3 readings")
-                } else {
-                    note("reading ${format(leg)}")
+                for (leg in packets.measurements()) {
+                    lastReading = leg
+                    readingsTaken++
+
+                    val stationCreated = SurveyUpdater.update(survey, leg, settings = settings)
+                    revision++
+
+                    if (stationCreated) {
+                        note("station ${survey.activeStation.name} created from 3 readings")
+                    } else {
+                        note("reading ${format(leg)}")
+                    }
                 }
             }
         }
 
-    private var subscription = instrument.observe(listener)
+    private var subscription: TransportSubscription = transport.observe(listener)
 
     fun connect() {
-        if (!connected) instrument.connect()
+        failure = null
+        if (!connected) transport.connect()
     }
 
     fun disconnect() {
-        if (connected) instrument.disconnect()
+        transport.disconnect()
+        connected = false
     }
 
-    /** Takes one reading, connecting first if needed. */
-    fun takeReading() {
+    /**
+     * Attaches a real instrument, replacing whatever was attached before.
+     *
+     * Returns false when the platform has no radio, which is not an error to report as a failure:
+     * the connection screen says why in words instead.
+     */
+    fun useInstrument(profile: InstrumentProfile): Boolean {
+        val transport = platformTransportFor(profile) ?: return false
+        attach(transport, InstrumentDecoder.forProfile(profile), profile)
         connect()
-        instrument.emitNextShot()
+        return true
+    }
+
+    /** Goes back to the simulated instrument, which is what the demo runs on. */
+    fun useSimulator() = attach(simulator, InstrumentDecoder.classicDistoX(), null)
+
+    /**
+     * Attaches a transport directly.
+     *
+     * Exists for tests: [useInstrument] goes through [platformTransportFor], which on every target
+     * a test can run on returns null, so there would otherwise be no way to exercise the half of
+     * this that a cave exercises.
+     */
+    internal fun attachForTest(transport: InstrumentTransport, decoder: InstrumentDecoder) =
+        attach(transport, decoder, null)
+
+    private fun attach(
+        transport: InstrumentTransport,
+        decoder: InstrumentDecoder,
+        profile: InstrumentProfile?,
+    ) {
+        // Unsubscribe and disconnect the old one first: a transport left observed goes on feeding
+        // readings into the survey from an instrument the surveyor thinks they have put away.
+        subscription.cancel()
+        runCatching { this.transport.disconnect() }
+
+        this.transport = transport
+        this.decoder = decoder
+        this.profile = profile
+        this.connected = false
+        this.failure = null
+        decoder.reset()
+        subscription = transport.observe(listener)
+        note(if (profile == null) "using the simulated instrument" else "connecting to ${profile.name}")
+    }
+
+    /**
+     * Lets a connection attempt time out.
+     *
+     * [org.hwyl.sexytopo.shared.comms.GattSession] holds the timeout policy and has no clock, and
+     * the transports deliberately schedule no timer of their own — an unbalanced one keeps the
+     * radio awake, which is worse than the failure it fixes. So the host calls this while the
+     * connection screen is open, which is also the only time anybody is waiting.
+     */
+    fun tick() = tickTransport(transport)
+
+    /** Takes one reading from the simulator, connecting first if needed. */
+    fun takeReading() {
+        if (transport !== simulator) useSimulator()
+        connect()
+        simulator.emitNextShot()
     }
 
     private fun note(message: String) {
