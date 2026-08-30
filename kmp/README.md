@@ -49,7 +49,9 @@ Being precise about this matters more than the demo looking good.
 | **The shared Compose UI links as an iOS framework** | **Verified** | `:demo:linkDebugFrameworkIosSimulatorArm64` — Compose's own Native klibs, the bundled font and the toolbar PNGs, resolved into the static framework `iosApp/` links against |
 | **The same code compiles for a real iPhone** | **Verified** | `:shared:compileKotlinIosArm64` and `:demo:linkDebugFrameworkIosArm64` — a separate Kotlin/Native target from the simulator, with its own platform libraries, so a green simulator build does not imply it |
 | The iOS app runs on a device | **Not verified** | needs Xcode, an Apple developer account and a physical phone |
-| `CoreBluetoothTransport` works | **Not verified** | it compiles now, and has still never talked to a radio; the simulator has no Bluetooth stack, so this needs a real instrument |
+| **The app can ask to connect to an instrument** | **Verified** | `instrument.mjs` in CI stands a stub where `navigator.bluetooth` would be and makes it behave like a DistoX-BLE: the profile's name prefix and UUIDs reach the browser API, the notification arrives as a frame, the decoder reads it, the acknowledgement goes back, and three readings make a station in a saved survey |
+| `CoreBluetoothTransport` works | **Not verified** | it compiles, it now has a caller, and it has still never talked to a radio; the simulator has no Bluetooth stack, so this needs a real instrument |
+| Web Bluetooth works against real hardware | **Not verified** | the chain is driven end to end against a fake instrument in CI; no real one has been near it |
 | The whole app runs in a browser | **Verified** | a headless-Chromium smoke test in CI loads the page, draws a stroke and undoes it |
 | The same UI builds and packages for **Android** | **Verified** | `:androidApp:assembleDebug` in CI; the APK is a build artifact |
 
@@ -59,9 +61,10 @@ GitHub provides free on public repositories. The Mac that gated this project tur
 job rather than a purchase.
 
 What remains unverified is now much narrower, and all of it needs hardware rather than a toolchain:
-the app running on a physical device, sketching latency under an Apple Pencil, and CoreBluetooth
-against a real instrument. The iOS *simulator* has no Bluetooth stack, so no amount of CI closes that
-last one.
+the app running on a physical device, sketching latency under an Apple Pencil, and either transport
+against a real instrument. The iOS *simulator* has no Bluetooth stack, so no amount of CI closes
+that last one — but a stub standing where `navigator.bluetooth` goes does close everything either
+side of the radio, from the profile's UUIDs to a station in a saved survey.
 
 **"Expect to fix something on the first real build" was right**, and worth recording precisely,
 because it is the calibration for everything else here. The first compile of `iosMain` found:
@@ -260,6 +263,10 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
 - **Match the tolerances to the instrument.** The defaults assume a DistoX; a compass and tape
   needs looser ones, and without that nothing ever promotes to a station. *Surveying* sets them,
   and they persist.
+- **Try an instrument.** *Instrument* offers the seven BLE families the port carries profiles for.
+  On iOS that is CoreBluetooth; in Chrome, including on Android, it is Web Bluetooth. Neither has
+  met real hardware — see the table above — but the acknowledgement handshake four of these
+  instruments need is implemented and tested, which is the part that fails silently.
 - **Take it home.** Survex, Therion, Compass, PocketTopo or the native JSON, dated from the phone's
   own clock, to the clipboard or to a real file with the right extension. On iOS the files land in
   the Files app under *On My iPhone → SexyTopo KMP*, because `UIFileSharingEnabled` is set.
@@ -273,11 +280,16 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
 
 Honest limits, so nothing is a surprise in a cave:
 
-- **No instrument.** `CoreBluetoothTransport` compiles and has never spoken to a DistoX; the iOS
-  simulator has no Bluetooth stack, so nothing in CI has exercised it either. Readings are typed —
-  which is exactly what the *Add reading* button is for.
+- **No instrument has been near it.** The app can now ask to connect — *Instrument* lists the
+  device families, and iOS uses CoreBluetooth while Chrome uses Web Bluetooth — and the whole chain
+  from profile to saved station is driven against a *fake* instrument in CI. No real one has been
+  tried on either platform, and the iOS simulator has no Bluetooth stack, so it cannot be. Expect to
+  type readings, which is what *Add reading* is for and which behaves identically.
 - **No cross-sections, no symbol palette, no calibration screen**, even though the logic under all
   three is ported and tested. The symbol artwork is SVG this port does not carry.
+- **The original DistoX and DistoX2 will never work here.** They speak Bluetooth Classic RFCOMM,
+  which iOS has no public API for and no browser implements. That is permanent, and not a gap this
+  project can close.
 - **This is a port, not the app.** Use it beside a notebook, not instead of one.
 
 ---
