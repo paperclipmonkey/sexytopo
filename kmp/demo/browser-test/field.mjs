@@ -106,6 +106,12 @@ const TRIP_ADD_BUTTON = [317, 336]
 const TRIP_ROLE_BOOK = [106, 298]
 const TRIP_INSTRUMENT = [210, 498]
 const TRIP_SAVE = [317, 810]
+const LABEL_TEXT = [210, 442]
+const LABEL_PLACE = [316, 518]
+// The sketch toolbar is nine equal columns; the bottom row's third cell is the label tool.
+const toolColumn = box.width / 9
+const TOOL_ROW_Y = box.height - 20
+const toolCell = (index) => [toolColumn * (index + 0.5), TOOL_ROW_Y]
 const CANCEL_DELETE_SURVEY = [237, 516]
 const CONFIRM_DELETE_SURVEY = [312, 516]
 const EXPORT_SAVE_FILE = [117, 132]
@@ -302,6 +308,34 @@ if (!sump) {
 } else {
   pass('a station can be named, commented and pointed the right way in the extended elevation')
 }
+
+// ---- and the words that are not numbers ----------------------------------------------------
+// "Boulder choke", "sump", "continues" — what a surveyor writes on the drawing rather than in the
+// table. The sketch model has carried text details since the port began and the canvas has always
+// drawn them; until now nothing could create one, and the toolbar button was disabled.
+await at(...toolCell(2)); await page.waitForTimeout(500)
+await at(200, 400); await page.waitForTimeout(700)
+await at(...LABEL_TEXT); await page.waitForTimeout(250)
+await page.keyboard.type('boulder choke', { delay: 15 })
+await page.screenshot({ path: join(shotDir, 'field-label.png') })
+await at(...LABEL_PLACE); await page.waitForTimeout(900)
+
+const labels = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  if (!key) return null
+  // "labels" is the key SketchJson writes, and the one the Android app reads.
+  return (JSON.parse(localStorage.getItem(key)).labels ?? []).map((label) => label.text)
+})
+if (labels === null) {
+  fail('the plan sketch was not saved at all')
+} else if (!labels.includes('boulder choke')) {
+  fail(`the label did not reach the saved sketch (labels: ${JSON.stringify(labels)})`)
+} else {
+  pass('a label can be written onto the sketch, and is saved with it')
+}
+
+// Back to drawing, so nothing after this places a label by accident.
+await at(...toolCell(1)); await page.waitForTimeout(400)
 
 // ---- who was on the trip ---------------------------------------------------------------
 // Every exporter in the port already knew how to write a team and a date; until there was a

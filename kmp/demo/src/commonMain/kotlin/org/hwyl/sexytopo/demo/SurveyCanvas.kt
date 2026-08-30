@@ -69,6 +69,15 @@ fun SurveyCanvas(
     onSketchEdit: () -> Unit = {},
     /** Returns true if the station was taken as the new active one. */
     onSelectStation: (String) -> Boolean = { false },
+    /**
+     * Where a label was asked for, in survey coordinates, together with the on-screen text size to
+     * use at the current zoom.
+     *
+     * A callback rather than a dialog raised from here, because typing needs a keyboard and the
+     * canvas is one composable deep inside a layout that has none. The host puts the dialog up and
+     * calls [SketchEditor.addText] when the surveyor has typed something.
+     */
+    onPlaceLabel: (Coord2D, Float) -> Unit = { _, _ -> },
 ) {
     val textMeasurer = rememberTextMeasurer()
     val fontFamily = LocalAppFontFamily.current
@@ -104,6 +113,21 @@ fun SurveyCanvas(
                             centroid.toCoord2D(),
                             panChange.toCoord2D(),
                             zoomChange,
+                        )
+                    }
+                }
+
+            SketchTool.TEXT ->
+                Modifier.pointerInput(scene, tool) {
+                    // Tap where the label goes. The size is converted from sp on screen into
+                    // metres in the survey, exactly as the symbol tool does, so a label keeps its
+                    // physical size in the cave rather than its size on the screen it was placed
+                    // on — zoom in afterwards and it grows with the passage, which is what makes
+                    // it a label on the drawing rather than an annotation on the display.
+                    detectTapGestures { offset ->
+                        onPlaceLabel(
+                            viewport.toSurvey(offset),
+                            viewport.toSurveyDistance(SketchDefaults.TEXT_STARTING_SIZE_SP.sp.toPx()),
                         )
                     }
                 }

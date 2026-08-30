@@ -116,13 +116,10 @@ fun SketchToolbar(
         Row(Modifier.fillMaxWidth()) {
             ToolButton(state, SketchTool.MOVE, painterResource(Res.drawable.move), "Move")
             ToolButton(state, SketchTool.DRAW, painterResource(Res.drawable.pencil), "Draw")
-            ToolbarButton(
-                painter = painterResource(Res.drawable.text),
-                description = "Symbol",
-                modifier = Modifier.weight(1f),
-                enabled = false,
-                onClick = {},
-            )
+            // The app's own button here is the symbol palette, whose artwork is SVG this port
+            // does not carry. The text tool is the half of it that needs no artwork, and is what a
+            // surveyor reaches for most often anyway: "sump", "boulder choke", "continues".
+            ToolButton(state, SketchTool.TEXT, painterResource(Res.drawable.text), "Label")
             ToolButton(state, SketchTool.ERASE, painterResource(Res.drawable.eraser), "Erase")
             ToolButton(state, SketchTool.SELECT, painterResource(Res.drawable.select), "Select")
 

@@ -41,6 +41,7 @@ import org.hwyl.sexytopo.demo.resources.elevation
 import org.hwyl.sexytopo.demo.resources.plan
 import org.hwyl.sexytopo.demo.resources.table
 import org.hwyl.sexytopo.shared.demo.ExampleSurvey
+import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
@@ -398,20 +399,50 @@ private fun ScreenContent(
                 editable = state.mode == SurveyMode.LIVE,
             )
         Screen.EXPORT -> ExportView(state.survey, state.revision, modifier)
-        Screen.SKETCH ->
-            SurveyCanvas(
-                survey = state.survey,
-                projection = state.projection,
-                options = state.displayOptions,
-                editor = editor,
-                canvas = canvas,
-                modifier = modifier,
-                tool = state.tool,
-                revision = state.revision,
-                onSketchEdit = { state.noteSketchEdited() },
-                onSelectStation = { state.selectStation(it) },
-            )
+        Screen.SKETCH -> SketchScreen(state, editor, canvas, modifier)
     }
+}
+
+/**
+ * The sketch, plus the one thing it cannot do for itself.
+ *
+ * The canvas reports *where* a label goes; typing *what* it says needs a keyboard, so the dialog
+ * lives out here where there is a layout to put one in.
+ */
+@Composable
+private fun SketchScreen(
+    state: DemoState,
+    editor: SketchEditor,
+    canvas: CanvasController,
+    modifier: Modifier,
+) {
+    // Position in survey coordinates, and the text size in metres for the current zoom.
+    var placing by remember { mutableStateOf<Pair<Coord2D, Float>?>(null) }
+
+    placing?.let { (position, size) ->
+        LabelDialog(
+            onDismiss = { placing = null },
+            onConfirm = { text ->
+                editor.addText(position, text, size)
+                placing = null
+                state.noteSketchEdited()
+            },
+        )
+    }
+
+    SurveyCanvas(
+        survey = state.survey,
+        projection = state.projection,
+        options = state.displayOptions,
+        editor = editor,
+        canvas = canvas,
+        modifier = modifier,
+        tool = state.tool,
+        revision = state.revision,
+        onSketchEdit = { state.noteSketchEdited() },
+        onSelectStation = { state.selectStation(it) },
+        onPlaceLabel = { position, size -> placing = position to size },
+    )
 }
 
 /**
