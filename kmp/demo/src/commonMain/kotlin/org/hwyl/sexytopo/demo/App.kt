@@ -130,19 +130,37 @@ fun App(
                 // the status and navigation bars, and on an iPhone there is a notch at one end and
                 // a home indicator at the other. Without this the app bar hides under the clock.
                 Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-                    SexyTopoAppBar(state)
+                    // Drawing inside a cross-section takes the whole screen, as it takes a whole
+                    // activity in the Android app: it is a different world with its own tools and
+                    // its own undo, and leaving the plan's toolbar under it would be a lie about
+                    // what the buttons do.
+                    val editing = state.editingCrossSection
+                    if (editing != null) {
+                        CrossSectionEditor(
+                            survey = state.survey,
+                            detail = editing,
+                            darkMode = state.darkMode,
+                            onCancel = { state.editingCrossSection = null },
+                            onDone = {
+                                state.editingCrossSection = null
+                                state.noteSketchEdited()
+                            },
+                        )
+                    } else {
+                        SexyTopoAppBar(state)
 
-                    ScreenContent(
-                        state,
-                        editor,
-                        canvas,
-                        Modifier.weight(1f).fillMaxWidth().heightIn(min = 120.dp),
-                    )
+                        ScreenContent(
+                            state,
+                            editor,
+                            canvas,
+                            Modifier.weight(1f).fillMaxWidth().heightIn(min = 120.dp),
+                        )
 
-                    FieldBar(state)
+                        FieldBar(state)
 
-                    if (state.screen == Screen.SKETCH) {
-                        SketchToolbar(state, editor, canvas)
+                        if (state.screen == Screen.SKETCH) {
+                            SketchToolbar(state, editor, canvas)
+                        }
                     }
                 }
             }
@@ -495,6 +513,7 @@ private fun SketchScreen(
         onSelectStation = { state.selectStation(it) },
         onPlaceLabel = { position, size -> placing = position to size },
         symbol = state.symbol,
+        onOpenCrossSection = { state.editingCrossSection = it },
     )
 }
 

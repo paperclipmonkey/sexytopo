@@ -218,6 +218,9 @@ const PALETTE_BLOCKS = [112, 388]
 const CANCEL_DELETE_SURVEY = [237, 516]
 const CONFIRM_DELETE_SURVEY = [312, 516]
 const EXPORT_SAVE_FILE = [117, 132]
+// The cross-section editor's own bar: Cancel at the left, Done at the right.
+const EDITOR_CANCEL = [46, 24]
+const EDITOR_DONE = [382, 24]
 
 // ---- the app opens on the demo cave, and offers a way out of it ------------------------
 // The first screen a new surveyor sees is an example survey that is deliberately never saved.
@@ -357,6 +360,53 @@ if (!aimedSection) {
   fail('re-aiming a cross-section also moved it')
 } else {
   pass('a cross-section can be re-aimed when the bearing the app guessed is wrong')
+}
+
+// ---- and drawn into --------------------------------------------------------------------
+// A star of splays is not a passage; the outline drawn round it is what makes it one. Tapping a
+// section opens its own editor, exactly as the Android app's does from any tool but pan and erase.
+await at(...toolCell(1)); await page.waitForTimeout(400)
+await at(210, 660); await page.waitForTimeout(1000)
+await page.screenshot({ path: join(shotDir, 'field-cross-section-editor.png') })
+
+const subSketchPaths = async () => {
+  const section = await firstSection()
+  return ((section?.sketch ?? {}).paths ?? []).length
+}
+const planPaths = () => page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  return key ? (JSON.parse(localStorage.getItem(key)).paths ?? []).length : -1
+})
+
+// Draw the passage outline and keep it.
+await drag([120, 400], [300, 400]); await page.waitForTimeout(400)
+await drag([300, 400], [300, 560]); await page.waitForTimeout(400)
+await page.screenshot({ path: join(shotDir, 'field-cross-section-drawn.png') })
+await at(...EDITOR_DONE); await page.waitForTimeout(1000)
+await page.screenshot({ path: join(shotDir, 'field-cross-section-done.png') })
+
+if ((await subSketchPaths()) < 2) {
+  fail('the passage outline drawn in the cross-section editor was not saved with the section')
+} else {
+  pass('the passage outline can be drawn inside a cross-section, and is saved with it')
+}
+
+// And now cancel one, which the editor can only honour because it draws into a copy.
+//
+// Both halves are asserted, and the second is what gives this teeth: if the editor had not opened
+// at all, these strokes would have landed on the *plan* instead — which is exactly the failure the
+// first version of this check could not tell apart from a working cancel.
+const planPathsBefore = await planPaths()
+await at(210, 660); await page.waitForTimeout(1000)
+await drag([120, 300], [300, 300]); await page.waitForTimeout(400)
+await at(...EDITOR_CANCEL); await page.waitForTimeout(1000)
+
+if ((await subSketchPaths()) !== 2) {
+  fail('cancelling the cross-section editor kept the stroke anyway')
+} else if ((await planPaths()) !== planPathsBefore) {
+  fail('the cross-section editor never opened — the stroke went onto the plan instead')
+} else {
+  pass('a stroke abandoned in the cross-section editor leaves both the section and the plan alone')
 }
 
 // Back to drawing, so nothing after this drops a section by accident.

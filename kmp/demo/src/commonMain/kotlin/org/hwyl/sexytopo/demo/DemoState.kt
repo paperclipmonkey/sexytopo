@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
+import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.BrushColour
@@ -94,6 +95,16 @@ class DemoState(
      * tool loaded — a surveyor stamps a dozen boulders in a row, not one.
      */
     var symbol by mutableStateOf(Symbol.ENTRANCE)
+
+    /**
+     * The cross-section whose own drawing is open, if any.
+     *
+     * The Android app makes this a separate activity; here it is a state that takes over the
+     * screen. Held on the state rather than inside the sketch screen so that it survives the
+     * screen being recomposed for any other reason - losing a half-drawn passage outline because
+     * a reading arrived would be its own bug.
+     */
+    var editingCrossSection by mutableStateOf<CrossSectionDetail?>(null)
 
     var showSplays by mutableStateOf(true)
     var showSketch by mutableStateOf(true)

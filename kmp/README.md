@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by over 550 tests. The UI
+Survex and Therion exporters and the native file format are ported and covered by over 570 tests. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
 tests the claim.
@@ -266,6 +266,11 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   finger landed. *Re-aim a cross-section* swings it round its station until it cuts the passage
   square; *Move a cross-section* slides it, drawing and all, off the centreline it is sitting on.
   Both preview under the finger, and what is previewed is what is committed.
+- **Draw the passage.** Tap a cross-section and it opens into its own screen — the same canvas,
+  tools, viewport and undo stack as the plan, over the section's own world: the station at the
+  origin and its splays around it. A star of splays is not a passage; the outline drawn round it,
+  joining the wall shots and closing the gaps where nobody took one, is what makes it one. *Cancel*
+  really does discard, because the editing happens in a copy.
 - **Say who was there.** Trip details records the date, the team and their roles, the instrument,
   and the copyright and licence terms, and every exporter writes them.
 - **Match the tolerances to the instrument.** The defaults assume a DistoX; a compass and tape
@@ -299,13 +304,9 @@ Honest limits, so nothing is a surprise in a cave:
   type readings, which is what *Add reading* is for and which behaves identically.
 - **No calibration screen**, even though the solver under it is ported and tested against the
   Android app's own two datasets.
-- **A cross-section cannot be drawn into.** It can be placed, re-aimed and moved — the bearing the
-  app guesses (bisect the corner mid-passage, follow the single leg at a dead end) is a guess, so
-  *Re-aim a cross-section* and *Move a cross-section* in the drawing menu let a surveyor overrule
-  both of its guesses. What is missing is the editor the Android app opens when you tap the section
-  itself, where the wall outline is drawn inside it. The model carries that sub-sketch and the SVG
-  exporter draws it, so a section imported from the Android app keeps its outline; there is just no
-  way to draw a new one here yet.
+- **A cross-section holds only lines.** It can be placed, re-aimed, moved and drawn into, but its
+  own editor keeps paths and drops symbols and labels on commit — which is what the Android app's
+  editor does too, so this matches rather than diverges.
 - **Browser storage can still be reclaimed.** The build asks for persistent storage at startup, but
   a browser may refuse — Chrome grants it silently only to a site you have engaged with or
   installed to the home screen. When it refuses, the export screen says so. On iOS this does not
@@ -336,6 +337,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `control/io/basic/*JsonTranslater` | `shared/io/` | Same tags, same tolerant two-pass load |
 | `control/graph/GraphView` — tools, viewport, hit-testing | `shared/sketch/` | Ported; the demo drives it |
 | `GraphView.handle{Move,Rotate}CrossSection` | `demo/.../CrossSectionDrag.kt` | One value drives the preview *and* the commit, so they cannot disagree |
+| `CrossSectionActivity`, `CrossSectionView` | `demo/.../CrossSectionEditor.kt` | The same canvas over the section's own world; `SurveyScene.forCrossSection` is the whole difference |
 | `control/graph/GraphView` — drawing and touch plumbing | `demo/.../SurveyCanvas.kt` | **Rewritten**, not ported |
 | `res/layout/activity_graph.xml` | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied |
 | `res/values/colors.xml` (+ `values-night`) | `demo/.../SexyTopoTheme.kt` | The app's own palette |
@@ -433,6 +435,15 @@ These are the things that would actually shape a real port.
    also dropped every cross-section. Both are the worst failure mode a survey app has: the file
    still opens, and what is missing is a branch of the cave. Anything reimplementing this format
    should start from the tests in `SurveyLoaderFidelityTest`.
+
+9. **A throw inside a Compose composition is invisible on the web.** The cross-section editor
+   appeared to do nothing at all: the tool ran, the hit test found the section, the state was set,
+   the composition took the right branch — and the screen went on showing the plan. It was throwing
+   during composition (`Survey.getSketch` rejects `CROSS_SECTION`, which the editor passes on
+   purpose), and on Kotlin/Wasm that neither raises a page error nor blanks the screen; the last
+   rendered frame simply stays up and stops updating. On Android the same mistake is a stack trace
+   in logcat. Anything debugging a Compose Multiplatform web app should assume "the UI did nothing"
+   means "something threw", and bisect by logging rather than by watching.
 
 ---
 

@@ -147,6 +147,29 @@ class Sketch {
 
     var activeColour: Colour = Colour.BLACK
 
+    /**
+     * A working copy: new lists, the same details.
+     *
+     * Ported from the Java copy constructor, shallow copies and all — its own comment says "shallow
+     * copies are OK here because paths are immutable", which is true of everything that matters:
+     * editing a sketch adds, removes or replaces details in the list rather than mutating a detail
+     * in place. (`PathDetail.lineTo` is the exception, and it is only ever called on a path the
+     * editor is still drawing, which by definition is not in a copy taken beforehand.)
+     *
+     * Used by the cross-section editor, which draws into a copy so that cancelling really does
+     * leave the original alone.
+     */
+    fun copy(): Sketch {
+        val copy = Sketch()
+        copy.pathDetails = pathDetails.toMutableList()
+        copy.symbolDetails = symbolDetails.toMutableList()
+        copy.textDetails = textDetails.toMutableList()
+        copy.crossSectionDetails = crossSectionDetails.toMutableList()
+        copy.crossSectionScale = crossSectionScale
+        copy.activeColour = activeColour
+        return copy
+    }
+
     fun startNewPath(start: Coord2D, colour: Colour = activeColour): PathDetail {
         val path = PathDetail(start, colour)
         pathDetails.add(path)

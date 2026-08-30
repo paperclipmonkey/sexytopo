@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import org.hwyl.sexytopo.shared.math.getDistance
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
+import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -86,6 +87,16 @@ fun SurveyCanvas(
     onPlaceLabel: (Coord2D, Float) -> Unit = { _, _ -> },
     /** Which symbol the stamp tool places. */
     symbol: Symbol = Symbol.ENTRANCE,
+    /**
+     * Draw this scene instead of building one from [survey] and [projection].
+     *
+     * The cross-section editor's surface is the same canvas over a different world: one station at
+     * the origin, its splays around it, and the section's own sub-sketch. Everything else — the
+     * viewport, the tools, the eraser, the undo stack — is the same code, which is the point.
+     */
+    sceneOverride: SurveyScene? = null,
+    /** Tapping a cross-section body, with the tools the Android app allows it from. */
+    onOpenCrossSection: (CrossSectionDetail) -> Unit = {},
 ) {
     val textMeasurer = rememberTextMeasurer()
     val fontFamily = LocalAppFontFamily.current
@@ -96,7 +107,18 @@ fun SurveyCanvas(
         with(LocalDensity.current) { SketchDefaults.SYMBOL_STARTING_SIZE_DP.dp.toPx() }
 
     // Reprojecting is pure and cheap; recompute when the survey, projection or sketch changes.
-    val scene = remember(survey, projection, revision) { SurveyScene.from(survey, projection) }
+    //
+    // Not computed at all when the caller has supplied its own scene, and that is load-bearing
+    // rather than an optimisation: the cross-section editor passes Projection2D.CROSS_SECTION, and
+    // `Survey.getSketch` throws for it — a cross-section is drawn from a station's splays, not from
+    // a sketch the survey holds. Building the scene eagerly threw inside the composition, which
+    // does not crash the page: the editor simply never appeared and the last frame stayed on
+    // screen, so the tool looked as though it did nothing at all.
+    val projected =
+        remember(survey, projection, revision, sceneOverride == null) {
+            if (sceneOverride == null) SurveyScene.from(survey, projection) else null
+        }
+    val scene = sceneOverride ?: projected!!
 
     val viewport = canvas.viewport
     val fit = canvas.fit
@@ -266,11 +288,29 @@ fun SurveyCanvas(
                     // app's own SELECTION_SENSITIVITY_DP, which is much larger than the eraser's -
                     // a station is a 10dp dot and a cold finger is not precise.
                     detectTapGestures { offset ->
+                        val where = viewport.toSurvey(offset)
+                        // A cross-section first, as in `GraphView.handleCrossSectionBodyTap`,
+                        // which runs before the tool's own handler. A section is parked in clear
+                        // space beside the passage, so it is rarely near enough to a station for
+                        // this to steal a selection.
+                        val section =
+                            if (options.showSketch) {
+                                findCrossSectionBodyAt(scene.sketch, where)
+                            } else {
+                                // Invisible sections cannot be tapped: the original's own first
+                                // guard, and the obvious one - nothing should open from a tap on
+                                // apparently empty paper.
+                                null
+                            }
+                        if (section != null) {
+                            onOpenCrossSection(section)
+                            return@detectTapGestures
+                        }
                         val reach =
                             viewport.toSurveyDistance(
                                 SketchDefaults.SELECTION_SENSITIVITY_DP.dp.toPx(),
                             )
-                        val chosen = scene.stationNearest(viewport.toSurvey(offset), reach)
+                        val chosen = scene.stationNearest(where, reach)
                         if (chosen != null && onSelectStation(chosen)) onSketchEdit()
                     }
                 }
@@ -303,30 +343,42 @@ fun SurveyCanvas(
                 }
 
             else ->
-                Modifier.pointerInput(scene, tool) {
-                    detectDragGestures(
-                        onDragStart = { offset ->
-                            editor.startPath(viewport.toSurvey(offset))
-                            strokeTick++
-                        },
-                        onDrag = { change, _ ->
-                            change.consume()
-                            editor.extendPath(viewport.toSurvey(change.position))
-                            strokeTick++
-                        },
-                        onDragEnd = {
-                            // finishPath simplifies the stroke and pushes one undo step; a stroke
-                            // of fewer than two points is still committed, as in the original,
-                            // because a tap is how you draw a dot.
-                            editor.finishPath()
-                            onSketchEdit()
-                        },
-                        onDragCancel = {
-                            editor.abandonPath()
-                            strokeTick++
-                        },
-                    )
-                }
+                Modifier
+                    // A tap on a cross-section opens it, as in the Android app, where the check
+                    // runs ahead of every tool but pan and erase. It costs nothing here: the draw
+                    // tool is a drag detector, which never fires for a tap, so the two do not
+                    // compete for the same gesture.
+                    .pointerInput(scene, tool) {
+                        detectTapGestures { offset ->
+                            if (!options.showSketch) return@detectTapGestures
+                            findCrossSectionBodyAt(scene.sketch, viewport.toSurvey(offset))
+                                ?.let(onOpenCrossSection)
+                        }
+                    }
+                    .pointerInput(scene, tool) {
+                        detectDragGestures(
+                            onDragStart = { offset ->
+                                editor.startPath(viewport.toSurvey(offset))
+                                strokeTick++
+                            },
+                            onDrag = { change, _ ->
+                                change.consume()
+                                editor.extendPath(viewport.toSurvey(change.position))
+                                strokeTick++
+                            },
+                            onDragEnd = {
+                                // finishPath simplifies the stroke and pushes one undo step; a
+                                // stroke of fewer than two points is still committed, as in the
+                                // original, because a tap is how you draw a dot.
+                                editor.finishPath()
+                                onSketchEdit()
+                            },
+                            onDragCancel = {
+                                editor.abandonPath()
+                                strokeTick++
+                            },
+                        )
+                    }
         }
 
     // Clipping is stated rather than inherited. `drawGrid` starts its first line at
@@ -455,8 +507,81 @@ class SurveyScene private constructor(
                 surveyBounds,
             )
         }
+
+        /**
+         * The world inside a cross-section: one station at the origin, its splays around it, and
+         * the sub-sketch being drawn into.
+         *
+         * Ported from `CrossSectionActivity.getProjection` and `CrossSectionView`. The coordinates
+         * are the section's own — station-relative, across-passage on x and height on y — not the
+         * plan's, which is why the section's [CrossSectionDetail.position] does not appear here at
+         * all. Every splay is a ray from the station, so the "legs" list is empty and the passage
+         * outline the surveyor is about to draw is the only thing that will join them up.
+         *
+         * @param working the sketch being edited, which is a copy of the section's own — see
+         *   [Sketch.copy].
+         */
+        fun forCrossSection(detail: CrossSectionDetail, working: Sketch): SurveyScene {
+            val projection = detail.crossSection.getProjection()
+            val station = detail.station
+            val splays =
+                projection.legMap.values.map { line -> line.start to line.end }
+
+            val points = buildList {
+                add(Coord2D.ORIGIN)
+                splays.forEach { add(it.first); add(it.second) }
+            }
+
+            return SurveyScene(
+                stations = listOf(station.name to Coord2D.ORIGIN),
+                legs = emptyList(),
+                splays = splays,
+                sketch = working,
+                // The station is highlighted here for the same reason it is on the plan: it is
+                // the fixed point everything in this view is measured from.
+                activeStationName = station.name,
+                bounds = crossSectionFitBounds(splays),
+                surveyBounds = Bounds.of(points),
+            )
+        }
     }
 }
+
+/**
+ * The box the cross-section editor opens onto.
+ *
+ * Ported from `CrossSectionView.autoFitZoom`, which sets the zoom so the longest splay occupies
+ * `AUTO_FIT_SCREEN_FRACTION` — 0.4 — of the smaller screen dimension. That fraction is doing real
+ * work: the wall outline is drawn *outside* the splay ends, so a view fitted tightly to the splays
+ * would open with nowhere to draw it.
+ *
+ * Expressed as a box rather than as a zoom because that is what this canvas's fit takes, and it
+ * comes to the same thing: fitting a box `longestSplay / 0.4` across into the smaller dimension
+ * gives exactly the Java's pixels per metre.
+ *
+ * A station with no splays at all — booked with no wall shots — gets a fixed few metres instead.
+ * The Java falls back to a fixed 60 pixels per metre there, which means a different number of
+ * metres on every phone; a fixed extent means the same passage-sized area on all of them.
+ */
+internal fun crossSectionFitBounds(splays: List<Pair<Coord2D, Coord2D>>): Bounds {
+    var longest = 0f
+    for ((start, end) in splays) {
+        longest = maxOf(longest, getDistance(start, end))
+    }
+    val halfExtent =
+        if (longest <= 0f) {
+            EMPTY_CROSS_SECTION_HALF_EXTENT
+        } else {
+            longest / (2f * CROSS_SECTION_SCREEN_FRACTION)
+        }
+    return Bounds(-halfExtent, -halfExtent, halfExtent, halfExtent)
+}
+
+/** `CrossSectionView.AUTO_FIT_SCREEN_FRACTION`. */
+private const val CROSS_SECTION_SCREEN_FRACTION = 0.4f
+
+/** Half the width, in metres, of the view opened onto a station with no splays to measure. */
+private const val EMPTY_CROSS_SECTION_HALF_EXTENT = 2.5f
 
 class DisplayOptions(
     val showSplays: Boolean = true,
