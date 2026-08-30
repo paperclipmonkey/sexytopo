@@ -258,6 +258,50 @@ const EXPORT_SAVE_FILE = [117, 232]
 const EXPORT_TH2_CHIP = [179, 130]
 // The cross-section editor's own bar: Cancel at the left, Done at the right.
 const EDITOR_CANCEL = [46, 24]
+// The station menu's first action row. Measured once from the rendered dialog, like the settings
+// screen above it; the dialog is centred, so adding an action moves every row.
+// The station menu's rows are found rather than hard-coded. A dialog is centred, so its rows move
+// with its height — and this dialog's height depends on the station: the origin has no incoming
+// leg and cannot be deleted, so it is two rows shorter than one in the middle of a passage. A
+// fixed y worked for whichever station happened to be tested and silently clicked the wrong item
+// for any other.
+const DIALOG_CARD = [236, 230, 240]
+const DIALOG_FIRST_ROW_FROM_TOP = 96
+
+const dialogTop = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, card]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    const isCard = (x, y) => {
+      const i = (y * c.width + x) * 4
+      return (
+        Math.abs(px[i] - card[0]) < 4 &&
+        Math.abs(px[i + 1] - card[1]) < 4 &&
+        Math.abs(px[i + 2] - card[2]) < 4
+      )
+    }
+    // The first row that is *mostly* card, rather than a long unbroken run down one column: the
+    // dialog's title sits a couple of dozen pixels below its top edge, so a column scan through
+    // the middle sees a run far shorter than a dialog with a paragraph in it, and a threshold
+    // tuned on one of them rejects the other. Counting across the row does not care what is
+    // written on the card.
+    for (let y = 0; y < c.height; y++) {
+      let count = 0
+      for (let x = 0; x < c.width; x++) if (isCard(x, y)) count++
+      if (count > c.width * 0.5) return y
+    }
+    return null
+  }, [b64, DIALOG_CARD])
+}
+
+
 // The 3D view's own bar: Close at the left, Reset at the right.
 const THREE_D_CLOSE = [42, 24]
 const EDITOR_DONE = [382, 24]
@@ -589,6 +633,124 @@ if (leftCorners.length !== 2 || rightCorners.length !== 2) {
 // Put the view back where it was, so nothing after this depends on where the corner pan left it.
 await at(...toolCell(5)); await page.waitForTimeout(500)
 await at(...drawingMenuRow('centre')); await page.waitForTimeout(700)
+
+// ---- any station can be got at, not just the active one -----------------------------------
+// Until the long-press menu existed, the only station a surveyor could name, comment or measure
+// was the *active* one, through the chip on the field bar. That is fine while the survey is being
+// pushed forward and useless the moment somebody wants to go back and write "sump" on a junction
+// they passed twenty minutes ago.
+//
+// The station to hold is found rather than guessed, from two things the app draws in colours
+// nothing else uses: the amber brackets round the active station, and the pure red of the
+// centreline. The far end of the centreline from the brackets is a station, and it is not the
+// active one — which is the whole point of the check.
+//
+// Two earlier attempts at this looked simpler and tested the wrong pixel. "The darkest-red pixel
+// furthest from the amber" found the brush palette's dark-red swatch in the toolbar; bounding the
+// scan to the sketch then found the *cross-section* dropped on the plan a few checks earlier,
+// which is drawn in the station colour too. Both times the press landed somewhere that is not a
+// station, the menu did not open, and the check that no stroke appeared passed anyway, because
+// neither a paint swatch nor a cross-section draws one.
+const stationSpots = async (fromY, toY) => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, top, bottom]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    const centreline = []
+    const amber = []
+    for (let y = top; y < bottom; y++) {
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        const [r, g, b] = [px[i], px[i + 1], px[i + 2]]
+        // `leg`: pure red. Splays are salmon, the latest leg magenta, stations and cross-sections
+        // a dark red — so a red channel this high with both others this low is the centreline and
+        // nothing else.
+        if (r > 230 && g < 60 && b < 60) centreline.push([x, y])
+        // `activeStationHighlight`: 0xFFC107.
+        if (r > 230 && g > 170 && g < 215 && b < 60) amber.push([x, y])
+      }
+    }
+    const mean = (points) => points.length === 0 ? null
+      : [Math.round(points.reduce((a, p) => a + p[0], 0) / points.length),
+         Math.round(points.reduce((a, p) => a + p[1], 0) / points.length)]
+    const active = mean(amber)
+    if (!active || centreline.length === 0) return { active, other: null }
+
+    let best = null
+    let bestDistance = -1
+    for (const [x, y] of centreline) {
+      const d = (x - active[0]) ** 2 + (y - active[1]) ** 2
+      if (d > bestDistance) { bestDistance = d; best = [x, y] }
+    }
+    return { active, other: Math.sqrt(bestDistance) > 60 ? best : null }
+  }, [b64, fromY, toY])
+}
+
+/** Press and hold, which is how the Android app reaches a station's menu. */
+async function longPress([x, y]) {
+  await page.mouse.move(box.x + x, box.y + y)
+  await page.mouse.down()
+  await page.waitForTimeout(900)
+  // The menu opens on the release, not on the hold — see the note in `detectLongPress` about a
+  // dialog put up under a finger that has not lifted yet.
+  await page.mouse.up()
+  await page.waitForTimeout(700)
+}
+
+// The sketch surface, from the corner squares found earlier: its top edge is the first one's top,
+// and its bottom edge is where the lower one ends.
+const sketchTop = leftCorners[0]?.top ?? 0
+const sketchBottom = (leftCorners[1]?.top ?? Math.round(box.height)) + cornerSide
+const spots = await stationSpots(sketchTop, sketchBottom)
+if (!spots.other) {
+  fail(`could not find a station on the plan that is not the active one (${JSON.stringify(spots)})`)
+} else {
+  const activeBefore = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
+    return key ? JSON.parse(localStorage.getItem(key)).activeStation : null
+  })
+  const strokesBefore = await planStrokes()
+
+  await longPress(spots.other)
+  await page.screenshot({ path: join(shotDir, 'field-station-menu.png') })
+
+  const menuTop = await dialogTop()
+  if (menuTop === null) {
+    fail(`holding a station did not open its menu (pressed ${JSON.stringify(spots.other)})`)
+    // A press that did not become a long press is a plain tap, and a tap near a cross-section
+    // opens its editor over everything that follows — so back out of whatever did happen.
+    await page.keyboard.press('Escape'); await page.waitForTimeout(400)
+    await at(...EDITOR_CANCEL); await page.waitForTimeout(600)
+  } else {
+    // The pencil is down: holding still must open the menu rather than leave a dot behind.
+    if ((await planStrokes()) !== strokesBefore) {
+      fail('holding a station with the draw tool active left a mark on the sketch')
+    } else {
+      pass('a station can be held down while drawing without marking the paper')
+    }
+
+    // The first row, which for a station that is not the active one is "Start the next leg here".
+    await at(210, menuTop + DIALOG_FIRST_ROW_FROM_TOP); await page.waitForTimeout(900)
+    const activeAfter = await page.evaluate(() => {
+      const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
+      return key ? JSON.parse(localStorage.getItem(key)).activeStation : null
+    })
+    if (activeAfter === activeBefore) {
+      fail(`the station menu did not move the active station (still ${activeAfter})`)
+    } else {
+      pass(
+        'any station can be reached from the sketch, not just the active one ' +
+          `(${activeBefore} -> ${activeAfter})`,
+      )
+    }
+  }
+}
 
 // Reads the saved survey back. The checks below assert against the file rather than the screen,
 // because the file is what the surveyor takes home and hands to Therion.

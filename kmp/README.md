@@ -43,6 +43,7 @@ Being precise about this matters more than the demo looking good.
 | The `.th2` and `.xvi` a Therion user actually needs come out of the app | **Verified** | golden tests on the scrap file and the tracing image, and `field.mjs` picks the `.th2` chip on a 420-pixel screen, saves the file and checks it has an encoding line, a named plan scrap and the `##XTHERION##` block that points it at the `.xvi` |
 | Compass `.dat` exports byte-identically | **Verified** | a golden captured by *running* the Android app's own exporter, not by reading it — which caught a transcription slip on the first attempt |
 | PocketTopo `.txt` exports the same survey data | **Verified** | its DATA section is golden against the Android app; its station sections deliberately diverge, because the Java's are not reproducible even against themselves |
+| **Any station can be reached from the sketch, not just the active one** | **Verified** | `StationMenuTest` for which actions a station offers — the origin has no incoming leg and no delete, cross-sections belong to the plan, a backsight is normalised the way the table normalises it — and `field.mjs` finds a station that is *not* the active one on the drawn plan, holds it, and checks that the menu moved the active station there without marking the paper |
 | **The drawing can be moved without putting the pencil down** | **Verified** | `MultiTouchTest` for the pinch arithmetic and the corner geometry, and `field.mjs` finds the corner squares on the drawn page, drags one, and checks the plan moved, that no stroke was left behind, and that the next stroke still draws — with no toolbar round trip |
 | A station being made can be felt rather than looked at | **Verified** | the callback fires once per station and not once per reading, the preference round-trips, and `field.mjs` turns it off through the settings screen and checks it stayed off |
 | The instrument log is kept, persisted and readable on the phone | **Verified** | `ActivityLogTest` for the bounded queues and the file format; `instrument.mjs` connects a fake DistoX-BLE, takes a calibration, and then reads the log back off the clipboard — count, timestamps and all |
@@ -383,6 +384,13 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
 - **Join the wall up.** *Snap to lines*, in the drawing menu, makes a new stroke start and finish
   exactly on the end of a nearby one. A passage wall is drawn as a series of strokes, and a wall
   with gaps in it is one no tracing tool downstream can close. Off by default, as in the app.
+- **Get at any station, not just the active one.** Hold a station on the sketch and its menu comes
+  up, whatever tool is in hand: start the next leg here, name and comment and measure it, draw or
+  open or delete its cross-section, edit or reverse or delete the leg that got here, or delete the
+  station and the passage beyond it. Before this the only station a surveyor could name was the
+  *active* one, through the chip on the field bar — fine while the survey is being pushed forward,
+  and useless the moment somebody wants to go back and write "sump" on a junction they passed
+  twenty minutes ago.
 - **Move the drawing without putting the pencil down.** A touch that starts in any of the four
   faint corner squares pans the sketch instead of marking it, and two fingers zoom it, whatever
   tool is selected — the app's own hot corners and its `ScaleGestureDetector`, which this port had
@@ -476,6 +484,7 @@ Honest limits, so nothing is a surprise in a cave:
 | Nordic `BleManager` subclasses | `shared/iosMain/.../CoreBluetoothTransport.kt` | The whole iOS Bluetooth surface |
 | `control/io/basic/*JsonTranslater` | `shared/io/` | Same tags, same tolerant two-pass load; the calibration file is interchangeable both ways |
 | `control/graph/GraphView` — tools, viewport, hit-testing, snap-to-lines | `shared/sketch/` | Ported; the demo drives it |
+| `res/menu/context_station.xml`, `ContextMenuManager`, `GraphView.LongPressListener` | `demo/.../StationMenu.kt`, `SurveyCanvas.detectLongPress` | A dialog rather than a menu anchored at the finger; the links submenu is out, since nothing here draws a neighbouring survey |
 | `GraphView.isModalMoveSelection`, `didEventHitHotCorner`, `ScaleListener` | `shared/sketch/MultiTouch.kt`, `SketchViewport.kt`, `demo/.../SurveyCanvas.kt` | Pan and zoom without leaving the tool; the fourth hot corner is drawn as well as tested |
 | `GraphView.handle{Move,Rotate}CrossSection` | `demo/.../CrossSectionDrag.kt` | One value drives the preview *and* the commit, so they cannot disagree |
 | `CrossSectionActivity`, `CrossSectionView` | `demo/.../CrossSectionEditor.kt` | The same canvas over the section's own world; `SurveyScene.forCrossSection` is the whole difference |
@@ -713,6 +722,17 @@ These are the things that would actually shape a real port.
    (`detectTransformGestures` fires for one), so the canvas now watches the pointers itself and
    consumes only once it has taken the gesture over, which is what lets the tool's own detector go
    on working untouched the rest of the time.
+
+24. **A dialog opened while the finger is still down is dismissed by that finger coming off.** The
+   station menu is reached by a long press, so on Android the menu appears under a finger that has
+   not yet lifted — which is fine there, because the view that detected the press has captured the
+   touch. In Compose the dialog goes up as a new layer immediately, the release lands on its scrim,
+   and the menu closes again. It looks like the app *nearly* having the feature: hold, and the menu
+   is there; let go, and it is gone. And it only happens when the press is somewhere the dialog
+   does not cover — near the bottom of the screen, which is exactly where the stations at the
+   working end of a survey are, so the first place anybody tries is the place it fails. The menu
+   here therefore opens on release rather than on the hold. Worth knowing before anybody wires a
+   long press to a dialog on this stack.
 
 ---
 

@@ -149,7 +149,21 @@ fun asTakenRows(survey: Survey): List<SurveyTableRow> {
     return rows
 }
 
-private fun rowFor(from: Station, leg: Leg): SurveyTableRow {
+/**
+ * The row for the leg that made [station], or null for the origin, which no leg made.
+ *
+ * The station menu on the sketch offers the incoming leg's actions — edit, reverse, comment,
+ * delete — and those are already written against a table row, because that is where they were
+ * first reachable from. Building the row here rather than duplicating the actions keeps one
+ * implementation of "what a leg looks like once a backwards shot has been normalised".
+ */
+fun incomingLegRow(survey: Survey, station: Station): SurveyTableRow? {
+    val leg = survey.getReferringLeg(station) ?: return null
+    val from = survey.getOriginatingStation(leg) ?: return null
+    return rowFor(from, leg)
+}
+
+internal fun rowFor(from: Station, leg: Leg): SurveyTableRow {
     val (fromName, toName, reading) =
         if (leg.wasShotBackwards) {
             Triple(leg.destination.name, from.name, leg.asBacksight())

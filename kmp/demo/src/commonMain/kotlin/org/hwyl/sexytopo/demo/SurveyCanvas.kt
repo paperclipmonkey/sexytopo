@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -106,6 +107,14 @@ fun SurveyCanvas(
     sceneOverride: SurveyScene? = null,
     /** Tapping a cross-section body, with the tools the Android app allows it from. */
     onOpenCrossSection: (CrossSectionDetail) -> Unit = {},
+    /**
+     * A station held under the finger, by name — the Android app's long-press station menu.
+     *
+     * Whatever tool is active, as in the original, where the long-press detector is consulted
+     * ahead of the tool. Left unset by the cross-section editor, which draws one station and has
+     * nothing to say about it.
+     */
+    onLongPressStation: (String) -> Unit = {},
 ) {
     val textMeasurer = rememberTextMeasurer()
     val fontFamily = LocalAppFontFamily.current
@@ -422,6 +431,35 @@ fun SurveyCanvas(
                     }
         }
 
+    // Hold a station to get at it. See [detectLongPress] for why this is not detectTapGestures,
+    // and why it sits between the tool's own detectors and the hot-corner one.
+    val longPress =
+        Modifier.pointerInput(scene, tool) {
+            // The station under the press, decided while the finger is still down and acted on
+            // when it lifts. One gesture loop, so a plain local is safe.
+            var held: String? = null
+            detectLongPress(
+                onHeld = { offset ->
+                    val reach =
+                        viewport.toSurveyDistance(SketchDefaults.SELECTION_SENSITIVITY_DP.dp.toPx())
+                    held = scene.stationNearest(viewport.toSurvey(offset), reach)
+                    if (held != null) {
+                        // `GraphView.LongPressListener` abandons the active path before showing
+                        // the menu: a stroke begun by the press that opened it is not a stroke
+                        // anybody meant to draw. Done now rather than on release, because the
+                        // stroke is on screen now.
+                        editor.abandonPath()
+                        strokeTick++
+                    }
+                    held != null
+                },
+                onReleased = {
+                    held?.let(onLongPressStation)
+                    held = null
+                },
+            )
+        }
+
     // Pan and zoom without leaving the current tool: see [detectModalMove]. Not installed over the
     // pan tool, which already does all of it with one finger and would end up handling a pinch
     // twice.
@@ -455,7 +493,7 @@ fun SurveyCanvas(
     // not appear, so something up the tree is already clipping. But "something up the tree" is a
     // layout change away from not being true, and the failure it would produce is the cave painting
     // over the app bar. One modifier is a cheap way not to depend on an ancestor for that.
-    Box(modifier = modifier.clipToBounds().then(gestures).then(modalMove)) {
+    Box(modifier = modifier.clipToBounds().then(gestures).then(longPress).then(modalMove)) {
         Canvas(Modifier.fillMaxSize()) {
             // Read both counters so a gesture or a toolbar button repaints; the values themselves
             // are not used.
@@ -1157,3 +1195,72 @@ private fun DrawScope.drawHotCorners(active: Boolean, palette: Palette) {
 
 /** `GraphView.FADED_ALPHA`, which is 0xff / 5, as a fraction. */
 private const val HOT_CORNER_ALPHA = 0.2f
+
+/**
+ * A press held still on the same spot, as `GraphView`'s `LongPressListener` does it.
+ *
+ * Hand-written rather than `detectTapGestures(onLongPress = …)`, for two reasons. That detector
+ * consumes the touch-down before deciding anything, and it also refuses a down somebody else has
+ * consumed — so two of them in one modifier chain cannot both work, and the draw tool already has
+ * one for opening a cross-section. And it offers no way to say "only if the press is on something":
+ * this has to hit-test a station at the moment the press qualifies and leave the gesture alone when
+ * there is nothing under it, or a long press on blank paper would swallow the touch.
+ *
+ * [onHeld] runs the moment the press qualifies and returns whether it wants the gesture. When it
+ * does, the rest of the touch is swallowed — the original's `menuShownInThisTouch` — so the lift
+ * that follows does not also count as a tap and select a station or drop a cross-section.
+ *
+ * [onReleased] runs when the finger comes off, and is where a dialog belongs. Opening one from
+ * [onHeld] puts it on screen under a finger that is still down, and the release then lands on the
+ * scrim and dismisses it again: on a phone the menu appears for as long as the surveyor keeps
+ * holding and vanishes the instant they let go, which reads as the app not having the feature.
+ * That only shows up when the press is somewhere the dialog will not cover — near the bottom of the
+ * screen, which is exactly where the stations at the working end of a survey are.
+ */
+internal suspend fun PointerInputScope.detectLongPress(
+    onHeld: (Offset) -> Boolean,
+    onReleased: (Offset) -> Unit,
+) {
+    awaitEachGesture {
+        // Consumed here means an inner handler took the gesture: a hot-corner pan, in practice.
+        val down = awaitFirstDown(requireUnconsumed = true)
+
+        val held =
+            try {
+                withTimeout(viewConfiguration.longPressTimeoutMillis) {
+                    var stillHeld = true
+                    while (stillHeld) {
+                        val event = awaitPointerEvent()
+                        val finger = event.changes.firstOrNull { it.id == down.id }
+                        stillHeld =
+                            finger != null &&
+                                finger.pressed &&
+                                !finger.isConsumed &&
+                                // A second finger is a pinch, not a long press.
+                                event.changes.count { it.pressed } == 1 &&
+                                (finger.position - down.position).getDistance() <=
+                                    viewConfiguration.touchSlop
+                    }
+                }
+                // The loop ended on its own, so the finger moved or lifted first.
+                false
+            } catch (_: PointerEventTimeoutCancellationException) {
+                true
+            }
+
+        if (held && onHeld(down.position)) {
+            // Consume *then* test, and consume every change rather than the pressed ones. The
+            // touch-up is the change that is no longer pressed, so a loop that filters for pressed
+            // changes first lets exactly one event through: the release. That is the one the tool's
+            // tap detector is waiting for — so the menu opened and, on the same touch, the tap
+            // underneath it opened a cross-section, which replaced the screen the menu was on. It
+            // looked like the menu never appearing.
+            while (true) {
+                val event = awaitPointerEvent()
+                for (change in event.changes) change.consume()
+                if (event.changes.none { it.pressed }) break
+            }
+            onReleased(down.position)
+        }
+    }
+}

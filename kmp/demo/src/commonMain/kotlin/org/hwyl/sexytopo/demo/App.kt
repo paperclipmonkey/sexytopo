@@ -564,6 +564,48 @@ private fun SketchScreen(
     // Position in survey coordinates, and the text size in metres for the current zoom.
     var placing by remember { mutableStateOf<Pair<Coord2D, Float>?>(null) }
 
+    // The station whose menu is open, held by name rather than by object: an edit that renames or
+    // deletes it rebuilds the survey's stations, and a menu holding the old object would go on
+    // offering actions against a station that is no longer in the survey.
+    var menuFor by remember { mutableStateOf<String?>(null) }
+
+    menuFor?.let { name ->
+        val station = state.survey.getStationByName(name)
+        if (station == null) {
+            menuFor = null
+        } else {
+            StationMenuDialog(
+                survey = state.survey,
+                station = station,
+                projection = state.projection,
+                sketch = editor.sketch,
+                onDismiss = { menuFor = null },
+                onEdited = {
+                    menuFor = null
+                    state.noteSketchEdited()
+                },
+                // `selectStation` only moves the marker; saving is the caller's job, as it is on
+                // the select tool's own path. Dropping the return value here meant the active
+                // station moved on screen and was back where it started after a restart.
+                onMakeActive = { if (state.selectStation(it.name)) state.noteSketchEdited() },
+                onOpenCrossSection = { state.editingCrossSection = it },
+                onCreateCrossSection = { at ->
+                    // Drawn beside the station rather than on top of it: the plan's own centreline
+                    // is under the finger that opened the menu, and a section dropped there covers
+                    // the passage it describes. The offset is the app's own starting section size,
+                    // so it lands clear of the line at any zoom.
+                    val position = crossSectionPositionFor(state.survey, at, state.projection)
+                    if (position != null) {
+                        editor.addCrossSection(sectionFor(state.survey, at), position)
+                        state.noteSketchEdited()
+                    }
+                    menuFor = null
+                },
+                onDeleteCrossSection = { editor.delete(it) },
+            )
+        }
+    }
+
     placing?.let { (position, size) ->
         LabelDialog(
             onDismiss = { placing = null },
@@ -589,6 +631,7 @@ private fun SketchScreen(
         onPlaceLabel = { position, size -> placing = position to size },
         symbol = state.symbol,
         onOpenCrossSection = { state.editingCrossSection = it },
+        onLongPressStation = { menuFor = it },
     )
 }
 

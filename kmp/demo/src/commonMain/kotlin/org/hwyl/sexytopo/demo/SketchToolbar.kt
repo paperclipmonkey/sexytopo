@@ -193,7 +193,9 @@ private fun DrawingMenu(
             },
         )
         // A menu item rather than a tenth button in a nine-column toolbar — and the app puts it in
-        // a menu too, on the station's own long-press menu, which this port has no equivalent of.
+        // a menu too, on the station's own long-press menu — which this port now has as well, in
+        // `StationMenu.kt`, though the symbol palette is not on it: a symbol is placed anywhere,
+        // not at a station.
         DropdownMenuItem(
             text = { Text("Symbol…") },
             leadingIcon = { CheckDot(state.tool == SketchTool.SYMBOL) },
