@@ -87,8 +87,8 @@ class DocumentsFileStore : FileStore {
         val data = fileManager.contentsAtPath(pathOf(path)) ?: return null
         val length = data.length.toInt()
         if (length == 0) return ByteArray(0)
-        val bytes = data.bytes ?: return null
-        return ByteArray(length) { index -> bytes.reinterpret<ByteVar>()[index] }
+        val start = data.bytes?.reinterpret<ByteVar>() ?: return null
+        return ByteArray(length) { index -> start[index] }
     }
 
     override fun createDirectory(path: List<String>) {
