@@ -39,6 +39,7 @@ Being precise about this matters more than the demo looking good.
 | **PocketTopo's own binary `.top` imports** | **Verified** | the format's primitives against the Android app's own `PocketTopoFileTest`, the shot-ordering and repeat-averaging rules against its `PocketTopoImporterTest` fixtures byte for byte, and its real `CeiledUp.top` — 12 stations, 68 legs, 203 strokes — read identically on the JVM, Kotlin/Wasm and Kotlin/Native, and through the file chooser in a browser |
 | A PocketTopo text export imports, drawing included | **Verified** | the Android app's own `FAKE_TEXT` fixture and its three assertions, on three targets, plus the four files that crash the Java |
 | A Survex or Therion file from other software imports | **Verified** | round-trip tests through the ported exporters, plus a `.svx` written by hand — team, date, backsights, splays, station comments and leg comments — and `field.mjs` brings one into the browser build end to end |
+| The `.th2` and `.xvi` a Therion user actually needs come out of the app | **Verified** | golden tests on the scrap file and the tracing image, and `field.mjs` picks the `.th2` chip on a 420-pixel screen, saves the file and checks it has an encoding line, a named plan scrap and the `##XTHERION##` block that points it at the `.xvi` |
 | Compass `.dat` exports byte-identically | **Verified** | a golden captured by *running* the Android app's own exporter, not by reading it — which caught a transcription slip on the first attempt |
 | PocketTopo `.txt` exports the same survey data | **Verified** | its DATA section is golden against the Android app; its station sections deliberately diverge, because the Java's are not reproducible even against themselves |
 | A station being made can be felt rather than looked at | **Verified** | the callback fires once per station and not once per reading, the preference round-trips, and `field.mjs` turns it off through the settings screen and checks it stayed off |
@@ -632,7 +633,16 @@ These are the things that would actually shape a real port.
    file, auto-named, with the rest of the import hanging off it. Two importers in the same package,
    one of which documents the trap the other falls into.
 
-16. **The vibrate-on-new-station setting says on and behaves as off.** `preferences_general.xml`
+16. **A Compose chip eats the drag that would scroll the row it is in.** Not a finding about the
+   Android app — about this port, and about Compose. The export screen offers eight formats, which
+   do not fit across a phone, so they sat in a horizontally scrolling row. A drag that *begins on a
+   chip* moves that row about thirty pixels and then stops, however far the finger goes; a drag
+   that begins in the gap between two chips scrolls it normally. A finger lands on a chip far more
+   often than in a gap, so in practice half the export formats could not be reached at all. Wrapping
+   the chips fixes it and needs no gesture. Worth knowing before putting a scrolling row of
+   `FilterChip`s anywhere a finger has to drag it.
+
+17. **The vibrate-on-new-station setting says on and behaves as off.** `preferences_general.xml`
    declares `android:defaultValue="true"` for `pref_vibrate_on_new_station`, so the checkbox on the
    settings screen appears ticked on a fresh install. But nothing in the app calls
    `PreferenceManager.setDefaultValues`, and a `defaultValue` is not written to `SharedPreferences`

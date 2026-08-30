@@ -3,6 +3,8 @@ package org.hwyl.sexytopo.demo
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -59,6 +61,7 @@ enum class ExportFormat(val label: String, val extension: String) {
  * emitter, whose golden tests assert it byte for byte against what the Android app writes, and the
  * JSON is the app's own native format — the same bytes the Android app would read back.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ExportView(
     survey: Survey,
@@ -125,12 +128,17 @@ fun ExportView(
         }
 
     Column(modifier.fillMaxSize()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp, vertical = 4.dp),
+        // Wrapped rather than scrolled sideways, which is what this was.
+        //
+        // Eight formats do not fit across a phone, and a row that scrolls hides four of them behind
+        // a gesture that does not work: a drag beginning on a chip is taken by the chip, moves the
+        // row about thirty pixels and stops. A finger lands on a chip far more often than in the
+        // gap between two, so half the export formats were, in practice, unreachable. Three rows of
+        // chips cost some height on a screen whose main content scrolls anyway.
+        FlowRow(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             for (f in ExportFormat.entries) {
                 FilterChip(format == f, { format = f }, { Text(f.label) })

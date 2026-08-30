@@ -240,7 +240,10 @@ async function drag([x0, y0], [x1, y1]) {
 const PALETTE_BLOCKS = [112, 388]
 const CANCEL_DELETE_SURVEY = [237, 516]
 const CONFIRM_DELETE_SURVEY = [312, 516]
-const EXPORT_SAVE_FILE = [117, 132]
+// The export screen's chips wrap to three rows on a phone, so Save file sits below all of them.
+const EXPORT_SAVE_FILE = [117, 232]
+// Second row, middle chip.
+const EXPORT_TH2_CHIP = [179, 130]
 // The cross-section editor's own bar: Cancel at the left, Done at the right.
 const EDITOR_CANCEL = [46, 24]
 // The 3D view's own bar: Close at the left, Reset at the right.
@@ -806,6 +809,39 @@ if (!download) {
   }
 }
 await page.screenshot({ path: join(shotDir, 'field-export-saved.png') })
+
+// ---- and every other format is reachable without a gesture ---------------------------------
+// Eight formats do not fit across a phone. They used to sit in a row that scrolled sideways, which
+// hid four of them behind a gesture that does not work — a drag beginning on a chip is taken by
+// the chip and moves the row about thirty pixels — so the chips now wrap. This exports the Therion
+// `.th2`, the last format that used to be off the edge, and the one with the most structure to get
+// wrong: it is the drawing rather than the centreline.
+await page.screenshot({ path: join(shotDir, 'field-export-formats.png') })
+await at(...EXPORT_TH2_CHIP); await page.waitForTimeout(700)
+await page.screenshot({ path: join(shotDir, 'field-export-th2.png') })
+
+const th2Download = await Promise.all([
+  page.waitForEvent('download', { timeout: 10000 }).catch(() => null),
+  at(...EXPORT_SAVE_FILE),
+]).then(([d]) => d)
+
+if (!th2Download) {
+  fail('the .th2 chip produced no download — the format may be off the edge of the screen again')
+} else if (th2Download.suggestedFilename() !== 'Swildons.th2') {
+  fail(`the .th2 came out named ${th2Download.suggestedFilename()}`)
+} else {
+  const th2 = readFileSync(await th2Download.path(), 'utf8')
+  if (!th2.includes('encoding utf-8')) {
+    fail('the .th2 has no encoding line, so Therion will not read it')
+  } else if (!th2.includes('scrap Swildons-plan')) {
+    fail(`the .th2 has no plan scrap: ${th2.slice(0, 200)}`)
+  } else if (!th2.includes('##XTHERION##') || !th2.includes('Swildons.xvi')) {
+    fail('the .th2 does not reference the tracing image it is meant to be drawn over')
+  } else {
+    pass('every export format can be reached on a phone, and the .th2 is right')
+  }
+}
+
 await at(...PLAN_TAB); await page.waitForTimeout(600)
 
 // ---- a leg shot from the far end goes in the right way round -------------------------------
