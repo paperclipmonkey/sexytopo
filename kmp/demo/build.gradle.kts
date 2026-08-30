@@ -48,6 +48,12 @@ kotlin {
         jvmTest.dependencies {
             implementation(kotlin("test"))
         }
+        // Runs on the iOS simulator, on the macOS runner. This is what turns `iosMain` from
+        // "compiles" into "works": DocumentsFileStore is hand-written Objective-C interop, and
+        // every way it can be wrong compiles perfectly.
+        iosTest.dependencies {
+            implementation(kotlin("test"))
+        }
         wasmJsMain.dependencies {
             implementation("org.jetbrains.kotlinx:kotlinx-browser:0.3")
         }

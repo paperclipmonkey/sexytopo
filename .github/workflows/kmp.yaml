@@ -132,6 +132,17 @@ jobs:
         working-directory: kmp
         run: ./gradlew :demo:linkDebugFrameworkIosSimulatorArm64
 
+      # The iOS half of the app, executed rather than merely compiled.
+      #
+      # Everything above proves iosMain gets past a compiler. Nothing above runs a line of it, and
+      # the ways hand-written Objective-C interop goes wrong - a selector that quietly returns nil,
+      # a directory never created, a write with the wrong encoding - all compile perfectly. If
+      # DocumentsFileStore is broken, a surveyor loses the trip and finds out on the way home.
+      # These run in the simulator, which costs a minute and answers it.
+      - name: Run the iOS platform code in a simulator
+        working-directory: kmp
+        run: ./gradlew :demo:iosSimulatorArm64Test
+
       # The phone, which is not the simulator.
       #
       # iosArm64 and iosSimulatorArm64 are separate Kotlin/Native targets with separate platform
@@ -148,7 +159,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ios-test-report
-          path: kmp/shared/build/reports/tests/
+          path: |
+            kmp/shared/build/reports/tests/
+            kmp/demo/build/reports/tests/
 
   # The whole stack in a real browser: the ported survey core, the shared Compose UI and Skia, all
   # compiled to WebAssembly and running somewhere with no java.* in it at all. Separate from the
