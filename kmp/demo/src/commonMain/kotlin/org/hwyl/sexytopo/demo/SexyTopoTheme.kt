@@ -71,6 +71,16 @@ object SexyTopoColours {
     val hotCornerNight = Color(0xFFB0B0B0)
 
     /**
+     * `legLatest`: the leg just taken, drawn instead of [leg] so the working end is findable.
+     *
+     * The app resolves it to `md_magenta`, which is full-strength `#FF00FF` — a colour nothing
+     * else in cave surveying uses, and deliberately so: against a page of red centreline it is the
+     * one leg you can pick out at arm's length, by head torch, without reading a single label.
+     * There is no night variant in the app and none is needed; magenta carries on either ground.
+     */
+    val latestLeg = Color(0xFFFF00FF)
+
+    /**
      * `legend`: the scale bar, the compass and the survey label — and nothing else.
      *
      * Not station names. `GraphView` draws those with `stationPaint`, i.e. in [station], which is

@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 671 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 683 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
@@ -45,6 +45,7 @@ Being precise about this matters more than the demo looking good.
 | PocketTopo `.txt` exports the same survey data | **Verified** | its DATA section is golden against the Android app; its station sections deliberately diverge, because the Java's are not reproducible even against themselves |
 | **The view can follow the survey as it grows** | **Verified** | the preference round-trips with every other one, and `field.mjs` turns *Follow the survey* on, promotes a station from three readings, and finds the active station's amber brackets within forty pixels of the middle of the sketch — an assertion about where the view ended up, not merely that the screen changed, which it would have anyway |
 | **A station can be found by name, and the last leg taken back** | **Verified** | `FindStationTest` — names and comments both searched, a station the survey no longer holds has no position rather than a crash, and the last leg is the last one *taken* rather than the last in any walk of the tree — and `field.mjs` finds a station on a phone screen and checks the view moved, then adds a splay, takes it back from the drawing menu and checks only it went |
+| **The plan says which end of the survey you are working at** | **Verified** | `CentrelineDisplayTest` and `DashedLineTest` — the mark follows the last reading *taken*, splay included, as the Java's own paint order does; a leg is matched by identity, because two shots down a straight passage read the same; a pitch is out of the plan's plane and in the extended elevation's; and a leg too short to dash draws nothing rather than one stub that would read as solid — plus `field.mjs` finds the app's magenta on the drawn plan, turns the mark off and checks every magenta pixel went, fades the rest of the cave and checks the drawing got lighter, then brings it back |
 | **A reading can be corrected, annotated, reversed or unmade** | **Verified** | `LegActionsTest` and `SurveyUpdaterTest` — which actions each row offers and what they do: a leg with splays hanging off its far end is not offered the downgrade `SurveyUpdater` would throw over, the first reading of a survey is not offered a promotion there is no leg above for, a leg the survey no longer holds answers "no" instead of throwing, and a comment marks the survey unsaved, which the Android app's own dialogs do not — and `field.mjs` counts what the menu offers a splay and a leg on a phone screen, writes a note against a leg, checks the table gains the app's dagger, and turns the shot end for end and back again |
 | **Any station can be reached from the sketch, not just the active one** | **Verified** | `StationMenuTest` for which actions a station offers — the origin has no incoming leg and no delete, cross-sections belong to the plan, a backsight is normalised the way the table normalises it — and `field.mjs` finds a station that is *not* the active one on the drawn plan, holds it, and checks that the menu moved the active station there without marking the paper |
 | **The drawing can be moved without putting the pencil down** | **Verified** | `MultiTouchTest` for the pinch arithmetic and the corner geometry, and `field.mjs` finds the corner squares on the drawn page, drags one, and checks the plan moved, that no stroke was left behind, and that the next stroke still draws — with no toolbar round trip |
@@ -438,6 +439,13 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   see it is the one you mean. The Android app does this without asking; this port asks, because the
   sketch has an undo stack and the *survey* does not, in either app — and on the Android drawing
   menu it sits one row from a display toggle.
+- **See which end of the survey you are working at.** On a plan that has grown past a screenful,
+  every red line looks like every other one. Three of the app's answers are here: the leg just
+  taken is drawn in its magenta; *Fade all but the working end* drops everything that does not hang
+  off the working station to a fifth alpha, without moving the view; and a leg that does not lie in
+  the plane being drawn — a pitch on a plan — is dashed rather than left as a stub indistinguishable
+  from a short crawl. A stamped stream comes out blue whatever the brush is set to, which is the
+  app's own rule and the convention of every published cave survey.
 - **Correct, annotate or unmake a reading.** Every row of the table, and the incoming leg on any
   station's menu, offers what the Android app's leg menu offers: edit the numbers, write a comment
   on it, reverse a shot booked the wrong way round, make a splay into a station or fold it into the
@@ -548,6 +556,9 @@ Honest limits, so nothing is a surprise in a cave:
 | `control/graph/GraphView` — tools, viewport, hit-testing, snap-to-lines | `shared/sketch/` | Ported; the demo drives it |
 | `GraphActivity.handleAutoRecentre`, `SketchPreferences.Toggle.AUTO_RECENTRE` | `demo/.../App.kt`, `CanvasController.centreOn` | Driven by a counter the canvas watches, because the viewport belongs to the canvas and the station-created event does not |
 | `action_find_station`, `StationSelectorDialog`, `buttonDeleteLastLeg` | `demo/.../FindStation.kt` | The list is shown rather than autocompleted, and comments are searched as well as names |
+| `GraphView.drawLegs`, `drawStations`, `drawDashedLine`, `isAttachedToActive` | `shared/sketch/DashedLine.kt`, `demo/.../SurveyCanvas.kt` (`SceneSegment`) | The facts about a leg are settled when the survey is projected, not inside the draw loop |
+| `GraphView.dpToPixels` on every drawn size | `demo/.../SurveyCanvas.kt` (`CanvasSizes`), `ThreeDView.kt` | Finding 28: a plain number in a `DrawScope` is a physical pixel, so the whole drawing was a third of its size on a phone |
+| `Sketch.addSymbolDetail`'s blue-water override | `shared/sketch/SymbolColour.kt` | A rule about a preference, kept out of the generated `Symbol` enum |
 | `res/menu/context_leg.xml`, `ContextMenuManager.configureMenuVisibility`, `SurveyEditorActivity`'s leg handlers | `demo/.../LegActions.kt`, `SurveyUpdater.can{Downgrade,PromoteToAbove}Leg` | An action that cannot work is left out rather than shown greyed out or answered with a toast |
 | `TableRowAdapter`'s `COMMENT_MARKER` | `demo/.../SurveyTableView.kt` | The dagger goes on the station the row *shows*, which for a backsight is not the one the leg starts at |
 | `res/menu/context_station.xml`, `ContextMenuManager`, `GraphView.LongPressListener` | `demo/.../StationMenu.kt`, `SurveyCanvas.detectLongPress` | A dialog rather than a menu anchored at the finger; the links submenu is out, since nothing here draws a neighbouring survey |
@@ -829,7 +840,21 @@ These are the things that would actually shape a real port.
    hard-code, and the check that locates its rows can then *assert on how many there are*, which is
    the thing actually worth checking.
 
-28. **A pixel threshold tuned on one glyph reports a working feature as broken.** The check that
+28. **A number in a `DrawScope` is a physical pixel, and the checks run where that does not
+   show.** Found while measuring the dashes: `DASHED_LINE_INTERVAL_DP` was being handed to the
+   drawing code as a plain `4f`, where the Android app puts every one of these through
+   `dpToPixels`. Looking for company found the whole canvas doing it — leg and splay widths,
+   station dots, cross-section marks, the grid, the scale bar, the eraser's reach ring, and the
+   same again in the 3D view. On a phone at three device pixels to the dp that is a cave drawn at a
+   third of its size: a hairline centreline and pinhead stations, with the station *names* beside
+   them the size they should be, because those are measured in `sp` and Compose does scale that.
+   The touch tolerances were all converted properly, which is what kept it hidden — the app would
+   have felt right and looked wrong. And nothing here could have caught it: the browser the checks
+   run in is at one device pixel to the dp, where every one of these numbers is its own conversion,
+   so the fix changes not a single pixel of any evidence in this repository. It is the one change
+   on this branch verified by reading rather than by running.
+
+29. **A pixel threshold tuned on one glyph reports a working feature as broken.** The check that
    the table gains a dagger against a commented leg counted pixels darker than 120 and found the
    cell unchanged — 66 before, 65 after — so the check failed while a screenshot of the same moment
    showed "† 5.420" perfectly legibly. A dagger at 12sp is one hairline stem and a crossbar, and at
@@ -861,6 +886,14 @@ the maintainer to judge:
 The same class of bug is in the Compass exporter, differently: its splay counter resets whenever
 the from-station changes, so a surveyor who shoots splays off a station, moves on, and later
 returns gets a second run numbered from zero and two splays sharing a name.
+
+A third, found porting the fade: **which stations come out faded depends on hash order.**
+`GraphView.drawStations` sets its paint to a fifth alpha, walks the station map, and sets the alpha
+back to solid when it reaches the active station — and never sets it down again. So every station
+that happens to be iterated *after* the active one is drawn solid too, and which those are is
+`Space`'s `HashMap` order over `Station`, which does not override `hashCode`. Turn the fade on
+twice in one run and the same cave can fade differently. The fix is one line — ask the question per
+station rather than carrying the answer between them — and this port asks it per station.
 
 A second one, found writing the leg menu and cheaper to fix: **a comment typed on a leg or a
 station is not saved unless something else is changed too.** `SurveyEditorActivity`'s two comment

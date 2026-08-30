@@ -48,6 +48,8 @@ import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.sketch.SketchViewport
 import org.hwyl.sexytopo.shared.sketch.centroidOf
+import org.hwyl.sexytopo.shared.sketch.colourForSymbol
+import org.hwyl.sexytopo.shared.sketch.dashesAlong
 import org.hwyl.sexytopo.shared.sketch.findCrossSectionBodyAt
 import org.hwyl.sexytopo.shared.sketch.hitsHotCorner
 import org.hwyl.sexytopo.shared.sketch.hotCornerSide
@@ -205,6 +207,14 @@ fun SurveyCanvas(
                         // a symbol keeps its size in the cave rather than on the display.
                         size = viewport.toSurveyDistance(symbolSizeInPixels),
                         angle = angle,
+                        // The app's own override: a water symbol is stamped blue whatever the
+                        // brush is set to, unless the surveyor has said otherwise.
+                        colour =
+                            colourForSymbol(
+                                symbol.therionName,
+                                editor.activeColour,
+                                options.blueWater,
+                            ),
                     )
                     onSketchEdit()
                 }
@@ -527,10 +537,33 @@ fun SurveyCanvas(
 }
 
 /** Everything the canvas needs, precomputed in survey space. */
+/**
+ * One drawn segment of the centreline, with the three things the display options ask about it.
+ *
+ * They are settled here rather than at draw time because they are questions about the *survey* —
+ * which station a leg hangs off, which reading was the last one taken, whether the leg lies in the
+ * plane being drawn — and by the time a segment reaches the canvas it is a pair of screen points
+ * with no leg behind it. The Java can afford to ask `survey.getMostRecentLeg() == leg` inside its
+ * draw loop because it still holds the leg; this port projects once and draws many times.
+ */
+class SceneSegment(
+    val start: Coord2D,
+    val end: Coord2D,
+    /** `GraphView.isAttachedToActive`: does it hang off the station the next leg starts from? */
+    val attachedToActive: Boolean = false,
+    /** `Survey.getMostRecentLeg`. True of a splay too, if that was the last reading taken. */
+    val isLatest: Boolean = false,
+    /** `Projection2D.isLegInPlane`. False means foreshortened, and drawn dashed. */
+    val inPlane: Boolean = true,
+) {
+    operator fun component1(): Coord2D = start
+    operator fun component2(): Coord2D = end
+}
+
 class SurveyScene private constructor(
     val stations: List<Pair<String, Coord2D>>,
-    val legs: List<Pair<Coord2D, Coord2D>>,
-    val splays: List<Pair<Coord2D, Coord2D>>,
+    val legs: List<SceneSegment>,
+    val splays: List<SceneSegment>,
     /** The live sketch, not a copy: a stroke in progress grows in place and draws as it goes. */
     val sketch: Sketch,
     /** Which station the next leg will start from; drawn with the app's amber brackets. */
@@ -575,10 +608,26 @@ class SurveyScene private constructor(
             val space = projection.project(survey)
 
             val stations = space.stationMap.map { (station, coord) -> station.name to coord }
-            val legs = mutableListOf<Pair<Coord2D, Coord2D>>()
-            val splays = mutableListOf<Pair<Coord2D, Coord2D>>()
+            val active = survey.activeStation
+            val latest = survey.mostRecentLeg
+            val legs = mutableListOf<SceneSegment>()
+            val splays = mutableListOf<SceneSegment>()
             for ((leg, line) in space.legMap) {
-                val segment = line.start to line.end
+                val segment =
+                    SceneSegment(
+                        start = line.start,
+                        end = line.end,
+                        // Identity, as in the Java: onwardLegs is a list of the legs themselves,
+                        // and Leg has no equals, so this asks whether the leg *is* one of the
+                        // active station's rather than whether it reads the same as one.
+                        attachedToActive = active.onwardLegs.any { it === leg },
+                        // Splays included, as in the Java: the test comes before the one that
+                        // picks the splay's own paint, so a wall shot that was the last thing
+                        // recorded is marked too. That is the right answer to "what did I just
+                        // take", which is what the mark is for.
+                        isLatest = leg === latest,
+                        inPlane = projection.isLegInPlane(leg),
+                    )
                 if (leg.hasDestination()) legs.add(segment) else splays.add(segment)
             }
 
@@ -586,8 +635,8 @@ class SurveyScene private constructor(
 
             val surveyPoints = buildList {
                 stations.forEach { add(it.second) }
-                legs.forEach { add(it.first); add(it.second) }
-                splays.forEach { add(it.first); add(it.second) }
+                legs.forEach { add(it.start); add(it.end) }
+                splays.forEach { add(it.start); add(it.end) }
             }
             val surveyBounds = Bounds.of(surveyPoints)
 
@@ -629,12 +678,17 @@ class SurveyScene private constructor(
         fun forCrossSection(detail: CrossSectionDetail, working: Sketch): SurveyScene {
             val projection = detail.crossSection.getProjection()
             val station = detail.station
+            // Every splay in a cross-section radiates from the station this view is centred on,
+            // so all of them are "attached to the active station" in the sense the fade asks
+            // about — which is why turning the fade on cannot empty this screen.
             val splays =
-                projection.legMap.values.map { line -> line.start to line.end }
+                projection.legMap.values.map { line ->
+                    SceneSegment(line.start, line.end, attachedToActive = true)
+                }
 
             val points = buildList {
                 add(Coord2D.ORIGIN)
-                splays.forEach { add(it.first); add(it.second) }
+                splays.forEach { add(it.start); add(it.end) }
             }
 
             return SurveyScene(
@@ -668,7 +722,7 @@ class SurveyScene private constructor(
  * The Java falls back to a fixed 60 pixels per metre there, which means a different number of
  * metres on every phone; a fixed extent means the same passage-sized area on all of them.
  */
-internal fun crossSectionFitBounds(splays: List<Pair<Coord2D, Coord2D>>): Bounds {
+internal fun crossSectionFitBounds(splays: List<SceneSegment>): Bounds {
     var longest = 0f
     for ((start, end) in splays) {
         longest = maxOf(longest, getDistance(start, end))
@@ -700,7 +754,69 @@ class DisplayOptions(
     val hotCorners: Boolean = AppPreferences.DEFAULT_HOT_CORNERS,
     /** Whether a two-fingered drag pans it too. Pinch-to-zoom does not depend on this. */
     val twoFingerMove: Boolean = AppPreferences.DEFAULT_TWO_FINGER_MOVE,
+    /**
+     * Whether everything but the working end of the survey is drawn at a fifth alpha.
+     * `SketchPreferences.Toggle.FADE_NON_ACTIVE`, off by default as it is in the app.
+     */
+    val fadeNonActive: Boolean = AppPreferences.DEFAULT_FADE_NON_ACTIVE,
+    /**
+     * Whether the leg just taken is drawn in magenta. `pref_highlight_latest_leg`, on by default.
+     */
+    val highlightLatestLeg: Boolean = AppPreferences.DEFAULT_HIGHLIGHT_LATEST_LEG,
+    /**
+     * Whether a stamped water symbol comes out blue whatever the brush is. Not a display option
+     * either — like [snapToLines] it changes what is created, not what is shown — but the Android
+     * app puts it on this same menu, so it arrives by the same route.
+     */
+    val blueWater: Boolean = AppPreferences.DEFAULT_BLUE_WATER,
 )
+
+/** `GraphView.FADED_ALPHA`, which is `0xff / 5` of full. */
+const val FADED_ALPHA = 0.2f
+
+/** `GraphView.DASHED_LINE_INTERVAL_DP`. */
+private const val DASH_INTERVAL_DP = 4f
+
+/**
+ * Every size on the drawing, in dp.
+ *
+ * They were plain numbers until this was written, and a plain number in a `DrawScope` is a
+ * *physical pixel*: on a phone at three device pixels to the dp the whole cave came out a third of
+ * the size it was drawn at, hairline centreline and pinhead stations, while the labels beside them
+ * — measured in `sp`, which Compose does scale — stayed the size they should be. Nothing here
+ * could catch it, because the browser the checks run in is at one device pixel to the dp and every
+ * number is its own conversion. The Android app converts all of these through `dpToPixels`.
+ *
+ * The numbers are the ones this canvas already used, reinterpreted, so the drawing is unchanged at
+ * density 1 and correct everywhere else. The Java's own leg width is 2 dp against the 2.5 here.
+ */
+private object CanvasSizes {
+    const val LEG_STROKE_DP = 2.5f
+    const val SPLAY_STROKE_DP = 1f
+    const val SKETCH_STROKE_DP = 2f
+    const val STATION_RADIUS_DP = 3.5f
+    const val SYMBOL_FALLBACK_RADIUS_DP = 4f
+    const val THIN_STROKE_DP = 1.5f
+    const val CROSS_SECTION_STROKE_DP = 1.2f
+    const val CROSS_SECTION_RADIUS_DP = 2.5f
+    const val AIMING_LINE_DP = 1f
+    /** Where a station's name sits relative to its dot. */
+    const val LABEL_RIGHT_DP = 5f
+    const val LABEL_UP_DP = 14f
+}
+
+/** How far in from the top-right corner the eraser's reach is shown. */
+private const val ERASER_INSET_DP = 40f
+
+/** The faint metre grid. */
+private const val GRID_STROKE_DP = 1f
+
+/** The scale bar: the rule itself, its two end ticks, and where its label sits. */
+private const val SCALE_BAR_TARGET_DP = 120f
+private const val SCALE_BAR_LEFT_DP = 24f
+private const val SCALE_BAR_STROKE_DP = 2f
+private const val SCALE_BAR_TICK_DP = 5f
+private const val SCALE_BAR_LABEL_UP_DP = 24f
 
 /**
  * The four amber corner brackets the app puts round the station the next leg will start from.
@@ -759,17 +875,18 @@ private fun DrawScope.drawGrid(viewport: SketchViewport, palette: Palette) {
     val rows = (bottomRight.y - topLeft.y) / spacing
     if (!columns.isFinite() || !rows.isFinite() || columns > 400f || rows > 400f) return
 
+    val gridStroke = GRID_STROKE_DP.dp.toPx()
     var x = floor(topLeft.x / spacing) * spacing
     while (x <= bottomRight.x) {
         val screenX = viewport.toScreen(Coord2D(x, topLeft.y)).x
-        drawLine(palette.grid, Offset(screenX, 0f), Offset(screenX, size.height), 1f)
+        drawLine(palette.grid, Offset(screenX, 0f), Offset(screenX, size.height), gridStroke)
         x += spacing
     }
 
     var y = floor(topLeft.y / spacing) * spacing
     while (y <= bottomRight.y) {
         val screenY = viewport.toScreen(Coord2D(topLeft.x, y)).y
-        drawLine(palette.grid, Offset(0f, screenY), Offset(size.width, screenY), 1f)
+        drawLine(palette.grid, Offset(0f, screenY), Offset(size.width, screenY), gridStroke)
         y += spacing
     }
 }
@@ -804,9 +921,41 @@ private fun DrawScope.drawSurvey(
         drawGrid(viewport, palette)
     }
 
+    // How the Java decides what a segment looks like, in one place rather than three: faded if the
+    // fade is on and it does not hang off the working station, magenta if it is the reading just
+    // taken, and dashed if it does not lie in the plane being drawn.
+    fun drawSegment(segment: SceneSegment, base: Color, width: Float) {
+        val colour =
+            if (options.fadeNonActive && !segment.attachedToActive) {
+                base.copy(alpha = FADED_ALPHA)
+            } else {
+                base
+            }
+        val start = project(segment.start)
+        val end = project(segment.end)
+        if (segment.inPlane) {
+            drawLine(colour, start, end, width, StrokeCap.Round)
+            return
+        }
+        val dashLength = DASH_INTERVAL_DP.dp.toPx()
+        for ((from, to) in dashesAlong(start.toCoord2D(), end.toCoord2D(), dashLength)) {
+            drawLine(colour, from.toOffset(), to.toOffset(), width, StrokeCap.Round)
+        }
+    }
+
+    // The magenta is tested here as well as on the legs because the Java asks
+    // `getMostRecentLeg() == leg` *before* it asks whether the reading is a splay, so a wall shot
+    // that was the last thing taken is marked too. Drawing splays in their own loop is what made
+    // it easy to miss: the branch that existed in one place in the original exists in two here.
     if (options.showSplays) {
-        for ((start, end) in scene.splays) {
-            drawLine(palette.splay, project(start), project(end), 1f, StrokeCap.Round)
+        for (splay in scene.splays) {
+            val base =
+                if (options.highlightLatestLeg && splay.isLatest) {
+                    palette.latestLeg
+                } else {
+                    palette.splay
+                }
+            drawSegment(splay, base, CanvasSizes.SPLAY_STROKE_DP.dp.toPx())
         }
     }
 
@@ -815,19 +964,39 @@ private fun DrawScope.drawSurvey(
             if (detail.path.size < 2) continue
             val colour = detail.getDrawColour(options.darkMode)
             if (!colour.isDrawable) continue
-            drawPolyline(detail.path.map(::project), Color(colour.intValue), 2f)
+            drawPolyline(
+                detail.path.map(::project),
+                Color(colour.intValue),
+                CanvasSizes.SKETCH_STROKE_DP.dp.toPx(),
+            )
         }
     }
 
     // Centreline on top of the sketch, as in the original.
-    for ((start, end) in scene.legs) {
-        drawLine(palette.centreline, project(start), project(end), 2.5f, StrokeCap.Round)
+    for (leg in scene.legs) {
+        val base =
+            if (options.highlightLatestLeg && leg.isLatest) palette.latestLeg else palette.centreline
+        drawSegment(leg, base, CanvasSizes.LEG_STROKE_DP.dp.toPx())
     }
 
     for ((name, coord) in scene.stations) {
         val centre = project(coord)
-        drawCircle(palette.station, radius = 3.5f, center = centre)
-        if (name == scene.activeStationName) {
+        val isActive = name == scene.activeStationName
+        // The Java sets the paint's alpha to solid when it reaches the active station and never
+        // sets it back, so which stations come out faded depends on where the active one falls in
+        // a HashMap's iteration order — see the README. Here the question is asked per station.
+        val stationColour =
+            if (options.fadeNonActive && !isActive) {
+                palette.station.copy(alpha = FADED_ALPHA)
+            } else {
+                palette.station
+            }
+        drawCircle(
+            stationColour,
+            radius = CanvasSizes.STATION_RADIUS_DP.dp.toPx(),
+            center = centre,
+        )
+        if (isActive) {
             drawActiveStationHighlight(centre, palette)
         }
         if (options.showStationLabels &&
@@ -838,7 +1007,14 @@ private fun DrawScope.drawSurvey(
                     name,
                     TextStyle(color = palette.stationLabel, fontSize = 9.sp, fontFamily = fontFamily),
                 )
-            drawText(layout, topLeft = Offset(centre.x + 5f, centre.y - 14f))
+            drawText(
+                layout,
+                topLeft =
+                    Offset(
+                        centre.x + CanvasSizes.LABEL_RIGHT_DP.dp.toPx(),
+                        centre.y - CanvasSizes.LABEL_UP_DP.dp.toPx(),
+                    ),
+            )
         }
     }
 
@@ -868,7 +1044,12 @@ private fun DrawScope.drawSurvey(
             if (artwork == null) {
                 // A symbol from a newer version of the app. Better a mark than nothing: the
                 // surveyor put something there and the file still round-trips it.
-                drawCircle(palette.symbol, radius = 4f, center = centre, style = Stroke(1.5f))
+                drawCircle(
+                    palette.symbol,
+                    radius = CanvasSizes.SYMBOL_FALLBACK_RADIUS_DP.dp.toPx(),
+                    center = centre,
+                    style = Stroke(CanvasSizes.THIN_STROKE_DP.dp.toPx()),
+                )
                 continue
             }
 
@@ -908,11 +1089,15 @@ private fun DrawScope.drawSurvey(
                         centre.x + end.x * viewport.pixelsPerMetre,
                         centre.y + end.y * viewport.pixelsPerMetre,
                     ),
-                    1.2f,
+                    CanvasSizes.CROSS_SECTION_STROKE_DP.dp.toPx(),
                     StrokeCap.Round,
                 )
             }
-            drawCircle(colour, radius = 2.5f, center = centre)
+            drawCircle(
+                colour,
+                radius = CanvasSizes.CROSS_SECTION_RADIUS_DP.dp.toPx(),
+                center = centre,
+            )
         }
 
         // While re-aiming, the line the section is being aimed along: station to finger. Without
@@ -924,7 +1109,7 @@ private fun DrawScope.drawSurvey(
                     palette.symbol,
                     project(pivot),
                     project(sectionDrag.finger),
-                    1f,
+                    CanvasSizes.AIMING_LINE_DP.dp.toPx(),
                     StrokeCap.Round,
                 )
             }
@@ -935,9 +1120,9 @@ private fun DrawScope.drawSurvey(
         // The eraser's real reach, drawn at the size a tap would actually clear.
         drawCircle(
             palette.station,
-            radius = SketchDefaults.DELETE_DETAILS_WITHIN_DP,
-            center = Offset(size.width - 40f, 40f),
-            style = Stroke(1.5f),
+            radius = SketchDefaults.DELETE_DETAILS_WITHIN_DP.dp.toPx(),
+            center = Offset(size.width - ERASER_INSET_DP.dp.toPx(), ERASER_INSET_DP.dp.toPx()),
+            style = Stroke(CanvasSizes.THIN_STROKE_DP.dp.toPx()),
         )
     }
 
@@ -967,8 +1152,8 @@ private fun DrawScope.drawScaleBar(
 ) {
     if (!pixelsPerMetre.isFinite() || pixelsPerMetre <= 0f) return
 
-    // Choose a round number of metres landing near 120px.
-    val rawMetres = 120f / pixelsPerMetre
+    // Choose a round number of metres whose bar lands near the target length.
+    val rawMetres = SCALE_BAR_TARGET_DP.dp.toPx() / pixelsPerMetre
     if (!rawMetres.isFinite() || rawMetres <= 0f) return
     val magnitude = 10f.pow(floor(log10(rawMetres)))
     val metres =
@@ -977,17 +1162,24 @@ private fun DrawScope.drawScaleBar(
 
     val barPixels = metres * pixelsPerMetre
     if (!barPixels.isFinite() || barPixels > size.width) return
-    val left = 24f
-    val bottom = size.height - 24f
+    val left = SCALE_BAR_LEFT_DP.dp.toPx()
+    val bottom = size.height - SCALE_BAR_LABEL_UP_DP.dp.toPx()
+    val stroke = SCALE_BAR_STROKE_DP.dp.toPx()
+    val tick = SCALE_BAR_TICK_DP.dp.toPx()
 
-    drawLine(palette.scaleBar, Offset(left, bottom), Offset(left + barPixels, bottom), 2f)
-    drawLine(palette.scaleBar, Offset(left, bottom - 5f), Offset(left, bottom + 5f), 2f)
-    drawLine(palette.scaleBar, Offset(left + barPixels, bottom - 5f), Offset(left + barPixels, bottom + 5f), 2f)
+    drawLine(palette.scaleBar, Offset(left, bottom), Offset(left + barPixels, bottom), stroke)
+    drawLine(palette.scaleBar, Offset(left, bottom - tick), Offset(left, bottom + tick), stroke)
+    drawLine(
+        palette.scaleBar,
+        Offset(left + barPixels, bottom - tick),
+        Offset(left + barPixels, bottom + tick),
+        stroke,
+    )
 
     val label = if (metres >= 1f) "${metres.roundToInt()} m" else "${(metres * 100).roundToInt()} cm"
     val layout =
         textMeasurer.measure(label, TextStyle(color = palette.scaleBar, fontSize = 11.sp, fontFamily = fontFamily))
-    drawText(layout, topLeft = Offset(left, bottom - 24f))
+    drawText(layout, topLeft = Offset(left, bottom - SCALE_BAR_LABEL_UP_DP.dp.toPx()))
 }
 
 class Palette(
@@ -1003,6 +1195,8 @@ class Palette(
     val activeStation: Color,
     /** `R.color.hotCorner`, drawn at a fifth alpha. The active tint is [activeStation]'s amber. */
     val hotCorner: Color,
+    /** `R.color.legLatest`, which the app resolves to `md_magenta`. */
+    val latestLeg: Color,
 )
 
 /**
@@ -1026,6 +1220,7 @@ private val LightPalette =
         grid = SexyTopoColours.grid,
         activeStation = SexyTopoColours.activeStation,
         hotCorner = SexyTopoColours.hotCorner,
+        latestLeg = SexyTopoColours.latestLeg,
     )
 
 private val DarkPalette =
@@ -1041,6 +1236,7 @@ private val DarkPalette =
         grid = SexyTopoColours.gridNight,
         activeStation = SexyTopoColours.activeStationNight,
         hotCorner = SexyTopoColours.hotCornerNight,
+        latestLeg = SexyTopoColours.latestLeg,
     )
 
 /**
@@ -1187,14 +1383,13 @@ internal suspend fun PointerInputScope.detectModalMove(
 private fun DrawScope.drawHotCorners(active: Boolean, palette: Palette) {
     val side = hotCornerSide(size.width, size.height)
     if (side <= 0f) return
-    val colour = (if (active) palette.activeStation else palette.hotCorner).copy(alpha = HOT_CORNER_ALPHA)
+    val colour = (if (active) palette.activeStation else palette.hotCorner).copy(alpha = FADED_ALPHA)
     for (corner in hotCornerTopLefts(size.width, size.height)) {
         drawRect(colour, topLeft = Offset(corner.x, corner.y), size = Size(side, side))
     }
 }
 
 /** `GraphView.FADED_ALPHA`, which is 0xff / 5, as a fraction. */
-private const val HOT_CORNER_ALPHA = 0.2f
 
 /**
  * A press held still on the same spot, as `GraphView`'s `LongPressListener` does it.

@@ -293,6 +293,47 @@ private fun DrawingMenu(
                 )
             },
         )
+        // `sketch_menu_blue_water`, on by its own default. Water is drawn blue on every published
+        // cave survey there has ever been, and a surveyor with the brush set to black for wall
+        // outlines should not have to change it and change it back to stamp a stream.
+        DropdownMenuItem(
+            text = { Text("Water is blue") },
+            leadingIcon = { CheckDot(state.preferences.blueWater) },
+            onClick = {
+                state.updatePreferences(
+                    state.preferences.copy(blueWater = !state.preferences.blueWater),
+                )
+            },
+        )
+        // `sketch_menu_fade_non_active`, off by its default. The question a surveyor keeps asking
+        // of a plan is "where am I on this", and in a cave of any size a page of red lines does
+        // not answer it. Fading everything that does not hang off the working station does,
+        // without moving the view — which matters, because the part of the sketch they are drawing
+        // is the part they are standing in.
+        DropdownMenuItem(
+            text = { Text("Fade all but the working end") },
+            leadingIcon = { CheckDot(state.preferences.fadeNonActive) },
+            onClick = {
+                state.updatePreferences(
+                    state.preferences.copy(fadeNonActive = !state.preferences.fadeNonActive),
+                )
+            },
+        )
+        // `pref_highlight_latest_leg`, on by its default. In the Android app it lives in the
+        // general settings screen rather than here; it is on this menu because this is where this
+        // port keeps display choices, and because a preference reachable from nowhere is
+        // indistinguishable from one that does not exist.
+        DropdownMenuItem(
+            text = { Text("Mark the last leg taken") },
+            leadingIcon = { CheckDot(state.preferences.highlightLatestLeg) },
+            onClick = {
+                state.updatePreferences(
+                    state.preferences.copy(
+                        highlightLatestLeg = !state.preferences.highlightLatestLeg,
+                    ),
+                )
+            },
+        )
         for (toggle in VIEW_TOGGLES) {
             DropdownMenuItem(
                 text = { Text(toggle.label) },

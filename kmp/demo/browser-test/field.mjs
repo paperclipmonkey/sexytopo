@@ -234,6 +234,9 @@ const DRAWING_MENU = [
   'find',
   'delete-last-leg',
   'auto-recentre',
+  'blue-water',
+  'fade',
+  'latest-leg',
   'splays',
   'sketch',
   'labels',
@@ -259,6 +262,7 @@ async function drag([x0, y0], [x1, y1]) {
 }
 // "Blocks" in the palette: fourth swatch, second column of the second row.
 const PALETTE_BLOCKS = [112, 388]
+const PALETTE_WATER = [112, 588]
 const CANCEL_DELETE_SURVEY = [237, 516]
 const CONFIRM_DELETE_SURVEY = [312, 516]
 // The export screen's chips wrap to three rows on a phone, so Save file sits below all of them.
@@ -763,10 +767,11 @@ const stationSpots = async (fromY, toY) => {
       for (let x = 0; x < c.width; x++) {
         const i = (y * c.width + x) * 4
         const [r, g, b] = [px[i], px[i + 1], px[i + 2]]
-        // `leg`: pure red. Splays are salmon, the latest leg magenta, stations and cross-sections
-        // a dark red — so a red channel this high with both others this low is the centreline and
-        // nothing else.
-        if (r > 230 && g < 60 && b < 60) centreline.push([x, y])
+        // `leg`: pure red, or the magenta the reading just taken is drawn in — which on a
+        // two-station survey is the only leg there is, so insisting on red found nothing at all.
+        // Splays are salmon, stations and cross-sections a dark red, so a red channel this high
+        // with green this low is the centreline and nothing else.
+        if (r > 230 && g < 60 && (b < 60 || b > 230)) centreline.push([x, y])
         // `activeStationHighlight`: 0xFFC107.
         if (r > 230 && g > 170 && g < 215 && b < 60) amber.push([x, y])
       }
@@ -1218,6 +1223,28 @@ if (symbols === null) {
   pass('a UIS symbol can be stamped on the sketch, under the name Therion uses')
 }
 
+// ---- and a stream is blue even when the brush is not -----------------------------------------
+// The app quietly overrides the brush for the one water symbol, because water is drawn blue on
+// every published cave survey there has ever been. The brush here is black — nothing in this run
+// has changed it — so a stamp that comes out black would mean the rule never fired.
+await at(...toolCell(5)); await page.waitForTimeout(600)
+await at(...drawingMenuRow('symbol')); await page.waitForTimeout(800)
+await at(...PALETTE_WATER); await page.waitForTimeout(700)
+await at(250, 300); await page.waitForTimeout(900)
+
+const waterColour = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  if (!key) return null
+  const stamped = (JSON.parse(localStorage.getItem(key)).symbols ?? [])
+    .find((s) => s['symbol-id'] === 'water-flow')
+  return stamped ? stamped.colour : 'not stamped'
+})
+if (waterColour !== 'BLUE') {
+  fail(`the water symbol was stamped ${waterColour}, not BLUE`)
+} else {
+  pass('a stream is stamped blue whatever colour the brush is set to')
+}
+
 // Back to drawing, so nothing after this stamps by accident.
 await at(...toolCell(1)); await page.waitForTimeout(400)
 
@@ -1355,6 +1382,104 @@ if (activeSpot === null) {
 await at(...toolCell(5)); await page.waitForTimeout(500)
 await at(...drawingMenuRow('auto-recentre')); await page.waitForTimeout(600)
 await page.keyboard.press('Escape'); await page.waitForTimeout(400)
+
+// ---- which end of the survey you are working at ----------------------------------------------
+// Three of the app's display behaviours, and one question: on a plan that has grown past a
+// screenful of red lines, where am I? The leg just taken is magenta, and everything that does not
+// hang off the working station can be faded back to a fifth alpha.
+const magentaPixels = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    // md_magenta, #FF00FF, which the app uses for this and for nothing else. Full strength, so no
+    // threshold is needed: an antialiased edge of it is not magenta and does not need to be.
+    let count = 0
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i] > 240 && px[i + 1] < 40 && px[i + 2] > 240) count++
+    }
+    return count
+  }, [b64])
+}
+
+// How much *centreline* is on the screen, which is what the fade acts on. Counting all the ink
+// would not do: the fade leaves the sketch alone, and on a page with a passage wall, a label and
+// two symbols drawn on it the ink from those swamps a change to a handful of red lines — the first
+// attempt at this check measured a half-percent drop and reported that fading did nothing.
+const centrelinePixels = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    // Red legs (#FF0000) and salmon splays (#FF8080) at full strength. A fifth of either over the
+    // pale canvas comes out a pale pink whose green channel is far above this, so a faded leg is
+    // not counted — which is the whole measurement.
+    let count = 0
+    for (let y = 60; y < 780; y++) {
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        if (px[i] > 200 && px[i + 1] < 150 && px[i + 2] < 150) count++
+      }
+    }
+    return count
+  }, [b64])
+}
+
+const magentaBefore = await magentaPixels()
+if (magentaBefore < 20) {
+  fail(`the leg just taken is not marked (${magentaBefore} magenta pixels)`)
+} else {
+  pass('the leg just taken is drawn in the app\'s magenta, so the working end is findable')
+}
+
+await at(...toolCell(5)); await page.waitForTimeout(600)
+await at(...drawingMenuRow('latest-leg')); await page.waitForTimeout(700)
+await page.keyboard.press('Escape'); await page.waitForTimeout(500)
+const magentaOff = await magentaPixels()
+if (magentaOff !== 0) {
+  fail(`turning the mark off left ${magentaOff} magenta pixels on the plan`)
+} else {
+  pass('and it can be turned off, for a surveyor who would rather it were not there')
+}
+await at(...toolCell(5)); await page.waitForTimeout(600)
+await at(...drawingMenuRow('latest-leg')); await page.waitForTimeout(700)
+await page.keyboard.press('Escape'); await page.waitForTimeout(500)
+
+const litBeforeFade = await centrelinePixels()
+await at(...toolCell(5)); await page.waitForTimeout(600)
+await at(...drawingMenuRow('fade')); await page.waitForTimeout(700)
+await page.keyboard.press('Escape'); await page.waitForTimeout(600)
+await page.screenshot({ path: join(shotDir, 'field-faded.png') })
+const litFaded = await centrelinePixels()
+if (!(litFaded < litBeforeFade * 0.5)) {
+  fail(`fading the rest left most of the centreline solid (${litBeforeFade} then ${litFaded})`)
+} else {
+  pass('everything but the working end can be faded back, without moving the view')
+}
+
+// Off again: every check after this reads the plan, and a faded plan would be a different one.
+await at(...toolCell(5)); await page.waitForTimeout(600)
+await at(...drawingMenuRow('fade')); await page.waitForTimeout(700)
+await page.keyboard.press('Escape'); await page.waitForTimeout(600)
+const litRestored = await centrelinePixels()
+if (!(litRestored > litFaded)) {
+  fail(`turning the fade off did not bring the cave back (${litFaded} then ${litRestored})`)
+} else {
+  pass('and turning it off brings the rest of the cave back')
+}
+
 
 // Saved, because a surveyor sets these once at the entrance and the phone may not last the trip.
 const savedSettings = await page.evaluate(() =>

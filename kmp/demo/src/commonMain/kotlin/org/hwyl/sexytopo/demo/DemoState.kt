@@ -395,6 +395,9 @@ class DemoState(
                 snapToLines = snapToLines,
                 hotCorners = preferences.hotCorners,
                 twoFingerMove = preferences.twoFingerMove,
+                fadeNonActive = preferences.fadeNonActive,
+                highlightLatestLeg = preferences.highlightLatestLeg,
+                blueWater = preferences.blueWater,
             )
 }
 

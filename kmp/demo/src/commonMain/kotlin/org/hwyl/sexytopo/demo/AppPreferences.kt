@@ -18,6 +18,12 @@ data class AppPreferences(
     val twoFingerMove: Boolean = DEFAULT_TWO_FINGER_MOVE,
     /** Put the view back on the active station each time one is made. `AUTO_RECENTRE`. */
     val autoRecentre: Boolean = DEFAULT_AUTO_RECENTRE,
+    /** Draw everything but the working end at a fifth alpha. `FADE_NON_ACTIVE`. */
+    val fadeNonActive: Boolean = DEFAULT_FADE_NON_ACTIVE,
+    /** Draw the leg just taken in magenta. `pref_highlight_latest_leg`. */
+    val highlightLatestLeg: Boolean = DEFAULT_HIGHLIGHT_LATEST_LEG,
+    /** Stamp the water symbol in blue whatever colour the brush is. `BLUE_WATER`. */
+    val blueWater: Boolean = DEFAULT_BLUE_WATER,
 ) {
     companion object {
         /**
@@ -49,6 +55,28 @@ data class AppPreferences(
          */
         const val DEFAULT_AUTO_RECENTRE = false
 
+        /**
+         * Off, as `SketchPreferences.Toggle.FADE_NON_ACTIVE` is.
+         *
+         * What it is for: in a cave of any size the plan is a page of red lines that all look
+         * alike, and the question a surveyor keeps asking is "where am I on this". Fading
+         * everything that does not hang off the working station answers it without moving the
+         * view, which matters when the sketch around you is the part you are drawing.
+         */
+        const val DEFAULT_FADE_NON_ACTIVE = false
+
+        /** On, as `GeneralPreferences.isHighlightLatestLegModeOn` is. */
+        const val DEFAULT_HIGHLIGHT_LATEST_LEG = true
+
+        /**
+         * On, as `SketchPreferences.Toggle.BLUE_WATER` is.
+         *
+         * Water is drawn blue by convention on every cave survey ever published, and a surveyor
+         * who has the brush set to black for wall outlines should not have to remember to change
+         * it and change it back to stamp a stream.
+         */
+        const val DEFAULT_BLUE_WATER = true
+
         val DEFAULT = AppPreferences()
     }
 }
@@ -75,6 +103,9 @@ object AppPreferencesStore {
             appendLine("hotCorners=${preferences.hotCorners}")
             appendLine("twoFingerMove=${preferences.twoFingerMove}")
             appendLine("autoRecentre=${preferences.autoRecentre}")
+            appendLine("fadeNonActive=${preferences.fadeNonActive}")
+            appendLine("highlightLatestLeg=${preferences.highlightLatestLeg}")
+            appendLine("blueWater=${preferences.blueWater}")
         }
 
     fun parse(text: String): AppPreferences {
@@ -100,6 +131,14 @@ object AppPreferencesStore {
             autoRecentre =
                 values["autoRecentre"]?.toBooleanStrictOrNull()
                     ?: AppPreferences.DEFAULT_AUTO_RECENTRE,
+            fadeNonActive =
+                values["fadeNonActive"]?.toBooleanStrictOrNull()
+                    ?: AppPreferences.DEFAULT_FADE_NON_ACTIVE,
+            highlightLatestLeg =
+                values["highlightLatestLeg"]?.toBooleanStrictOrNull()
+                    ?: AppPreferences.DEFAULT_HIGHLIGHT_LATEST_LEG,
+            blueWater =
+                values["blueWater"]?.toBooleanStrictOrNull() ?: AppPreferences.DEFAULT_BLUE_WATER,
         )
     }
 

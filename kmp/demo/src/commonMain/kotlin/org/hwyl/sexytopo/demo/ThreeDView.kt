@@ -275,9 +275,14 @@ private object ThreeDColours {
     val stationNight = Color(0xFF6699FF)
 }
 
-private const val LEG_WIDTH = 2f
-private const val SPLAY_WIDTH = 1f
-private const val STATION_RADIUS = 3f
+/**
+ * In dp, and converted at the point of drawing: a `DrawScope` measures in physical pixels, so on a
+ * phone at three of those to the dp these would each come out a third of the size intended. Same
+ * correction as [CanvasSizes] on the plan, and invisible in the browser, where the two are equal.
+ */
+private const val LEG_WIDTH_DP = 2f
+private const val SPLAY_WIDTH_DP = 1f
+private const val STATION_RADIUS_DP = 3f
 
 /**
  * Splays, then legs, then stations — a painter's algorithm standing in for the depth buffer the
@@ -305,17 +310,17 @@ private fun DrawScope.drawWireframe(
 
     if (showSplays) {
         val colour = if (darkMode) ThreeDColours.splayNight else ThreeDColours.splay
-        for (splay in wireframe.splays) line(splay, colour, SPLAY_WIDTH)
+        for (splay in wireframe.splays) line(splay, colour, SPLAY_WIDTH_DP.dp.toPx())
     }
 
     val legColour = if (darkMode) ThreeDColours.legNight else ThreeDColours.leg
-    for (leg in wireframe.legs) line(leg, legColour, LEG_WIDTH)
+    for (leg in wireframe.legs) line(leg, legColour, LEG_WIDTH_DP.dp.toPx())
 
     val stationColour = if (darkMode) ThreeDColours.stationNight else ThreeDColours.station
     for (station in wireframe.stations) {
         val at = wireframe.project(transform, station, size.width, size.height) ?: continue
         if (!isPlausible(at)) continue
-        drawCircle(stationColour, STATION_RADIUS, Offset(at.x, at.y))
+        drawCircle(stationColour, STATION_RADIUS_DP.dp.toPx(), Offset(at.x, at.y))
     }
 }
 

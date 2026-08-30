@@ -72,7 +72,12 @@ class CrossSectionEditorTest {
 
         assertTrue(scene.legs.isEmpty(), "a cross-section has no centreline")
         assertEquals(3, scene.splays.size)
-        assertTrue(scene.splays.all { it.first == Coord2D.ORIGIN })
+        assertTrue(scene.splays.all { it.start == Coord2D.ORIGIN })
+        assertTrue(
+            scene.splays.all { it.attachedToActive },
+            "every splay here radiates from the station the view is centred on, so fading " +
+                "everything not at the working end cannot empty this screen",
+        )
     }
 
     /**
@@ -84,7 +89,11 @@ class CrossSectionEditorTest {
      */
     @Test
     fun theViewOpensWiderThanTheSplays() {
-        val splays = listOf(Coord2D.ORIGIN to Coord2D(2f, 0f), Coord2D.ORIGIN to Coord2D(0f, -3f))
+        val splays =
+            listOf(
+                SceneSegment(Coord2D.ORIGIN, Coord2D(2f, 0f)),
+                SceneSegment(Coord2D.ORIGIN, Coord2D(0f, -3f)),
+            )
 
         val bounds = crossSectionFitBounds(splays)
 
