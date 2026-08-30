@@ -1,9 +1,14 @@
 package org.hwyl.sexytopo.shared
 
 import org.hwyl.sexytopo.shared.io.SurveyJson
+import org.hwyl.sexytopo.shared.io.export.CompassExporter
+import org.hwyl.sexytopo.shared.io.export.PocketTopoExporter
 import org.hwyl.sexytopo.shared.io.export.SurvexExporter
+import org.hwyl.sexytopo.shared.io.export.SvgExporter
+import org.hwyl.sexytopo.shared.io.export.Th2Exporter
 import org.hwyl.sexytopo.shared.io.export.SurveyFormat
 import org.hwyl.sexytopo.shared.io.export.TherionExporter
+import org.hwyl.sexytopo.shared.io.export.XviExporter
 import org.hwyl.sexytopo.shared.io.imports.SurveyImporter
 import org.hwyl.sexytopo.shared.math.Space3DTransformer
 import org.hwyl.sexytopo.shared.math.Wireframe
@@ -127,6 +132,49 @@ class BigSurveyTest {
 
         val th = TherionExporter.export(survey)
         assertTrue(th.contains("survey Long"))
+    }
+
+    /**
+     * And to everything else, which is where a surveyor's weekend actually goes.
+     *
+     * All of these were measured as well as run: at four thousand stations with eight thousand
+     * strokes on the drawing, the SVG takes about six hundred milliseconds and the rest are under
+     * a tenth of a second, all linear. Nothing here needed fixing — but the Survex export did, and
+     * it looked exactly like these until it was measured.
+     */
+    @Test
+    fun aLongPassageExportsToEveryOtherFormat() {
+        val survey = aLongPassage()
+        val projection = Projection2D.PLAN
+        val inner = SvgExporter.exportFrame(survey, projection).scale(SvgExporter.SCALE.toFloat())
+        val outer =
+            SvgExporter.addBorder(SvgExporter.exportFrame(survey, projection))
+                .scale(SvgExporter.SCALE.toFloat())
+
+        val svg = SvgExporter.export(survey, projection)
+        assertTrue(svg.startsWith("<?xml"), "the SVG does not start like one")
+        assertTrue(svg.contains("<svg"))
+        assertTrue(svg.trimEnd().endsWith("</svg>"), "the SVG was cut off part way")
+
+        val xvi = XviExporter.export(
+            survey.getSketch(projection),
+            projection.project(survey),
+            SvgExporter.SCALE.toFloat(),
+            outer,
+        )
+        assertTrue(xvi.contains("set XVIstations"))
+
+        val th2 = Th2Exporter.export(
+            survey = survey,
+            projection = projection,
+            innerFrame = inner,
+            outerFrame = outer,
+            scale = SvgExporter.SCALE.toFloat(),
+        )
+        assertTrue(th2.contains("encoding utf-8"))
+
+        assertTrue(CompassExporter.export(survey).isNotEmpty())
+        assertTrue(PocketTopoExporter.export(survey).isNotEmpty())
     }
 
     /** And comes back in, which is the other end of the same trip. */
