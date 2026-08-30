@@ -198,6 +198,77 @@ class IosPlatformTest {
         }
     }
 
+    /**
+     * The one thing this app reads as bytes rather than text: PocketTopo's binary `.top`.
+     *
+     * `readBytes` is hand-written interop — an `NSData`, a pointer reinterpreted as bytes, and a
+     * copy into a Kotlin array — and every way that can be wrong compiles perfectly. An off-by-one
+     * in the length, a pointer read as the wrong width, or a copy that aliases a buffer `NSData` has
+     * already freed all give a file that is *nearly* right, which for a format with length prefixes
+     * in it means everything after the first mistake is rubbish.
+     *
+     * The content is written as text and compared as bytes, so no second piece of interop has to be
+     * correct for this to mean anything. It still spans the awkward range: multi-byte sequences put
+     * high bytes and continuation bytes through the copy, and it is long enough that a length
+     * mistake shows.
+     */
+    @Test
+    fun aFilesExactBytesComeBack() {
+        val path = TEST_ROOT + "binary.top"
+        // Every UTF-8 length: ASCII, two bytes, three, and a four-byte astral character.
+        val text = ("Grotte de l'Église — 12.5° — ø∞≈ 𝕊 draughting\n").repeat(8)
+        val expected = text.encodeToByteArray()
+        store.writeText(path, text)
+
+        val read = assertNotNull(store.readBytes(path), "readBytes returned null for a file")
+
+        assertEquals(expected.size, read.size, "the file came back the wrong length")
+        assertTrue(expected.contentEquals(read), "the bytes came back changed")
+        assertTrue(expected.size > 300, "the fixture is too short to catch a length mistake")
+    }
+
+    @Test
+    fun readingBytesFromNothingIsNullRatherThanACrash() {
+        assertNull(store.readBytes(TEST_ROOT + "not-a-file.top"))
+    }
+
+    @Test
+    fun anEmptyFileReadsAsNoBytesRatherThanNull() {
+        val path = TEST_ROOT + "empty.top"
+        store.writeText(path, "")
+
+        assertEquals(0, assertNotNull(store.readBytes(path)).size)
+    }
+
+    /**
+     * The log's timestamps, which are `Log.Message.FORMAT`'s so that a log file moves between this
+     * app and the Android one intact. `NSDateFormatter` is given `en_US_POSIX` precisely so a
+     * device set to a non-Gregorian calendar cannot write a year nothing can parse; the simulator
+     * is Gregorian, so this checks the shape.
+     */
+    @Test
+    fun nowIsAnIsoTimestampWithAnOffset() {
+        val now = nowIso()
+
+        val pattern = Regex("""^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4}$""")
+        assertTrue(pattern.matches(now), "expected yyyy-MM-ddTHH:mm:ssZ, got $now")
+        assertTrue(now.substring(0, 4).toInt() in 2024..2100, "implausible year in $now")
+        assertTrue(now.substring(5, 7).toInt() in 1..12, now)
+        assertTrue(now.substring(11, 13).toInt() in 0..23, now)
+    }
+
+    /**
+     * The buzz that says a station has been made. A simulator has no Taptic Engine, so what is
+     * being checked is that constructing and firing a `UINotificationFeedbackGenerator` does not
+     * bring the app down — which is the only failure mode that would matter underground.
+     */
+    @Test
+    fun theHapticDoesNotBringTheAppDown() {
+        assertTrue(canBuzz())
+        assertTrue(buzz())
+        assertTrue(buzz(NEW_STATION_BUZZ_MS))
+    }
+
     @Test
     fun theClipboardAccepts() {
         // UIPasteboard on a simulator is real, so this exercises the interop rather than mocking
