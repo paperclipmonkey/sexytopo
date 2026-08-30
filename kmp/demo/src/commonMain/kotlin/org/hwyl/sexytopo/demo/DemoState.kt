@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
+import org.hwyl.sexytopo.shared.model.sketch.Symbol
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.BrushColour
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
@@ -85,6 +86,14 @@ class DemoState(
             storageProblem = library.lastError ?: "could not save settings"
         }
     }
+
+    /**
+     * Which symbol the stamp tool will place.
+     *
+     * Held here rather than in the palette so that choosing one and closing the dialog leaves the
+     * tool loaded — a surveyor stamps a dozen boulders in a row, not one.
+     */
+    var symbol by mutableStateOf(Symbol.ENTRANCE)
 
     var showSplays by mutableStateOf(true)
     var showSketch by mutableStateOf(true)

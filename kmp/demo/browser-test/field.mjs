@@ -165,7 +165,10 @@ const toolColumn = box.width / 9
 const TOOL_ROW_Y = box.height - 20
 const toolCell = (index) => [toolColumn * (index + 0.5), TOOL_ROW_Y]
 // The drawing menu opens upwards from its toolbar cell: Centre view, then the cross-section tool.
+const DRAWING_MENU_SYMBOL = [186, 580]
 const DRAWING_MENU_CROSS_SECTION = [186, 628]
+// "Blocks" in the palette: fourth swatch, second column of the second row.
+const PALETTE_BLOCKS = [112, 388]
 const CANCEL_DELETE_SURVEY = [237, 516]
 const CONFIRM_DELETE_SURVEY = [312, 516]
 const EXPORT_SAVE_FILE = [117, 132]
@@ -431,6 +434,33 @@ if (labels === null) {
 }
 
 // Back to drawing, so nothing after this places a label by accident.
+await at(...toolCell(1)); await page.waitForTimeout(400)
+
+// ---- and the symbols that are not words either ----------------------------------------------
+// The nineteen UIS symbols, taken from the app's own vector drawables and drawn through a path
+// parser in commonMain. A stamped symbol has to carry the Therion name the canvas looks its
+// artwork up by; if those two ever disagreed every symbol would silently draw as a fallback dot.
+await at(...toolCell(5)); await page.waitForTimeout(500)
+await at(...DRAWING_MENU_SYMBOL); await page.waitForTimeout(800)
+await page.screenshot({ path: join(shotDir, 'field-symbol-palette.png') })
+await at(...PALETTE_BLOCKS); await page.waitForTimeout(700)
+await at(200, 300); await page.waitForTimeout(900)
+await page.screenshot({ path: join(shotDir, 'field-symbol.png') })
+
+const symbols = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  if (!key) return null
+  return (JSON.parse(localStorage.getItem(key)).symbols ?? []).map((s) => s['symbol-id'])
+})
+if (symbols === null) {
+  fail('the plan sketch was not saved, so the symbol could not be checked')
+} else if (!symbols.includes('blocks')) {
+  fail(`the stamped symbol did not reach the saved sketch (${JSON.stringify(symbols)})`)
+} else {
+  pass('a UIS symbol can be stamped on the sketch, under the name Therion uses')
+}
+
+// Back to drawing, so nothing after this stamps by accident.
 await at(...toolCell(1)); await page.waitForTimeout(400)
 
 // ---- tolerances that suit the instrument in the surveyor's hand -----------------------------

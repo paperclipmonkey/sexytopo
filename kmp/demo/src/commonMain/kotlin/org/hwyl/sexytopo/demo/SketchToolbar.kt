@@ -171,6 +171,19 @@ private fun DrawingMenu(
     expanded: Boolean,
     onDismiss: () -> Unit,
 ) {
+    var choosingSymbol by remember { mutableStateOf(false) }
+
+    if (choosingSymbol) {
+        SymbolPaletteDialog(
+            onDismiss = { choosingSymbol = false },
+            onChosen = { chosen ->
+                state.symbol = chosen
+                state.tool = SketchTool.SYMBOL
+                choosingSymbol = false
+            },
+        )
+    }
+
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         DropdownMenuItem(
             text = { Text("Centre view") },
@@ -181,6 +194,14 @@ private fun DrawingMenu(
         )
         // A menu item rather than a tenth button in a nine-column toolbar — and the app puts it in
         // a menu too, on the station's own long-press menu, which this port has no equivalent of.
+        DropdownMenuItem(
+            text = { Text("Symbol…") },
+            leadingIcon = { CheckDot(state.tool == SketchTool.SYMBOL) },
+            onClick = {
+                choosingSymbol = true
+                onDismiss()
+            },
+        )
         DropdownMenuItem(
             text = { Text("Cross-section at a station") },
             leadingIcon = {

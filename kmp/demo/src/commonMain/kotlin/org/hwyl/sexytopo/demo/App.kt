@@ -491,6 +491,7 @@ private fun SketchScreen(
         onSketchEdit = { state.noteSketchEdited() },
         onSelectStation = { state.selectStation(it) },
         onPlaceLabel = { position, size -> placing = position to size },
+        symbol = state.symbol,
     )
 }
 

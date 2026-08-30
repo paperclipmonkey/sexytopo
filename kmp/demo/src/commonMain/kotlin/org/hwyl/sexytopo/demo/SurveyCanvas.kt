@@ -19,7 +19,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
@@ -32,6 +34,7 @@ import org.hwyl.sexytopo.shared.math.getDistance
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
+import org.hwyl.sexytopo.shared.model.sketch.Symbol
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.SketchDefaults
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
@@ -79,9 +82,16 @@ fun SurveyCanvas(
      * calls [SketchEditor.addText] when the surveyor has typed something.
      */
     onPlaceLabel: (Coord2D, Float) -> Unit = { _, _ -> },
+    /** Which symbol the stamp tool places. */
+    symbol: Symbol = Symbol.ENTRANCE,
 ) {
     val textMeasurer = rememberTextMeasurer()
     val fontFamily = LocalAppFontFamily.current
+
+    // Density is a composition-local, so it is read here rather than inside the gesture scope,
+    // which is not a Density and cannot resolve dp.toPx().
+    val symbolSizeInPixels =
+        with(LocalDensity.current) { SketchDefaults.SYMBOL_STARTING_SIZE_DP.dp.toPx() }
 
     // Reprojecting is pure and cheap; recompute when the survey, projection or sketch changes.
     val scene = remember(survey, projection, revision) { SurveyScene.from(survey, projection) }
@@ -117,6 +127,48 @@ fun SurveyCanvas(
                         )
                     }
                 }
+
+            SketchTool.SYMBOL -> {
+                // Two detectors, not one. A drag sets the bearing for a directional symbol - a
+                // water flow points downstream, a gradient downhill - which is why SymbolDetail
+                // carries an angle at all. But detectDragGestures never fires for a tap: it waits
+                // for the touch slop to be exceeded, so on its own it silently stamped nothing at
+                // all unless the finger moved. The tap detector handles the upright case and
+                // cancels itself once a drag starts, so exactly one of them fires.
+                fun stamp(at: Offset, angle: Float) {
+                    editor.addSymbol(
+                        position = viewport.toSurvey(at),
+                        symbolName = symbol.therionName,
+                        // A fixed size on screen, converted to metres through the current zoom, so
+                        // a symbol keeps its size in the cave rather than on the display.
+                        size = viewport.toSurveyDistance(symbolSizeInPixels),
+                        angle = angle,
+                    )
+                    onSketchEdit()
+                }
+
+                Modifier
+                    .pointerInput(scene, tool, symbol) {
+                        detectTapGestures { offset -> stamp(offset, 0f) }
+                    }
+                    .pointerInput(scene, tool, symbol) {
+                        var start = Offset.Zero
+                        var angle = 0f
+                        detectDragGestures(
+                            onDragStart = { offset ->
+                                start = offset
+                                angle = 0f
+                            },
+                            onDrag = { change, _ ->
+                                change.consume()
+                                if (symbol.isDirectional) {
+                                    angle = bearingOf(change.position - start)
+                                }
+                            },
+                            onDragEnd = { stamp(start, angle) },
+                        )
+                    }
+            }
 
             SketchTool.POSITION_CROSS_SECTION ->
                 Modifier.pointerInput(scene, tool) {
@@ -514,8 +566,35 @@ private fun DrawScope.drawSurvey(
 
         // Symbol artwork lives in the Android app's SVG assets, which this port does not carry;
         // a symbol is drawn as a marked point so its placement is still visible.
+        // The UIS artwork itself, drawn from the path data the symbols carry. It used to be a
+        // small circle standing in for "a symbol is here", because the app's artwork is SVG and
+        // nothing here could read it; parseSvgPath can.
         for (symbol in scene.sketch.symbolDetails) {
-            drawCircle(palette.symbol, radius = 4f, center = project(symbol.position), style = Stroke(1.5f))
+            val artwork = Symbol.byTherionName(symbol.symbolName)?.let { symbolPaths[it] }
+            val colour = symbol.getDrawColour(options.darkMode)
+            if (!colour.isDrawable) continue
+            val centre = project(symbol.position)
+
+            if (artwork == null) {
+                // A symbol from a newer version of the app. Better a mark than nothing: the
+                // surveyor put something there and the file still round-trips it.
+                drawCircle(palette.symbol, radius = 4f, center = centre, style = Stroke(1.5f))
+                continue
+            }
+
+            // Scale from the 40-unit grid to the stamp's size in metres, then to pixels.
+            val scale = symbol.size * viewport.pixelsPerMetre / Symbol.VIEWPORT
+            withTransform({
+                translate(centre.x, centre.y)
+                rotate(symbol.angle, pivot = Offset.Zero)
+                scale(scale, scale, pivot = Offset.Zero)
+            }) {
+                drawPath(
+                    artwork,
+                    Color(colour.intValue),
+                    style = Stroke(width = SYMBOL_STROKE_UNITS),
+                )
+            }
         }
 
         // Cross-sections: the passage profile at a station, drawn where it was placed on the plan.
@@ -640,3 +719,25 @@ private val DarkPalette =
         grid = SexyTopoColours.gridNight,
         activeStation = SexyTopoColours.activeStationNight,
     )
+
+/**
+ * Stroke width for symbol artwork, in the symbol's own grid units.
+ *
+ * The drawables specify `strokeWidth="1"` on a 40-unit viewport, and the transform scales it with
+ * everything else — so a symbol keeps its proportions at any zoom, which is what makes it read as
+ * a drawn mark rather than as an icon pasted on.
+ */
+private const val SYMBOL_STROKE_UNITS = 1f
+
+/**
+ * The compass bearing a drag points in, in degrees clockwise from up.
+ *
+ * Screen y grows downwards, so a drag towards the top of the screen is north. A drag of no length
+ * leaves the symbol upright rather than snapping it to an arbitrary direction.
+ */
+internal fun bearingOf(delta: Offset): Float {
+    if (delta.x == 0f && delta.y == 0f) return 0f
+    val degrees =
+        kotlin.math.atan2(delta.x.toDouble(), -delta.y.toDouble()) * 180.0 / kotlin.math.PI
+    return ((degrees + 360.0) % 360.0).toFloat()
+}

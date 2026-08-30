@@ -260,8 +260,8 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   booked when there is no instrument in the party, and it is what lets a cross-section be drawn
   from a hand-booked survey.
 - **Sketch it**, in plan and extended elevation, each with its own strokes and its own undo
-  history — write on it (*sump*, *boulder choke*, *continues*), and drop a cross-section at a
-  station, drawn from that station's own splays.
+  history — write on it (*sump*, *boulder choke*, *continues*), stamp any of the nineteen UIS
+  symbols, and drop a cross-section at a station, drawn from that station's own splays.
 - **Say who was there.** Trip details records the date, the team and their roles, the instrument,
   and the copyright and licence terms, and every exporter writes them.
 - **Match the tolerances to the instrument.** The defaults assume a DistoX; a compass and tape
@@ -289,8 +289,8 @@ Honest limits, so nothing is a surprise in a cave:
   from profile to saved station is driven against a *fake* instrument in CI. No real one has been
   tried on either platform, and the iOS simulator has no Bluetooth stack, so it cannot be. Expect to
   type readings, which is what *Add reading* is for and which behaves identically.
-- **No symbol palette and no calibration screen**, even though the logic under both is ported and
-  tested. The symbol artwork is SVG this port does not carry.
+- **No calibration screen**, even though the solver under it is ported and tested against the
+  Android app's own two datasets.
 - **A cross-section can be placed but not re-aimed or moved.** The bearing comes from the app's own
   heuristic — bisect the corner mid-passage, follow the single leg at a dead end — and the rotate
   and move tools are not ported.
