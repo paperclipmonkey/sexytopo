@@ -27,7 +27,9 @@ import org.hwyl.sexytopo.shared.io.SurveyJson
 import org.hwyl.sexytopo.shared.io.export.CompassExporter
 import org.hwyl.sexytopo.shared.io.export.PocketTopoExporter
 import org.hwyl.sexytopo.shared.io.export.SurvexExporter
+import org.hwyl.sexytopo.shared.io.export.SvgExporter
 import org.hwyl.sexytopo.shared.io.export.TherionExporter
+import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.survey.SurveyDate
 import org.hwyl.sexytopo.shared.model.survey.Survey
 
@@ -40,6 +42,7 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
 enum class ExportFormat(val label: String, val extension: String) {
     SURVEX("Survex .svx", "svx"),
     THERION("Therion .th", "th"),
+    SVG("Drawing .svg", "svg"),
     COMPASS("Compass .dat", "dat"),
     POCKET_TOPO("PocketTopo .txt", "txt"),
     NATIVE("SexyTopo JSON", "data.json"),
@@ -53,7 +56,12 @@ enum class ExportFormat(val label: String, val extension: String) {
  * JSON is the app's own native format — the same bytes the Android app would read back.
  */
 @Composable
-fun ExportView(survey: Survey, revision: Int, modifier: Modifier = Modifier) {
+fun ExportView(
+    survey: Survey,
+    revision: Int,
+    modifier: Modifier = Modifier,
+    projection: Projection2D = Projection2D.PLAN,
+) {
     var format by remember { mutableStateOf(ExportFormat.SURVEX) }
     var copied by remember(format) { mutableStateOf(false) }
     var savedTo by remember(format) { mutableStateOf<String?>(null) }
@@ -65,10 +73,13 @@ fun ExportView(survey: Survey, revision: Int, modifier: Modifier = Modifier) {
     val today = remember(survey, revision) { todayIso() }
 
     val text =
-        remember(survey, revision, format, today) {
+        remember(survey, revision, format, today, projection) {
             when (format) {
                 ExportFormat.SURVEX -> SurvexExporter.export(survey, createdOn = today)
                 ExportFormat.THERION -> TherionExporter.export(survey, createdOn = today)
+                // The only export that is a picture. It follows the view the surveyor is looking
+                // at, so exporting from the extended elevation gives the elevation drawing.
+                ExportFormat.SVG -> SvgExporter.export(survey, projection)
                 ExportFormat.COMPASS ->
                     CompassExporter.export(survey, fallbackDate = SurveyDate.parseOrNull(today))
                 ExportFormat.POCKET_TOPO -> PocketTopoExporter.export(survey)

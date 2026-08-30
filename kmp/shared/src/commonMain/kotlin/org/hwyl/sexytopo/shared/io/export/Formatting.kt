@@ -64,3 +64,18 @@ fun formatAzimuth(degrees: Float): String = formatFixed(degrees, 2)
  * a difference from the Android app's output.
  */
 fun formatInclination(degrees: Float): String = formatFixed(degrees, 2)
+
+/**
+ * Fixed-point with the trailing zeros taken off, for SVG attributes.
+ *
+ * SVG is verbose enough without "100.000" everywhere, and a coordinate written as "1.0E-4" — which
+ * is what `Float.toString` produces for small values, differently on the JVM and on Kotlin/Wasm —
+ * is not valid inside a path and makes a file that silently will not open.
+ */
+fun formatFixedTrimmed(value: Float, decimalPlaces: Int): String {
+    val fixed = formatFixed(value, decimalPlaces)
+    if ('.' !in fixed) return fixed
+    val trimmed = fixed.trimEnd('0').trimEnd('.')
+    // "-0" reads as a mistake even though it is the same number.
+    return if (trimmed == "-0") "0" else trimmed.ifEmpty { "0" }
+}

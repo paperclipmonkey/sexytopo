@@ -447,7 +447,7 @@ private fun ScreenContent(
                 // saved. The surveyor's own survey is the one that can be corrected.
                 editable = state.mode == SurveyMode.LIVE,
             )
-        Screen.EXPORT -> ExportView(state.survey, state.revision, modifier)
+        Screen.EXPORT -> ExportView(state.survey, state.revision, modifier, state.projection)
         Screen.SKETCH -> SketchScreen(state, editor, canvas, modifier)
     }
 }
