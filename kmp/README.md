@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by just under 400 tests. The UI
+Survex and Therion exporters and the native file format are ported and covered by over 400 tests. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
 tests the claim.
@@ -38,6 +38,7 @@ Being precise about this matters more than the demo looking good.
 | Survex and Therion export byte-identically | **Verified** | golden tests asserting the full file, metadata block included |
 | Compass `.dat` exports byte-identically | **Verified** | a golden captured by *running* the Android app's own exporter, not by reading it — which caught a transcription slip on the first attempt |
 | PocketTopo `.txt` exports the same survey data | **Verified** | its DATA section is golden against the Android app; its station sections deliberately diverge, because the Java's are not reproducible even against themselves |
+| Surveys save and load through a platform-free storage layer | **Verified** | a full round trip - naming, directories, autosave, listing - over an in-memory `FileStore`, on all three targets. The Android app's equivalent test is `@Ignore`d because `DocumentFile` cannot be mocked |
 | The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
 | The BLE connection logic is platform-free | **Verified** | `GattLinkTest` and `GattSessionTest` — the profile matrix *and* the connection lifecycle; only callback plumbing is left in `iosMain` |
 | The DistoX calibration solver reproduces the Java exactly | **Verified** | the Android app's own two 56-shot datasets, asserting the *iteration counts* (43, 75, 53) as well as the errors — reproduced on the JVM, Kotlin/Wasm **and Kotlin/Native** |
@@ -405,6 +406,11 @@ This is a proof of concept. It does **not** include:
   the demo has no palette, text field or cross-section editor to drive them.
 - **The other exporters** — SVG, XVI, and Therion's `.th2` sketch files. Survex, Therion `.th`,
   Compass `.dat` and PocketTopo `.txt` are done and tested against the Android app's own output.
+- **A real filesystem.** The storage layer is written and tested, but only an in-memory
+  `FileStore` exists; the `NSFileManager` and Android implementations behind it are not written.
+  Cross-survey links are deliberately deferred too - they are stored as absolute `content://` URIs,
+  which are meaningless off Android and already break when a folder moves, so replacing them is a
+  format decision to take with upstream rather than a porting one.
 - **The rest of the Android UI**: settings, stats, the 3D view, the manual.
 - **The Android app adopting this core.** That is the step that would make the work pay for itself
   regardless of the iOS outcome, and it is deliberately not attempted yet — it also needs an Android
