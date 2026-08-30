@@ -54,6 +54,7 @@ import org.hwyl.sexytopo.shared.sketch.findCrossSectionBodyAt
 import org.hwyl.sexytopo.shared.sketch.hitsHotCorner
 import org.hwyl.sexytopo.shared.sketch.hotCornerSide
 import org.hwyl.sexytopo.shared.sketch.hotCornerTopLefts
+import org.hwyl.sexytopo.shared.sketch.whollyOutside
 import org.hwyl.sexytopo.shared.sketch.zoomBetween
 import org.hwyl.sexytopo.shared.survey.CrossSectioner
 import kotlin.math.abs
@@ -924,22 +925,34 @@ private fun DrawScope.drawSurvey(
     // How the Java decides what a segment looks like, in one place rather than three: faded if the
     // fade is on and it does not hang off the working station, magenta if it is the reading just
     // taken, and dashed if it does not lie in the plane being drawn.
+    // The screen, in the coordinates a projected segment arrives in. `GraphView.isLineOnCanvas`
+    // tests against the canvas exactly, with no margin: a leg whose ends are both off the same
+    // side has nothing between them to see.
+    val screenTopLeft = Coord2D(0f, 0f)
+    val screenBottomRight = Coord2D(size.width, size.height)
+
     fun drawSegment(segment: SceneSegment, base: Color, width: Float) {
+        val from = project(segment.start)
+        val to = project(segment.end)
+        // Zoomed into one passage of a real survey almost every leg is off screen, and each one
+        // otherwise costs a draw call and - if it is drawn dashed - a list of dashes built and
+        // thrown away every frame, while a finger is dragging.
+        if (whollyOutside(from.toCoord2D(), to.toCoord2D(), screenTopLeft, screenBottomRight)) {
+            return
+        }
         val colour =
             if (options.fadeNonActive && !segment.attachedToActive) {
                 base.copy(alpha = FADED_ALPHA)
             } else {
                 base
             }
-        val start = project(segment.start)
-        val end = project(segment.end)
         if (segment.inPlane) {
-            drawLine(colour, start, end, width, StrokeCap.Round)
+            drawLine(colour, from, to, width, StrokeCap.Round)
             return
         }
         val dashLength = DASH_INTERVAL_DP.dp.toPx()
-        for ((from, to) in dashesAlong(start.toCoord2D(), end.toCoord2D(), dashLength)) {
-            drawLine(colour, from.toOffset(), to.toOffset(), width, StrokeCap.Round)
+        for ((dashFrom, dashTo) in dashesAlong(from.toCoord2D(), to.toCoord2D(), dashLength)) {
+            drawLine(colour, dashFrom.toOffset(), dashTo.toOffset(), width, StrokeCap.Round)
         }
     }
 

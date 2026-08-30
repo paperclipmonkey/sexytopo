@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 683 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 691 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
@@ -55,6 +55,7 @@ Being precise about this matters more than the demo looking good.
 | The instrument log is kept, persisted and readable on the phone | **Verified** | `ActivityLogTest` for the bounded queues and the file format; `instrument.mjs` connects a fake DistoX-BLE, takes a calibration, and then reads the log back off the clipboard — count, timestamps and all |
 | The desktop build keeps its surveys too | **Verified** | a survey written by one `SurveyLibrary` and read by a second over the same directory, in SexyTopo's own file layout, plus the three platform conventions for where that directory goes |
 | **A real-sized cave works, not just a demo one** | **Verified** | `BigSurveyTest` builds a four-thousand-station passage — past where every tree walk in this port used to overflow the stack — and projects it to a plan and an extended elevation, builds its wireframe, counts its statistics, exports it to Survex and Therion and reads it back, on all three targets, along with SVG, `.xvi`, `.th2`, Compass and PocketTopo — and rubs out and undoes on a drawing of eight thousand strokes |
+| **A real-sized cave draws, and draws linearly** | **Verified** | `CanvasSpeedTest` renders the plan of a four-thousand-station survey through the same headless Skia the demo PNGs use, and checks that eight times the cave costs about eight times the frame rather than sixty-four — the failure mode finding 18 was, in the drawing rather than in the export. The absolute times are a CPU rasteriser's and not a phone's, and the test says so |
 | Surveys save and load through a platform-free storage layer | **Verified** | a full round trip - naming, directories, autosave, listing - over an in-memory `FileStore`, on all three targets. The Android app's equivalent test is `@Ignore`d because `DocumentFile` cannot be mocked |
 | The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
 | The BLE connection logic is platform-free | **Verified** | `GattLinkTest` and `GattSessionTest` — the profile matrix *and* the connection lifecycle; only callback plumbing is left in `iosMain` |
@@ -582,6 +583,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `GraphActivity.handleAutoRecentre`, `SketchPreferences.Toggle.AUTO_RECENTRE` | `demo/.../App.kt`, `CanvasController.centreOn` | Driven by a counter the canvas watches, because the viewport belongs to the canvas and the station-created event does not |
 | `action_find_station`, `StationSelectorDialog`, `buttonDeleteLastLeg` | `demo/.../FindStation.kt` | The list is shown rather than autocompleted, and comments are searched as well as names |
 | `GraphView.drawLegs`, `drawStations`, `drawDashedLine`, `isAttachedToActive` | `shared/sketch/DashedLine.kt`, `demo/.../SurveyCanvas.kt` (`SceneSegment`) | The facts about a leg are settled when the survey is projected, not inside the draw loop |
+| `control/util/CohenSutherlandAlgorithm`, `GraphView.isLineOnCanvas` | `shared/sketch/Clipping.kt`, `demo/.../SurveyCanvas.kt` | The half of the algorithm the Java uses — the test, not the clip |
 | `GraphView.dpToPixels` on every drawn size | `demo/.../SurveyCanvas.kt` (`CanvasSizes`), `ThreeDView.kt` | Finding 28: a plain number in a `DrawScope` is a physical pixel, so the whole drawing was a third of its size on a phone |
 | `Sketch.addSymbolDetail`'s blue-water override | `shared/sketch/SymbolColour.kt` | A rule about a preference, kept out of the generated `Symbol` enum |
 | `res/menu/context_leg.xml`, `ContextMenuManager.configureMenuVisibility`, `SurveyEditorActivity`'s leg handlers | `demo/.../LegActions.kt`, `SurveyUpdater.can{Downgrade,PromoteToAbove}Leg` | An action that cannot work is left out rather than shown greyed out or answered with a toast |
@@ -880,7 +882,22 @@ These are the things that would actually shape a real port.
    so the fix changes not a single pixel of any evidence in this repository. It is the one change
    on this branch verified by reading rather than by running.
 
-29. **A pixel threshold tuned on one glyph reports a working feature as broken.** The check that
+29. **The thing that looked like the bottleneck was not, and the measurement said so.** With the
+   whole of a four-thousand-station survey on screen — the view the app opens on — a frame took
+   about 170 ms in the headless renderer. Twelve thousand separate `drawLine` calls looked like the
+   obvious culprit, and the Android app already batches its dashes through `Canvas.drawLines`, so
+   gathering the segments into one `drawPoints(PointMode.Lines)` per colour looked like the obvious
+   fix. Measured, it was **no faster at all** — the cost is rasterising twelve thousand antialiased
+   round-capped segments, not the calls that ask for them — so it was taken out again rather than
+   kept as complexity that pays nothing. What *did* pay was the cull the Java has and this port did
+   not: zoomed into one passage, 16.6 ms a frame becomes 14. Two cautions about those numbers, both
+   in the test: `ImageComposeScene` rasterises on the **CPU** where a phone uses its GPU, so none of
+   them are a phone's; and the ratio that matters is the one that says the draw path is *linear* in
+   the size of the survey — 500 stations to 4,000 costs 22.6 ms to 183.8, which is 8.1 times for
+   eight times the cave. That is the property worth a test, and it is the one that would have
+   caught finding 18 in the drawing rather than in the export.
+
+30. **A pixel threshold tuned on one glyph reports a working feature as broken.** The check that
    the table gains a dagger against a commented leg counted pixels darker than 120 and found the
    cell unchanged — 66 before, 65 after — so the check failed while a screenshot of the same moment
    showed "† 5.420" perfectly legibly. A dagger at 12sp is one hairline stem and a crossbar, and at
