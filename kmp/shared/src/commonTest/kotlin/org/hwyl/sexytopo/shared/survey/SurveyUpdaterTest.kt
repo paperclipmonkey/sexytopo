@@ -483,6 +483,20 @@ class SurveyUpdaterTest {
     }
 
     @Test
+    fun canDowngradeLegAnswersTheQuestionDowngradeLegThrowsOver() {
+        val survey = TestSurveys.createStraightNorth()
+        val legToStation1 = survey.origin.getConnectedOnwardLegs()[0]
+        val lastLeg = survey.getAllLegsInChronoOrder().last { it.hasDestination() }
+
+        assertFalse(SurveyUpdater.canDowngradeLeg(legToStation1), "a cave hangs off the far end")
+        assertTrue(SurveyUpdater.canDowngradeLeg(lastLeg), "nothing was surveyed past the last one")
+        assertFalse(
+            SurveyUpdater.canDowngradeLeg(Leg(1f, 0f, 0f)),
+            "a splay is already what a downgrade would make it",
+        )
+    }
+
+    @Test
     fun downgradeNonPromotedLegProducesOneSplay() {
         val survey = Survey()
         SurveyUpdater.updateWithNewStation(survey, Leg(5f, 90f, 10f))
@@ -560,6 +574,35 @@ class SurveyUpdaterTest {
     // -------------------------------------------------------------------------------------
     // promoteToAboveLeg
     // -------------------------------------------------------------------------------------
+
+    @Test
+    fun canPromoteToAboveLegIsFalseWhenNoLegHasBeenTakenYet() {
+        val survey = Survey()
+        val splay = Leg(2f, 10f, 5f)
+        SurveyBuilder.addSplay(survey, survey.origin, splay)
+
+        assertFalse(
+            SurveyUpdater.canPromoteToAboveLeg(survey, splay),
+            "the first reading of a survey has nothing above it to join",
+        )
+        assertFalse(SurveyUpdater.promoteToAboveLeg(survey, splay), "and the promotion agrees")
+    }
+
+    @Test
+    fun canPromoteToAboveLegIsFalseForALegTheSurveyNoLongerHolds() {
+        // editLeg replaces the Leg object, so anything holding the old one - a dialog left open,
+        // say - is asking about a leg that has gone. indexOf answers -1 for it, and subList(0, -1)
+        // throws rather than returning nothing.
+        val survey = Survey()
+        SurveyUpdater.updateWithNewStation(survey, Leg(5f, 90f, 10f))
+        val splay = Leg(2f, 10f, 5f)
+        SurveyBuilder.addSplay(survey, survey.origin, splay)
+        assertTrue(SurveyUpdater.canPromoteToAboveLeg(survey, splay))
+
+        SurveyUpdater.editLeg(survey, splay, Leg(3f, 10f, 5f))
+
+        assertFalse(SurveyUpdater.canPromoteToAboveLeg(survey, splay))
+    }
 
     @Test
     fun promoteToAboveLegInheritsBackwardsFlag() {

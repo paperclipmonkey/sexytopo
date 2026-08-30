@@ -147,9 +147,15 @@ const ADD_LEG = [309, 605]
 const TABLE_TAB = [281, 26]
 const PLAN_TAB = [325, 26]
 const TABLE_ROW = (n) => [210, 66 + 26 * n]
-const ACT_EDIT = [276, 448]
-const ACT_DELETE_SPLAY = [292, 544]
+// The leg menu's buttons are found rather than counted from the top of the screen. The dialog is
+// centred, its height depends on how many actions the row can take, and the actions a row can take
+// depend on the survey — a leg with splays hanging off its far end cannot be made back into one.
+// A fixed y for "Edit reading" was right for a three-button dialog and landed on "Splay comment"
+// the day a fourth was added, which is exactly the sort of drift a screenshot does not show.
+const ACT_X = 300
 const EDIT_DISTANCE = [140, 384]
+const COMMENT_FIELD_ABOVE_SAVE = 76
+const COMMENT_SAVE_X = 317
 const EDIT_SAVE = [309, 552]
 const CONFIRM_DELETE = [292, 496]
 const STATION_CHIP = [310, 790]
@@ -341,6 +347,15 @@ const dialogTextRows = async () => {
     return rows
   }, [b64, DIALOG_CARD])
 }
+
+/**
+ * The clickable rows of the leg menu, top to bottom, as [x, y] pairs ready for `at`.
+ *
+ * Row 0 is "Edit reading" — "Close" sits on the same line, further left, so a click at [ACT_X, y]
+ * lands on the action rather than the dismissal. Every label in the column is right-aligned to the
+ * same edge, so one x works for "Delete" and for "Add it to the leg above" alike.
+ */
+const legActionRows = async () => (await dialogTextRows()).map((y) => [ACT_X, y])
 
 const dialogTop = async () => {
   const b64 = (await page.screenshot({ clip: box })).toString('base64')
@@ -957,7 +972,19 @@ if (splayRow < 0) {
   // Row 1 is the leg to station 2; row 2 is the splay.
   await at(...TABLE_ROW(2)); await page.waitForTimeout(700)
   await page.screenshot({ path: join(shotDir, 'field-leg-actions.png') })
-  await at(...ACT_EDIT); await page.waitForTimeout(700)
+
+  // What a splay is offered, and what it is not. A splay cannot be reversed — reverseLeg is
+  // addressed by the station a leg arrives at, and a splay arrives nowhere — and it is already
+  // what a downgrade would make it. Getting this wrong is not a cosmetic fault: every one of
+  // these buttons rewrites the survey.
+  const splayActions = await legActionRows()
+  if (splayActions.length !== 5) {
+    fail(`a splay offered ${splayActions.length} actions, not the expected five`)
+  } else {
+    pass('a splay is offered every way of promoting it, and neither of the leg-only actions')
+  }
+
+  await at(...splayActions[0]); await page.waitForTimeout(700)
   await retype(EDIT_DISTANCE, '2.75')
   await page.screenshot({ path: join(shotDir, 'field-edit-reading.png') })
   await at(...EDIT_SAVE); await page.waitForTimeout(900)
@@ -979,7 +1006,8 @@ if (splayRow < 0) {
 
   // ---- and a bad reading can be thrown away ------------------------------------------------
   await at(...TABLE_ROW(2)); await page.waitForTimeout(700)
-  await at(...ACT_DELETE_SPLAY); await page.waitForTimeout(600)
+  const toDelete = await legActionRows()
+  await at(...toDelete[toDelete.length - 1]); await page.waitForTimeout(600)
   await page.screenshot({ path: join(shotDir, 'field-confirm-delete.png') })
   await at(...CONFIRM_DELETE); await page.waitForTimeout(900)
 
@@ -991,6 +1019,107 @@ if (splayRow < 0) {
   } else {
     pass('a bad reading can be deleted, and only it')
   }
+}
+
+// ---- a note against a leg, and a shot booked the wrong way round --------------------------
+// Both are things a surveyor does at the moment they notice, and neither has anywhere else to
+// live: the sketch has an undo stack and the survey does not, so a leg entered end-for-end can
+// only be fixed by saying so. The comment is the other half — "sump; do not follow" is the one
+// sentence on a trip that somebody's safety may turn on, and until now nothing in this port could
+// write one against a leg.
+const distanceInk = async (y) => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, y]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    // The Distance column of one table row, measured as how much darker than the paper it is
+    // rather than as a count of pixels below a threshold. A dagger at 12sp is one hairline stem
+    // and a crossbar: at this size almost every pixel of it is antialiased grey rather than ink,
+    // so a threshold tuned on "5.420" scores the whole glyph as nothing and reports a table that
+    // is showing the marker perfectly well as one that is not.
+    let ink = 0
+    for (let yy = y - 9; yy <= y + 9; yy++) {
+      for (let x = 136; x < 232; x++) {
+        const i = (yy * c.width + x) * 4
+        if (px[i] < 200) ink += 200 - px[i]
+      }
+    }
+    return ink
+  }, [b64, y])
+}
+
+const inkBefore = await distanceInk(TABLE_ROW(1)[1])
+
+await at(...TABLE_ROW(1)); await page.waitForTimeout(700)
+const legActions = await legActionRows()
+if (legActions.length !== 5) {
+  fail(`a leg with nothing beyond it offered ${legActions.length} actions, not five`)
+} else {
+  pass('a leg with nothing surveyed beyond it can be taken back down to a splay')
+}
+await at(...legActions[1]); await page.waitForTimeout(700)
+await page.screenshot({ path: join(shotDir, 'field-leg-comment.png') })
+// One purple row, holding Cancel and Save; the field sits a fixed distance above it. Anchoring on
+// the row rather than on the screen keeps this right if the dialog gains a line of explanation.
+const commentSaveY = (await dialogTextRows()).pop()
+if (commentSaveY === undefined) {
+  fail('the leg comment dialog did not open')
+} else {
+  await at(210, commentSaveY - COMMENT_FIELD_ABOVE_SAVE); await page.waitForTimeout(250)
+  await page.keyboard.type('sump; do not follow', { delay: 15 })
+  await at(COMMENT_SAVE_X, commentSaveY); await page.waitForTimeout(900)
+}
+
+const commented = (await savedLegs()).find(isConnecting)
+if (!commented || commented.comment !== 'sump; do not follow') {
+  fail(`the leg comment did not reach the saved survey (${JSON.stringify(commented?.comment)})`)
+} else {
+  pass('a note can be written against a leg, and is saved with the survey')
+}
+
+// The Android app's own marker, and the only sign in the table that a comment exists at all. It
+// leads the distance, so the cell gains ink it did not have.
+await page.screenshot({ path: join(shotDir, 'field-leg-commented.png') })
+const inkAfter = await distanceInk(TABLE_ROW(1)[1])
+if (!(inkAfter > inkBefore)) {
+  fail(`the table shows no marker against the commented leg (ink ${inkBefore} then ${inkAfter})`)
+} else {
+  pass('and the table marks the row, so a comment can be found without opening anything')
+}
+
+// ---- reversing it, and reversing it back ---------------------------------------------------
+await at(...TABLE_ROW(1)); await page.waitForTimeout(700)
+const reverseRow = (await legActionRows())[2]
+await at(...reverseRow); await page.waitForTimeout(900)
+
+const reversed = (await savedLegs()).find(isConnecting)
+const legStations = async () => (await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
+  return key ? (JSON.parse(localStorage.getItem(key)).stations ?? []).map((st) => st.name) : []
+}))
+if (!reversed?.wasShotBackwards) {
+  fail(`the leg was not recorded as shot from the far end (${JSON.stringify(reversed)})`)
+} else if ((await legStations()).length !== 2) {
+  fail('reversing the leg lost a station')
+} else if (reversed.comment !== 'sump; do not follow') {
+  fail('reversing the leg dropped its comment')
+} else {
+  pass('a shot booked the wrong way round can be turned, and keeps what was written on it')
+}
+
+await at(...TABLE_ROW(1)); await page.waitForTimeout(700)
+await at(...(await legActionRows())[2]); await page.waitForTimeout(900)
+const backAgain = (await savedLegs()).find(isConnecting)
+if (backAgain?.wasShotBackwards) {
+  fail('reversing the leg a second time did not put it back')
+} else {
+  pass('and turning it again puts it back, which is what makes it safe to try')
 }
 
 await at(...PLAN_TAB); await page.waitForTimeout(600)

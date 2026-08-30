@@ -143,10 +143,33 @@ object SurveyUpdater {
         return true
     }
 
+    /**
+     * Whether [promoteToAboveLeg] would find a leg to promote this splay into.
+     *
+     * Split out so a menu can leave the action off when it cannot work. The Android app shows it
+     * regardless and answers a tap with the toast "No valid leg to combine with", which tells a
+     * surveyor the answer only after they have asked.
+     */
+    fun canPromoteToAboveLeg(survey: Survey, splay: Leg): Boolean =
+        !splay.hasDestination() && findMostRecentPreviousLeg(survey, splay) != null
+
+    /**
+     * Whether [downgradeLeg] would succeed rather than failing its own `check`.
+     *
+     * A leg can only go back to being a splay if nothing was surveyed beyond it: the stations past
+     * it would have nowhere to hang. The Android app greys the menu item out on the same test.
+     */
+    fun canDowngradeLeg(leg: Leg): Boolean =
+        leg.hasDestination() && leg.destination.onwardLegs.isEmpty()
+
     /** The nearest full leg recorded before [leg], or null if there is none. */
     private fun findMostRecentPreviousLeg(survey: Survey, leg: Leg): Leg? {
         val chronoLegs = survey.getAllLegsInChronoOrder()
         val index = chronoLegs.indexOf(leg)
+        // A leg the survey no longer holds indexes to -1, and subList(0, -1) throws rather than
+        // returning nothing. Reachable with a stale reference: editLeg replaces the Leg object, so
+        // anything still holding the old one is asking about a leg that has gone.
+        if (index < 0) return null
         return chronoLegs.subList(0, index).lastOrNull { it.hasDestination() }
     }
 

@@ -2,8 +2,10 @@ package org.hwyl.sexytopo.demo
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -12,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.math.adjustAngle
 import org.hwyl.sexytopo.shared.model.survey.Leg
@@ -31,6 +34,56 @@ import org.hwyl.sexytopo.shared.survey.SurveyUpdater
  * deleting a leg takes its subtree with it, promoting a splay names a new station and renumbers
  * from there, and reversing swaps the shot's direction rather than negating its numbers.
  */
+enum class LegAction(private val legLabel: String, private val splayLabel: String = legLabel) {
+    EDIT("Edit reading"),
+    COMMENT("Leg comment", "Splay comment"),
+    REVERSE("Reverse the shot"),
+    UPGRADE("Make it a station"),
+    DOWNGRADE("Make it a splay"),
+    PROMOTE("Add it to the leg above"),
+    DELETE("Delete"),
+    ;
+
+    fun label(isSplay: Boolean): String = if (isSplay) splayLabel else legLabel
+}
+
+/**
+ * Which actions this row can actually take, in the order the dialog offers them.
+ *
+ * Ported from `ContextMenuManager.configureMenuVisibility`, with one divergence. The Java shows
+ * *Downgrade to Splay* greyed out when the stations beyond it are in the way, and shows *Add to
+ * Leg Above* always, answering an impossible tap with a toast. Both are left out here instead:
+ * a dialog on a phone is a short column of buttons, and a button that cannot be pressed — or
+ * one that can be pressed and does nothing but apologise — is worse than no button at all. The
+ * warning above the buttons already says what a full leg is carrying behind it.
+ */
+fun legActionsFor(survey: Survey, row: SurveyTableRow): List<LegAction> = buildList {
+    add(LegAction.EDIT)
+    add(LegAction.COMMENT)
+    if (row.isSplay) {
+        add(LegAction.UPGRADE)
+        if (SurveyUpdater.canPromoteToAboveLeg(survey, row.leg)) add(LegAction.PROMOTE)
+    } else {
+        add(LegAction.REVERSE)
+        if (SurveyUpdater.canDowngradeLeg(row.leg)) add(LegAction.DOWNGRADE)
+    }
+    add(LegAction.DELETE)
+}
+
+/**
+ * Writes a comment onto a leg, and remembers that the survey has changed.
+ *
+ * That second line is the whole reason this is a function. `SurveyEditorActivity`'s own leg and
+ * station comment dialogs set the comment and broadcast an update, but never clear `isSaved` —
+ * and `isSaved` is what decides whether leaving the survey writes it out. A comment typed with
+ * nothing else changed is therefore lost on the Android app, silently, which is the worst way to
+ * lose the note that says the passage ahead sumps.
+ */
+internal fun applyLegComment(survey: Survey, leg: Leg, comment: String) {
+    leg.comment = comment
+    survey.isSaved = false
+}
+
 @Composable
 fun LegActionsDialog(
     survey: Survey,
@@ -39,9 +92,20 @@ fun LegActionsDialog(
     onEdited: () -> Unit,
 ) {
     var editing by remember { mutableStateOf(false) }
+    var commenting by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
 
     when {
+        commenting ->
+            LegCommentDialog(
+                row = row,
+                onDismiss = { commenting = false },
+                onSave = { comment ->
+                    applyLegComment(survey, row.leg, comment)
+                    onEdited()
+                },
+            )
+
         editing ->
             EditLegDialog(
                 row = row,
@@ -96,18 +160,49 @@ fun LegActionsDialog(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        if (row.leg.hasComment()) {
+                            // The table only shows a dagger, so this is where the note itself is
+                            // read — and the surveyor deciding whether to delete a leg is exactly
+                            // the person who wants to see what they wrote about it.
+                            Text(
+                                "$COMMENT_MARKER ${row.leg.comment}",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                     }
                 },
                 confirmButton = {
                     Column(horizontalAlignment = Alignment.End) {
-                        TextButton(onClick = { editing = true }) { Text("Edit reading") }
-                        if (row.isSplay) {
-                            TextButton(onClick = {
-                                SurveyUpdater.upgradeSplay(survey, row.leg)
-                                onEdited()
-                            }) { Text("Make it a station") }
+                        for (action in legActionsFor(survey, row)) {
+                            TextButton(
+                                onClick = {
+                                    when (action) {
+                                        LegAction.EDIT -> editing = true
+                                        LegAction.COMMENT -> commenting = true
+                                        LegAction.DELETE -> confirmingDelete = true
+                                        LegAction.UPGRADE -> {
+                                            SurveyUpdater.upgradeSplay(survey, row.leg)
+                                            onEdited()
+                                        }
+                                        // reverseLeg is addressed by the station the leg arrives
+                                        // at, not by the leg, because that is the one thing that
+                                        // survives the leg object being replaced.
+                                        LegAction.REVERSE -> {
+                                            SurveyUpdater.reverseLeg(survey, row.leg.destination)
+                                            onEdited()
+                                        }
+                                        LegAction.DOWNGRADE -> {
+                                            SurveyUpdater.downgradeLeg(survey, row.leg)
+                                            onEdited()
+                                        }
+                                        LegAction.PROMOTE -> {
+                                            SurveyUpdater.promoteToAboveLeg(survey, row.leg)
+                                            onEdited()
+                                        }
+                                    }
+                                },
+                            ) { Text(action.label(row.isSplay)) }
                         }
-                        TextButton(onClick = { confirmingDelete = true }) { Text("Delete") }
                     }
                 },
                 dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
@@ -197,4 +292,36 @@ internal fun inOrientationOf(original: Leg, edited: Leg): Leg {
         }
     replacement.comment = original.comment
     return replacement
+}
+
+/**
+ * Writing a note against a leg — "sump", "boulder choke", "tape stretched over a rift".
+ *
+ * The comment travels: it is written into the survey's own JSON, and both the Survex and Therion
+ * exporters put it on the line for that leg, so a note made underground reaches whoever draws the
+ * cave up afterwards.
+ */
+@Composable
+private fun LegCommentDialog(
+    row: SurveyTableRow,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var comment by remember(row) { mutableStateOf(row.leg.comment) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(LegAction.COMMENT.label(row.isSplay)) },
+        text = {
+            OutlinedTextField(
+                value = comment,
+                onValueChange = { comment = it },
+                label = { Text("Comment") },
+                placeholder = { Text("Sump; do not follow") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = { TextButton(onClick = { onSave(comment) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

@@ -90,9 +90,9 @@ fun SurveyTableView(
                         )
                         .padding(horizontal = 12.dp, vertical = 3.dp),
                 ) {
-                    Cell(row.from, 64.dp)
-                    Cell(row.to, 64.dp)
-                    Cell(row.distance, 92.dp)
+                    Cell(row.fromShown, 64.dp)
+                    Cell(row.toShown, 64.dp)
+                    Cell(row.distanceShown, 92.dp)
                     Cell(row.azimuth, 84.dp)
                     Cell(row.inclination, 92.dp)
                 }
@@ -127,8 +127,21 @@ class SurveyTableRow(
     val fromStation: Station,
     /** The leg itself, as stored - not the as-taken reading shown in the row. */
     val leg: Leg,
+    /** Whether the station shown in the From column carries a comment. Splays never do. */
+    val fromHasComment: Boolean = false,
+    /** Whether the station shown in the To column carries a comment. Splays never do. */
+    val toHasComment: Boolean = false,
 ) {
     val isSplay: Boolean get() = !leg.hasDestination()
+
+    // Ported from `TableRowAdapter.onBindViewHolder`, which marks three cells and no others: a
+    // full leg's From and To when *that station* has a comment, with the dagger trailing; and the
+    // distance when the *leg* has one, with the dagger leading. A splay's From is left alone even
+    // when the station it hangs off has a comment, because the Java tests `isFullLeg` first.
+    val fromShown: String get() = if (fromHasComment) "$from $COMMENT_MARKER" else from
+    val toShown: String get() = if (toHasComment) "$to $COMMENT_MARKER" else to
+    val distanceShown: String
+        get() = if (leg.hasComment()) "$COMMENT_MARKER $distance" else distance
 }
 
 /**
@@ -164,26 +177,34 @@ fun incomingLegRow(survey: Survey, station: Station): SurveyTableRow? {
 }
 
 internal fun rowFor(from: Station, leg: Leg): SurveyTableRow {
-    val (fromName, toName, reading) =
-        if (leg.wasShotBackwards) {
-            Triple(leg.destination.name, from.name, leg.asBacksight())
-        } else {
-            Triple(from.name, if (leg.hasDestination()) leg.destination.name else SPLAY, leg)
-        }
+    val (fromStation, toStation) =
+        if (leg.wasShotBackwards) leg.destination to from else from to leg.destination
+    val reading = if (leg.wasShotBackwards) leg.asBacksight() else leg
 
     return SurveyTableRow(
         fromStation = from,
         leg = leg,
-        from = fromName,
-        to = toName,
+        from = fromStation.name,
+        to = if (leg.hasDestination()) toStation.name else SPLAY,
         // Same precision as the Android app's TableCol formats: %.3f, %.2f, %+.2f.
         distance = formatFixed(reading.distance, 3),
         azimuth = formatFixed(reading.azimuth, 2),
         inclination = formatFixed(reading.inclination, 2, alwaysSigned = true),
+        fromHasComment = leg.hasDestination() && fromStation.hasComment(),
+        toHasComment = leg.hasDestination() && toStation.hasComment(),
     )
 }
 
 private const val SPLAY = "–"
+
+/**
+ * The dagger the Android app puts beside anything carrying a comment.
+ *
+ * `SexyTopoConstants.COMMENT_MARKER`. It is the only sign in the table that a comment exists at
+ * all, so a surveyor who wrote "sump, do not follow" against a leg can see it without opening
+ * anything.
+ */
+const val COMMENT_MARKER = "†"
 
 /**
  * Fixed-decimal formatting, because commonMain has no `String.format`.

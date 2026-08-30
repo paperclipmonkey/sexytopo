@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 668 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 671 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
@@ -32,7 +32,7 @@ Being precise about this matters more than the demo looking good.
 | Claim | Status | Evidence |
 | --- | --- | --- |
 | Survey model, projection maths and the extended-elevation unroll port to Kotlin | **Verified** | tests, on two targets |
-| The survey engine builds stations from readings the way the app does | **Verified** | `SurveyUpdaterTest` (55 tests), triple-shot promotion and all three amalgamation algorithms |
+| The survey engine builds stations from readings the way the app does | **Verified** | `SurveyUpdaterTest` (59 tests), triple-shot promotion and all three amalgamation algorithms |
 | Instrument packets decode identically | **Verified** | byte-level tests for DistoX, DistoX-BLE, BRIC, SAP6, Cavway, FCL |
 | The whole chain works end to end | **Verified** | `SurveyingEndToEndTest`: simulated instrument → packet decode → station promotion → JSON round-trip |
 | Native JSON survey/sketch formats read and written compatibly | **Verified** | round-trip tests against Android-shaped fixtures, including corrupt and old-format files |
@@ -45,6 +45,7 @@ Being precise about this matters more than the demo looking good.
 | PocketTopo `.txt` exports the same survey data | **Verified** | its DATA section is golden against the Android app; its station sections deliberately diverge, because the Java's are not reproducible even against themselves |
 | **The view can follow the survey as it grows** | **Verified** | the preference round-trips with every other one, and `field.mjs` turns *Follow the survey* on, promotes a station from three readings, and finds the active station's amber brackets within forty pixels of the middle of the sketch — an assertion about where the view ended up, not merely that the screen changed, which it would have anyway |
 | **A station can be found by name, and the last leg taken back** | **Verified** | `FindStationTest` — names and comments both searched, a station the survey no longer holds has no position rather than a crash, and the last leg is the last one *taken* rather than the last in any walk of the tree — and `field.mjs` finds a station on a phone screen and checks the view moved, then adds a splay, takes it back from the drawing menu and checks only it went |
+| **A reading can be corrected, annotated, reversed or unmade** | **Verified** | `LegActionsTest` and `SurveyUpdaterTest` — which actions each row offers and what they do: a leg with splays hanging off its far end is not offered the downgrade `SurveyUpdater` would throw over, the first reading of a survey is not offered a promotion there is no leg above for, a leg the survey no longer holds answers "no" instead of throwing, and a comment marks the survey unsaved, which the Android app's own dialogs do not — and `field.mjs` counts what the menu offers a splay and a leg on a phone screen, writes a note against a leg, checks the table gains the app's dagger, and turns the shot end for end and back again |
 | **Any station can be reached from the sketch, not just the active one** | **Verified** | `StationMenuTest` for which actions a station offers — the origin has no incoming leg and no delete, cross-sections belong to the plan, a backsight is normalised the way the table normalises it — and `field.mjs` finds a station that is *not* the active one on the drawn plan, holds it, and checks that the menu moved the active station there without marking the paper |
 | **The drawing can be moved without putting the pencil down** | **Verified** | `MultiTouchTest` for the pinch arithmetic and the corner geometry, and `field.mjs` finds the corner squares on the drawn page, drags one, and checks the plan moved, that no stroke was left behind, and that the next stroke still draws — with no toolbar round trip |
 | A station being made can be felt rather than looked at | **Verified** | the callback fires once per station and not once per reading, the preference round-trips, and `field.mjs` turns it off through the settings screen and checks it stayed off |
@@ -154,7 +155,8 @@ missing.
   Under *Surveying*, and on by default — which is what the Android app's own settings screen shows,
   though not what it does; see finding 21.
 - **Plan and extended elevation**, the latter exercising the cave-unrolling maths.
-- **The survey table**, with backwards shots normalised back to the reading as taken.
+- **The survey table**, with backwards shots normalised back to the reading as taken, a dagger
+  against anything carrying a comment, and every row a way into the app's leg menu.
 - Light and dark, and a layout that collapses to one scrollable toolbar on a phone.
 
 | Extended elevation | Live survey from the instrument |
@@ -436,6 +438,14 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   see it is the one you mean. The Android app does this without asking; this port asks, because the
   sketch has an undo stack and the *survey* does not, in either app — and on the Android drawing
   menu it sits one row from a display toggle.
+- **Correct, annotate or unmake a reading.** Every row of the table, and the incoming leg on any
+  station's menu, offers what the Android app's leg menu offers: edit the numbers, write a comment
+  on it, reverse a shot booked the wrong way round, make a splay into a station or fold it into the
+  leg above, take a station back down to the splay it came from, or delete it. Three of those —
+  reverse, downgrade and promote — had been in the ported engine since the beginning with nothing
+  in the app able to ask for them. A leg or station carrying a comment is marked in the table with
+  the app's own dagger, and the comment comes out in the Survex and Therion files, so a note made
+  underground reaches whoever draws the cave up.
 - **Get at any station, not just the active one.** Hold a station on the sketch and its menu comes
   up, whatever tool is in hand: start the next leg here, name and comment and measure it, draw or
   open or delete its cross-section, edit or reverse or delete the leg that got here, or delete the
@@ -538,6 +548,8 @@ Honest limits, so nothing is a surprise in a cave:
 | `control/graph/GraphView` — tools, viewport, hit-testing, snap-to-lines | `shared/sketch/` | Ported; the demo drives it |
 | `GraphActivity.handleAutoRecentre`, `SketchPreferences.Toggle.AUTO_RECENTRE` | `demo/.../App.kt`, `CanvasController.centreOn` | Driven by a counter the canvas watches, because the viewport belongs to the canvas and the station-created event does not |
 | `action_find_station`, `StationSelectorDialog`, `buttonDeleteLastLeg` | `demo/.../FindStation.kt` | The list is shown rather than autocompleted, and comments are searched as well as names |
+| `res/menu/context_leg.xml`, `ContextMenuManager.configureMenuVisibility`, `SurveyEditorActivity`'s leg handlers | `demo/.../LegActions.kt`, `SurveyUpdater.can{Downgrade,PromoteToAbove}Leg` | An action that cannot work is left out rather than shown greyed out or answered with a toast |
+| `TableRowAdapter`'s `COMMENT_MARKER` | `demo/.../SurveyTableView.kt` | The dagger goes on the station the row *shows*, which for a backsight is not the one the leg starts at |
 | `res/menu/context_station.xml`, `ContextMenuManager`, `GraphView.LongPressListener` | `demo/.../StationMenu.kt`, `SurveyCanvas.detectLongPress` | A dialog rather than a menu anchored at the finger; the links submenu is out, since nothing here draws a neighbouring survey |
 | `GraphView.isModalMoveSelection`, `didEventHitHotCorner`, `ScaleListener` | `shared/sketch/MultiTouch.kt`, `SketchViewport.kt`, `demo/.../SurveyCanvas.kt` | Pan and zoom without leaving the tool; the fourth hot corner is drawn as well as tested |
 | `GraphView.handle{Move,Rotate}CrossSection` | `demo/.../CrossSectionDrag.kt` | One value drives the preview *and* the commit, so they cannot disagree |
@@ -797,6 +809,36 @@ These are the things that would actually shape a real port.
    so. A `copy` of what came in is the fix, and the general lesson is that a constructor call with
    named arguments looks exactly like a partial update and is not one.
 
+26. **A ported engine can be complete and still unreachable, and the tests will not notice.**
+   `reverseLeg`, `downgradeLeg` and `promoteToAboveLeg` were ported early, along with the Java's own
+   tests for them, and passed on every target for months. Nothing in the app could ask for any of
+   them: the leg dialog offered edit, upgrade and delete, and the README had already claimed
+   "reverse" in a sentence about the station menu, because the dialog it opens *is* the leg dialog
+   and nobody had counted its buttons. A unit-tested function with no caller is indistinguishable
+   from a working feature in every report the build produces. What found it was reading the Android
+   app's `context_leg.xml` against the port's own dialog, item by item — which is the only method
+   that works, and is worth doing for every menu rather than trusting the test count.
+
+27. **A dialog laid out from the data cannot be clicked by coordinate.** Adding two buttons to the
+   leg menu moved *Edit reading* onto *Splay comment*, so the browser check went on typing "2.75"
+   into a comment field and reporting that the correction had not been saved — a true failure with
+   a misleading cause, which is the expensive kind. Finding 25 was the same shape. The fix is the
+   same one both times: find the row rather than counting pixels from the top of the screen. A menu
+   whose length depends on what the survey holds — a leg is offered a reverse and a splay is not,
+   and a leg with a cave hanging off its far end loses its downgrade — has no fixed coordinates to
+   hard-code, and the check that locates its rows can then *assert on how many there are*, which is
+   the thing actually worth checking.
+
+28. **A pixel threshold tuned on one glyph reports a working feature as broken.** The check that
+   the table gains a dagger against a commented leg counted pixels darker than 120 and found the
+   cell unchanged — 66 before, 65 after — so the check failed while a screenshot of the same moment
+   showed "† 5.420" perfectly legibly. A dagger at 12sp is one hairline stem and a crossbar, and at
+   that size almost every pixel of it is antialiased grey somewhere above the threshold that "5.420"
+   had comfortably cleared. Summing *how much darker than the paper* each pixel is, rather than
+   counting the ones past a cliff, measures thin ink and thick ink alike. Worth remembering because
+   the failure looked exactly like the feature being missing, and the cheapest way to tell the two
+   apart was to take the screenshot and look at it.
+
 ---
 
 ## A defect worth reporting upstream
@@ -819,6 +861,15 @@ the maintainer to judge:
 The same class of bug is in the Compass exporter, differently: its splay counter resets whenever
 the from-station changes, so a surveyor who shoots splays off a station, moves on, and later
 returns gets a second run numbered from zero and two splays sharing a name.
+
+A second one, found writing the leg menu and cheaper to fix: **a comment typed on a leg or a
+station is not saved unless something else is changed too.** `SurveyEditorActivity`'s two comment
+dialogs set the comment and broadcast an update, and neither clears `isSaved` — and `isSaved` is
+what decides whether leaving the survey writes it out and whether the app asks before discarding
+it. So a surveyor who stops at a junction, writes "sump; do not follow" against the leg ahead, and
+changes nothing else, loses it. It is the quietest possible way to lose the one note that mattered.
+Both paths here set `isSaved` — `applyLegComment` and `applyStationEdit` — with a test each saying
+why.
 
 ---
 
