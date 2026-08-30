@@ -67,4 +67,35 @@ class ClippingTest {
             "bitcode takes min and max of the two corners, so which is which does not matter",
         )
     }
+
+    // -------------------------------------------------------------------------------------
+    // Stations, which are points that draw more than a point
+    // -------------------------------------------------------------------------------------
+
+    private fun pointOutside(x: Float, y: Float, margin: Float = 0f) =
+        whollyOutside(Coord2D(x, y), topLeft, bottomRight, margin)
+
+    @Test
+    fun aStationOnTheScreenIsDrawn() {
+        assertFalse(pointOutside(50f, 50f))
+        assertFalse(pointOutside(0f, 0f), "the boundary counts as on screen")
+        assertFalse(pointOutside(100f, 100f))
+    }
+
+    @Test
+    fun aStationWellOffTheScreenIsNot() {
+        assertTrue(pointOutside(-1f, 50f))
+        assertTrue(pointOutside(101f, 50f))
+        assertTrue(pointOutside(50f, -1f))
+        assertTrue(pointOutside(50f, 101f))
+    }
+
+    @Test
+    fun aStationJustOffTheEdgeIsDrawnBecauseItsNameMayNotBe() {
+        // Its label is drawn up and to the right of the dot, so a station past the left edge can
+        // still put text on screen. Culling on the dot alone makes labels flicker at the edge as
+        // the drawing is dragged.
+        assertTrue(pointOutside(-40f, 50f), "no margin, so this one goes")
+        assertFalse(pointOutside(-40f, 50f, margin = 100f), "with room for its name, it stays")
+    }
 }

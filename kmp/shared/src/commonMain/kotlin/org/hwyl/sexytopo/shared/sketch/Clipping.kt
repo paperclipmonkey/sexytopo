@@ -45,3 +45,29 @@ private const val ABOVE = 0x8
 private const val BELOW = 0x4
 private const val RIGHT = 0x2
 private const val LEFT = 0x1
+
+/**
+ * Whether a point, and whatever is drawn around it, is entirely off the drawing.
+ *
+ * The Android app does not do this — `GraphView.drawStations` walks every station in the survey —
+ * but it is the same argument as the line above, and on a four-thousand-station cave zoomed into
+ * one passage it is a bigger saving, because a station is not only a dot: it may carry its name,
+ * and measuring a piece of text is far more work than drawing a circle.
+ *
+ * [margin] is how far outside the rectangle a station can sit and still put something inside it:
+ * its name is drawn up and to the right, and the active one wears brackets wider than the dot. Too
+ * small a margin makes labels flicker at the edge as the drawing is dragged; too large only costs
+ * a little work, so this errs large.
+ */
+fun whollyOutside(
+    point: Coord2D,
+    corner: Coord2D,
+    oppositeCorner: Coord2D,
+    margin: Float,
+): Boolean {
+    val left = minOf(corner.x, oppositeCorner.x) - margin
+    val right = maxOf(corner.x, oppositeCorner.x) + margin
+    val top = minOf(corner.y, oppositeCorner.y) - margin
+    val bottom = maxOf(corner.y, oppositeCorner.y) + margin
+    return point.x < left || point.x > right || point.y < top || point.y > bottom
+}

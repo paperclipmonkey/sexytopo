@@ -806,6 +806,14 @@ private object CanvasSizes {
     const val LABEL_UP_DP = 14f
 }
 
+/**
+ * How far off the screen a station can be and still put something on it.
+ *
+ * Its name goes up and to the right of the dot, so this has to cover the longest name a surveyor
+ * is likely to type rather than the dot's own radius.
+ */
+private const val STATION_CULL_MARGIN_DP = 120f
+
 /** How far in from the top-right corner the eraser's reach is shown. */
 private const val ERASER_INSET_DP = 40f
 
@@ -992,8 +1000,15 @@ private fun DrawScope.drawSurvey(
         drawSegment(leg, base, CanvasSizes.LEG_STROKE_DP.dp.toPx())
     }
 
+    val stationMargin = STATION_CULL_MARGIN_DP.dp.toPx()
     for ((name, coord) in scene.stations) {
         val centre = project(coord)
+        // Zoomed into one passage, almost every station of a real survey is off screen, and a
+        // station is not only a dot: if labels are showing, each one measures a piece of text,
+        // which is much more work than the circle. The Android app walks them all.
+        if (whollyOutside(centre.toCoord2D(), screenTopLeft, screenBottomRight, stationMargin)) {
+            continue
+        }
         val isActive = name == scene.activeStationName
         // The Java sets the paint's alpha to solid when it reaches the active station and never
         // sets it back, so which stations come out faded depends on where the active one falls in

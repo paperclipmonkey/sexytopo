@@ -583,7 +583,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `GraphActivity.handleAutoRecentre`, `SketchPreferences.Toggle.AUTO_RECENTRE` | `demo/.../App.kt`, `CanvasController.centreOn` | Driven by a counter the canvas watches, because the viewport belongs to the canvas and the station-created event does not |
 | `action_find_station`, `StationSelectorDialog`, `buttonDeleteLastLeg` | `demo/.../FindStation.kt` | The list is shown rather than autocompleted, and comments are searched as well as names |
 | `GraphView.drawLegs`, `drawStations`, `drawDashedLine`, `isAttachedToActive` | `shared/sketch/DashedLine.kt`, `demo/.../SurveyCanvas.kt` (`SceneSegment`) | The facts about a leg are settled when the survey is projected, not inside the draw loop |
-| `control/util/CohenSutherlandAlgorithm`, `GraphView.isLineOnCanvas` | `shared/sketch/Clipping.kt`, `demo/.../SurveyCanvas.kt` | The half of the algorithm the Java uses — the test, not the clip |
+| `control/util/CohenSutherlandAlgorithm`, `GraphView.isLineOnCanvas` | `shared/sketch/Clipping.kt`, `demo/.../SurveyCanvas.kt` | The half of the algorithm the Java uses — the test, not the clip; and the same test extended to stations, which the Java does not cull |
 | `GraphView.dpToPixels` on every drawn size | `demo/.../SurveyCanvas.kt` (`CanvasSizes`), `ThreeDView.kt` | Finding 28: a plain number in a `DrawScope` is a physical pixel, so the whole drawing was a third of its size on a phone |
 | `Sketch.addSymbolDetail`'s blue-water override | `shared/sketch/SymbolColour.kt` | A rule about a preference, kept out of the generated `Symbol` enum |
 | `res/menu/context_leg.xml`, `ContextMenuManager.configureMenuVisibility`, `SurveyEditorActivity`'s leg handlers | `demo/.../LegActions.kt`, `SurveyUpdater.can{Downgrade,PromoteToAbove}Leg` | An action that cannot work is left out rather than shown greyed out or answered with a toast |
@@ -896,6 +896,13 @@ These are the things that would actually shape a real port.
    the size of the survey — 500 stations to 4,000 costs 22.6 ms to 183.8, which is 8.1 times for
    eight times the cave. That is the property worth a test, and it is the one that would have
    caught finding 18 in the drawing rather than in the export.
+
+   The other half of that measurement is a saving the Java has not got. `drawStations` walks every
+   station in the survey, and a station is not only a dot — if the names are showing, each one
+   *measures a piece of text*, which is far more work than the circle. Culling those the same way
+   took the zoomed-in frame from 14 ms to **9.3**, a bigger saving than the legs. The margin has to
+   allow for the name, which is drawn up and to the right of the dot: cull on the dot alone and
+   labels flicker at the edge as the drawing is dragged.
 
 30. **A pixel threshold tuned on one glyph reports a working feature as broken.** The check that
    the table gains a dagger against a commented leg counted pixels darker than 120 and found the
