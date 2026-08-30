@@ -47,6 +47,7 @@ Being precise about this matters more than the demo looking good.
 | **The same code compiles for iOS** | **Verified** | `:shared:compileKotlinIosSimulatorArm64` in CI on a macOS runner — `iosMain`, `CoreBluetoothTransport` included |
 | **The ported test suite passes on Kotlin/Native** | **Verified** | `:shared:iosSimulatorArm64Test` — the same tests as the JVM and Wasm jobs, on the actual target rather than a proxy for it |
 | **The shared Compose UI links as an iOS framework** | **Verified** | `:demo:linkDebugFrameworkIosSimulatorArm64` — Compose's own Native klibs, the bundled font and the toolbar PNGs, resolved into the static framework `iosApp/` links against |
+| **The same code compiles for a real iPhone** | **Verified** | `:shared:compileKotlinIosArm64` and `:demo:linkDebugFrameworkIosArm64` — a separate Kotlin/Native target from the simulator, with its own platform libraries, so a green simulator build does not imply it |
 | The iOS app runs on a device | **Not verified** | needs Xcode, an Apple developer account and a physical phone |
 | `CoreBluetoothTransport` works | **Not verified** | it compiles now, and has still never talked to a radio; the simulator has no Bluetooth stack, so this needs a real instrument |
 | The whole app runs in a browser | **Verified** | a headless-Chromium smoke test in CI loads the page, draws a stroke and undoes it |
@@ -166,17 +167,22 @@ rather than replacing it — which is how you would want to compare them.
 
 Checking that this *builds* for iOS needs nothing but a push. The `ios` job in
 `.github/workflows/kmp.yaml` runs on a `macos-latest` runner — free on public repositories — and
-does the three things that used to be unanswerable here:
+does the four things that used to be unanswerable here:
 
 ```bash
 ./gradlew :shared:compileKotlinIosSimulatorArm64        # iosMain, CoreBluetoothTransport included
 ./gradlew :shared:iosSimulatorArm64Test                 # the ported suite, on Kotlin/Native
 ./gradlew :demo:linkDebugFrameworkIosSimulatorArm64     # the framework iosApp/ links against
+./gradlew :shared:compileKotlinIosArm64 \
+          :demo:linkDebugFrameworkIosArm64              # the phone, which is not the simulator
 ```
 
-Run those locally if you have a Mac; otherwise read them off the last CI run. Note the middle one:
-it is the same test suite the JVM and Wasm jobs run, executing on the actual target rather than on a
-target chosen because it also lacks `java.*`.
+Run those locally if you have a Mac; otherwise read them off the last CI run. Two of them are worth
+a second look. `iosSimulatorArm64Test` is the same suite the JVM and Wasm jobs run, executing on the
+actual target rather than on a target chosen because it also lacks `java.*`. And the last pair
+exists because `iosArm64` and `iosSimulatorArm64` are separate Kotlin/Native targets with separate
+platform libraries — device UIKit and CoreBluetooth are not the simulator's — so a green simulator
+build is not evidence that the thing somebody carries underground compiles.
 
 ### Running on iOS (needs macOS + Xcode)
 
@@ -193,9 +199,62 @@ The build runs `./gradlew :demo:embedAndSignAppleFrameworkForXcode` as a pre-bui
 compiles the Kotlin/Native framework and embeds it. `kmp/iosApp/project.yml` and the README section
 below it describe a fully manual alternative if you would rather install nothing.
 
-The entire iOS-specific surface is three files: `demo/src/iosMain/.../MainViewController.kt` (one
-function), the two Swift files in `iosApp/`, and — when you want real instruments —
+The entire iOS-specific surface is six files: `demo/src/iosMain/.../MainViewController.kt` (one
+function), `Storage.ios.kt`, `Clipboard.ios.kt`, `ScreenAwake.ios.kt` and the two Swift files in
+`iosApp/` — plus, when you want real instruments,
 `shared/src/iosMain/.../CoreBluetoothTransport.kt`.
+
+#### Onto your own phone, step by step
+
+Everything above is checked by CI. This part is not, because no CI runner has a phone plugged into
+it — so it is written out in full, including the three places it is known to go wrong.
+
+1. **Install the tools.** Xcode from the App Store, then `brew install xcodegen`. A JDK too, if you
+   have not got one: `brew install temurin@21`.
+2. **Generate and open the project.**
+   ```bash
+   git clone https://github.com/paperclipmonkey/sexytopo.git
+   cd sexytopo/kmp/iosApp && xcodegen && open iosApp.xcodeproj
+   ```
+3. **Set a signing team.** Select the `iosApp` target → *Signing & Capabilities* → tick *Automatically
+   manage signing* and choose your team. A free Apple ID works: add it under *Xcode → Settings →
+   Accounts*, and it appears as *(Personal Team)*.
+4. **Change the bundle identifier** to something nobody else has used — `org.hwyl.sexytopo.kmpdemo`
+   is in this repository, so somebody may already have registered it. `uk.co.yourname.sexytopo` will
+   do. Xcode will tell you, in red, if the one you picked is taken.
+5. **Plug the phone in**, pick it from the device menu at the top, and press ⌘R. The first build
+   compiles Kotlin/Native and Skia and takes several minutes; later ones are quick.
+6. **Trust the developer on the phone.** *Settings → General → VPN & Device Management → your Apple
+   ID → Trust*. Until you do, the app installs and refuses to launch.
+
+Three things go wrong, in roughly this order of likelihood:
+
+- **"Unable to locate a Java Runtime"** in the build log. Xcode runs script phases with a stripped
+  environment and no login shell, so a JDK installed by Homebrew or SDKMAN is not on `PATH`. The
+  pre-build script already asks `/usr/libexec/java_home` for one; if you installed a JDK somewhere
+  that does not answer to it, set `JAVA_HOME` explicitly in that script phase.
+- **"Sandbox: ... deny file-write"**. `ENABLE_USER_SCRIPT_SANDBOXING` is set to `NO` in
+  `project.yml`, which is what allows Gradle to run at all. If you built the project by hand rather
+  than with XcodeGen, set it yourself in *Build Settings*.
+- **The app expires after seven days.** That is a free Apple ID, not a bug. Re-run ⌘R to reinstall,
+  or use a paid developer account, which lasts a year. Worth knowing before a weekend underground:
+  build it the day before, not a week before.
+
+#### What to expect once it is on the phone
+
+Honest limits, so nothing is a surprise in a cave:
+
+- **No instrument.** `CoreBluetoothTransport` compiles and has never spoken to a DistoX; the iOS
+  simulator has no Bluetooth stack, so nothing in CI has exercised it either. Readings are typed —
+  which is exactly what the *Add reading* button is for, and the triple-shot promotion rule applies
+  to a typed reading identically.
+- **Surveys are files in the Files app**, under *On My iPhone → SexyTopo KMP*, because
+  `UIFileSharingEnabled` is set. That is how you get a `.data.json` off the phone and into Therion
+  or Survex. *Export* plus the clipboard is the other way.
+- **The screen stays on** while the app is open, and goes back to normal when you leave it.
+- **This is a port, not the app.** Trip metadata, cross-sections, calibration and the settings screen
+  are not wired to the UI even where the logic underneath them is ported and tested. Use it beside a
+  notebook, not instead of one.
 
 ---
 

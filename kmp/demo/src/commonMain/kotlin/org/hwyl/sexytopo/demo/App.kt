@@ -97,6 +97,8 @@ fun App(
         state.savedSurveys.lastOrNull()?.let { state.openSurvey(it) }
     }
 
+    KeepScreenAwake()
+
     // Save after every change rather than on a timer. A survey is a few tens of kilobytes and the
     // write is synchronous, so the cost is nothing against the thing it prevents: losing the last
     // few legs when a phone dies underground.

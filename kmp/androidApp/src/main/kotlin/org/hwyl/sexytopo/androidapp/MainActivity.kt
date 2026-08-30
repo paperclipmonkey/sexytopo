@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import org.hwyl.sexytopo.demo.AndroidHost
 import org.hwyl.sexytopo.demo.App
 
 /**
@@ -15,13 +16,18 @@ import org.hwyl.sexytopo.demo.App
  *
  * `enableEdgeToEdge` is here rather than in the shared code because it is a genuinely
  * platform-specific concern — Android draws behind the status and navigation bars, iOS does not —
- * and the shared UI handles the resulting insets itself.
+ * and the shared UI handles the resulting insets itself. The `Context` handed to
+ * [AndroidHost] is the other: on Android a file store and a clipboard both need one, and on no
+ * other platform does such a thing exist to hand over.
  */
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // The shared code builds its file store before the first composition, so it cannot read
+        // LocalContext. This is the whole of what Android has to hand over.
+        AndroidHost.attach(this)
         setContent { App() }
     }
 }

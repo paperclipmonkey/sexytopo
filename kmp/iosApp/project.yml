@@ -45,4 +45,13 @@ targets:
         basedOnDependencyAnalysis: false
         script: |
           cd "$SRCROOT/.."
+          # Xcode runs script phases with a stripped environment and no login shell, so a JDK
+          # installed by Homebrew, SDKMAN or the Temurin package is not on PATH and Gradle stops
+          # with "Unable to locate a Java Runtime" before it has compiled a line. java_home is the
+          # macOS-supplied way to find one, and asking for 21 first keeps this on the version CI
+          # uses rather than whatever happens to be newest.
+          if [ -z "${JAVA_HOME:-}" ] && [ -x /usr/libexec/java_home ]; then
+            JAVA_HOME="$(/usr/libexec/java_home -v 21 2>/dev/null || /usr/libexec/java_home 2>/dev/null)"
+            export JAVA_HOME
+          fi
           ./gradlew :demo:embedAndSignAppleFrameworkForXcode

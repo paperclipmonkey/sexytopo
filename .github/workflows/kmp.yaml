@@ -132,6 +132,17 @@ jobs:
         working-directory: kmp
         run: ./gradlew :demo:linkDebugFrameworkIosSimulatorArm64
 
+      # The phone, which is not the simulator.
+      #
+      # iosArm64 and iosSimulatorArm64 are separate Kotlin/Native targets with separate platform
+      # libraries - device UIKit and CoreBluetooth are not the simulator's - so a green simulator
+      # build is not evidence the device build works. That distinction is the whole point here:
+      # everything above proves the app runs on a Mac, and nobody surveys a cave with a Mac. This
+      # is the one check that speaks to the thing somebody will actually carry underground.
+      - name: Compile and link for a real iPhone (iosArm64)
+        working-directory: kmp
+        run: ./gradlew :shared:compileKotlinIosArm64 :demo:linkDebugFrameworkIosArm64
+
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
