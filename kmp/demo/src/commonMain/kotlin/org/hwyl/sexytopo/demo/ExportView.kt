@@ -28,6 +28,7 @@ import org.hwyl.sexytopo.shared.io.export.CompassExporter
 import org.hwyl.sexytopo.shared.io.export.PocketTopoExporter
 import org.hwyl.sexytopo.shared.io.export.SurvexExporter
 import org.hwyl.sexytopo.shared.io.export.SvgExporter
+import org.hwyl.sexytopo.shared.io.export.Th2Exporter
 import org.hwyl.sexytopo.shared.io.export.TherionExporter
 import org.hwyl.sexytopo.shared.io.export.XviExporter
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
@@ -45,6 +46,7 @@ enum class ExportFormat(val label: String, val extension: String) {
     THERION("Therion .th", "th"),
     SVG("Drawing .svg", "svg"),
     XVI("Tracing .xvi", "xvi"),
+    TH2("Therion .th2", "th2"),
     COMPASS("Compass .dat", "dat"),
     POCKET_TOPO("PocketTopo .txt", "txt"),
     NATIVE("SexyTopo JSON", "data.json"),
@@ -95,6 +97,26 @@ fun ExportView(
                         gridFrame =
                             SvgExporter.addBorder(SvgExporter.exportFrame(survey, projection))
                                 .scale(SvgExporter.SCALE.toFloat()),
+                    )
+
+                // The scrap file, naming the .xvi it expects beside it. Exporting the two
+                // together is the point: a .th2 alone has the stations and the symbols but not
+                // the passage walls, which live in the image the surveyor traces.
+                ExportFormat.TH2 ->
+                    Th2Exporter.export(
+                        survey = survey,
+                        projection = projection,
+                        innerFrame =
+                            SvgExporter.exportFrame(survey, projection)
+                                .scale(SvgExporter.SCALE.toFloat()),
+                        outerFrame =
+                            SvgExporter.addBorder(SvgExporter.exportFrame(survey, projection))
+                                .scale(SvgExporter.SCALE.toFloat()),
+                        scale = SvgExporter.SCALE.toFloat(),
+                        options =
+                            Th2Exporter.Options(
+                                xviFileName = fileNameFor(survey, ExportFormat.XVI),
+                            ),
                     )
 
                 ExportFormat.POCKET_TOPO -> PocketTopoExporter.export(survey)
