@@ -31,6 +31,7 @@ Being precise about this matters more than the demo looking good.
 | The whole chain works end to end | **Verified** | `SurveyingEndToEndTest`: simulated instrument → packet decode → station promotion → JSON round-trip |
 | Native JSON survey/sketch formats read and written compatibly | **Verified** | round-trip tests against Android-shaped fixtures, including corrupt and old-format files |
 | Survex and Therion export byte-identically | **Verified** | golden tests asserting the full file, metadata block included |
+| Compass `.dat` exports byte-identically | **Verified** | a golden captured by *running* the Android app's own exporter, not by reading it — which caught a transcription slip on the first attempt |
 | The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
 | The BLE connection logic is platform-free | **Verified** | `GattLinkTest` and `GattSessionTest` — the profile matrix *and* the connection lifecycle; only callback plumbing is left in `iosMain` |
 | The DistoX calibration solver reproduces the Java exactly | **Verified** | the Android app's own two 56-shot datasets, asserting the *iteration counts* (43, 75, 53) as well as the errors — reproduced on the JVM, Kotlin/Wasm **and Kotlin/Native** |
@@ -345,8 +346,8 @@ This is a proof of concept. It does **not** include:
 - **Symbol artwork.** The shared model places symbols; the SVG assets are not carried, so a symbol
   draws as a marked point. The symbol, text and cross-section *tools* exist in the shared model but
   the demo has no palette, text field or cross-section editor to drive them.
-- **The other exporters** — Compass, PocketTopo, SVG, XVI, and Therion's `.th2` sketch files.
-  Survex and Therion `.th` are done and golden-tested.
+- **The other exporters** — PocketTopo, SVG, XVI, and Therion's `.th2` sketch files.
+  Survex, Therion `.th` and Compass `.dat` are done and golden-tested.
 - **The rest of the Android UI**: settings, stats, the 3D view, the manual.
 - **The Android app adopting this core.** That is the step that would make the work pay for itself
   regardless of the iOS outcome, and it is deliberately not attempted yet — it also needs an Android
@@ -362,7 +363,7 @@ Roughly the order that keeps every intermediate state shippable:
 2. **Licensing, in parallel and early.** GPL-3.0 on the App Store needs a Section 7 "App Store
    exception" from every copyright holder — Rich, the eight named contributors, and Beat Heeb for
    the calibration algorithm. It gates release, not development, so it should start first.
-3. Finish the exporters — Survex and Therion `.th` are done here; `.th2`, SVG, Compass and
+3. Finish the exporters — Survex, Therion `.th` and Compass are done here; `.th2`, SVG and
    PocketTopo are not. Gate all of them on byte-identical output against the existing
    `exportTherionFixtures` / `exportSvgFixtures` golden bundles, which is a stronger check than the
    hand-written goldens in this branch.
