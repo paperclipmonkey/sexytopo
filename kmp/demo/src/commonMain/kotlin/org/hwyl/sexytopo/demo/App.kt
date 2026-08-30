@@ -76,6 +76,8 @@ fun App(
     initialTool: SketchTool = SketchTool.MOVE,
     initialMode: SurveyMode = SurveyMode.EXAMPLE,
     initialScreen: Screen = Screen.SKETCH,
+    /** Opens straight into the 3D view. Only used by the headless renderer. */
+    initialView3D: Boolean = false,
 ) {
     val state =
         remember(survey) {
@@ -86,7 +88,7 @@ fun App(
                 initialTool = initialTool,
                 initialMode = initialMode,
                 initialScreen = initialScreen,
-            )
+            ).also { it.viewing3D = initialView3D }
         }
     val editor = rememberSketchEditor(state)
     val canvas = rememberCanvasController(state)

@@ -48,7 +48,7 @@ Being precise about this matters more than the demo looking good.
 | The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
 | The BLE connection logic is platform-free | **Verified** | `GattLinkTest` and `GattSessionTest` — the profile matrix *and* the connection lifecycle; only callback plumbing is left in `iosMain` |
 | The DistoX calibration solver reproduces the Java exactly | **Verified** | the Android app's own two 56-shot datasets, asserting the *iteration counts* (43, 75, 53) as well as the errors — reproduced on the JVM, Kotlin/Wasm **and Kotlin/Native** |
-| The 3D view's camera and projection port off OpenGL | **Verified** | `Matrix4Test` and `Camera3DTest` — the Android `Matrix` routines the renderer uses, and the camera on top of them, including that the whole survey stays on a portrait screen through 128 different angles; `field.mjs` opens it in the browser, counts what got drawn and turns it |
+| The 3D view's camera and projection port off OpenGL | **Verified** | `Matrix4Test` and `Camera3DTest` — the Android `Matrix` routines the renderer uses, and the camera on top of them, including that the whole cave is on screen when the view opens and fills it, on three shapes of screen; `field.mjs` opens it in the browser, counts what got drawn and turns it |
 | Shared Compose UI draws, and can be drawn on | **Verified** | `./gradlew :demo:renderDemoPng`; drawing/erasing/undo covered by tests |
 | **The shared core has no JVM-only dependencies** | **Verified** | every shared test passes on **Kotlin/Wasm** as well as the JVM |
 | **The same code compiles for iOS** | **Verified** | `:shared:compileKotlinIosSimulatorArm64` in CI on a macOS runner — `iosMain`, `CoreBluetoothTransport` included |
@@ -152,6 +152,18 @@ missing.
 | Survey table | Export |
 | --- | --- |
 | ![table](docs/images/table.png) | ![export](docs/images/export.png) |
+
+The 3D view, and the log that answers "why will this thing not connect" when there is no console
+within a hundred metres of vertical rock:
+
+| The cave in 3D, on a phone | What the instrument did |
+| --- | --- |
+| ![3d](docs/images/iphone-3d.png) | ![log](docs/images/instrument-log.png) |
+
+Every image above except the log is rendered headlessly by `./gradlew :demo:renderDemoPng` — the
+same composable the iPhone hosts, through the same Skia renderer, with no display attached. The log
+is a real screenshot from the browser test, taken after it has driven a whole calibration through a
+fake DistoX-BLE.
 
 ---
 
@@ -579,12 +591,11 @@ These are the things that would actually shape a real port.
    which is also how a pinch starts, so the gesture the whole view exists for is the hardest one to
    perform. The first thing anybody does with a 3D view is drag it to spin it, so here one finger
    turns and two pan and pinch. Separately, `SurveyRenderer.buildGeometry` sets the camera distance
-   to the longest side of the bounding box times 1.5, which ignores both the shape of the screen —
-   the field of view is vertical, so a portrait phone's horizontal one is much narrower — and the
-   fact that the view turns, so a passage that was end-on is side-on a moment later and much wider.
-   On a phone the cave hangs off both edges as soon as you drag it. Fitting the bounding *sphere*
-   to whichever field of view is narrower fixes both at once, and is checked here by projecting
-   every station from 128 different angles and asserting none of them leaves the screen.
+   to the longest side of the bounding box times 1.5, which ignores the shape of the screen: the
+   field of view is *vertical*, so a portrait phone's horizontal one is much narrower and a cave
+   fitted to the height hangs off both sides. Measuring what the cave actually projects to — three
+   half-extents in the camera's own frame, then the distance at which two of them fit the frustum —
+   is both correct and, on a phone, about twice as close.
 
 13. **`PocketTopoTxtImporter` has four crash paths on files it should read or refuse.** All four
    are exceptions rather than wrong answers, and an import that crashes takes the app down with a

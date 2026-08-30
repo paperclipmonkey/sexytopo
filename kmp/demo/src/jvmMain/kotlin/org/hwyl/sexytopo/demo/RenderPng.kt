@@ -40,6 +40,14 @@ fun main() {
         width: Int,
         height: Int,
         scale: Float = 2f,
+        /**
+         * How many frames to throw away before keeping one.
+         *
+         * A view whose layout depends on a `LaunchedEffect` — the 3D camera, which cannot fit the
+         * cave to the screen until the canvas has been measured — is still at its opening guess on
+         * the first frame. One discarded frame is enough for the effect to have run.
+         */
+        warmUpFrames: Int = 0,
         content: @Composable () -> Unit,
     ) {
         val scene =
@@ -50,6 +58,7 @@ fun main() {
                 content = content,
             )
         try {
+            repeat(warmUpFrames) { scene.render() }
             val image = scene.render()
             val data = image.encodeToData(EncodedImageFormat.PNG) ?: error("Skia failed to encode $name")
             File(outputDir, name).writeBytes(data.bytes)
@@ -71,6 +80,9 @@ fun main() {
         App(survey = survey, initialTool = SketchTool.DRAW)
     }
     render("table.png", 1200, 820) { App(survey = survey, initialScreen = Screen.TABLE) }
+    render("three-d.png", 1200, 820, warmUpFrames = 2) {
+        App(survey = survey, initialView3D = true)
+    }
     render("export.png", 1200, 820) { App(survey = survey, initialScreen = Screen.EXPORT) }
 
     // A survey built the way the app really builds one: readings decoded from DistoX wire-format
@@ -95,6 +107,9 @@ fun main() {
         }
         render("$name-dark.png", width, height) {
             App(survey = survey, initialDarkMode = true, initialTool = SketchTool.DRAW)
+        }
+        render("$name-3d.png", width, height, warmUpFrames = 2) {
+            App(survey = survey, initialView3D = true)
         }
     }
 

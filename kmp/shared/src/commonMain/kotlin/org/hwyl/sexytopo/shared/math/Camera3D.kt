@@ -4,7 +4,7 @@ import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Coord3D
 import org.hwyl.sexytopo.shared.model.graph.Space
 import kotlin.math.PI
-import kotlin.math.atan
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
@@ -124,28 +124,21 @@ data class Camera3D(
                 INITIAL_DISTANCE
             }
 
+        /** Half the vertical field of view, in radians — the angle every fit is measured against. */
+        internal val HALF_FIELD_OF_VIEW: Float = FIELD_OF_VIEW * (PI.toFloat() / 360f)
+
         /**
-         * A camera far enough back that a sphere of [radius] fits on a viewport of this [aspect],
-         * from any angle.
+         * The tangents of the half-angles the frustum actually has, given the shape of the screen.
          *
-         * A deliberate improvement on [fittingExtent], which is what the Java uses. That takes the
-         * longest side of the bounding box and multiplies by 1.5, which ignores two things. The
-         * first is the shape of the screen: the field of view is *vertical*, so on a portrait phone
-         * the horizontal one is much narrower and a cave that fits top to bottom hangs off both
-         * sides. The second is that the view turns — a passage that is end-on when the view opens
-         * is side-on a moment later, and much wider. Fitting the bounding *sphere* to whichever
-         * field of view is narrower is the distance at which neither can happen.
+         * The field of view is *vertical*: the horizontal one follows the aspect ratio, and on a
+         * portrait phone it is much the narrower of the two. Getting this backwards is what makes a
+         * cave that fits top to bottom hang off both sides.
          */
-        fun fittingRadius(radius: Float, aspect: Float): Float {
-            if (radius <= 0f) return INITIAL_DISTANCE
-            val halfVertical = FIELD_OF_VIEW * (PI.toFloat() / 360f)
-            val half =
-                if (aspect > 0f && aspect.isFinite()) {
-                    min(halfVertical, atan(tan(halfVertical) * aspect))
-                } else {
-                    halfVertical
-                }
-            return min(MAX_DISTANCE, max(MIN_DISTANCE, radius / sin(half)))
+        internal fun halfAngleTangents(aspect: Float): Pair<Float, Float> {
+            val vertical = tan(HALF_FIELD_OF_VIEW)
+            val horizontal =
+                if (aspect > 0f && aspect.isFinite()) vertical * aspect else vertical
+            return horizontal to vertical
         }
     }
 }
@@ -179,6 +172,64 @@ class Wireframe(
      */
     val radius: Float
         get() = 0.5f * sqrt(size.x * size.x + size.y * size.y + size.z * size.z)
+
+    /**
+     * How far back [camera] has to be for every station to be on a viewport of this [aspect].
+     *
+     * Measures what the cave actually projects to from where the camera is standing, rather than
+     * bounding it by something that holds from every angle. A cave is long and thin and a phone is
+     * tall and narrow, and the sphere that contains the cave from *any* angle is so much bigger
+     * than the cave seen from *this* one that fitting it leaves the screen two-thirds empty.
+     *
+     * Three half-extents in the camera's own frame — across the screen, up the screen, and along
+     * the view — and then the distance at which the first two fit inside the frustum. The third is
+     * added rather than ignored because perspective is measured from the eye, not from the middle
+     * of the cave: the near end is closer than the centre and so spreads wider.
+     *
+     * A cave with no extent at all — the single station a live survey starts with — has nothing to
+     * fit, and gets the distance the Android app opens at.
+     */
+    fun distanceToFit(camera: Camera3D, aspect: Float, margin: Float = FIT_MARGIN): Float {
+        if (stations.isEmpty()) return Camera3D.INITIAL_DISTANCE
+
+        // The camera's axes, from `Matrix4.lookAt` with up = (0, 0, 1): forward towards the cave,
+        // right across the screen, up the screen.
+        val eye = camera.eye
+        val length = sqrt(eye.x * eye.x + eye.y * eye.y + eye.z * eye.z)
+        if (length <= 0f) return Camera3D.INITIAL_DISTANCE
+        val forward = Coord3D(-eye.x / length, -eye.y / length, -eye.z / length)
+        // forward x (0, 0, 1), normalised. Never zero: `rotatedBy` keeps the camera off the poles.
+        val rightRaw = Coord3D(forward.y, -forward.x, 0f)
+        val rightLength = sqrt(rightRaw.x * rightRaw.x + rightRaw.y * rightRaw.y)
+        if (rightLength <= 0f) return Camera3D.INITIAL_DISTANCE
+        val right = Coord3D(rightRaw.x / rightLength, rightRaw.y / rightLength, 0f)
+        val up =
+            Coord3D(
+                right.y * forward.z - right.z * forward.y,
+                right.z * forward.x - right.x * forward.z,
+                right.x * forward.y - right.y * forward.x,
+            )
+
+        var acrossHalf = 0f
+        var upHalf = 0f
+        var alongHalf = 0f
+        for (station in stations) {
+            val dx = station.x - centre.x
+            val dy = station.y - centre.y
+            val dz = station.z - centre.z
+            acrossHalf = max(acrossHalf, abs(dx * right.x + dy * right.y + dz * right.z))
+            upHalf = max(upHalf, abs(dx * up.x + dy * up.y + dz * up.z))
+            alongHalf = max(alongHalf, abs(dx * forward.x + dy * forward.y + dz * forward.z))
+        }
+
+        val (tanHorizontal, tanVertical) = Camera3D.halfAngleTangents(aspect)
+        val needed =
+            max(acrossHalf / tanHorizontal, upHalf / tanVertical) * margin + alongHalf
+        // A survey with one station and no legs has nothing to fit. Fitting it would be
+        // arithmetically valid and visually absurd: the camera would end up a metre from a dot.
+        if (needed <= NOTHING_TO_FIT) return Camera3D.INITIAL_DISTANCE
+        return min(Camera3D.MAX_DISTANCE, max(Camera3D.MIN_DISTANCE, needed))
+    }
 
     /**
      * Where a world point lands on a viewport of [width] by [height] pixels, or null if it is
@@ -285,6 +336,12 @@ class Wireframe(
                 Coord3D(maxX - minX, maxY - minY, maxZ - minZ),
             )
         }
+
+        /** A little air around the cave, so it does not touch the edges of the screen. */
+        const val FIT_MARGIN = 1.12f
+
+        /** Below this the survey has no extent worth pointing a camera at. A millimetre. */
+        private const val NOTHING_TO_FIT = 0.001f
 
         private val BY_POSITION =
             compareBy<Pair<Coord3D, Coord3D>>(

@@ -117,57 +117,76 @@ class Camera3DTest {
     }
 
     /**
-     * The fit has to survive the view being turned, on the shape of screen it is being turned on.
-     * A cave that fits when you open it and hangs off both edges the moment you drag is the whole
-     * reason this is not the Java's longest-side-times-1.5.
+     * The whole cave, on the shape of screen it is actually being looked at on, with room to spare.
+     *
+     * A portrait phone is the case that matters and the one a naive fit gets wrong: the field of
+     * view is vertical, so the horizontal one is much narrower, and a cave fitted to the height
+     * hangs off both sides.
      */
     @Test
-    fun theCaveFitsOnTheScreenFromEveryAngle() {
+    fun theWholeCaveIsOnScreenWhenTheViewOpens() {
         val wireframe = wireframeOf(aCave())
-        // A phone held upright: much narrower than it is tall.
-        val width = 420f
-        val height = 700f
-        val camera = Camera3D(distance = Camera3D.fittingRadius(wireframe.radius, width / height))
+        for ((width, height) in listOf(420f to 740f, 1200f to 820f, 900f to 900f)) {
+            val aspect = width / height
+            val camera = Camera3D(distance = wireframe.distanceToFit(Camera3D(), aspect))
+            val transform = camera.transformFor(wireframe.centre, aspect)
 
-        for (angleY in 0 until 16) {
-            for (angleX in 1 until 8) {
-                val turned =
-                    camera.copy(
-                        angleY = angleY * (2f * PI.toFloat() / 16f),
-                        angleX = angleX * (PI.toFloat() / 8f),
+            for (station in wireframe.stations) {
+                val at =
+                    assertNotNull(
+                        wireframe.project(transform, station, width, height),
+                        "a station went behind the camera on a ${width}x$height screen",
                     )
-                val transform = turned.transformFor(wireframe.centre, width / height)
-                for (station in wireframe.stations) {
-                    val at =
-                        assertNotNull(
-                            wireframe.project(transform, station, width, height),
-                            "a station went behind the camera",
-                        )
-                    assertTrue(
-                        at.x >= 0f && at.x <= width && at.y >= 0f && at.y <= height,
-                        "turned to ($angleX, $angleY) a station drew at $at, off a ${width}x$height screen",
-                    )
-                }
+                assertTrue(
+                    at.x in 0f..width && at.y in 0f..height,
+                    "a station drew at $at, off a ${width}x$height screen",
+                )
             }
         }
     }
 
+    /**
+     * And it fills that screen rather than sitting in the middle of it. This is the assertion that
+     * fails if the fit goes back to bounding the cave by a sphere that holds from every angle: a
+     * cave is long and thin, and that sphere is so much bigger than what is actually on screen that
+     * two thirds of a phone is left empty.
+     */
     @Test
-    fun aNarrowerScreenNeedsAFurtherCamera() {
-        val radius = 30f
-        val portrait = Camera3D.fittingRadius(radius, 0.5f)
-        val square = Camera3D.fittingRadius(radius, 1f)
-        val landscape = Camera3D.fittingRadius(radius, 2f)
+    fun theCaveFillsTheScreenItIsFittedTo() {
+        val wireframe = wireframeOf(aCave())
+        val width = 420f
+        val height = 740f
+        val camera = Camera3D(distance = wireframe.distanceToFit(Camera3D(), width / height))
+        val transform = camera.transformFor(wireframe.centre, width / height)
 
-        assertTrue(portrait > square, "a portrait screen fitted the cave closer than a square one")
-        // Past square the vertical field of view is the narrow one, so it stops mattering.
-        assertEquals(square, landscape)
+        val drawn = wireframe.stations.mapNotNull { wireframe.project(transform, it, width, height) }
+        val across = drawn.maxOf { it.x } - drawn.minOf { it.x }
+        val down = drawn.maxOf { it.y } - drawn.minOf { it.y }
+
+        assertTrue(
+            across > width * 0.6f || down > height * 0.6f,
+            "the cave drew ${across}x$down on a ${width}x$height screen",
+        )
     }
 
+    /** A narrower screen needs a camera further back, because the horizontal angle is the tighter. */
+    @Test
+    fun aNarrowerScreenNeedsAFurtherCamera() {
+        val wireframe = wireframeOf(aCave())
+        val portrait = wireframe.distanceToFit(Camera3D(), 0.5f)
+        val square = wireframe.distanceToFit(Camera3D(), 1f)
+
+        assertTrue(portrait > square, "a portrait screen fitted the cave closer than a square one")
+    }
+
+    /**
+     * A live survey starts with one station and no legs. There is nothing to fit, and fitting it
+     * anyway would be arithmetically valid and visually absurd — a camera a metre from a dot.
+     */
     @Test
     fun aSurveyWithNoExtentStillGetsAUsableCamera() {
-        assertEquals(Camera3D.INITIAL_DISTANCE, Camera3D.fittingRadius(0f, 0.6f))
-        assertEquals(Camera3D.MAX_DISTANCE, Camera3D.fittingRadius(1_000_000f, 0.6f))
+        val empty = wireframeOf(Survey("Empty"))
+        assertEquals(Camera3D.INITIAL_DISTANCE, empty.distanceToFit(Camera3D(), 0.6f))
     }
 
     @Test

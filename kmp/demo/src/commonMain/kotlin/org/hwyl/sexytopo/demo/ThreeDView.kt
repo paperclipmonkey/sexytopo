@@ -131,7 +131,8 @@ fun ThreeDView(
             // its side - but only moves the camera the first time, so measuring does not throw away
             // a view somebody has just set up. Reset uses the refreshed distance either way.
             LaunchedEffect(wireframe, aspect) {
-                fitDistance = Camera3D.fittingRadius(wireframe.radius, aspect)
+                // Measured from the opening angles, which is where Reset puts the camera back to.
+                fitDistance = wireframe.distanceToFit(Camera3D(), aspect)
                 if (!fittedToTheScreen) {
                     camera = Camera3D(distance = fitDistance)
                     fittedToTheScreen = true
