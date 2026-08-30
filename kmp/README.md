@@ -213,21 +213,42 @@ function), `Storage.ios.kt`, `Clipboard.ios.kt`, `ScreenAwake.ios.kt` and the tw
 Everything above is checked by CI. This part is not, because no CI runner has a phone plugged into
 it — so it is written out in full, including the three places it is known to go wrong.
 
-1. **Install the tools.** Xcode from the App Store, then `brew install xcodegen`. A JDK too, if you
-   have not got one: `brew install temurin@21`.
+1. **Install the tools.** Xcode from the App Store — the whole thing, not just the Command Line
+   Tools. Launch it once and let it install its additional components. Then:
+   ```bash
+   brew install xcodegen temurin@21
+   # Kotlin/Native needs the full Xcode, not the Command Line Tools. If you have ever installed
+   # the CLT on their own, xcode-select is probably still pointing at them, and the build fails
+   # with "xcrun: error: unable to find utility" or a linker that cannot find the iOS SDK.
+   sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+   sudo xcodebuild -license accept
+   ```
 2. **Generate and open the project.**
    ```bash
    git clone https://github.com/paperclipmonkey/sexytopo.git
    cd sexytopo/kmp/iosApp && xcodegen && open iosApp.xcodeproj
    ```
+   XcodeGen reads `project.yml` and writes `iosApp.xcodeproj` beside it. Open the **project**,
+   not a workspace; there is no workspace.
+
+   The build needs the network the first time: Gradle fetches Kotlin/Native's compiler and the
+   Compose and Skia artifacts, which is a few hundred megabytes.
 3. **Set a signing team.** Select the `iosApp` target → *Signing & Capabilities* → tick *Automatically
    manage signing* and choose your team. A free Apple ID works: add it under *Xcode → Settings →
    Accounts*, and it appears as *(Personal Team)*.
 4. **Change the bundle identifier** to something nobody else has used — `org.hwyl.sexytopo.kmpdemo`
    is in this repository, so somebody may already have registered it. `uk.co.yourname.sexytopo` will
    do. Xcode will tell you, in red, if the one you picked is taken.
-5. **Plug the phone in**, pick it from the device menu at the top, and press ⌘R. The first build
-   compiles Kotlin/Native and Skia and takes several minutes; later ones are quick.
+5. **Plug the phone in** with a USB cable and unlock it. The first time, the phone asks whether to
+   *Trust This Computer* — say yes. Pick it from the device menu at the top of the Xcode window
+   (next to the scheme), and press ⌘R.
+
+   The first build compiles Kotlin/Native and links Skia. Expect **five to fifteen minutes** on a
+   modern Mac, with Xcode's progress bar apparently stuck on "Compile Kotlin Framework" for most of
+   it — that is Gradle working, and the Xcode log pane (⌘9, then the build) shows what it is doing.
+   Later builds are seconds unless Kotlin changes.
+
+   The iPhone needs **iOS 15 or later**, which is anything from an iPhone 6s onwards.
 6. **Trust the developer on the phone.** *Settings → General → VPN & Device Management → your Apple
    ID → Trust*. Until you do, the app installs and refuses to launch.
 
@@ -243,6 +264,40 @@ Three things go wrong, in roughly this order of likelihood:
 - **The app expires after seven days.** That is a free Apple ID, not a bug. Re-run ⌘R to reinstall,
   or use a paid developer account, which lasts a year. Worth knowing before a weekend underground:
   build it the day before, not a week before.
+- **`xcrun: error: unable to find utility`, or a linker that cannot find the iOS SDK.** `xcode-select`
+  is pointing at the Command Line Tools rather than at Xcode; see step 1.
+
+Two cosmetic things that are not faults:
+
+- **The app has no icon.** There is no asset catalog in `iosApp/`, so iOS draws the default white
+  tile. Adding one is a five-minute job in Xcode and nothing depends on it.
+- **The launch screen is blank.** `UILaunchScreen` is an empty dictionary, which iOS reads as
+  "plain background".
+
+#### Before you demo it: what has and has not been run
+
+Be precise about this, because it is the difference between a demo that surprises you and one that
+does not.
+
+**Checked on every push, on a macOS runner:** the shared code compiles for the phone (`iosArm64`,
+a different target from the simulator with its own platform libraries); the whole ported test suite
+passes on Kotlin/Native; the Compose UI links as an iOS framework; and the iOS file handling —
+`DocumentsFileStore`, the date and clipboard code, a survey saved and reopened — *runs* in a
+simulator.
+
+**Never run at all:** the app itself, as an app, on any Apple device. Nobody has pressed ⌘R before
+you. The pieces are all verified and the assembly is not, so the plausible failure is something
+dull at startup rather than something deep — and if it does fail, the Xcode console will say so
+loudly rather than misbehaving quietly.
+
+**Never near a radio:** `CoreBluetoothTransport`. The simulator has no Bluetooth stack, so CI
+cannot exercise it, and no instrument has been near a phone running this. *Instrument* will ask for
+Bluetooth permission and start scanning; whether a DistoX-BLE actually appears is genuinely unknown.
+Everything above the radio — the profiles, the decoders, the acknowledgement handshake, the
+calibration — is driven end to end against a fake instrument in CI, so if the radio works the rest
+should follow.
+
+**Unmeasured:** sketching latency under a finger or an Apple Pencil.
 
 #### What you can do on the phone
 
