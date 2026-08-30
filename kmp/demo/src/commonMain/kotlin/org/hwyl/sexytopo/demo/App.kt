@@ -336,7 +336,16 @@ private fun ScreenContent(
     modifier: Modifier,
 ) {
     when (state.screen) {
-        Screen.TABLE -> SurveyTableView(state.survey, state.revision, modifier)
+        Screen.TABLE ->
+            SurveyTableView(
+                survey = state.survey,
+                revision = state.revision,
+                modifier = modifier,
+                onEdited = { state.noteSketchEdited() },
+                // The demo cave is a fixture; editing it would be surprising and would not be
+                // saved. The surveyor's own survey is the one that can be corrected.
+                editable = state.mode == SurveyMode.LIVE,
+            )
         Screen.EXPORT -> ExportView(state.survey, state.revision, modifier)
         Screen.SKETCH ->
             SurveyCanvas(

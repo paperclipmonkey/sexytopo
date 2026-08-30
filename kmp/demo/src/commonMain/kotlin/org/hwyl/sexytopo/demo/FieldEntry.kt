@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -17,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -53,26 +55,14 @@ fun ManualReadingDialog(
         title = { Text("Add a reading") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ReadingField(
-                        value = distance,
-                        onValueChange = { distance = it },
-                        label = "Distance (m)",
-                        modifier = Modifier.weight(1f),
-                    )
-                    ReadingField(
-                        value = azimuth,
-                        onValueChange = { azimuth = it },
-                        label = "Azimuth (°)",
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                ReadingField(
-                    value = inclination,
-                    onValueChange = { inclination = it },
-                    label = "Inclination (°)",
-                    imeAction = ImeAction.Done,
-                    modifier = Modifier.fillMaxWidth(),
+                ReadingFields(
+                    distance = distance,
+                    onDistance = { distance = it },
+                    azimuth = azimuth,
+                    onAzimuth = { azimuth = it },
+                    inclination = inclination,
+                    onInclination = { inclination = it },
+                    lastImeAction = ImeAction.Done,
                 )
                 Text(
                     parsed.problem
@@ -103,12 +93,67 @@ fun ManualReadingDialog(
     )
 }
 
+/**
+ * The three numbers that make a shot, laid out the way a phone wants them.
+ *
+ * Shared by the add and edit dialogs so a fix to either reaches both — and there is one fix here
+ * that matters more than it looks. Inclination is signed, and **no mobile numeric keypad offers a
+ * minus sign**: iOS `decimalPad` has digits and a decimal point and nothing else, and Android's
+ * numeric IME is no better. Without the +/- button beside the field, half of every survey — every
+ * downward shot — would be untypable on the phone this port exists for.
+ *
+ * [KeyboardType.Decimal] rather than [KeyboardType.Number] for the same class of reason: `Number`
+ * maps to iOS `numberPad`, which has no decimal point either, so `4.2` could not be entered.
+ */
+@Composable
+fun ReadingFields(
+    distance: String,
+    onDistance: (String) -> Unit,
+    azimuth: String,
+    onAzimuth: (String) -> Unit,
+    inclination: String,
+    onInclination: (String) -> Unit,
+    lastImeAction: ImeAction = ImeAction.Done,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ReadingField(distance, onDistance, "Distance (m)")
+            ReadingField(azimuth, onAzimuth, "Azimuth (\u00b0)")
+        }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ReadingField(inclination, onInclination, "Inclination (\u00b0)", lastImeAction)
+            OutlinedButton(onClick = { onInclination(withSignFlipped(inclination)) }) {
+                Text("+/-")
+            }
+        }
+    }
+}
+
+/**
+ * Flips the sign of a partly-typed number, leaving anything unparseable alone.
+ *
+ * Textual rather than numeric on purpose: the field is a string mid-edit, and round-tripping
+ * "4.20" through a Float to negate it would rewrite it as "-4.2" under the surveyor's cursor.
+ */
+fun withSignFlipped(value: String): String {
+    val trimmed = value.trim()
+    return when {
+        trimmed.isEmpty() -> "-"
+        trimmed == "-" -> ""
+        trimmed.startsWith("-") -> trimmed.removePrefix("-")
+        trimmed.startsWith("+") -> "-" + trimmed.removePrefix("+")
+        else -> "-$trimmed"
+    }
+}
+
 @Composable
 private fun ReadingField(
     value: String,
     onValueChange: (String) -> Unit,
     label: String,
-    modifier: Modifier = Modifier,
     imeAction: ImeAction = ImeAction.Next,
 ) {
     OutlinedTextField(
@@ -116,11 +161,9 @@ private fun ReadingField(
         onValueChange = onValueChange,
         label = { Text(label) },
         singleLine = true,
-        // A decimal keypad, and one that offers a minus sign - inclination is signed and a
-        // surveyor should not have to hunt for it on a phone keyboard in the wet.
         keyboardOptions =
-            KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = imeAction),
-        modifier = modifier.width(140.dp),
+            KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = imeAction),
+        modifier = Modifier.width(140.dp),
     )
 }
 

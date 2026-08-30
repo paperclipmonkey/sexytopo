@@ -1,6 +1,7 @@
 package org.hwyl.sexytopo.demo
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,7 +16,10 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -33,8 +37,28 @@ import org.hwyl.sexytopo.shared.survey.asBacksight
  * it*, or the numbers will not match their notes.
  */
 @Composable
-fun SurveyTableView(survey: Survey, revision: Int, modifier: Modifier = Modifier) {
+fun SurveyTableView(
+    survey: Survey,
+    revision: Int,
+    modifier: Modifier = Modifier,
+    onEdited: () -> Unit = {},
+    /** Read-only when false, which is what the demo cave wants. */
+    editable: Boolean = false,
+) {
     val rows = remember(survey, revision) { asTakenRows(survey) }
+    var chosen by remember(revision) { mutableStateOf<SurveyTableRow?>(null) }
+
+    chosen?.let { row ->
+        LegActionsDialog(
+            survey = survey,
+            row = row,
+            onDismiss = { chosen = null },
+            onEdited = {
+                chosen = null
+                onEdited()
+            },
+        )
+    }
 
     Column(modifier.fillMaxSize()) {
         Row(
@@ -54,7 +78,18 @@ fun SurveyTableView(survey: Survey, revision: Int, modifier: Modifier = Modifier
 
         LazyColumn(Modifier.fillMaxSize()) {
             items(rows) { row ->
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp)) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (editable) {
+                                Modifier.clickable { chosen = row }
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .padding(horizontal = 12.dp, vertical = 3.dp),
+                ) {
                     Cell(row.from, 64.dp)
                     Cell(row.to, 64.dp)
                     Cell(row.distance, 92.dp)
@@ -88,7 +123,13 @@ class SurveyTableRow(
     val distance: String,
     val azimuth: String,
     val inclination: String,
-)
+    /** The station the leg hangs off, needed to delete or move it. */
+    val fromStation: Station,
+    /** The leg itself, as stored - not the as-taken reading shown in the row. */
+    val leg: Leg,
+) {
+    val isSplay: Boolean get() = !leg.hasDestination()
+}
 
 /**
  * Flattens the survey tree into table rows in chronological order, normalising backwards shots.
@@ -117,6 +158,8 @@ private fun rowFor(from: Station, leg: Leg): SurveyTableRow {
         }
 
     return SurveyTableRow(
+        fromStation = from,
+        leg = leg,
         from = fromName,
         to = toName,
         // Same precision as the Android app's TableCol formats: %.3f, %.2f, %+.2f.
