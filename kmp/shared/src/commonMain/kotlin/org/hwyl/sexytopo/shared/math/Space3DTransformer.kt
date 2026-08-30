@@ -12,6 +12,18 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
  * Ported from `control/util/Space3DTransformer`.
  *
  * Walks the survey tree from the origin, accumulating each station's position.
+ *
+ * ## Why this is a loop and the original is a recursion
+ *
+ * The Java recurses, one stack frame per station. A cave is not a bushy tree — a passage is a
+ * *chain*, and a chain of stations is a recursion as deep as the survey is long. A club's survey of
+ * a few thousand stations therefore overflows the stack, and the first thing that touches it is the
+ * plan view: opening the survey crashes the app. Measured here at somewhere between one and three
+ * thousand stations on a desktop JVM, and a phone's main thread has a smaller stack than that.
+ *
+ * An explicit stack costs one list and reads almost the same. The traversal order is preserved
+ * exactly — legs are pushed in reverse so they come off in the order they were recorded — because
+ * `Space` iteration order feeds the exporters, and two exports of one survey must not differ.
  */
 open class Space3DTransformer {
 
@@ -19,22 +31,28 @@ open class Space3DTransformer {
 
     fun transformTo3D(root: Station): Space<Coord3D> {
         val space = Space<Coord3D>()
-        update(space, root, Coord3D.ORIGIN)
+        walk(space, root, Coord3D.ORIGIN)
         return space
     }
 
-    protected open fun update(space: Space<Coord3D>, station: Station, coord3D: Coord3D) {
-        space.addStation(station, coord3D)
-        for (leg in station.onwardLegs) {
-            update(space, leg, coord3D)
-        }
-    }
-
-    protected open fun update(space: Space<Coord3D>, leg: Leg, start: Coord3D) {
-        val end = transform(start, leg)
-        space.addLeg(leg, Line(start, end))
-        if (leg.hasDestination()) {
-            update(space, leg.destination, end)
+    /**
+     * Depth-first from [root], exactly as the recursion visited it, without the stack frames.
+     *
+     * Left open so the extended elevation can carry its extra accumulator, which is the only thing
+     * that subclass changes.
+     */
+    protected open fun walk(space: Space<Coord3D>, root: Station, origin: Coord3D) {
+        val pending = ArrayDeque<Pair<Station, Coord3D>>()
+        pending.addLast(root to origin)
+        while (pending.isNotEmpty()) {
+            val (station, at) = pending.removeLast()
+            space.addStation(station, at)
+            // Reversed, so that popping from the end visits them in their recorded order.
+            for (leg in station.onwardLegs.asReversed()) {
+                val end = transform(at, leg)
+                space.addLeg(leg, Line(at, end))
+                if (leg.hasDestination()) pending.addLast(leg.destination to end)
+            }
         }
     }
 
@@ -54,46 +72,31 @@ open class Space3DTransformer {
  */
 class Space3DTransformerForElevation : Space3DTransformer() {
 
-    override fun update(space: Space<Coord3D>, station: Station, coord3D: Coord3D) {
-        update(space, station, coord3D, 0f)
-    }
-
-    private fun update(
-        space: Space<Coord3D>,
-        station: Station,
-        coord3D: Coord3D,
-        rotation: Float,
-    ) {
-        space.addStation(station, coord3D)
-        for (leg in station.onwardLegs) {
-            if (leg.hasDestination()) {
-                updateLeg(space, leg, coord3D)
-            } else {
-                updateSplay(space, leg, coord3D, rotation)
+    /**
+     * The same loop as the base class, carrying one more thing down the tree.
+     *
+     * Each station remembers the bearing change its own leg applied, because that is what its
+     * splays have to be rotated by to keep pointing sensibly relative to the unrolled passage.
+     */
+    override fun walk(space: Space<Coord3D>, root: Station, origin: Coord3D) {
+        val pending = ArrayDeque<Triple<Station, Coord3D, Float>>()
+        pending.addLast(Triple(root, origin, 0f))
+        while (pending.isNotEmpty()) {
+            val (station, at, rotation) = pending.removeLast()
+            space.addStation(station, at)
+            for (leg in station.onwardLegs.asReversed()) {
+                if (leg.hasDestination()) {
+                    val destination = leg.destination
+                    val projected = projectLeg(leg, destination.extendedElevationDirection)
+                    val end = toCartesian(at, projected)
+                    space.addLeg(leg, Line(at, end))
+                    pending.addLast(Triple(destination, end, projected.azimuth - leg.azimuth))
+                } else {
+                    val end = toCartesian(at, leg.rotate(rotation))
+                    space.addLeg(leg, Line(at, end))
+                }
             }
         }
-    }
-
-    private fun updateLeg(space: Space<Coord3D>, leg: Leg, start: Coord3D) {
-        val destination = leg.destination
-        val projected = projectLeg(leg, destination.extendedElevationDirection)
-
-        val end = toCartesian(start, projected)
-        space.addLeg(leg, Line(start, end))
-
-        val rotation = projected.azimuth - leg.azimuth
-        update(space, destination, end, rotation)
-    }
-
-    private fun updateSplay(
-        space: Space<Coord3D>,
-        leg: Leg,
-        start: Coord3D,
-        rotation: Float,
-    ) {
-        val adjustedLeg = leg.rotate(rotation)
-        val end = toCartesian(start, adjustedLeg)
-        space.addLeg(leg, Line(start, end))
     }
 
     private fun projectLeg(leg: Leg, direction: ExtendedElevationDirection): Leg =

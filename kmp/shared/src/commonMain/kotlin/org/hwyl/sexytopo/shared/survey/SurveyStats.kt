@@ -63,13 +63,18 @@ object SurveyStats {
     fun numberOfSplaysUnder(station: Station): Int =
         legsUnder(station).count { !it.hasDestination() }
 
+    /** Iterative for the same reason `Survey.getAllStations` is: a passage is a chain. */
     private fun stationsUnder(origin: Station): List<Station> =
         buildList {
-            fun walk(station: Station) {
+            val pending = ArrayDeque<Station>()
+            pending.addLast(origin)
+            while (pending.isNotEmpty()) {
+                val station = pending.removeLast()
                 add(station)
-                for (leg in station.getConnectedOnwardLegs()) walk(leg.destination)
+                for (leg in station.getConnectedOnwardLegs().asReversed()) {
+                    pending.addLast(leg.destination)
+                }
             }
-            walk(origin)
         }
 
     private fun legsUnder(origin: Station): List<Leg> =

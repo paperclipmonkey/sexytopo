@@ -169,19 +169,40 @@ class Survey(name: String = DEFAULT_NAME) {
     // Tree queries
     // -----------------------------------------------------------------------------------------
 
+    /**
+     * Every station, depth first from the origin.
+     *
+     * A loop rather than the original's recursion, for the reason set out in `Space3DTransformer`:
+     * a cave passage is a chain, so a recursion is as deep as the survey is long, and a club's
+     * survey of a few thousand stations overflows the stack. Legs are pushed reversed so they come
+     * off in the order they were recorded, which keeps the order the recursion produced.
+     *
+     * ## Why it remembers where it has been
+     *
+     * A survey the app builds is a tree and cannot contain a cycle. A survey it *reads* can: the
+     * file formats identify a leg's far end by name, and a file with two stations of the same name
+     * — which nothing in the format forbids — collapses them into a leg that points at its own
+     * source. The recursion this replaced met that as a stack overflow; a plain loop would meet it
+     * by never finishing, which is worse, because [checkSurveyIntegrity] is the very thing that
+     * would have reported the file as broken and it starts by calling this.
+     *
+     * Identity, not equality: `Station` overrides neither `equals` nor `hashCode`, and two
+     * different stations that happen to share a name are two stations.
+     */
     fun getAllStations(): List<Station> {
         val stations = mutableListOf<Station>()
-        collectStations(origin, stations)
-        return stations
-    }
-
-    private fun collectStations(station: Station, into: MutableList<Station>) {
-        into.add(station)
-        for (leg in station.onwardLegs) {
-            if (leg.hasDestination()) {
-                collectStations(leg.destination, into)
+        val seen = HashSet<Station>()
+        val pending = ArrayDeque<Station>()
+        pending.addLast(origin)
+        while (pending.isNotEmpty()) {
+            val station = pending.removeLast()
+            if (!seen.add(station)) continue
+            stations.add(station)
+            for (leg in station.onwardLegs.asReversed()) {
+                if (leg.hasDestination()) pending.addLast(leg.destination)
             }
         }
+        return stations
     }
 
     /** The origin, then each station in the order the leg that created it was recorded. */
@@ -256,12 +277,17 @@ class Survey(name: String = DEFAULT_NAME) {
          * original's edit, undo and reverse operations all work.
          */
         fun traverseLegs(station: Station, visit: (Station, Leg) -> Boolean): Boolean {
-            for (leg in station.onwardLegs.toList()) {
-                if (visit(station, leg)) {
-                    return true
+            val pending = ArrayDeque<Station>()
+            pending.addLast(station)
+            while (pending.isNotEmpty()) {
+                val at = pending.removeLast()
+                // A snapshot, because the visitor may unhook the leg it is looking at.
+                val legs = at.onwardLegs.toList()
+                for (leg in legs) {
+                    if (visit(at, leg)) return true
                 }
-                if (leg.hasDestination() && traverseLegs(leg.destination, visit)) {
-                    return true
+                for (leg in legs.asReversed()) {
+                    if (leg.hasDestination()) pending.addLast(leg.destination)
                 }
             }
             return false
@@ -269,12 +295,13 @@ class Survey(name: String = DEFAULT_NAME) {
 
         /** Ported from `control/util/SurveyTools.traverseStations`; visits [station] first. */
         fun traverseStations(station: Station, visit: (Station) -> Boolean): Boolean {
-            if (visit(station)) {
-                return true
-            }
-            for (leg in station.getConnectedOnwardLegs()) {
-                if (traverseStations(leg.destination, visit)) {
-                    return true
+            val pending = ArrayDeque<Station>()
+            pending.addLast(station)
+            while (pending.isNotEmpty()) {
+                val at = pending.removeLast()
+                if (visit(at)) return true
+                for (leg in at.getConnectedOnwardLegs().asReversed()) {
+                    pending.addLast(leg.destination)
                 }
             }
             return false

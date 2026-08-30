@@ -220,16 +220,30 @@ object SurvexTherionWriter {
      * sorts to -1 and lands at the front rather than being dropped.
      */
     fun chronologicalEntries(survey: Survey): List<Pair<Station, Leg>> {
-        val chrono = survey.getAllLegsInChronoOrder()
-        val entries = mutableListOf<Pair<Station, Leg>>()
+        // The position of each leg in the record, looked up once rather than scanned per leg.
+        //
+        // `indexOfFirst` inside the sort key made this quadratic, and an export is not a small
+        // loop: at thirty thousand stations it took eighteen seconds on a desktop, which on a
+        // phone is a progress bar and a surveyor wondering whether it has hung. `Leg` overrides
+        // neither `equals` nor `hashCode`, so a hash map keyed on it is keyed on identity, which
+        // is exactly the `===` the scan was doing.
+        // `containsKey` rather than `putIfAbsent`, which is a JVM-only extension: first occurrence
+        // wins, which is what `indexOfFirst` meant.
+        val order = HashMap<Leg, Int>()
+        survey.getAllLegsInChronoOrder().forEachIndexed { index, leg ->
+            if (!order.containsKey(leg)) order[leg] = index
+        }
 
+        val entries = mutableListOf<Pair<Station, Leg>>()
         for (station in survey.getAllStations()) {
             // Splays before full legs, as the Java's per-station collection does.
             for (leg in station.getUnconnectedOnwardLegs()) entries.add(station to leg)
             for (leg in station.getConnectedOnwardLegs()) entries.add(station to leg)
         }
 
-        return entries.sortedBy { (_, leg) -> chrono.indexOfFirst { it === leg } }
+        // Absent from the record sorts to -1 and lands at the front, which is what `indexOfFirst`
+        // did and what the Java does.
+        return entries.sortedBy { (_, leg) -> order[leg] ?: -1 }
     }
 
     private fun appendEntry(builder: StringBuilder, from: Station, leg: Leg, format: SurveyFormat) {
@@ -299,10 +313,16 @@ object SurvexTherionWriter {
         }
     }
 
+    /** Iterative for the reason set out in `Space3DTransformer`: a passage is a chain. */
     private fun collectStationsWithComments(station: Station, into: MutableList<Station>) {
-        if (station.hasComment()) into.add(station)
-        for (leg in station.getConnectedOnwardLegs()) {
-            collectStationsWithComments(leg.destination, into)
+        val pending = ArrayDeque<Station>()
+        pending.addLast(station)
+        while (pending.isNotEmpty()) {
+            val at = pending.removeLast()
+            if (at.hasComment()) into.add(at)
+            for (leg in at.getConnectedOnwardLegs().asReversed()) {
+                pending.addLast(leg.destination)
+            }
         }
     }
 
@@ -314,16 +334,38 @@ object SurvexTherionWriter {
      * both station names and does not change what the rest of the subtree inherits.
      */
     fun extendedElevationExtensions(survey: Survey, format: SurveyFormat): String = buildString {
-        appendExtendCommands(this, survey.origin, null, null, format.commandChar)
+        appendExtendCommands(this, survey.origin, format.commandChar)
     }
 
-    private fun appendExtendCommands(
+    /**
+     * Depth first from the origin, carrying the direction each station inherits.
+     *
+     * A loop rather than a recursion, for the reason set out in `Space3DTransformer`: a passage is
+     * a chain, so a recursion here is as deep as the survey is long, and a large survey overflows
+     * the stack part-way through writing its own export file. The order is unchanged — children are
+     * pushed reversed so they come off in the order they were recorded — because these commands go
+     * into a golden-tested file.
+     */
+    private fun appendExtendCommands(builder: StringBuilder, origin: Station, marker: String) {
+        val pending = ArrayDeque<Triple<Station, Station?, ExtendedElevationDirection?>>()
+        pending.addLast(Triple(origin, null, null))
+        while (pending.isNotEmpty()) {
+            val (station, fromStation, lastDirection) = pending.removeLast()
+            val inherited = appendExtendCommand(builder, station, fromStation, lastDirection, marker)
+            for (leg in station.getConnectedOnwardLegs().asReversed()) {
+                pending.addLast(Triple(leg.destination, station, inherited))
+            }
+        }
+    }
+
+    /** @return the direction this station's own subtree inherits. */
+    private fun appendExtendCommand(
         builder: StringBuilder,
         station: Station,
         fromStation: Station?,
         lastDirection: ExtendedElevationDirection?,
         marker: String,
-    ) {
+    ): ExtendedElevationDirection? {
         val current = station.extendedElevationDirection
         val directionName = current.name.lowercase()
 
@@ -360,9 +402,7 @@ object SurvexTherionWriter {
             inherited = current
         }
 
-        for (leg in station.getConnectedOnwardLegs()) {
-            appendExtendCommands(builder, leg.destination, station, inherited, marker)
-        }
+        return inherited
     }
 
     /**

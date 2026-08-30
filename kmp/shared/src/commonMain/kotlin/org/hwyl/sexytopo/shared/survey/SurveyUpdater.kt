@@ -492,13 +492,19 @@ object SurveyUpdater {
         survey.isSaved = false
     }
 
+    /** Iterative for the reason set out in `Space3DTransformer`: a passage is a chain. */
     fun setExtendedElevationDirectionOfSubtree(
         station: Station,
         direction: ExtendedElevationDirection,
     ) {
-        station.extendedElevationDirection = direction
-        for (leg in station.getConnectedOnwardLegs()) {
-            setExtendedElevationDirectionOfSubtree(leg.destination, direction)
+        val pending = ArrayDeque<Station>()
+        pending.addLast(station)
+        while (pending.isNotEmpty()) {
+            val at = pending.removeLast()
+            at.extendedElevationDirection = direction
+            for (leg in at.getConnectedOnwardLegs()) {
+                pending.addLast(leg.destination)
+            }
         }
     }
 

@@ -45,6 +45,7 @@ Being precise about this matters more than the demo looking good.
 | A station being made can be felt rather than looked at | **Verified** | the callback fires once per station and not once per reading, the preference round-trips, and `field.mjs` turns it off through the settings screen and checks it stayed off |
 | The instrument log is kept, persisted and readable on the phone | **Verified** | `ActivityLogTest` for the bounded queues and the file format; `instrument.mjs` connects a fake DistoX-BLE, takes a calibration, and then reads the log back off the clipboard — count, timestamps and all |
 | The desktop build keeps its surveys too | **Verified** | a survey written by one `SurveyLibrary` and read by a second over the same directory, in SexyTopo's own file layout, plus the three platform conventions for where that directory goes |
+| **A real-sized cave works, not just a demo one** | **Verified** | `BigSurveyTest` builds a four-thousand-station passage — past where every tree walk in this port used to overflow the stack — and projects it to a plan and an extended elevation, builds its wireframe, counts its statistics, exports it to Survex and Therion and reads it back, on all three targets |
 | Surveys save and load through a platform-free storage layer | **Verified** | a full round trip - naming, directories, autosave, listing - over an in-memory `FileStore`, on all three targets. The Android app's equivalent test is `@Ignore`d because `DocumentFile` cannot be mocked |
 | The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
 | The BLE connection logic is platform-free | **Verified** | `GattLinkTest` and `GattSessionTest` — the profile matrix *and* the connection lifecycle; only callback plumbing is left in `iosMain` |
@@ -142,7 +143,7 @@ missing.
   one tap — because a DistoX that will not pair does it in a cave, with no signal and no console.
 - **A buzz when a station is made**, so the surveyor can look at the rock instead of the phone.
   Under *Surveying*, and on by default — which is what the Android app's own settings screen shows,
-  though not what it does; see finding 13.
+  though not what it does; see finding 21.
 - **Plan and extended elevation**, the latter exercising the cave-unrolling maths.
 - **The survey table**, with backwards shots normalised back to the reading as taken.
 - Light and dark, and a layout that collapses to one scrollable toolbar on a phone.
@@ -559,14 +560,14 @@ These are the things that would actually shape a real port.
    and then do nothing. Android's `UUID.toString()` is always 128-bit, which is why the original
    never had to think about it. Nobody would have found this without a Mac, a BRIC and a cave.
 
-8. **The Java loader silently turns corruption into data loss.** A leg naming a station missing
+9. **The Java loader silently turns corruption into data loss.** A leg naming a station missing
    from the file becomes a *splay* if you resolve the name leniently, which detaches every station
    beyond it with no error — the port did exactly this until a review caught it. Saving a sketch
    also dropped every cross-section. Both are the worst failure mode a survey app has: the file
    still opens, and what is missing is a branch of the cave. Anything reimplementing this format
    should start from the tests in `SurveyLoaderFidelityTest`.
 
-9. **The app's own reference calibrations would fail its own test.** Both 56-shot datasets in the
+10. **The app's own reference calibrations would fail its own test.** Both 56-shot datasets in the
    Android app's test suite fit at about 0.60, and `DistoXCalibrationActivity.MAX_ERROR` — the
    threshold for a good calibration — is 0.50. So the data the algorithm is verified against is
    data the app would tell a surveyor to take again. The port reproduces the deltas to six figures,
@@ -574,7 +575,7 @@ These are the things that would actually shape a real port.
    are mediocre, and nothing in the app says which. Worth settling before anybody reads much into
    the number.
 
-10. **A throw inside a Compose composition is invisible on the web.** The cross-section editor
+11. **A throw inside a Compose composition is invisible on the web.** The cross-section editor
    appeared to do nothing at all: the tool ran, the hit test found the section, the state was set,
    the composition took the right branch — and the screen went on showing the plan. It was throwing
    during composition (`Survey.getSketch` rejects `CROSS_SECTION`, which the editor passes on
@@ -583,7 +584,7 @@ These are the things that would actually shape a real port.
    in logcat. Anything debugging a Compose Multiplatform web app should assume "the UI did nothing"
    means "something threw", and bisect by logging rather than by watching.
 
-11. **Station comments grow four columns every time a survey round-trips through Survex.**
+12. **Station comments grow four columns every time a survey round-trips through Survex.**
    `SurvexTherionImporter.parsePassageData` splits a passage row on the *first* run of whitespace
    and keeps everything after it as the comment. A row is `station left right up down comment`, so
    a station commented "junction" comes back in as `-	-	-	-	junction` — this app writes the
@@ -593,7 +594,7 @@ These are the things that would actually shape a real port.
    round-trips, and is therefore a deliberate divergence rather than a translation of what the Java
    does. It is round-trip corruption of a surveyor's own notes, so it is worth fixing upstream too.
 
-12. **The 3D view's gestures and its fit are both worth changing.** Two divergences, both in
+13. **The 3D view's gestures and its fit are both worth changing.** Two divergences, both in
    `ThreeDView.kt` and both deliberate. `SurveyView3D` pans with one finger and rotates with two —
    and reaching the rotate needs both fingers moving together *without* changing their spacing,
    which is also how a pinch starts, so the gesture the whole view exists for is the hardest one to
@@ -605,7 +606,7 @@ These are the things that would actually shape a real port.
    half-extents in the camera's own frame, then the distance at which two of them fit the frustum —
    is both correct and, on a phone, about twice as close.
 
-13. **`PocketTopoTxtImporter` has four crash paths on files it should read or refuse.** All four
+14. **`PocketTopoTxtImporter` has four crash paths on files it should read or refuse.** All four
    are exceptions rather than wrong answers, and an import that crashes takes the app down with a
    file the surveyor then cannot get in at all. `parseDataAndUpdateSurvey` guards on
    `fields.length < 3` and then reads `fields[3]` and `fields[4]`. `getSection` calls
@@ -616,7 +617,7 @@ These are the things that would actually shape a real port.
    to find and looks up a projected position that can be absent too. The port refuses those files
    instead, and has a test for each.
 
-14. **The `.top` reader trusts four bytes of a corrupt file with an allocation.** Every count in a
+15. **The `.top` reader trusts four bytes of a corrupt file with an allocation.** Every count in a
    PocketTopo file — trips, shots, references, points in a polygon — is read as a 32-bit integer
    and handed straight to `new ArrayList<>(count)`, then looped that many times. A truncated or
    mangled file is therefore an `OutOfMemoryError` or a very long wait rather than an error message.
@@ -625,7 +626,7 @@ These are the things that would actually shape a real port.
    prefix is decoded in a loop with no width limit, so a run of high-bit bytes shifts past the width
    of an `int` and yields a small plausible length rather than an error.
 
-15. **The two PocketTopo importers disagree about splays, and the text one is wrong.** The binary
+16. **The two PocketTopo importers disagree about splays, and the text one is wrong.** The binary
    reader attaches legs directly and its comment says why — "to avoid triple-shot detection creating
    unwanted auto-named stations during import". The text reader hands every splay to
    `SurveyUpdater.update`, which applies exactly that rule. So a surveyor who shot three careful
@@ -633,7 +634,31 @@ These are the things that would actually shape a real port.
    file, auto-named, with the rest of the import hanging off it. Two importers in the same package,
    one of which documents the trap the other falls into.
 
-16. **A Compose chip eats the drag that would scroll the row it is in.** Not a finding about the
+17. **Every walk of the survey tree overflows the stack on a real cave.** The Java recurses once
+   per station — `Space3DTransformer`, `SurveyTools.traverseStations`, `getAllStations`,
+   `collectStationsWithComments`, the `extend` commands, `setExtendedElevationDirectionOfSubtree`.
+   A cave is not a bushy tree: a passage is a *chain*, so the recursion is as deep as the survey is
+   long. Somewhere between one and three thousand stations, on a desktop JVM with a generous stack,
+   it falls over — and the first thing that touches it is the plan view, so opening a club's survey
+   crashes before anything is drawn. A phone's stack is smaller, and Kotlin/Wasm's smaller still.
+   Every one of them is a loop here, and there is a four-thousand-station test on all three targets.
+   Worth fixing upstream: it is the difference between an app for a weekend's surveying and one for
+   a cave.
+
+18. **Exporting a large survey was quadratic.** `chronologicalEntries` ordered the legs with
+   `indexOfFirst` inside the sort key — a scan of the whole record per leg. At thirty thousand
+   stations a Survex export took **eighteen seconds** on a desktop; indexing the record once first
+   brings it to **114 milliseconds**, and the output is byte-identical. Ported from
+   `GraphToListTranslator.toChronoListOfSurveyListEntries`, which has the same `indexOf`.
+
+19. **A survey read from a file can contain a cycle, and walking one has to stop.** The formats
+   name a leg's far end, and nothing in them forbids two stations of the same name — which collapse
+   on load into a leg pointing at its own source. The recursion met that as a stack overflow; a
+   plain loop meets it by never finishing, which is worse, because `checkSurveyIntegrity` is the
+   thing that would report the file as broken and it begins by walking the tree. `getAllStations`
+   now remembers where it has been.
+
+20. **A Compose chip eats the drag that would scroll the row it is in.** Not a finding about the
    Android app — about this port, and about Compose. The export screen offers eight formats, which
    do not fit across a phone, so they sat in a horizontally scrolling row. A drag that *begins on a
    chip* moves that row about thirty pixels and then stops, however far the finger goes; a drag
@@ -642,7 +667,7 @@ These are the things that would actually shape a real port.
    the chips fixes it and needs no gesture. Worth knowing before putting a scrolling row of
    `FilterChip`s anywhere a finger has to drag it.
 
-17. **The vibrate-on-new-station setting says on and behaves as off.** `preferences_general.xml`
+21. **The vibrate-on-new-station setting says on and behaves as off.** `preferences_general.xml`
    declares `android:defaultValue="true"` for `pref_vibrate_on_new_station`, so the checkbox on the
    settings screen appears ticked on a fresh install. But nothing in the app calls
    `PreferenceManager.setDefaultValues`, and a `defaultValue` is not written to `SharedPreferences`
