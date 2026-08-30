@@ -153,10 +153,27 @@ The Android-specific surface is one activity that calls `setContent { App() }`, 
 theme. It installs with its own application id, so it sits on a phone next to the real SexyTopo
 rather than replacing it — which is how you would want to compare them.
 
+### Building for iOS (no Mac needed)
+
+Checking that this *builds* for iOS needs nothing but a push. The `ios` job in
+`.github/workflows/kmp.yaml` runs on a `macos-latest` runner — free on public repositories — and
+does the three things that used to be unanswerable here:
+
+```bash
+./gradlew :shared:compileKotlinIosSimulatorArm64        # iosMain, CoreBluetoothTransport included
+./gradlew :shared:iosSimulatorArm64Test                 # the ported suite, on Kotlin/Native
+./gradlew :demo:linkDebugFrameworkIosSimulatorArm64     # the framework iosApp/ links against
+```
+
+Run those locally if you have a Mac; otherwise read them off the last CI run. Note the middle one:
+it is the same test suite the JVM and Wasm jobs run, executing on the actual target rather than on a
+target chosen because it also lacks `java.*`.
+
 ### Running on iOS (needs macOS + Xcode)
 
-The Xcode project is **generated rather than committed**, because it was authored on Linux where a
-hand-written `.pbxproj` cannot be opened or validated:
+Putting it on a simulator or a phone is where a Mac becomes unavoidable. The Xcode project is
+**generated rather than committed**, because it was authored on Linux where a hand-written
+`.pbxproj` cannot be opened or validated:
 
 ```bash
 brew install xcodegen
@@ -351,11 +368,18 @@ Roughly the order that keeps every intermediate state shippable:
    hand-written goldens in this branch.
 4. **Point the Android app at the shared core and ship it.** After this the effort has paid for
    itself even if iOS never happens.
-5. Then the iOS-specific work: compile it, fix what the first build finds, file handling, and
-   CoreBluetooth against a real instrument.
+5. Then the iOS-specific work. "Compile it and fix what the first build finds" is **done** — it cost
+   about three hours once somebody noticed that GitHub gives public repositories free macOS runners.
+   What is left is file handling, a device build, and CoreBluetooth against a real instrument.
 
 Two things should be measured on real hardware before committing to any of it: sketching latency
-with an Apple Pencil on an iPad, and a CoreBluetooth connection to an actual instrument.
+with an Apple Pencil on an iPad, and a CoreBluetooth connection to an actual instrument. Start
+borrowing instruments now rather than later — all five profiles here are unverified transcriptions,
+and it is the item with the longest lead time because it is procurement, not engineering.
+
+And one thing to tell existing users early: the original **DistoX** and **DistoX2** speak Bluetooth
+Classic RFCOMM, for which Apple exposes no public API. They can never work on iOS. Every instrument
+in this port is BLE and needs no Apple certification, but those two are permanently Android-only.
 
 ---
 
