@@ -33,6 +33,7 @@ Being precise about this matters more than the demo looking good.
 | Survex and Therion export byte-identically | **Verified** | golden tests asserting the full file, metadata block included |
 | The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
 | The BLE connection logic is platform-free | **Verified** | `GattLinkTest` and `GattSessionTest` — the profile matrix *and* the connection lifecycle; only callback plumbing is left in `iosMain` |
+| The DistoX calibration solver reproduces the Java exactly | **Verified** | the Android app's own two 56-shot datasets, asserting the *iteration counts* (43, 75, 53) as well as the errors, on the JVM and Kotlin/Wasm; the macOS job runs the same suite on Kotlin/Native |
 | Shared Compose UI draws, and can be drawn on | **Verified** | `./gradlew :demo:renderDemoPng`; drawing/erasing/undo covered by tests |
 | **The shared core has no JVM-only dependencies** | **Verified** | every shared test passes on **Kotlin/Wasm** as well as the JVM |
 | **The same code compiles for iOS** | **Verified** | `:shared:compileKotlinIosSimulatorArm64` in CI on a macOS runner — `iosMain`, `CoreBluetoothTransport` included |
@@ -201,6 +202,7 @@ function), the two Swift files in `iosApp/`, and — when you want real instrume
 | `model/sketch/*` | `shared/model/sketch/` | Needed no translation — see below |
 | `model/sketch/Colour` (150 values) | `shared/model/sketch/Colour.kt` | **Generated** from the Java enum so values cannot drift |
 | `comms/distox/*`, `distoxble/`, `bric4/`, `cavwayx1/`, `sap6/`, `fcl/` | `shared/comms/` | Protocol only, no transport |
+| `control/calibration/*`, `model/calibration/*` | `shared/calibration/` | Beat Heeb's solver; results returned rather than left in statics |
 | the `*Manager` classes' device knowledge | `shared/comms/InstrumentProfile.kt` | The BLE device matrix, as data |
 | Nordic `BleManager` subclasses | `shared/iosMain/.../CoreBluetoothTransport.kt` | The whole iOS Bluetooth surface |
 | `control/io/basic/*JsonTranslater` | `shared/io/` | Same tags, same tolerant two-pass load |
@@ -340,8 +342,6 @@ This is a proof of concept. It does **not** include:
 - **Real Bluetooth on any platform.** `CoreBluetoothTransport` compiles for iOS and has never
   reached a radio — the simulator has no Bluetooth stack, so this one genuinely needs an instrument
   in hand. There is no Android transport here either (the Android app keeps its own).
-- **Calibration.** The DistoX calibration solver is pure maths and would port directly; it is not
-  done.
 - **Symbol artwork.** The shared model places symbols; the SVG assets are not carried, so a symbol
   draws as a marked point. The symbol, text and cross-section *tools* exist in the shared model but
   the demo has no palette, text field or cross-section editor to drive them.
