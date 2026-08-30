@@ -165,6 +165,7 @@ private fun SexyTopoAppBar(state: DemoState) {
     var naming by remember { mutableStateOf(NamingIntent.NONE) }
     var editingTrip by remember { mutableStateOf(false) }
     var editingSettings by remember { mutableStateOf(false) }
+    var importing by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<String?>(null) }
 
     if (editingTrip) {
@@ -176,6 +177,14 @@ private fun SexyTopoAppBar(state: DemoState) {
                 editingTrip = false
                 state.noteSketchEdited()
             },
+        )
+    }
+
+    if (importing) {
+        ImportDialog(
+            state = state,
+            onDismiss = { importing = false },
+            onImported = { importing = false },
         )
     }
 
@@ -357,6 +366,14 @@ private fun SexyTopoAppBar(state: DemoState) {
                     leadingIcon = { Text(if (state.screen == Screen.EXPORT) "✓" else " ") },
                     onClick = {
                         state.screen = Screen.EXPORT
+                        menuOpen = false
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Import…") },
+                    leadingIcon = { Text(" ") },
+                    onClick = {
+                        importing = true
                         menuOpen = false
                     },
                 )

@@ -56,6 +56,14 @@ class SurveyLibrary(private val store: FileStore = platformFileStore()) {
         runCatching { SurveyStorage.isSurveyDirectory(store, SURVEYS_ROOT + name) }
             .getOrDefault(false)
 
+    /** Files at the storage root that might be surveys somebody has put there to import. */
+    fun importCandidates(): List<String> = SurveyImport.candidates(store)
+
+    fun import(fileName: String): Survey? =
+        SurveyImport.import(this, store, fileName).also {
+            if (it == null) lastError = "could not read $fileName"
+        }
+
     /** The surveying tolerances, which outlive any one survey. */
     fun loadSettings(): SurveySettings = SurveySettingsStore.load(store)
 

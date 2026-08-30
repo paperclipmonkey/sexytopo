@@ -263,6 +263,9 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
 - **Take it home.** Survex, Therion, Compass, PocketTopo or the native JSON, dated from the phone's
   own clock, to the clipboard or to a real file with the right extension. On iOS the files land in
   the Files app under *On My iPhone → SexyTopo KMP*, because `UIFileSharingEnabled` is set.
+- **Bring one back in.** Put a `.data.json` in the app's folder — on iOS that is Files, under *On
+  My iPhone* — and *Import* offers it. It never overwrites a survey already in the library, which
+  matters when a colleague sends you their copy of a cave you are also surveying.
 - **Lose nothing.** Every change is written immediately, the survey is there after a restart, and
   the app opens with no signal at all.
 
@@ -273,8 +276,6 @@ Honest limits, so nothing is a surprise in a cave:
 - **No instrument.** `CoreBluetoothTransport` compiles and has never spoken to a DistoX; the iOS
   simulator has no Bluetooth stack, so nothing in CI has exercised it either. Readings are typed —
   which is exactly what the *Add reading* button is for.
-- **No importing.** A survey can leave the app in five formats and can only come back in by being
-  a folder this app itself wrote.
 - **No cross-sections, no symbol palette, no calibration screen**, even though the logic under all
   three is ported and tested. The symbol artwork is SVG this port does not carry.
 - **This is a port, not the app.** Use it beside a notebook, not instead of one.

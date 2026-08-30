@@ -16,6 +16,33 @@ const url = process.argv[2] ?? 'http://localhost:8080/index.html'
 const shotDir = process.argv[3] ?? 'field-screenshots'
 mkdirSync(shotDir, { recursive: true })
 
+// A real file in the app's own format, small enough to read: one leg, two stations.
+const EXAMPLE_SURVEY_JSON = JSON.stringify({
+  sexyTopoVersionName: 'kmp-port',
+  sexyTopoVersionCode: 0,
+  name: 'Eastwater',
+  activeStation: '2',
+  stations: [
+    {
+      name: '1',
+      eeDirection: 'right',
+      comment: 'entrance',
+      legs: [
+        {
+          distance: 8.0,
+          azimuth: 45.0,
+          inclination: -5.0,
+          destination: '2',
+          wasShotBackwards: false,
+          index: 0,
+          promotedFrom: [],
+        },
+      ],
+    },
+    { name: '2', eeDirection: 'right', comment: '', legs: [] },
+  ],
+})
+
 const failures = []
 const fail = (m) => { failures.push(m); console.error(`FAIL  ${m}`) }
 const pass = (m) => console.log(`ok    ${m}`)
@@ -101,7 +128,10 @@ const STATION_SAVE = [317, 608]
 const MENU_TRIP = [312, 176]
 const MENU_SURVEY_DELETE = [392, 224]
 const MENU_EXPORT = [312, 320]
-const MENU_SURVEYING = [312, 368]
+const MENU_IMPORT_EMPTY_LIBRARY = [312, 320]
+const MENU_SURVEYING = [312, 416]
+const IMPORT_CHOOSE = [284, 494]
+const IMPORT_FIRST_ROW = [210, 446]
 const SETTING_DISTANCE = [210, 448]
 const SETTING_ANGLE = [210, 524]
 const SETTINGS_SAVE = [317, 676]
@@ -568,6 +598,43 @@ if (left.length > 0) {
   fail(`deleting left ${left.length} of the survey's files behind: ${left.slice(0, 3).join(', ')}`)
 } else {
   pass('deleting a survey removes it and everything in it')
+}
+
+// ---- a survey can come back in ---------------------------------------------------------------
+// Last, because it adds a survey to the library and would shift the menu rows the delete check
+// above clicks on. The other half of exporting, and the half that decides whether a survey can be
+// recovered after a phone dies or continued from somebody else's copy. The browser has no folder to drop a file
+// into, so its chooser writes the file into the app's own storage and one shared code path imports
+// it exactly as iOS does with a file dropped into the Files app.
+await at(...OVERFLOW); await page.waitForTimeout(600)
+await page.screenshot({ path: join(shotDir, 'field-import-menu.png') })
+await at(...MENU_IMPORT_EMPTY_LIBRARY); await page.waitForTimeout(800)
+await page.screenshot({ path: join(shotDir, 'field-import-dialog.png') })
+
+const chooser = page.waitForEvent('filechooser', { timeout: 8000 }).catch(() => null)
+await at(...IMPORT_CHOOSE)
+const picker = await chooser
+if (!picker) {
+  fail('the file chooser never opened, so nothing can be imported in the browser')
+} else {
+  await picker.setFiles({
+    name: 'Eastwater.data.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(EXAMPLE_SURVEY_JSON, 'utf8'),
+  })
+  // The chooser is native and asynchronous; the dialog re-reads its list while it is open.
+  await page.waitForTimeout(1600)
+  await page.screenshot({ path: join(shotDir, 'field-import.png') })
+  await at(...IMPORT_FIRST_ROW); await page.waitForTimeout(1200)
+
+  const imported = await page.evaluate(() =>
+    Object.keys(localStorage).filter((k) => k.includes('Eastwater/')),
+  )
+  if (imported.length === 0) {
+    fail('the chosen file did not become a survey in the library')
+  } else {
+    pass('a survey file can be brought in from outside the app')
+  }
 }
 
 if (pageErrors.length > 0) {

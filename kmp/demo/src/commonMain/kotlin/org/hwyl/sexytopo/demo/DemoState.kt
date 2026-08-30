@@ -177,6 +177,25 @@ class DemoState(
         refreshLibrary()
     }
 
+    /** Survey-shaped files sitting in the app's own storage, waiting to be brought in. */
+    fun importCandidates(): List<String> = library.importCandidates()
+
+    /**
+     * Brings one in and opens it, returning the name it ended up with.
+     *
+     * The name can differ from the file's: [SurveyLibrary.uniqueName] refuses to overwrite a
+     * survey already in the library, which is the whole point of importing one that a colleague
+     * called the same thing you did.
+     */
+    fun importSurvey(fileName: String): String? {
+        val imported = library.import(fileName) ?: run {
+            storageProblem = library.lastError ?: "could not import $fileName"
+            return null
+        }
+        adopt(imported)
+        return imported.name
+    }
+
     fun renameLiveSurvey(name: String) {
         val trimmed = name.trim()
         if (trimmed.isEmpty() || trimmed == liveSurvey.name) return
