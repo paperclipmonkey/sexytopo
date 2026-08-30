@@ -4,6 +4,7 @@ import org.hwyl.sexytopo.shared.io.store.FileStore
 import org.hwyl.sexytopo.shared.io.store.InMemoryFileStore
 import org.hwyl.sexytopo.shared.io.store.SurveyStorage
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.survey.SurveySettings
 
 /**
  * Somewhere for surveys to live that outlasts the app being closed.
@@ -54,6 +55,14 @@ class SurveyLibrary(private val store: FileStore = platformFileStore()) {
     fun exists(name: String): Boolean =
         runCatching { SurveyStorage.isSurveyDirectory(store, SURVEYS_ROOT + name) }
             .getOrDefault(false)
+
+    /** The surveying tolerances, which outlive any one survey. */
+    fun loadSettings(): SurveySettings = SurveySettingsStore.load(store)
+
+    fun saveSettings(settings: SurveySettings): Boolean =
+        SurveySettingsStore.save(store, settings).also {
+            if (!it) lastError = "could not save settings"
+        }
 
     /**
      * A name that is not already taken, so "New survey" twice does not overwrite the first.

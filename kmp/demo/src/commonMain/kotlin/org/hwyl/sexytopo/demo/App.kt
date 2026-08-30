@@ -95,6 +95,7 @@ fun App(
     // pocket, the app is killed by the OS, and coming back to an empty screen would lose the
     // survey. Opening the most recent one is what makes this usable rather than a toy.
     LaunchedEffect(Unit) {
+        state.loadSettings()
         state.refreshLibrary()
         state.savedSurveys.lastOrNull()?.let { state.openSurvey(it) }
     }
@@ -163,6 +164,7 @@ private fun SexyTopoAppBar(state: DemoState) {
     var menuOpen by remember { mutableStateOf(false) }
     var naming by remember { mutableStateOf(NamingIntent.NONE) }
     var editingTrip by remember { mutableStateOf(false) }
+    var editingSettings by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<String?>(null) }
 
     if (editingTrip) {
@@ -173,6 +175,17 @@ private fun SexyTopoAppBar(state: DemoState) {
             onSaved = {
                 editingTrip = false
                 state.noteSketchEdited()
+            },
+        )
+    }
+
+    if (editingSettings) {
+        SurveySettingsDialog(
+            settings = state.surveySettings,
+            onDismiss = { editingSettings = false },
+            onSave = {
+                state.updateSettings(it)
+                editingSettings = false
             },
         )
     }
@@ -348,6 +361,14 @@ private fun SexyTopoAppBar(state: DemoState) {
                     },
                 )
                 DropdownMenuItem(
+                    text = { Text("Surveying…") },
+                    leadingIcon = { Text(" ") },
+                    onClick = {
+                        editingSettings = true
+                        menuOpen = false
+                    },
+                )
+                DropdownMenuItem(
                     text = { Text("Dark mode") },
                     leadingIcon = { Text(if (state.darkMode) "✓" else " ") },
                     onClick = { state.darkMode = !state.darkMode },
@@ -486,7 +507,7 @@ private fun FieldBar(state: DemoState) {
                     // stood at, so the input mode does not apply to one.
                     SurveyBuilder.addSplay(survey, survey.activeStation, leg)
                 } else {
-                    SurveyUpdater.update(survey, leg, state.inputMode)
+                    SurveyUpdater.update(survey, leg, state.inputMode, state.surveySettings)
                 }
                 state.noteSketchEdited()
                 entering = false

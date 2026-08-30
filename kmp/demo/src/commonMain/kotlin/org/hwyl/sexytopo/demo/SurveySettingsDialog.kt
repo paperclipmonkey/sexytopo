@@ -1,0 +1,180 @@
+package org.hwyl.sexytopo.demo
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import org.hwyl.sexytopo.shared.survey.SurveySettings
+import org.hwyl.sexytopo.shared.survey.amalgamation.LegAmalgamationAlgorithm
+
+/**
+ * How close two readings have to be before the app calls them the same shot.
+ *
+ * This exists because the defaults assume a DistoX. `maxAngleDelta` is 1.7 degrees, which a laser
+ * instrument beats comfortably and a hand-held compass does not come close to — so on a training
+ * trip with a compass and tape, three readings of the same leg never agree, nothing is ever
+ * promoted to a station, and the survey fills up with splays while the surveyor has no idea why.
+ * Every one of these values was already ported and tested; they were simply hard-wired to
+ * [SurveySettings.DEFAULT], which made the app usable with one class of instrument only.
+ *
+ * Only the tolerances the selected algorithm actually reads are shown. Offering all four at once
+ * invites somebody to loosen the one their algorithm ignores and conclude the setting is broken.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun SurveySettingsDialog(
+    settings: SurveySettings,
+    onDismiss: () -> Unit,
+    onSave: (SurveySettings) -> Unit,
+) {
+    var algorithm by remember { mutableStateOf(settings.legAmalgamationAlgorithm) }
+    var distance by remember { mutableStateOf(settings.maxDistanceDelta.toString()) }
+    var angle by remember { mutableStateOf(settings.maxAngleDelta.toString()) }
+    var endpoint by remember { mutableStateOf(settings.maxEndpointDelta.toString()) }
+    var pairwise by remember { mutableStateOf(settings.maxPairwiseError.toString()) }
+    var repeats by remember { mutableStateOf(settings.numberOfRepeatsForNewStation.toString()) }
+
+    val edited =
+        settingsFrom(algorithm, distance, angle, endpoint, pairwise, repeats, settings)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Surveying") },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    "How close repeated readings have to be before they make a station. The " +
+                        "defaults suit a DistoX; a compass and tape needs looser ones.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    for (option in LegAmalgamationAlgorithm.entries) {
+                        FilterChip(
+                            selected = algorithm == option,
+                            onClick = { algorithm = option },
+                            label = { Text(labelFor(option)) },
+                        )
+                    }
+                }
+                Text(
+                    describe(algorithm),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                when (algorithm) {
+                    LegAmalgamationAlgorithm.ANGULAR -> {
+                        NumberField(distance, { distance = it }, "Distance spread (m)")
+                        NumberField(angle, { angle = it }, "Angle spread (°)")
+                    }
+                    LegAmalgamationAlgorithm.CARTESIAN ->
+                        NumberField(endpoint, { endpoint = it }, "Endpoint gap (m)")
+                    LegAmalgamationAlgorithm.PAIRWISE ->
+                        NumberField(pairwise, { pairwise = it }, "Relative error")
+                }
+
+                NumberField(repeats, { repeats = it }, "Readings to make a station")
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = edited != null,
+                onClick = { edited?.let(onSave) },
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun NumberField(value: String, onValueChange: (String) -> Unit, label: String) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        singleLine = true,
+        // Decimal, not Number: iOS numberPad has no decimal point, and every value here has one.
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+internal fun labelFor(algorithm: LegAmalgamationAlgorithm): String =
+    when (algorithm) {
+        LegAmalgamationAlgorithm.ANGULAR -> "Angular"
+        LegAmalgamationAlgorithm.CARTESIAN -> "Cartesian"
+        LegAmalgamationAlgorithm.PAIRWISE -> "Pairwise"
+    }
+
+/** What each strategy actually compares, in the terms a surveyor thinks in. */
+internal fun describe(algorithm: LegAmalgamationAlgorithm): String =
+    when (algorithm) {
+        LegAmalgamationAlgorithm.ANGULAR ->
+            "Compares distance and angles separately. The app's default."
+        LegAmalgamationAlgorithm.CARTESIAN ->
+            "Compares where each reading puts the far end. Forgiving of a long shot's bearing."
+        LegAmalgamationAlgorithm.PAIRWISE ->
+            "Compares endpoints as a fraction of leg length, so short shots are held tighter."
+    }
+
+/**
+ * The settings the dialog describes, or null if a field cannot be read.
+ *
+ * Values the selected algorithm does not use are carried across from [current] untouched rather
+ * than reset, so switching algorithm to look at it and switching back loses nothing.
+ */
+internal fun settingsFrom(
+    algorithm: LegAmalgamationAlgorithm,
+    distance: String,
+    angle: String,
+    endpoint: String,
+    pairwise: String,
+    repeats: String,
+    current: SurveySettings,
+): SurveySettings? {
+    val distanceValue = distance.trim().replace(',', '.').toFloatOrNull() ?: return null
+    val angleValue = angle.trim().replace(',', '.').toFloatOrNull() ?: return null
+    val endpointValue = endpoint.trim().replace(',', '.').toFloatOrNull() ?: return null
+    val pairwiseValue = pairwise.trim().replace(',', '.').toFloatOrNull() ?: return null
+    val repeatsValue = repeats.trim().toIntOrNull() ?: return null
+
+    // A negative tolerance would refuse every reading; zero repeats would promote on nothing at
+    // all. Both are reachable by typing and neither is recoverable from without knowing why.
+    if (distanceValue < 0f || angleValue < 0f || endpointValue < 0f || pairwiseValue < 0f) return null
+    if (repeatsValue < 1) return null
+
+    return current.copy(
+        legAmalgamationAlgorithm = algorithm,
+        maxDistanceDelta = distanceValue,
+        maxAngleDelta = angleValue,
+        maxEndpointDelta = endpointValue,
+        maxPairwiseError = pairwiseValue,
+        numberOfRepeatsForNewStation = repeatsValue,
+    )
+}

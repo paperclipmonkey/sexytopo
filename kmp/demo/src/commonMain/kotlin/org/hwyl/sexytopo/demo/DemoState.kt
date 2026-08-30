@@ -14,6 +14,7 @@ import org.hwyl.sexytopo.shared.sketch.BrushColour
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.survey.InputMode
+import org.hwyl.sexytopo.shared.survey.SurveySettings
 
 /** Which screen is showing: the sketch, or the numbers behind it. */
 enum class Screen(val label: String) {
@@ -61,6 +62,29 @@ class DemoState(
      * follows, and there is nothing in the numbers afterwards to show it happened.
      */
     var inputMode by mutableStateOf(InputMode.FORWARD)
+
+    /**
+     * How close repeated readings must be before they make a station.
+     *
+     * Held here and passed into every [org.hwyl.sexytopo.shared.survey.SurveyUpdater] call rather
+     * than left at [SurveySettings.DEFAULT], because the defaults assume a DistoX: on a trip with
+     * a compass and tape, three readings never agree to 1.7 degrees, nothing is ever promoted, and
+     * the survey silently fills up with splays.
+     */
+    var surveySettings by mutableStateOf(SurveySettings.DEFAULT)
+        private set
+
+    /** Reads the saved tolerances. Called once at startup, alongside the survey library. */
+    fun loadSettings() {
+        surveySettings = library.loadSettings()
+    }
+
+    fun updateSettings(settings: SurveySettings) {
+        surveySettings = settings
+        if (!library.saveSettings(settings)) {
+            storageProblem = library.lastError ?: "could not save settings"
+        }
+    }
 
     var showSplays by mutableStateOf(true)
     var showSketch by mutableStateOf(true)

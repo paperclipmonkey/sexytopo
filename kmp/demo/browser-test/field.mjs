@@ -101,6 +101,10 @@ const STATION_SAVE = [317, 608]
 const MENU_TRIP = [312, 176]
 const MENU_SURVEY_DELETE = [392, 224]
 const MENU_EXPORT = [312, 320]
+const MENU_SURVEYING = [312, 368]
+const SETTING_DISTANCE = [210, 448]
+const SETTING_ANGLE = [210, 524]
+const SETTINGS_SAVE = [317, 676]
 const TRIP_ADD_NAME = [177, 340]
 const TRIP_ADD_BUTTON = [317, 336]
 const TRIP_ROLE_BOOK = [106, 298]
@@ -336,6 +340,51 @@ if (labels === null) {
 
 // Back to drawing, so nothing after this places a label by accident.
 await at(...toolCell(1)); await page.waitForTimeout(400)
+
+// ---- tolerances that suit the instrument in the surveyor's hand -----------------------------
+// The defaults assume a DistoX: 1.7 degrees of spread. A hand-held compass does not come close, so
+// on a trip with compass and tape three readings of the same leg never agree, nothing is ever
+// promoted, and the survey silently fills with splays while the surveyor wonders what is wrong.
+// This walks that failure and then fixes it, which is the only way to show the setting does
+// anything.
+const sloppy = [
+  [3.0, 100, 0],
+  [3.05, 104, 2],
+  [2.95, 96, -2],
+]
+const connectingLegs = async () => (await savedLegs()).filter(isConnecting).length
+
+const beforeSloppy = await connectingLegs()
+for (const [d, a, i] of sloppy) await reading(d, a, i)
+if ((await connectingLegs()) !== beforeSloppy) {
+  fail('readings 8 degrees apart were promoted under the DistoX defaults')
+} else {
+  pass('readings too far apart to be the same shot are refused')
+}
+
+await at(...OVERFLOW); await page.waitForTimeout(500)
+await at(...MENU_SURVEYING); await page.waitForTimeout(800)
+await retype(SETTING_DISTANCE, '0.5')
+await retype(SETTING_ANGLE, '12')
+await page.screenshot({ path: join(shotDir, 'field-surveying-settings.png') })
+await at(...SETTINGS_SAVE); await page.waitForTimeout(700)
+
+for (const [d, a, i] of sloppy) await reading(d, a, i)
+if ((await connectingLegs()) !== beforeSloppy + 1) {
+  fail('loosening the tolerances did not let the same readings make a station')
+} else {
+  pass('loosened tolerances let a compass-and-tape survey make stations')
+}
+
+// Saved, because a surveyor sets these once at the entrance and the phone may not last the trip.
+const savedSettings = await page.evaluate(() =>
+  localStorage.getItem('sexytopo:f:settings.txt'),
+)
+if (!savedSettings || !savedSettings.includes('maxAngleDelta=12')) {
+  fail(`the tolerances were not written to storage (${JSON.stringify(savedSettings)})`)
+} else {
+  pass('the tolerances survive the app being closed')
+}
 
 // ---- who was on the trip ---------------------------------------------------------------
 // Every exporter in the port already knew how to write a team and a date; until there was a
