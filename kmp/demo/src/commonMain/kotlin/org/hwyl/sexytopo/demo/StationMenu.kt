@@ -57,6 +57,12 @@ enum class StationAction(val label: String) {
 
     /** `action_delete_station`, which takes the passage beyond it too. */
     DELETE("Delete this station"),
+
+    /** `action_jump_to_station_in_plan`, offered from the table and not from the sketch. */
+    SHOW_IN_PLAN("Show it on the plan"),
+
+    /** `action_jump_to_station_in_elevation`, likewise. */
+    SHOW_IN_ELEVATION("Show it in the elevation"),
     ;
 }
 
@@ -75,13 +81,26 @@ fun stationActionsFor(
     station: Station,
     projection: Projection2D,
     sketch: Sketch?,
+    /**
+     * Whether this menu was opened from the table rather than from the drawing.
+     *
+     * The Android app has two station menus, not one: `context_station.xml` for the sketch and
+     * `table_station_selected.xml` for the table. What separates them is that only the table's
+     * offers to take you to the station on a drawing — because on the drawing you are already
+     * looking at it — and only the sketch's offers cross-sections, which are a thing you draw.
+     */
+    fromTable: Boolean = false,
 ): List<StationAction> {
     val actions = mutableListOf<StationAction>()
 
     if (survey.activeStation !== station) actions += StationAction.MAKE_ACTIVE
+    if (fromTable) {
+        actions += StationAction.SHOW_IN_PLAN
+        actions += StationAction.SHOW_IN_ELEVATION
+    }
     actions += StationAction.EDIT
 
-    if (projection == Projection2D.PLAN) {
+    if (!fromTable && projection == Projection2D.PLAN) {
         if (crossSectionAt(sketch, station) == null) {
             actions += StationAction.CROSS_SECTION_CREATE
         } else {
@@ -131,6 +150,10 @@ fun StationMenuDialog(
     onOpenCrossSection: (CrossSectionDetail) -> Unit,
     onCreateCrossSection: (Station) -> Unit,
     onDeleteCrossSection: (CrossSectionDetail) -> Unit,
+    /** See the parameter of the same name on [stationActionsFor]. */
+    fromTable: Boolean = false,
+    /** Take the surveyor to this station on a drawing. Only reached when [fromTable]. */
+    onShowOn: (Station, Projection2D) -> Unit = { _, _ -> },
 ) {
     var editing by remember(station) { mutableStateOf(false) }
     var editingLeg by remember(station) { mutableStateOf(false) }
@@ -192,7 +215,8 @@ fun StationMenuDialog(
                                 modifier = Modifier.padding(bottom = 8.dp),
                             )
                         }
-                        val actions = stationActionsFor(survey, station, projection, sketch)
+                        val actions =
+                            stationActionsFor(survey, station, projection, sketch, fromTable)
                         for (action in actions) {
                             if (action == StationAction.DELETE) HorizontalDivider()
                             TextButton(
@@ -219,6 +243,14 @@ fun StationMenuDialog(
                                             }
                                         StationAction.INCOMING_LEG -> editingLeg = true
                                         StationAction.DELETE -> confirmingDelete = true
+                                        StationAction.SHOW_IN_PLAN -> {
+                                            onShowOn(station, Projection2D.PLAN)
+                                            onDismiss()
+                                        }
+                                        StationAction.SHOW_IN_ELEVATION -> {
+                                            onShowOn(station, Projection2D.EXTENDED_ELEVATION)
+                                            onDismiss()
+                                        }
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth(),

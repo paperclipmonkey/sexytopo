@@ -7,6 +7,7 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
+import kotlin.test.assertContains
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -41,12 +42,57 @@ class StationMenuTest {
         name: String,
         projection: Projection2D = Projection2D.PLAN,
         editor: SketchEditor? = null,
+        fromTable: Boolean = false,
     ) = stationActionsFor(
         survey,
         survey.getStationByName(name)!!,
         projection,
         editor?.sketch ?: survey.getSketch(projection),
+        fromTable,
     )
+
+    // -------------------------------------------------------------------------------------
+    // The table's menu is not the sketch's
+    // -------------------------------------------------------------------------------------
+
+    @Test
+    fun theTableOffersToTakeYouToTheStationAndTheSketchDoesNot() {
+        // `table_station_selected.xml` has the jumps; `context_station.xml` has not, because on
+        // the drawing you are already looking at it.
+        val survey = passage()
+
+        val fromTable = actions(survey, "2", fromTable = true)
+        assertContains(fromTable, StationAction.SHOW_IN_PLAN)
+        assertContains(fromTable, StationAction.SHOW_IN_ELEVATION)
+
+        val fromSketch = actions(survey, "2")
+        assertFalse(StationAction.SHOW_IN_PLAN in fromSketch)
+        assertFalse(StationAction.SHOW_IN_ELEVATION in fromSketch)
+    }
+
+    @Test
+    fun theTableDoesNotOfferCrossSectionsAndTheSketchDoes() {
+        // The other half of the same difference: a cross-section is a thing you draw, and the
+        // table has nothing to draw on.
+        val survey = passage()
+
+        val fromTable = actions(survey, "2", fromTable = true)
+        assertFalse(StationAction.CROSS_SECTION_CREATE in fromTable)
+
+        assertContains(actions(survey, "2"), StationAction.CROSS_SECTION_CREATE)
+    }
+
+    @Test
+    fun bothMenusStillOfferWhatIsCommonToThem() {
+        val survey = passage()
+        for (fromTable in listOf(true, false)) {
+            val offered = actions(survey, "2", fromTable = fromTable)
+            assertContains(offered, StationAction.EDIT)
+            assertContains(offered, StationAction.INCOMING_LEG)
+            assertContains(offered, StationAction.DELETE)
+            assertContains(offered, StationAction.MAKE_ACTIVE)
+        }
+    }
 
     @Test
     fun theOriginOffersNeitherADeleteNorALeg() {

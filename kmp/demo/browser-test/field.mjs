@@ -1127,6 +1127,49 @@ if (backAgain?.wasShotBackwards) {
   pass('and turning it again puts it back, which is what makes it safe to try')
 }
 
+// ---- and a tap on a station's name is about the station ---------------------------------------
+// The Android app has two station menus, and the table's is the one that offers to take you to the
+// station on a drawing — which is the link between the two halves of the app. Scan the table, spot
+// the reading that looks wrong, tap the station, and look at where it is.
+const FROM_CELL_X = 25
+const TO_CELL_X = 88
+
+await at(TO_CELL_X, TABLE_ROW(1)[1]); await page.waitForTimeout(700)
+await page.screenshot({ path: join(shotDir, 'field-table-station.png') })
+const farEndRows = await dialogTextRows()
+await page.keyboard.press('Escape'); await page.waitForTimeout(500)
+
+await at(FROM_CELL_X, TABLE_ROW(1)[1]); await page.waitForTimeout(700)
+const nearEndRows = await dialogTextRows()
+
+// The two ends of one leg offer different menus, which is the whole point of asking the column
+// which station it shows: the far station can be made active, has a leg that got to it and can be
+// deleted; the origin can do none of those three.
+if (farEndRows.length !== nearEndRows.length + 3) {
+  fail(
+    `the two ends of the leg offered ${nearEndRows.length} and ${farEndRows.length} rows, ` +
+      'which is not the three-item difference between the origin and a station beyond it',
+  )
+} else {
+  pass('a tap on a station\'s name opens that station\'s menu, not the other end\'s')
+}
+
+// "Show it on the plan" — first row for the origin, which cannot be made active.
+await at(210, nearEndRows[0]); await page.waitForTimeout(1200)
+await page.screenshot({ path: join(shotDir, 'field-jumped.png') })
+const jumped = (await stationSpots(sketchTop, sketchBottom)).active
+if (jumped === null) {
+  fail('jumping to a station from the table did not put it on screen')
+} else {
+  const middle = [Math.round(box.width / 2), Math.round((sketchTop + sketchBottom) / 2)]
+  const offBy = Math.hypot(jumped[0] - middle[0], jumped[1] - middle[1])
+  if (offBy > 40) {
+    fail(`the table's jump left the station ${Math.round(offBy)}px from the middle of the sketch`)
+  } else {
+    pass('and it can take you to that station on the plan, which is the two halves joined up')
+  }
+}
+
 await at(...PLAN_TAB); await page.waitForTimeout(600)
 
 // ---- a station can be named, and told what is there ----------------------------------------

@@ -44,6 +44,12 @@ fun SurveyTableView(
     onEdited: () -> Unit = {},
     /** Read-only when false, which is what the demo cave wants. */
     editable: Boolean = false,
+    /**
+     * Opening a station's own menu, which in the Android app is what a tap on a From or To cell
+     * does — `table_station_selected.xml` rather than `context_leg.xml`. Null leaves those cells
+     * behaving like the rest of the row.
+     */
+    onStation: ((Station) -> Unit)? = null,
 ) {
     val rows = remember(survey, revision) { asTakenRows(survey) }
     var chosen by remember(revision) { mutableStateOf<SurveyTableRow?>(null) }
@@ -90,8 +96,11 @@ fun SurveyTableView(
                         )
                         .padding(horizontal = 12.dp, vertical = 3.dp),
                 ) {
-                    Cell(row.fromShown, 64.dp)
-                    Cell(row.toShown, 64.dp)
+                    // A tap on a station's name is about the station; a tap anywhere else on the
+                    // row is about the reading. Ported from `TableActivity.onCellClicked`, which
+                    // asks the same question of the column that was hit.
+                    StationCell(row.fromShown, row.fromStationShown, editable, onStation)
+                    StationCell(row.toShown, row.toStationShown, editable, onStation)
                     Cell(row.distanceShown, 92.dp)
                     Cell(row.azimuth, 84.dp)
                     Cell(row.inclination, 92.dp)
@@ -108,6 +117,30 @@ private fun HeaderCell(text: String, width: androidx.compose.ui.unit.Dp) {
         Modifier.width(width),
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.SemiBold,
+    )
+}
+
+/**
+ * A From or To cell: the station's name, and a way into its menu.
+ *
+ * Inert on a splay, whose To column is a dash rather than a station, and on the demo cave, where
+ * nothing is editable.
+ */
+@Composable
+private fun StationCell(
+    text: String,
+    station: Station?,
+    editable: Boolean,
+    onStation: ((Station) -> Unit)?,
+) {
+    val handler = if (editable && station != null) onStation else null
+    Text(
+        text,
+        Modifier
+            .width(64.dp)
+            .then(if (handler == null) Modifier else Modifier.clickable { handler(station!!) }),
+        fontSize = 12.sp,
+        style = MaterialTheme.typography.bodySmall,
     )
 }
 
@@ -131,6 +164,15 @@ class SurveyTableRow(
     val fromHasComment: Boolean = false,
     /** Whether the station shown in the To column carries a comment. Splays never do. */
     val toHasComment: Boolean = false,
+    /**
+     * The station the From column shows, which for a backsight is the far end — the one the
+     * reading was taken standing at. `TableActivity` works this out with
+     * `(col == FROM) ^ leg.wasShotBackwards()`, and getting it the wrong way round would open the
+     * menu for the station at the other end of the leg.
+     */
+    val fromStationShown: Station = fromStation,
+    /** The station the To column shows, or null on a splay, which arrives nowhere. */
+    val toStationShown: Station? = null,
 ) {
     val isSplay: Boolean get() = !leg.hasDestination()
 
@@ -192,6 +234,8 @@ internal fun rowFor(from: Station, leg: Leg): SurveyTableRow {
         inclination = formatFixed(reading.inclination, 2, alwaysSigned = true),
         fromHasComment = leg.hasDestination() && fromStation.hasComment(),
         toHasComment = leg.hasDestination() && toStation.hasComment(),
+        fromStationShown = fromStation,
+        toStationShown = if (leg.hasDestination()) toStation else null,
     )
 }
 

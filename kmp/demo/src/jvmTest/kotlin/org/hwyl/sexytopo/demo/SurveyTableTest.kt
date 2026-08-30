@@ -106,4 +106,50 @@ class SurveyTableTest {
         assertEquals("1.050", formatFixed(1.05f, 3), "trailing zeros are kept, as %.3f does")
         assertEquals("1.005", formatFixed(1.005f, 3))
     }
+
+    // -------------------------------------------------------------------------------------
+    // Which station a cell is about
+    // -------------------------------------------------------------------------------------
+
+    @Test
+    fun eachCellKnowsTheStationItShows() {
+        val survey = Survey("T")
+        SurveyBuilder.updateWithNewStation(survey, Leg(5f, 90f, 0f))
+
+        val row = asTakenRows(survey).single()
+
+        assertEquals("1", row.fromStationShown.name)
+        assertEquals("2", row.toStationShown?.name)
+    }
+
+    @Test
+    fun aBackwardsShotSwapsWhichStationEachCellIsAbout() {
+        // `TableActivity` works this out with `(col == FROM) xor leg.wasShotBackwards()`. The
+        // reading was taken standing at 2, so the From column shows 2 — and a tap on it has to
+        // open station 2's menu, not station 1's.
+        val survey = Survey("T")
+        SurveyBuilder.updateWithNewStation(survey, Leg(5f, 90f, 0f))
+        org.hwyl.sexytopo.shared.survey.SurveyUpdater.reverseLeg(
+            survey,
+            survey.getStationByName("2")!!,
+        )
+
+        val row = asTakenRows(survey).single()
+
+        assertEquals("2", row.from, "shown as taken")
+        assertEquals("2", row.fromStationShown.name, "and the cell is about the station it shows")
+        assertEquals("1", row.toStationShown?.name)
+    }
+
+    @Test
+    fun aSplayHasNoStationAtItsFarEnd() {
+        // Its To column is a dash, so there is nothing there to open a menu for.
+        val survey = Survey("T")
+        SurveyBuilder.addSplay(survey, survey.origin, Leg(2f, 10f, 5f))
+
+        val row = asTakenRows(survey).single()
+
+        assertEquals("1", row.fromStationShown.name)
+        assertEquals(null, row.toStationShown)
+    }
 }

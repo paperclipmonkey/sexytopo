@@ -532,6 +532,24 @@ private fun ScreenContent(
     canvas: CanvasController,
     modifier: Modifier,
 ) {
+    // The station whose menu is open, held by name rather than by object: an edit that renames or
+    // deletes it rebuilds the survey's stations, and a menu holding the old object would go on
+    // offering actions against a station that is no longer in the survey.
+    //
+    // It lives out here rather than inside the sketch because both halves of the app open it: a
+    // long press on the drawing, and a tap on a station's name in the table.
+    var menuFor by remember { mutableStateOf<String?>(null) }
+    // Which of the two opened it. The Android app has two station menus and they differ.
+    var menuFromTable by remember { mutableStateOf(false) }
+
+    StationMenuFor(
+        state = state,
+        editor = editor,
+        name = menuFor,
+        fromTable = menuFromTable,
+        onClose = { menuFor = null },
+    )
+
     when (state.screen) {
         Screen.TABLE ->
             SurveyTableView(
@@ -542,9 +560,17 @@ private fun ScreenContent(
                 // The demo cave is a fixture; editing it would be surprising and would not be
                 // saved. The surveyor's own survey is the one that can be corrected.
                 editable = state.mode == SurveyMode.LIVE,
+                onStation = { menuFromTable = true; menuFor = it.name },
             )
         Screen.EXPORT -> ExportView(state.survey, state.revision, modifier, state.projection)
-        Screen.SKETCH -> SketchScreen(state, editor, canvas, modifier)
+        Screen.SKETCH ->
+            SketchScreen(
+                state,
+                editor,
+                canvas,
+                modifier,
+                onLongPressStation = { menuFromTable = false; menuFor = it },
+            )
     }
 }
 
@@ -560,6 +586,7 @@ private fun SketchScreen(
     editor: SketchEditor,
     canvas: CanvasController,
     modifier: Modifier,
+    onLongPressStation: (String) -> Unit,
 ) {
     // Position in survey coordinates, and the text size in metres for the current zoom.
     var placing by remember { mutableStateOf<Pair<Coord2D, Float>?>(null) }
@@ -574,45 +601,16 @@ private fun SketchScreen(
         }
     }
 
-    // The station whose menu is open, held by name rather than by object: an edit that renames or
-    // deletes it rebuilds the survey's stations, and a menu holding the old object would go on
-    // offering actions against a station that is no longer in the survey.
-    var menuFor by remember { mutableStateOf<String?>(null) }
-
-    menuFor?.let { name ->
-        val station = state.survey.getStationByName(name)
-        if (station == null) {
-            menuFor = null
-        } else {
-            StationMenuDialog(
-                survey = state.survey,
-                station = station,
-                projection = state.projection,
-                sketch = editor.sketch,
-                onDismiss = { menuFor = null },
-                onEdited = {
-                    menuFor = null
-                    state.noteSketchEdited()
-                },
-                // `selectStation` only moves the marker; saving is the caller's job, as it is on
-                // the select tool's own path. Dropping the return value here meant the active
-                // station moved on screen and was back where it started after a restart.
-                onMakeActive = { if (state.selectStation(it.name)) state.noteSketchEdited() },
-                onOpenCrossSection = { state.editingCrossSection = it },
-                onCreateCrossSection = { at ->
-                    // Drawn beside the station rather than on top of it: the plan's own centreline
-                    // is under the finger that opened the menu, and a section dropped there covers
-                    // the passage it describes. The offset is the app's own starting section size,
-                    // so it lands clear of the line at any zoom.
-                    val position = crossSectionPositionFor(state.survey, at, state.projection)
-                    if (position != null) {
-                        editor.addCrossSection(sectionFor(state.survey, at), position)
-                        state.noteSketchEdited()
-                    }
-                    menuFor = null
-                },
-                onDeleteCrossSection = { editor.delete(it) },
-            )
+    // "Show it on the plan", asked for from the table. It cannot be done there: the viewport
+    // belongs to this canvas, and this canvas did not exist when the menu was tapped. The request
+    // is cleared whether or not the station turns out to be in this projection, so a station that
+    // is not — nothing is, in a cross-section — does not leave a jump pending for ever.
+    LaunchedEffect(state.pendingJump, state.projection) {
+        state.pendingJump?.let { wanted ->
+            state.survey.getStationByName(wanted)
+                ?.let { stationPositionIn(state.survey, state.projection, it) }
+                ?.let(canvas::centreOn)
+            state.jumpDone()
         }
     }
 
@@ -641,7 +639,63 @@ private fun SketchScreen(
         onPlaceLabel = { position, size -> placing = position to size },
         symbol = state.symbol,
         onOpenCrossSection = { state.editingCrossSection = it },
-        onLongPressStation = { menuFor = it },
+        onLongPressStation = onLongPressStation,
+    )
+}
+
+/**
+ * The station menu, wherever it was opened from.
+ *
+ * One dialog reached two ways — a long press on the drawing and a tap on a station's name in the
+ * table — because it is one menu in the app too, near enough: `context_station.xml` and
+ * `table_station_selected.xml` differ only in the two items that make no sense in the other place.
+ */
+@Composable
+private fun StationMenuFor(
+    state: DemoState,
+    editor: SketchEditor,
+    name: String?,
+    fromTable: Boolean,
+    onClose: () -> Unit,
+) {
+    val station = name?.let { state.survey.getStationByName(it) }
+    if (name != null && station == null) {
+        // Renamed or deleted out from under the menu.
+        onClose()
+        return
+    }
+    if (station == null) return
+
+    StationMenuDialog(
+        survey = state.survey,
+        station = station,
+        projection = state.projection,
+        sketch = editor.sketch,
+        onDismiss = onClose,
+        onEdited = {
+            onClose()
+            state.noteSketchEdited()
+        },
+        // `selectStation` only moves the marker; saving is the caller's job, as it is on the
+        // select tool's own path. Dropping the return value here meant the active station moved on
+        // screen and was back where it started after a restart.
+        onMakeActive = { if (state.selectStation(it.name)) state.noteSketchEdited() },
+        onOpenCrossSection = { state.editingCrossSection = it },
+        onCreateCrossSection = { at ->
+            // Drawn beside the station rather than on top of it: the plan's own centreline is
+            // under the finger that opened the menu, and a section dropped there covers the
+            // passage it describes. The offset is the app's own starting section size, so it lands
+            // clear of the line at any zoom.
+            val position = crossSectionPositionFor(state.survey, at, state.projection)
+            if (position != null) {
+                editor.addCrossSection(sectionFor(state.survey, at), position)
+                state.noteSketchEdited()
+            }
+            onClose()
+        },
+        onDeleteCrossSection = { editor.delete(it) },
+        fromTable = fromTable,
+        onShowOn = { at, wanted -> state.showOnDrawing(at, wanted) },
     )
 }
 

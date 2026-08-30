@@ -12,6 +12,7 @@ import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.log.LogType
 import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
+import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.BrushColour
 import org.hwyl.sexytopo.shared.sketch.SketchDefaults
@@ -350,6 +351,28 @@ class DemoState(
 
     fun noteSketchEdited() {
         sketchRevision++
+    }
+
+    /**
+     * A station the app has been asked to show on a drawing, by name.
+     *
+     * The table's station menu offers "show it on the plan", which is two things at once: change
+     * screen and projection, and move the view. Only the first can be done here — the viewport
+     * belongs to the canvas, and the canvas for the projection being switched *to* does not exist
+     * until it has been composed. So the request is left here and the sketch picks it up, the same
+     * shape as the station-created counter that drives auto-recentre.
+     */
+    var pendingJump by mutableStateOf<String?>(null)
+        private set
+
+    fun showOnDrawing(station: Station, wanted: Projection2D) {
+        projection = wanted
+        screen = Screen.SKETCH
+        pendingJump = station.name
+    }
+
+    fun jumpDone() {
+        pendingJump = null
     }
 
     val revision: Int
