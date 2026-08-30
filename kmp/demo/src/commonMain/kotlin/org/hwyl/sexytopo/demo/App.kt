@@ -380,6 +380,7 @@ private fun FieldBar(state: DemoState) {
     val session = state.session
     val dark = state.darkMode
     var entering by remember { mutableStateOf(false) }
+    var namingStation by remember { mutableStateOf(false) }
 
     if (entering) {
         ManualReadingDialog(
@@ -396,6 +397,18 @@ private fun FieldBar(state: DemoState) {
         )
     }
 
+    if (namingStation) {
+        StationActionsDialog(
+            survey = state.survey,
+            station = state.survey.activeStation,
+            onDismiss = { namingStation = false },
+            onEdited = {
+                namingStation = false
+                state.noteSketchEdited()
+            },
+        )
+    }
+
     Row(
         Modifier
             .fillMaxWidth()
@@ -408,9 +421,13 @@ private fun FieldBar(state: DemoState) {
     ) {
         Button(onClick = { entering = true }) { Text("Add reading") }
         Button(onClick = { session.takeReading() }) { Text("Simulate") }
+        // Which station the next leg hangs off is the single most important thing on this screen,
+        // and it was not on it at all. Tapping it names the station and says what is there, which
+        // is what a surveyor does at a junction the moment they reach one.
         Text(
             buildString {
-                append("${state.survey.getAllStationsInChronoOrder().size} stations")
+                append("From ${state.survey.activeStation.name}")
+                append("  ·  ${plural(state.survey.getAllStationsInChronoOrder().size, "station")}")
                 session.lastReading?.let {
                     append("  ·  ${oneDp(it.distance)}m ${oneDp(it.azimuth)}°")
                 }
@@ -423,6 +440,7 @@ private fun FieldBar(state: DemoState) {
                     dark -> SexyTopoColours.legendNight
                     else -> SexyTopoColours.legend
                 },
+            modifier = Modifier.clickable { namingStation = true },
         )
         Spacer(Modifier.weight(1f))
     }

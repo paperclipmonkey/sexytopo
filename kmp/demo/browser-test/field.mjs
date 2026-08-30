@@ -68,6 +68,11 @@ const ACT_DELETE_SPLAY = [292, 544]
 const EDIT_DISTANCE = [140, 384]
 const EDIT_SAVE = [309, 552]
 const CONFIRM_DELETE = [292, 496]
+const STATION_CHIP = [310, 790]
+const STATION_NAME = [210, 352]
+const STATION_COMMENT = [210, 428]
+const STATION_EE_LEFT = [102, 536]
+const STATION_SAVE = [317, 608]
 
 // ---- create a named survey -----------------------------------------------------------
 await at(...OVERFLOW); await page.waitForTimeout(500)
@@ -215,6 +220,37 @@ if (splayRow < 0) {
 }
 
 await at(...PLAN_TAB); await page.waitForTimeout(600)
+
+// ---- a station can be named, and told what is there ----------------------------------------
+// Numbered stations are fine down a straight passage and useless at a junction: the surveyor's
+// notebook says "sump", and a survey where that name exists only on paper cannot be tied to the
+// next trip's. The comment is the same argument — a lead nobody wrote down is a lead nobody goes
+// back for.
+await at(...STATION_CHIP); await page.waitForTimeout(800)
+await page.screenshot({ path: join(shotDir, 'field-station.png') })
+await at(...STATION_NAME); await page.waitForTimeout(250)
+await page.keyboard.press('Control+a')
+await page.keyboard.type('Sump', { delay: 25 })
+await at(...STATION_COMMENT); await page.waitForTimeout(250)
+await page.keyboard.type('Continues, too tight for me', { delay: 15 })
+await at(...STATION_EE_LEFT); await page.waitForTimeout(250)
+await page.screenshot({ path: join(shotDir, 'field-station-named.png') })
+await at(...STATION_SAVE); await page.waitForTimeout(900)
+
+const named = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
+  return key ? (JSON.parse(localStorage.getItem(key)).stations ?? []) : []
+})
+const sump = named.find((st) => st.name === 'Sump')
+if (!sump) {
+  fail(`the station was not renamed (stations: ${named.map((st) => st.name).join(', ') || 'none'})`)
+} else if (sump.comment !== 'Continues, too tight for me') {
+  fail(`the station's comment was not kept (${JSON.stringify(sump.comment)})`)
+} else if (sump.eeDirection !== 'left') {
+  fail(`the extended-elevation direction was not kept (${sump.eeDirection})`)
+} else {
+  pass('a station can be named, commented and pointed the right way in the extended elevation')
+}
 
 // ---- it survives a restart --------------------------------------------------------------
 await page.reload({ waitUntil: 'load' })
