@@ -12,6 +12,10 @@ import org.hwyl.sexytopo.shared.io.store.FileStore
 data class AppPreferences(
     /** Buzz when three readings promote to a station. `pref_vibrate_on_new_station`. */
     val buzzOnNewStation: Boolean = DEFAULT_BUZZ_ON_NEW_STATION,
+    /** A touch in a corner of the sketch pans it, whatever tool is selected. `pref_hot_corners`. */
+    val hotCorners: Boolean = DEFAULT_HOT_CORNERS,
+    /** A two-fingered drag pans the sketch, likewise. `pref_two_finger_movement`. */
+    val twoFingerMove: Boolean = DEFAULT_TWO_FINGER_MOVE,
 ) {
     companion object {
         /**
@@ -19,6 +23,19 @@ data class AppPreferences(
          * shows — see the note in [AppPreferencesStore] about the two disagreeing.
          */
         const val DEFAULT_BUZZ_ON_NEW_STATION = true
+
+        /** `GeneralPreferences.isHotCornersModeActive` reads this key defaulting to true. */
+        const val DEFAULT_HOT_CORNERS = true
+
+        /**
+         * Off, as in `GeneralPreferences.isTwoFingerModeActive`.
+         *
+         * A surveyor holding the phone in one hand rests a second finger on the glass more often
+         * than they mean to pan with it, which is presumably why the Android app ships this off
+         * while shipping the corners on. Pinch-to-zoom is not gated on it: that is always live, in
+         * this port as in the original, where `ScaleGestureDetector` runs ahead of every tool.
+         */
+        const val DEFAULT_TWO_FINGER_MOVE = false
 
         val DEFAULT = AppPreferences()
     }
@@ -41,7 +58,11 @@ object AppPreferencesStore {
     val PATH = listOf("preferences.txt")
 
     fun format(preferences: AppPreferences): String =
-        buildString { appendLine("buzzOnNewStation=${preferences.buzzOnNewStation}") }
+        buildString {
+            appendLine("buzzOnNewStation=${preferences.buzzOnNewStation}")
+            appendLine("hotCorners=${preferences.hotCorners}")
+            appendLine("twoFingerMove=${preferences.twoFingerMove}")
+        }
 
     fun parse(text: String): AppPreferences {
         val values =
@@ -58,6 +79,11 @@ object AppPreferencesStore {
             buzzOnNewStation =
                 values["buzzOnNewStation"]?.toBooleanStrictOrNull()
                     ?: AppPreferences.DEFAULT_BUZZ_ON_NEW_STATION,
+            hotCorners =
+                values["hotCorners"]?.toBooleanStrictOrNull() ?: AppPreferences.DEFAULT_HOT_CORNERS,
+            twoFingerMove =
+                values["twoFingerMove"]?.toBooleanStrictOrNull()
+                    ?: AppPreferences.DEFAULT_TWO_FINGER_MOVE,
         )
     }
 

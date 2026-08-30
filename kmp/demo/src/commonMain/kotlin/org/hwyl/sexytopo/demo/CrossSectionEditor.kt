@@ -69,6 +69,7 @@ fun CrossSectionEditor(
     onCancel: () -> Unit,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
+    preferences: AppPreferences = AppPreferences.DEFAULT,
 ) {
     // The working copy, and the editor over it. Keyed on the detail so reopening a different
     // section starts again rather than carrying the last one's undo stack across.
@@ -122,6 +123,10 @@ fun CrossSectionEditor(
                     showStationLabels = false,
                     showGrid = true,
                     darkMode = darkMode,
+                    // The same escape from the toolbar as the plan has: a section is drawn with
+                    // the same pencil and moved just as often.
+                    hotCorners = preferences.hotCorners,
+                    twoFingerMove = preferences.twoFingerMove,
                 ),
             editor = editor,
             canvas = canvas,

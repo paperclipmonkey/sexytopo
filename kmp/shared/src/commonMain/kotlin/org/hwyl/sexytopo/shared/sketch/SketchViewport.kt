@@ -201,3 +201,35 @@ fun hitsHotCorner(
     val hitBottom = y > viewHeight - cornerDelta
     return (hitLeft && (hitBottom || hitTop)) || (hitRight && (hitBottom || hitTop))
 }
+
+/** The side of a hot-corner square in view pixels: a proportion of the shorter edge of the view. */
+fun hotCornerSide(
+    viewWidth: Float,
+    viewHeight: Float,
+    proportion: Float = SketchDefaults.HOT_CORNER_DISTANCE_PROPORTION,
+): Float = min(viewWidth, viewHeight) * proportion
+
+/**
+ * The top-left of each hot-corner square, in view pixels: top-left, top-right, bottom-left,
+ * bottom-right.
+ *
+ * Four, not three, and that is a deliberate departure. `GraphView.didEventHitHotCorner` tests all
+ * four corners, but `drawHotCorners` tints only three of them — top-left, top-right, bottom-right.
+ * The bottom-left corner of the Android sketch is therefore a live control that nothing on screen
+ * mentions: touch it while drawing and the view pans instead, which reads as the app losing the
+ * stroke. Drawing all four is a smaller change than making the fourth inert, and it is the one that
+ * matches what the touch handler actually does.
+ */
+fun hotCornerTopLefts(
+    viewWidth: Float,
+    viewHeight: Float,
+    proportion: Float = SketchDefaults.HOT_CORNER_DISTANCE_PROPORTION,
+): List<Coord2D> {
+    val side = hotCornerSide(viewWidth, viewHeight, proportion)
+    return listOf(
+        Coord2D(0f, 0f),
+        Coord2D(viewWidth - side, 0f),
+        Coord2D(0f, viewHeight - side),
+        Coord2D(viewWidth - side, viewHeight - side),
+    )
+}

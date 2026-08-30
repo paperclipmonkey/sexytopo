@@ -380,6 +380,8 @@ class DemoState(
                 showGrid = showGrid,
                 darkMode = darkMode,
                 snapToLines = snapToLines,
+                hotCorners = preferences.hotCorners,
+                twoFingerMove = preferences.twoFingerMove,
             )
 }
 

@@ -144,6 +144,7 @@ fun App(
                             survey = state.survey,
                             detail = editing,
                             darkMode = state.darkMode,
+                            preferences = state.preferences,
                             onCancel = { state.editingCrossSection = null },
                             onDone = {
                                 state.editingCrossSection = null

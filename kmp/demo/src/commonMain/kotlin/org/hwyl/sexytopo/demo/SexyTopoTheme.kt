@@ -61,6 +61,16 @@ object SexyTopoColours {
     val gridNight = Color(0xFF505050)
 
     /**
+     * `hotCorner`: the corner squares that pan the sketch without changing tool.
+     *
+     * Drawn at a fifth alpha, as `GraphView.FADED_ALPHA` does. The night value is lighter than the
+     * app's own mid-grey, which is all but invisible against the night background — the Android app
+     * has no night mode for the sketch, so it never had to answer this.
+     */
+    val hotCorner = Color(0xFF808080)
+    val hotCornerNight = Color(0xFFB0B0B0)
+
+    /**
      * `legend`: the scale bar, the compass and the survey label — and nothing else.
      *
      * Not station names. `GraphView` draws those with `stationPaint`, i.e. in [station], which is

@@ -1,6 +1,8 @@
 package org.hwyl.sexytopo.demo
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -15,12 +17,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.ExperimentalTextApi
@@ -42,7 +46,12 @@ import org.hwyl.sexytopo.shared.sketch.SketchDefaults
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.sketch.SketchViewport
+import org.hwyl.sexytopo.shared.sketch.centroidOf
 import org.hwyl.sexytopo.shared.sketch.findCrossSectionBodyAt
+import org.hwyl.sexytopo.shared.sketch.hitsHotCorner
+import org.hwyl.sexytopo.shared.sketch.hotCornerSide
+import org.hwyl.sexytopo.shared.sketch.hotCornerTopLefts
+import org.hwyl.sexytopo.shared.sketch.zoomBetween
 import org.hwyl.sexytopo.shared.survey.CrossSectioner
 import kotlin.math.abs
 import kotlin.math.floor
@@ -126,6 +135,10 @@ fun SurveyCanvas(
     // The editor is a plain object, not Compose state, so a stroke in progress has to say when it
     // needs repainting. The viewport says so through the controller's own revision.
     var strokeTick by remember { mutableIntStateOf(0) }
+
+    // True while a hot-corner or two-finger gesture is panning the view. Only used to tint the
+    // corners, so the surveyor can see the touch was taken deliberately rather than lost.
+    var modalMoving by remember { mutableStateOf(false) }
 
     // The cross-section drag in progress, if any. Read inside the draw block so the preview
     // follows the finger; null between gestures, which is also what says "draw everything
@@ -409,6 +422,32 @@ fun SurveyCanvas(
                     }
         }
 
+    // Pan and zoom without leaving the current tool: see [detectModalMove]. Not installed over the
+    // pan tool, which already does all of it with one finger and would end up handling a pinch
+    // twice.
+    val modalMove =
+        if (tool == SketchTool.MOVE) {
+            Modifier
+        } else {
+            Modifier.pointerInput(scene, tool, options.hotCorners, options.twoFingerMove) {
+                detectModalMove(
+                    hotCorners = options.hotCorners,
+                    twoFingerPan = options.twoFingerMove,
+                    onStart = {
+                        // A second finger arriving mid-stroke abandons it rather than committing
+                        // half a line the surveyor never meant to draw.
+                        editor.abandonPath()
+                        strokeTick++
+                        modalMoving = true
+                    },
+                    onTransform = { centroid, pan, zoom ->
+                        canvas.transformBy(centroid.toCoord2D(), pan.toCoord2D(), zoom)
+                    },
+                    onEnd = { modalMoving = false },
+                )
+            }
+        }
+
     // Clipping is stated rather than inherited. `drawGrid` starts its first line at
     // `floor(topLeft.y / spacing) * spacing`, which is by definition at or above the top of the
     // view - the same arithmetic GraphView uses, where an Android View's own clip makes it free. It
@@ -416,7 +455,7 @@ fun SurveyCanvas(
     // not appear, so something up the tree is already clipping. But "something up the tree" is a
     // layout change away from not being true, and the failure it would produce is the cave painting
     // over the app bar. One modifier is a cheap way not to depend on an ancestor for that.
-    Box(modifier = modifier.clipToBounds().then(gestures)) {
+    Box(modifier = modifier.clipToBounds().then(gestures).then(modalMove)) {
         Canvas(Modifier.fillMaxSize()) {
             // Read both counters so a gesture or a toolbar button repaints; the values themselves
             // are not used.
@@ -444,7 +483,7 @@ fun SurveyCanvas(
                 fit.noteFitted(scene.surveyBounds)
             }
 
-            drawSurvey(scene, options, viewport, textMeasurer, fontFamily, tool, sectionDrag)
+            drawSurvey(scene, options, viewport, textMeasurer, fontFamily, tool, sectionDrag, modalMoving)
         }
     }
 }
@@ -619,6 +658,10 @@ class DisplayOptions(
     val darkMode: Boolean = false,
     /** Whether a stroke jumps to the end of a nearby one. See [SketchEditor.snapPointNear]. */
     val snapToLines: Boolean = SketchDefaults.SNAP_TO_LINES_DEFAULT,
+    /** Whether the four corners pan the view whatever tool is selected. See [detectModalMove]. */
+    val hotCorners: Boolean = AppPreferences.DEFAULT_HOT_CORNERS,
+    /** Whether a two-fingered drag pans it too. Pinch-to-zoom does not depend on this. */
+    val twoFingerMove: Boolean = AppPreferences.DEFAULT_TWO_FINGER_MOVE,
 )
 
 /**
@@ -711,6 +754,7 @@ private fun DrawScope.drawSurvey(
     fontFamily: FontFamily,
     tool: SketchTool,
     sectionDrag: SectionDrag? = null,
+    modalMoving: Boolean = false,
 ) {
     val palette = if (options.darkMode) DarkPalette else LightPalette
 
@@ -859,6 +903,12 @@ private fun DrawScope.drawSurvey(
         )
     }
 
+    // Last, so they sit on top of the drawing rather than under it: a corner you cannot see
+    // because a passage wall is drawn across it is a corner that will eat a stroke.
+    if (options.hotCorners) {
+        drawHotCorners(modalMoving, palette)
+    }
+
     drawScaleBar(viewport.pixelsPerMetre, palette, textMeasurer, fontFamily)
 }
 
@@ -913,6 +963,8 @@ class Palette(
     val scaleBar: Color,
     val grid: Color,
     val activeStation: Color,
+    /** `R.color.hotCorner`, drawn at a fifth alpha. The active tint is [activeStation]'s amber. */
+    val hotCorner: Color,
 )
 
 /**
@@ -935,6 +987,7 @@ private val LightPalette =
         scaleBar = SexyTopoColours.legend,
         grid = SexyTopoColours.grid,
         activeStation = SexyTopoColours.activeStation,
+        hotCorner = SexyTopoColours.hotCorner,
     )
 
 private val DarkPalette =
@@ -949,6 +1002,7 @@ private val DarkPalette =
         scaleBar = SexyTopoColours.legendNight,
         grid = SexyTopoColours.gridNight,
         activeStation = SexyTopoColours.activeStationNight,
+        hotCorner = SexyTopoColours.hotCornerNight,
     )
 
 /**
@@ -977,3 +1031,129 @@ internal fun bearingOf(dx: Float, dy: Float): Float {
     val degrees = kotlin.math.atan2(dx.toDouble(), -dy.toDouble()) * 180.0 / kotlin.math.PI
     return ((degrees + 360.0) % 360.0).toFloat()
 }
+
+/**
+ * Pan and zoom the sketch without putting the pencil down.
+ *
+ * Ported from `GraphView.isModalMoveSelection` and the `ScaleGestureDetector` above it. Until this
+ * existed, moving the drawing while drawing it meant tapping MOVE, dragging, and tapping DRAW again
+ * — two toolbar hits per pan, on a phone in a wet oversuit, for the single most frequent thing a
+ * surveyor does to a sketch. The Android app has three escapes and this port had none of them:
+ *
+ *  - a touch that *starts* in one of the four corners pans instead of drawing ([hotCorners]);
+ *  - a second finger pans ([twoFingerPan], off by default, exactly as in the original);
+ *  - a second finger always zooms, under every tool, gated on neither preference.
+ *
+ * The third is the one that was most obviously missing: pinch-to-zoom worked only under the pan
+ * tool here, whereas the Android `ScaleGestureDetector` is consulted before the tool switch and so
+ * works under all of them.
+ *
+ * ## Why this is a hand-written pointer loop
+ *
+ * `detectTransformGestures` would do all of it except decide *when* to start. It fires for a single
+ * finger as readily as for two, so a canvas that is also being drawn on cannot use it: every stroke
+ * would pan the view under itself. This loop watches the pointers, decides on the way past, and
+ * consumes only once it has taken over — which is what lets the tool's own detector, sitting
+ * further out in the same modifier chain, carry on untouched the rest of the time.
+ *
+ * It has to be the *innermost* pointer input on the node. Compose delivers the main pass from the
+ * inside out, so only the innermost handler can consume a change before the tool's detector sees
+ * it; installed further out, a hot-corner touch would draw a stroke and pan at the same time.
+ */
+internal suspend fun PointerInputScope.detectModalMove(
+    hotCorners: Boolean,
+    twoFingerPan: Boolean,
+    onStart: () -> Unit,
+    onTransform: (centroid: Offset, pan: Offset, zoom: Float) -> Unit,
+    onEnd: () -> Unit,
+) {
+    awaitEachGesture {
+        // requireUnconsumed = false: this handler runs first and consumes nothing yet, but a
+        // gesture that began elsewhere should still be watched for a second finger.
+        val down = awaitFirstDown(requireUnconsumed = false)
+
+        var moving =
+            hotCorners &&
+                hitsHotCorner(
+                    down.position.x,
+                    down.position.y,
+                    size.width.toFloat(),
+                    size.height.toFloat(),
+                )
+        if (moving) {
+            down.consume()
+            onStart()
+        }
+
+        var previous = listOf(down.position.toCoord2D())
+
+        while (true) {
+            val event = awaitPointerEvent()
+            val pressed = event.changes.filter { it.pressed }
+            if (pressed.isEmpty()) break
+
+            val current = pressed.map { it.position.toCoord2D() }
+
+            // A second finger takes over mid-stroke, as in the original, where the scale detector
+            // is consulted on every event rather than only on the first. `onStart` abandons the
+            // stroke in progress; the tool's own detector sees its changes consumed from here on
+            // and cancels itself, so the half-drawn line disappears rather than being committed.
+            if (!moving && pressed.size >= 2) {
+                moving = true
+                onStart()
+                // Re-baseline: the pan is measured from *now*, not from where one finger was, or
+                // the view would leap by the distance between the two.
+                previous = current
+            }
+
+            if (moving) {
+                for (change in pressed) change.consume()
+
+                // Nothing is measured across a change in the number of fingers. Both the centroid
+                // and the spread jump when one lands or lifts — a finger leaving a pinch moves the
+                // centroid to the one that remains — and applying that jump throws the drawing
+                // across the screen at exactly the moment somebody is finishing a gesture.
+                val sameFingers = previous.size == current.size
+                val zoom = if (sameFingers) zoomBetween(previous, current) else 1f
+                val pan =
+                    if (!sameFingers) {
+                        Coord2D.ORIGIN
+                    } else if (pressed.size < 2 || twoFingerPan) {
+                        // Pinch always zooms; only a two-finger *drag* is behind the preference,
+                        // as in the original. A hot-corner pan is one finger, so the preference
+                        // has no say over it.
+                        centroidOf(current) - centroidOf(previous)
+                    } else {
+                        Coord2D.ORIGIN
+                    }
+                if (zoom != 1f || pan != Coord2D.ORIGIN) {
+                    onTransform(centroidOf(current).toOffset(), pan.toOffset(), zoom)
+                }
+            }
+
+            previous = current
+        }
+
+        if (moving) onEnd()
+    }
+}
+
+/**
+ * The four squares that pan the view, drawn faintly so they read as furniture rather than as ink.
+ *
+ * `GraphView.drawHotCorners`, with the fourth corner added: see [hotCornerTopLefts] for why the
+ * original draws three and tests four. The active tint is the app's own — grey normally, amber
+ * while a corner is actually panning, so the surveyor can see that the corner took the touch and
+ * the stroke was not simply lost.
+ */
+private fun DrawScope.drawHotCorners(active: Boolean, palette: Palette) {
+    val side = hotCornerSide(size.width, size.height)
+    if (side <= 0f) return
+    val colour = (if (active) palette.activeStation else palette.hotCorner).copy(alpha = HOT_CORNER_ALPHA)
+    for (corner in hotCornerTopLefts(size.width, size.height)) {
+        drawRect(colour, topLeft = Offset(corner.x, corner.y), size = Size(side, side))
+    }
+}
+
+/** `GraphView.FADED_ALPHA`, which is 0xff / 5, as a fraction. */
+private const val HOT_CORNER_ALPHA = 0.2f

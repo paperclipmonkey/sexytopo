@@ -8,7 +8,8 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by over 660 tests. The UI
+Survex and Therion exporters and the native file format are ported and covered by 668 shared tests,
+each run on the JVM, on Kotlin/Wasm and on Kotlin/Native. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
 tests the claim.
@@ -42,6 +43,7 @@ Being precise about this matters more than the demo looking good.
 | The `.th2` and `.xvi` a Therion user actually needs come out of the app | **Verified** | golden tests on the scrap file and the tracing image, and `field.mjs` picks the `.th2` chip on a 420-pixel screen, saves the file and checks it has an encoding line, a named plan scrap and the `##XTHERION##` block that points it at the `.xvi` |
 | Compass `.dat` exports byte-identically | **Verified** | a golden captured by *running* the Android app's own exporter, not by reading it — which caught a transcription slip on the first attempt |
 | PocketTopo `.txt` exports the same survey data | **Verified** | its DATA section is golden against the Android app; its station sections deliberately diverge, because the Java's are not reproducible even against themselves |
+| **The drawing can be moved without putting the pencil down** | **Verified** | `MultiTouchTest` for the pinch arithmetic and the corner geometry, and `field.mjs` finds the corner squares on the drawn page, drags one, and checks the plan moved, that no stroke was left behind, and that the next stroke still draws — with no toolbar round trip |
 | A station being made can be felt rather than looked at | **Verified** | the callback fires once per station and not once per reading, the preference round-trips, and `field.mjs` turns it off through the settings screen and checks it stayed off |
 | The instrument log is kept, persisted and readable on the phone | **Verified** | `ActivityLogTest` for the bounded queues and the file format; `instrument.mjs` connects a fake DistoX-BLE, takes a calibration, and then reads the log back off the clipboard — count, timestamps and all |
 | The desktop build keeps its surveys too | **Verified** | a survey written by one `SurveyLibrary` and read by a second over the same directory, in SexyTopo's own file layout, plus the three platform conventions for where that directory goes |
@@ -130,6 +132,10 @@ missing.
   hit-tests through the same visibility rule the renderer uses, so you cannot rub out what is too
   small to see.
 - **Cross-sections**, drawn on the plan where the surveyor parked them.
+- **Moving the drawing without changing tool.** A touch that starts in one of the four faint corner
+  squares pans the sketch; two fingers zoom it, whatever tool is selected. Both are the Android
+  app's, and the corner squares are its own — except that it tests four and tints three; see
+  findings 22 and 23.
 - **The cave in 3D**, turned with a finger. The Android app draws this with OpenGL ES; here the
   projection is arithmetic and the drawing is the same 2D canvas as everything else, so it runs on
   iOS, Android, the desktop and the web from one file.
@@ -377,6 +383,13 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
 - **Join the wall up.** *Snap to lines*, in the drawing menu, makes a new stroke start and finish
   exactly on the end of a nearby one. A passage wall is drawn as a series of strokes, and a wall
   with gaps in it is one no tracing tool downstream can close. Off by default, as in the app.
+- **Move the drawing without putting the pencil down.** A touch that starts in any of the four
+  faint corner squares pans the sketch instead of marking it, and two fingers zoom it, whatever
+  tool is selected — the app's own hot corners and its `ScaleGestureDetector`, which this port had
+  been missing. Moving the paper is the most frequent thing anybody does to a sketch, and doing it
+  through the toolbar costs two taps each time. *Surveying* turns the corners off, and turns on the
+  app's other escape, a two-fingered drag; the defaults are the Android app's, corners on and two
+  fingers off.
 - **Calibrate the instrument.** *Calibrate* runs the app's own procedure: fourteen directions,
   each rolled through four positions, fifty-six shots in all, then Beat Heeb's solver and the
   coefficients written back to the device. An uncalibrated DistoX can be several degrees out, and a
@@ -463,6 +476,7 @@ Honest limits, so nothing is a surprise in a cave:
 | Nordic `BleManager` subclasses | `shared/iosMain/.../CoreBluetoothTransport.kt` | The whole iOS Bluetooth surface |
 | `control/io/basic/*JsonTranslater` | `shared/io/` | Same tags, same tolerant two-pass load; the calibration file is interchangeable both ways |
 | `control/graph/GraphView` — tools, viewport, hit-testing, snap-to-lines | `shared/sketch/` | Ported; the demo drives it |
+| `GraphView.isModalMoveSelection`, `didEventHitHotCorner`, `ScaleListener` | `shared/sketch/MultiTouch.kt`, `SketchViewport.kt`, `demo/.../SurveyCanvas.kt` | Pan and zoom without leaving the tool; the fourth hot corner is drawn as well as tested |
 | `GraphView.handle{Move,Rotate}CrossSection` | `demo/.../CrossSectionDrag.kt` | One value drives the preview *and* the commit, so they cannot disagree |
 | `CrossSectionActivity`, `CrossSectionView` | `demo/.../CrossSectionEditor.kt` | The same canvas over the section's own world; `SurveyScene.forCrossSection` is the whole difference |
 | `control/graph/GraphView` — drawing and touch plumbing | `demo/.../SurveyCanvas.kt` | **Rewritten**, not ported |
@@ -681,6 +695,24 @@ These are the things that would actually shape a real port.
    `onStartCommand` assigns the receiver to a *local* variable that shadows the field, so `onDestroy`
    unregisters a null and the receiver is never removed. Harmless — `LocalBroadcastManager` ignores
    a null — but it is a leak.)
+
+22. **The Android sketch has a live control it never draws.** `GraphView.didEventHitHotCorner`
+   tests all four corners of the view; `drawHotCorners` tints three of them — top-left, top-right,
+   bottom-right. The bottom-left corner therefore pans the drawing while nothing on screen says it
+   is anything at all, which from the surveyor's side is the app losing a stroke. This port draws
+   all four, which is a smaller change than making the fourth inert and is what the touch handler
+   already does.
+
+23. **Pinch-to-zoom is not a tool, and treating it as one costs two taps per pan.** In the Android
+   app the `ScaleGestureDetector` is consulted *before* the tool switch, so two fingers zoom
+   whatever is selected; the hot corners and the two-finger drag do the same for panning. This port
+   had put pan and zoom inside the pan tool, so moving the drawing while drawing it meant MOVE,
+   drag, DRAW again — two toolbar taps for the single most frequent thing anybody does to a sketch,
+   on a phone, in a wet oversuit. It is not a bug anything would report as one: every individual
+   feature works. Compose has no ready-made detector for "only once there are two fingers"
+   (`detectTransformGestures` fires for one), so the canvas now watches the pointers itself and
+   consumes only once it has taken the gesture over, which is what lets the tool's own detector go
+   on working untouched the rest of the time.
 
 ---
 

@@ -57,6 +57,8 @@ fun SurveySettingsDialog(
     var pairwise by remember { mutableStateOf(settings.maxPairwiseError.toString()) }
     var repeats by remember { mutableStateOf(settings.numberOfRepeatsForNewStation.toString()) }
     var buzz by remember { mutableStateOf(preferences.buzzOnNewStation) }
+    var hotCorners by remember { mutableStateOf(preferences.hotCorners) }
+    var twoFingerMove by remember { mutableStateOf(preferences.twoFingerMove) }
 
     val edited =
         settingsFrom(algorithm, distance, angle, endpoint, pairwise, repeats, settings)
@@ -137,16 +139,71 @@ fun SurveySettingsDialog(
                         },
                     )
                 }
+
+                HorizontalDivider()
+
+                // `pref_hot_corners` and `pref_two_finger_movement`. Both are about the same
+                // problem — moving the drawing while drawing it — so they belong together, and
+                // both keep the Android app's own defaults.
+                Toggle(
+                    title = "Corners pan the sketch",
+                    detail =
+                        "A touch in any corner moves the drawing instead of marking it, so you " +
+                            "can pan without putting the pencil down.",
+                    checked = hotCorners,
+                    onCheckedChange = { hotCorners = it },
+                )
+
+                Toggle(
+                    title = "Two fingers pan the sketch",
+                    detail =
+                        "Off by default: a hand holding the phone rests a second finger on the " +
+                            "glass more often than it means to. Pinch to zoom works either way.",
+                    checked = twoFingerMove,
+                    onCheckedChange = { twoFingerMove = it },
+                )
             }
         },
         confirmButton = {
             TextButton(
                 enabled = edited != null,
-                onClick = { edited?.let { onSave(it, AppPreferences(buzzOnNewStation = buzz)) } },
+                onClick = {
+                    edited?.let {
+                        onSave(
+                            it,
+                            AppPreferences(
+                                buzzOnNewStation = buzz,
+                                hotCorners = hotCorners,
+                                twoFingerMove = twoFingerMove,
+                            ),
+                        )
+                    }
+                },
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/** A labelled switch with a line of explanation, as the settings rows above it already are. */
+@Composable
+private fun Toggle(
+    title: String,
+    detail: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
 }
 
 @Composable

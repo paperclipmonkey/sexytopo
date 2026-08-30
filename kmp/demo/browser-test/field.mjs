@@ -187,10 +187,22 @@ function menuRow(name, savedSurveys) {
 const savedSurveyDelete = (nth) => [392, menuRowY(MENU_BEFORE_SURVEYS.length + nth)]
 const IMPORT_CHOOSE = [284, 494]
 const IMPORT_FIRST_ROW = [210, 446]
-const SETTING_DISTANCE = [210, 410]
-const SETTING_ANGLE = [210, 486]
-const SETTING_BUZZ = [320, 641]
-const SETTINGS_SAVE = [317, 715]
+// The Surveying dialog's rows, measured from the top of the dialog rather than from the top of the
+// screen.
+//
+// An AlertDialog is vertically centred, so *every* row in it moves by half the height of anything
+// added to it — which is how adding two switches silently retyped the angle tolerance into the
+// repeat count and left the dialog open over everything the checks did next. Anchoring to the
+// dialog's own top means adding a setting is one number here (the height) plus one row, instead of
+// six numbers that all have to be re-measured.
+const SETTINGS_DIALOG_HEIGHT = 830
+const settingsRow = (x, fromTop) => [x, (900 - SETTINGS_DIALOG_HEIGHT) / 2 + fromTop]
+const SETTING_DISTANCE = settingsRow(210, 271)
+const SETTING_ANGLE = settingsRow(210, 347)
+const SETTING_BUZZ = settingsRow(320, 503)
+const SETTING_HOT_CORNERS = settingsRow(320, 596)
+const SETTING_TWO_FINGER = settingsRow(320, 692)
+const SETTINGS_SAVE = settingsRow(317, 782)
 const TRIP_ADD_NAME = [177, 340]
 const TRIP_ADD_BUTTON = [317, 336]
 const TRIP_ROLE_BOOK = [106, 298]
@@ -478,6 +490,106 @@ await at(...toolCell(5)); await page.waitForTimeout(500)
 await at(...drawingMenuRow('snap')); await page.waitForTimeout(600)
 await page.keyboard.press('Escape'); await page.waitForTimeout(500)
 
+// ---- the drawing can be moved without putting the pencil down ----------------------------
+// The single most frequent thing a surveyor does to a sketch is move it, and until the hot corners
+// existed the only way to do that while drawing was MOVE, drag, DRAW again: two toolbar taps per
+// pan, on a phone, in a wet oversuit. A touch that starts in any corner pans instead of marking.
+//
+// The corners are found rather than hard-coded, by scanning the left-hand edge of the sketch for
+// the two faint squares. That locates the sketch surface itself — which sits between an app bar
+// and two rows of toolbar, so its own top edge is not a number worth writing down — and it doubles
+// as the check that the corners are actually drawn. The Android app tests four corners and tints
+// three; the one scanned for here is the bottom-left, the corner its own `drawHotCorners` leaves
+// invisible.
+const planStrokes = () => page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  return key ? (JSON.parse(localStorage.getItem(key)).paths ?? []).length : -1
+})
+
+const cornerRunsAt = async (column) => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, x]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    // Grey 0x808080 at a fifth alpha over the app's own 0xF5F5F5 canvas: 222 on every channel.
+    // The grid is 211 and only ever one pixel tall, so a run of a dozen rows is unambiguous.
+    const isCorner = (y) => {
+      const i = (y * c.width + x) * 4
+      const [r, g, b] = [px[i], px[i + 1], px[i + 2]]
+      return r >= 214 && r <= 232 && Math.abs(r - g) < 4 && Math.abs(g - b) < 4
+    }
+    const runs = []
+    let from = -1
+    for (let y = 0; y <= c.height; y++) {
+      if (y < c.height && isCorner(y)) { if (from < 0) from = y } else {
+        if (from >= 0 && y - from >= 12) runs.push({ top: from, height: y - from })
+        from = -1
+      }
+    }
+    return runs
+  }, [b64, column])
+}
+
+const leftCorners = await cornerRunsAt(2)
+const rightCorners = await cornerRunsAt(Math.round(box.width) - 3)
+
+// The *height* of the lower run is not the corner's: the field bar below the sketch is painted
+// 221, one away from the corner's 222, so the two touch and the scan reads them as one. Its top
+// is still the corner's top, and the upper run — bounded above by the green app bar — gives the
+// side. Taking the side from the merged run instead put the drag on the "Add reading" button,
+// where it did nothing and the check passed anyway, which is the failure mode worth a comment.
+const cornerSide = leftCorners[0]?.height ?? 0
+const cornerCentres = (runs, x) =>
+  runs.map((run) => [x, Math.round(run.top + cornerSide / 2)])
+
+if (leftCorners.length !== 2 || rightCorners.length !== 2) {
+  fail(
+    'the sketch\'s hot corners were not drawn ' +
+      `(${leftCorners.length} down the left edge, ${rightCorners.length} down the right)`,
+  )
+} else if (leftCorners[0].top !== rightCorners[0].top) {
+  fail('the top corners are not level with each other')
+} else {
+  pass('the corners that pan the sketch are drawn, all four of them')
+
+  // The bottom-left one, which is the corner the Android app tests and never tints.
+  const from = cornerCentres(leftCorners, Math.round(cornerSide / 2))[1]
+  const strokesBefore = await planStrokes()
+  const beforePanning = await page.screenshot({ clip: box })
+
+  await drag(from, [from[0] + 120, from[1] - 90]); await page.waitForTimeout(700)
+  await page.screenshot({ path: join(shotDir, 'field-hot-corner-pan.png') })
+
+  const afterPanning = await page.screenshot({ clip: box })
+  const strokesAfter = await planStrokes()
+  if (strokesAfter !== strokesBefore) {
+    fail(`a drag from a corner drew on the survey (${strokesBefore} strokes became ${strokesAfter})`)
+  } else if (Buffer.compare(beforePanning, afterPanning) === 0) {
+    fail('a drag from a corner moved nothing — the pencil cannot be put down without the toolbar')
+  } else {
+    pass('a drag from a corner pans the drawing instead of marking it, with the pencil still down')
+  }
+
+  // And the pencil still works everywhere else, which is the other half of the bargain: a canvas
+  // that panned on every touch would pass the check above and be useless.
+  await drag([150, from[1] - 200], [260, from[1] - 200]); await page.waitForTimeout(700)
+  if ((await planStrokes()) !== strokesBefore + 1) {
+    fail('after a corner pan the draw tool stopped drawing')
+  } else {
+    pass('the draw tool is still the draw tool afterwards — no toolbar round trip needed')
+  }
+}
+
+// Put the view back where it was, so nothing after this depends on where the corner pan left it.
+await at(...toolCell(5)); await page.waitForTimeout(500)
+await at(...drawingMenuRow('centre')); await page.waitForTimeout(700)
+
 // Reads the saved survey back. The checks below assert against the file rather than the screen,
 // because the file is what the surveyor takes home and hands to Therion.
 const savedLegs = () => page.evaluate(() => {
@@ -703,9 +815,13 @@ await at(...OVERFLOW); await page.waitForTimeout(500)
 await at(...menuRow('surveying', 1)); await page.waitForTimeout(800)
 await retype(SETTING_DISTANCE, '0.5')
 await retype(SETTING_ANGLE, '12')
-// And the one preference on this screen, on the way past: a buzz when a station is made, which is
-// how a surveyor with the phone in a pocket learns the leg went in.
+// And the preferences on this screen, on the way past: a buzz when a station is made, which is how
+// a surveyor with the phone in a pocket learns the leg went in, and the two ways of moving the
+// drawing without changing tool. All three are flipped from their defaults, so the file that comes
+// out says the screen was actually read rather than that the defaults happened to be written.
 await at(...SETTING_BUZZ); await page.waitForTimeout(300)
+await at(...SETTING_HOT_CORNERS); await page.waitForTimeout(300)
+await at(...SETTING_TWO_FINGER); await page.waitForTimeout(300)
 await page.screenshot({ path: join(shotDir, 'field-surveying-settings.png') })
 await at(...SETTINGS_SAVE); await page.waitForTimeout(700)
 
@@ -720,6 +836,45 @@ if (savedPreferences === null) {
 } else {
   pass('the new-station buzz can be turned off, and stays off')
 }
+
+if (
+  !savedPreferences?.includes('hotCorners=false') ||
+  !savedPreferences?.includes('twoFingerMove=true')
+) {
+  fail(`the sketch-movement preferences were not saved (${savedPreferences?.trim()})`)
+} else {
+  pass('the corners and the two-finger drag can each be turned the other way, and stay')
+}
+
+// And turned off, the corners are inert rather than merely invisible — which is the half that
+// matters, and the half a pixel check cannot tell you. The same drag that panned the drawing a
+// moment ago now marks it.
+if (leftCorners.length === 2) {
+  const from = cornerCentres(leftCorners, Math.round(cornerSide / 2))[1]
+  const before = await planStrokes()
+  await drag(from, [from[0] + 120, from[1] - 90]); await page.waitForTimeout(700)
+  await page.screenshot({ path: join(shotDir, 'field-corners-off.png') })
+  const after = await planStrokes()
+  if (after !== before + 1) {
+    fail(
+      'with the corners turned off, a drag from one still refused to draw ' +
+        `(${JSON.stringify(from)}: ${before} -> ${after})`,
+    )
+  } else {
+    pass('turning the corners off gives the pencil the whole page back')
+  }
+  // Undone, so the drawing the export checks below read is the one they were written for.
+  await at(...toolCell(6)); await page.waitForTimeout(700)
+  if ((await planStrokes()) !== before) {
+    fail('the stroke drawn to test the corners could not be undone')
+  }
+}
+
+// Back on, because the rest of this file is written for the app's own defaults.
+await at(...OVERFLOW); await page.waitForTimeout(500)
+await at(...menuRow('surveying', 1)); await page.waitForTimeout(800)
+await at(...SETTING_HOT_CORNERS); await page.waitForTimeout(300)
+await at(...SETTINGS_SAVE); await page.waitForTimeout(700)
 
 for (const [d, a, i] of sloppy) await reading(d, a, i)
 if ((await connectingLegs()) !== beforeSloppy + 1) {
