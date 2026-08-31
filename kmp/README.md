@@ -35,7 +35,7 @@ Being precise about this matters more than the demo looking good.
 | The survey engine builds stations from readings the way the app does | **Verified** | `SurveyUpdaterTest` (59 tests), triple-shot promotion and all three amalgamation algorithms |
 | Instrument packets decode identically | **Verified** | byte-level tests for DistoX, DistoX-BLE, BRIC, SAP6, Cavway, FCL |
 | The whole chain works end to end | **Verified** | `SurveyingEndToEndTest`: simulated instrument → packet decode → station promotion → JSON round-trip |
-| Native JSON survey/sketch formats read and written compatibly | **Verified** | round-trip tests against Android-shaped fixtures, including corrupt and old-format files |
+| Native JSON survey/sketch formats read and written compatibly | **Verified, for three of the four files** | round-trip tests against Android-shaped fixtures, including corrupt and old-format files. The data file and both sketches are read and written; `Name.metadata.json` is neither, so the cross-survey links it carries do not survive a trip through this port — see *What to expect that is missing* |
 | Survex and Therion export byte-identically | **Verified** | golden tests asserting the full file, metadata block included |
 | **PocketTopo's own binary `.top` imports** | **Verified** | the format's primitives against the Android app's own `PocketTopoFileTest`, the shot-ordering and repeat-averaging rules against its `PocketTopoImporterTest` fixtures byte for byte, and its real `CeiledUp.top` — 12 stations, 68 legs, 203 strokes — read identically on the JVM, Kotlin/Wasm and Kotlin/Native, and through the file chooser in a browser |
 | A PocketTopo text export imports, drawing included | **Verified** | the Android app's own `FAKE_TEXT` fixture and its three assertions, on three targets, plus the four files that crash the Java |
@@ -1314,6 +1314,14 @@ These are the things that would actually shape a real port.
    Four bugs, one missing idea, found in an hour by asking the same question in four places. None
    of them was subtle once the question was asked; all four had passing tests over them.
 
+   The fifth answer was not a bug but a false claim of mine. Asking the same question of the fourth
+   file — `Name.metadata.json` — found that this port does not read or write it *at all*, while the
+   pull request said the cross-survey links it carries "are read and written". They are not. The
+   claim is corrected rather than the code, because the obvious fix is worse than the loss: that
+   file also holds `active-station`, which the Android loader reads *after* the data file, so
+   carrying it through untouched would silently override the station a surveyor had just been
+   working at. What the round trip loses is now written down exactly.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1474,9 +1482,15 @@ What it does **not** include:
   instrument — but neither has met a radio. The iOS simulator has no Bluetooth stack, so this one
   genuinely needs an instrument in hand. There is no Android transport here either (the Android app
   keeps its own).
-- **Cross-survey links.** They are stored as absolute `content://` URIs, which are meaningless off
-  Android and already break when a folder moves, so replacing them is a format decision to take
-  with upstream rather than a porting one. Nothing here draws a neighbouring survey.
+- **Cross-survey links.** They live in `Name.metadata.json`, the fourth file of a survey, and this
+  port **does not read or write that file at all** — so a survey imported here and exported again
+  comes back without its links. Worth saying precisely, because the obvious half-measure is worse
+  than the loss: carrying the file through untouched would also carry its `active-station`, and the
+  Android loader reads that *after* the data file and would therefore override the station a
+  surveyor had just been working at. Doing it properly means parsing metadata to update one field,
+  and the links themselves are absolute `content://` URIs — meaningless off Android, and already
+  broken when a folder moves — so it is a format decision to take with upstream rather than a
+  porting one. Nothing here draws a neighbouring survey either.
 - **The Android app adopting this core.** That is the step that would make the work pay for itself
   regardless of the iOS outcome, and it is deliberately not attempted yet.
 
