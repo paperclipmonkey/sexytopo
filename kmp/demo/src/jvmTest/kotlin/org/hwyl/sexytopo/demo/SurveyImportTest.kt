@@ -1,9 +1,13 @@
 package org.hwyl.sexytopo.demo
 
+import org.hwyl.sexytopo.shared.io.SketchJson
 import org.hwyl.sexytopo.shared.io.SurveyJson
 import org.hwyl.sexytopo.shared.io.export.SurvexExporter
 import org.hwyl.sexytopo.shared.io.export.TherionExporter
 import org.hwyl.sexytopo.shared.io.store.InMemoryFileStore
+import org.hwyl.sexytopo.shared.model.graph.Coord2D
+import org.hwyl.sexytopo.shared.model.sketch.Colour
+import org.hwyl.sexytopo.shared.model.sketch.PathDetail
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
@@ -27,6 +31,78 @@ class SurveyImportTest {
             SurveyBuilder.updateWithNewStation(it, Leg(5.42f, 12.5f, -3f))
             it.origin.comment = "entrance"
         }
+
+    /**
+     * A survey is four files, and the drawing is three of a surveyor's four hours.
+     *
+     * This importer takes one file at a time, so a survey handed over as `Name.data.json` and its
+     * siblings parsed the centreline and dropped both sketches without a word — which is the worst
+     * shape a bug can have: it succeeds, it says so, and what is missing is the part nobody can
+     * reconstruct from the numbers.
+     *
+     * `SurveyStorage` has read all four for as long as it has existed. It was only the loose-file
+     * path that did not, and the fixture the browser check imports has no drawing in it, so
+     * nothing here could see the loss.
+     */
+    @Test
+    fun aSurveySentWithItsDrawingsKeepsThem() {
+        val store = store()
+        val survey = aSurvey("Eastwater")
+        survey.planSketch.pathDetails.add(
+            PathDetail(listOf(Coord2D(0f, 0f), Coord2D(1f, 1f)), Colour.BLACK),
+        )
+        survey.elevationSketch.pathDetails.add(
+            PathDetail(listOf(Coord2D(2f, 2f), Coord2D(3f, 3f)), Colour.RED),
+        )
+        store.writeText(listOf("Eastwater.data.json"), SurveyJson.write(survey))
+        store.writeText(
+            listOf("Eastwater.plan.json"),
+            SketchJson.write(survey.planSketch, "Eastwater"),
+        )
+        store.writeText(
+            listOf("Eastwater.ext-elevation.json"),
+            SketchJson.write(survey.elevationSketch, "Eastwater"),
+        )
+
+        val imported = assertNotNull(
+            SurveyImport.import(SurveyLibrary(store), store, "Eastwater.data.json"),
+        )
+        assertEquals(1, imported.planSketch.pathDetails.size, "the plan drawing was dropped")
+        assertEquals(
+            1,
+            imported.elevationSketch.pathDetails.size,
+            "the elevation drawing was dropped",
+        )
+    }
+
+    /** And a survey sent as its data file alone still imports, with nothing drawn. */
+    @Test
+    fun aSurveySentOnItsOwnStillImports() {
+        val store = store()
+        store.writeText(listOf("Eastwater.data.json"), SurveyJson.write(aSurvey("Eastwater")))
+
+        val imported = assertNotNull(
+            SurveyImport.import(SurveyLibrary(store), store, "Eastwater.data.json"),
+        )
+        assertEquals(0, imported.planSketch.pathDetails.size)
+        assertTrue(imported.origin.onwardLegs.isNotEmpty(), "the centreline came in")
+    }
+
+    /**
+     * The other half of the same mistake: every part of a survey ends `.json`, so a rule of "any
+     * `.json` is a survey" offered the drawing as something to import beside the survey. Picking
+     * it would have parsed a sketch as a centreline.
+     */
+    @Test
+    fun thePartsOfASurveyAreNotOfferedAsSurveys() {
+        val store = store()
+        store.writeText(listOf("Eastwater.data.json"), "{}")
+        store.writeText(listOf("Eastwater.plan.json"), "{}")
+        store.writeText(listOf("Eastwater.ext-elevation.json"), "{}")
+        store.writeText(listOf("Eastwater.metadata.json"), "{}")
+
+        assertEquals(listOf("Eastwater.data.json"), SurveyImport.candidates(store))
+    }
 
     @Test
     fun onlyFilesAtTheRootAreOffered() {

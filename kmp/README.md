@@ -39,6 +39,7 @@ Being precise about this matters more than the demo looking good.
 | Survex and Therion export byte-identically | **Verified** | golden tests asserting the full file, metadata block included |
 | **PocketTopo's own binary `.top` imports** | **Verified** | the format's primitives against the Android app's own `PocketTopoFileTest`, the shot-ordering and repeat-averaging rules against its `PocketTopoImporterTest` fixtures byte for byte, and its real `CeiledUp.top` — 12 stations, 68 legs, 203 strokes — read identically on the JVM, Kotlin/Wasm and Kotlin/Native, and through the file chooser in a browser |
 | A PocketTopo text export imports, drawing included | **Verified** | the Android app's own `FAKE_TEXT` fixture and its three assertions, on three targets, plus the four files that crash the Java |
+| **A survey brought in keeps its drawing** | **Verified** | a SexyTopo survey is four files and this importer takes one at a time, so it read the centreline and dropped both sketches in silence. It now looks for `Name.plan.json` and `Name.ext-elevation.json` beside the file that was picked — where they land when somebody AirDrops a survey or unzips one into the Files app. Three unit tests and a browser check, and the browser fixture had to be **given a drawing**, because the one it had could not express the loss |
 | A Survex or Therion file from other software imports | **Verified** | round-trip tests through the ported exporters, plus a `.svx` written by hand — team, date, backsights, splays, station comments and leg comments — and `field.mjs` brings one into the browser build end to end |
 | The `.th2` and `.xvi` a Therion user actually needs come out of the app | **Verified** | golden tests on the scrap file and the tracing image, and `field.mjs` picks the `.th2` chip on a 420-pixel screen, saves the file and checks it has an encoding line, a named plan scrap and the `##XTHERION##` block that points it at the `.xvi` |
 | Therion can build what comes out, rather than five files and a config to write | **Verified** | golden test on the `.thconfig` and on the `input` lines; `field.mjs` saves the project file and the `.th` from a phone-sized screen and checks each names what the other saves under |
@@ -1272,6 +1273,27 @@ These are the things that would actually shape a real port.
    never the property being tested. The property is "there is a card here", and a card is a size,
    not a fraction.
 
+42. **A survey imported without its drawing, and every check said it worked.** A SexyTopo survey is
+   four files — `Name.data.json`, two sketches and a version stamp — and this port's importer takes
+   one file at a time. So a survey handed over by somebody else parsed the centreline through
+   `SurveyJson` and never looked for the sketches beside it. The drawings were dropped in silence.
+
+   That is the worst shape a bug can have. It succeeds, it reports success, and what goes missing is
+   the part nobody can reconstruct from what is left: the numbers are a minute a station, the
+   drawing is the whole trip.
+
+   `SurveyStorage` has read all four files for as long as it has existed; it was only the
+   *loose-file* path that did not. And the reason nothing caught it is worth more than the fix. The
+   browser check's import fixture was a survey of two stations, one leg and **no drawing**. It
+   imported perfectly. The check was real and the assertion was real; the fixture simply could not
+   express the failure. It has a drawing in it now.
+
+   The same missing idea cost a second bug alongside it. Deciding "is this a survey?" by *any* file
+   ending `.json` offered `Swildons.plan.json` in the import list beside `Swildons.data.json` — so
+   the app invited you to import a drawing as a centreline. Both come from treating a survey as a
+   file rather than as a *set* of files, which is finding 33 in another costume: a Therion export
+   of five individually perfect files that together could not be built.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1376,8 +1398,8 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 709
-shared tests on three targets, 267 over the UI's own logic, 18 running the iOS half in a simulator,
-85 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
+shared tests on three targets, 270 over the UI's own logic, 18 running the iOS half in a simulator,
+87 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

@@ -1,11 +1,13 @@
 package org.hwyl.sexytopo.demo
 
+import org.hwyl.sexytopo.shared.io.SketchJson
 import org.hwyl.sexytopo.shared.io.SurveyJson
 import org.hwyl.sexytopo.shared.io.export.SurveyFormat
 import org.hwyl.sexytopo.shared.io.imports.PocketTopoImporter
 import org.hwyl.sexytopo.shared.io.imports.PocketTopoTxtImporter
 import org.hwyl.sexytopo.shared.io.imports.SurveyImporter
 import org.hwyl.sexytopo.shared.io.store.FileStore
+import org.hwyl.sexytopo.shared.io.store.SurveyFileType
 import org.hwyl.sexytopo.shared.model.survey.Survey
 
 /**
@@ -41,7 +43,26 @@ object SurveyImport {
             else -> null
         }
 
-    private fun isNative(fileName: String) = fileName.endsWith(".json", ignoreCase = true)
+    /**
+     * The parts of a saved survey that are not the survey: the two sketches and the version stamp.
+     *
+     * These have to be recognised so they can be *left out*. A survey this app or the Android app
+     * wrote is four files, and every one of them ends `.json` — so a rule of "any `.json` is a
+     * survey" offered `Swildons.plan.json` as something to import beside `Swildons.data.json`,
+     * where picking it would parse a drawing as a centreline and fail.
+     */
+    private val SURVEY_PARTS =
+        listOf(
+            SurveyFileType.PLAN_SKETCH,
+            SurveyFileType.EXTENDED_ELEVATION_SKETCH,
+            SurveyFileType.METADATA,
+        )
+
+    private fun isSurveyPart(fileName: String) =
+        SURVEY_PARTS.any { fileName.endsWith(".${it.extension}", ignoreCase = true) }
+
+    private fun isNative(fileName: String) =
+        fileName.endsWith(".json", ignoreCase = true) && !isSurveyPart(fileName)
 
     /**
      * PocketTopo's text export, which is the only one of these that brings a *drawing* in too.
@@ -125,7 +146,35 @@ object SurveyImport {
         return when {
             format != null -> SurveyImporter.read(text, format, name)
             isPocketTopo(fileName) -> PocketTopoTxtImporter.read(text, name)
-            else -> SurveyJson.parse(text)
+            else -> SurveyJson.parse(text).also { withSketchesBesideIt(store, fileName, it) }
+        }
+    }
+
+    /**
+     * The two drawings, if whoever sent the survey sent all of it.
+     *
+     * A SexyTopo survey is four files — `Name.data.json` and its two sketches, plus a version
+     * stamp — and this importer takes one file at a time, so `SurveyJson.parse` gets the
+     * centreline and the sketches were dropped without a word. That is most of a surveyor's work:
+     * the numbers take a minute a station and the drawing takes the whole trip.
+     *
+     * [SurveyStorage] has read all four for as long as it has existed; it is only the *loose file*
+     * path that did not. So this is the same four files, looked for beside the one that was picked
+     * rather than inside a survey directory — which is where they land when somebody AirDrops a
+     * survey or unzips one into the Files app.
+     *
+     * A survey sent as its data file alone still imports, with empty sketches, exactly as before.
+     */
+    private fun withSketchesBesideIt(store: FileStore, fileName: String, survey: Survey) {
+        val base = fileName.dropExtension(".json").dropExtension(".data")
+        fun sketch(type: SurveyFileType) =
+            runCatching { store.readText(listOf(type.filenameFor(base))) }.getOrNull()
+
+        sketch(SurveyFileType.PLAN_SKETCH)?.let {
+            runCatching { survey.planSketch = SketchJson.parse(it, survey) }
+        }
+        sketch(SurveyFileType.EXTENDED_ELEVATION_SKETCH)?.let {
+            runCatching { survey.elevationSketch = SketchJson.parse(it, survey) }
         }
     }
 

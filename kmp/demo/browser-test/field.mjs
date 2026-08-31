@@ -17,6 +17,28 @@ const shotDir = process.argv[3] ?? 'field-screenshots'
 mkdirSync(shotDir, { recursive: true })
 
 // A real file in the app's own format, small enough to read: one leg, two stations.
+// The drawing that goes with it. A SexyTopo survey is four files, and this is the one that holds
+// the trip's actual work: `Name.data.json` is a minute a station, `Name.plan.json` is the hours.
+// Written in the app's own sketch format, one black path of four points.
+const EXAMPLE_PLAN_JSON = JSON.stringify({
+  name: 'Eastwater',
+  paths: [
+    {
+      colour: 'BLACK',
+      points: [
+        { x: 0.0, y: 0.0 },
+        { x: 1.5, y: 0.5 },
+        { x: 2.0, y: 2.5 },
+        { x: 3.5, y: 3.0 },
+      ],
+    },
+  ],
+  labels: [],
+  symbols: [],
+  'x-sections': [],
+  settings: { 'cross-section-scale': 1.0 },
+})
+
 const EXAMPLE_SURVEY_JSON = JSON.stringify({
   sexyTopoVersionName: 'kmp-port',
   sexyTopoVersionCode: 0,
@@ -2476,6 +2498,13 @@ await page.screenshot({ path: join(shotDir, 'field-import-menu.png') })
 await at(...(await menuRow('import', 0))); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-import-dialog.png') })
 
+// The survey's drawing, put beside it in the app's own storage, which is exactly where the four
+// files of a survey land when somebody AirDrops one or unzips it into the Files app. The chooser
+// takes one file; the importer has to notice the rest.
+await page.evaluate((plan) => {
+  localStorage.setItem('sexytopo:f:Eastwater.plan.json', plan)
+}, EXAMPLE_PLAN_JSON)
+
 chosenFile = {
   name: 'Eastwater.data.json',
   mimeType: 'application/json',
@@ -2499,6 +2528,22 @@ if (fileChoosersOpened === choosersBefore) {
     fail('the chosen file did not become a survey in the library')
   } else {
     pass('a survey file can be brought in from outside the app')
+  }
+
+  // And it brought the drawing with it. The fixture above had no sketch until now, which is why
+  // this check passed for months while the importer dropped every drawing it was handed: the
+  // centreline arrived, the survey appeared in the library, and the hours of work did not.
+  const planPaths = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => k.endsWith('Eastwater/Eastwater.plan.json'))
+    if (!key) return null
+    return (JSON.parse(localStorage.getItem(key)).paths ?? []).length
+  })
+  if (planPaths === null) {
+    fail('the imported survey was saved with no plan sketch file at all')
+  } else if (planPaths < 1) {
+    fail('the survey came in without its drawing: the plan sketch is empty')
+  } else {
+    pass(`and the drawing came with it (${planPaths} path in the plan)`)
   }
 }
 
