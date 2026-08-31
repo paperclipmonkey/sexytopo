@@ -159,7 +159,10 @@ async function retype(where, text) {
 
 // Positions are computed from the canvas box, so moving a control a few pixels does not break the
 // test while moving it somewhere else rightly does.
-const OVERFLOW = [box.width - 16, 26]
+// A function and not a constant, because `box` changes: this file finishes at 375x667 and then
+// at 667x375, and a coordinate taken from the 420-wide layout at load time is off the edge of
+// both. It was, and the landscape checks found it by trying to open a menu that was not there.
+const overflowButton = () => [box.width - 16, 26]
 const NAME_FIELD = [210, 442]
 const NAME_CONFIRM = [312, 518]
 const ADD_READING = [74, 790]
@@ -233,6 +236,13 @@ const MENU_PAGES = {
   help: { before: ['manual', 'about'], after: [], holdsSurveys: false },
 }
 
+// The menu hangs off the overflow button at the right-hand edge and is 200 wide, so its middle
+// and the delete cross on a saved survey are both fixed distances in from that edge — not the
+// absolute 312 and 392 they were, which were the 420-wide layout's numbers and missed on both of
+// the sizes this file finishes at.
+const MENU_MIDDLE = () => box.width - 116
+const MENU_RIGHT = () => box.width - 28
+
 /** Which page a named item is on, and where in it. Back is row zero of every group page. */
 function menuPlace(name, savedSurveys) {
   const top = MENU_TOP.indexOf(name)
@@ -262,19 +272,19 @@ async function menuRow(name, savedSurveys) {
   const place = menuPlace(name, savedSurveys)
   if (place.page !== null) {
     const group = menuPlace(place.page, savedSurveys)
-    await at(...(await menuRowAt(group.index, group.rows, 312)))
+    await at(...(await menuRowAt(group.index, group.rows, MENU_MIDDLE())))
     await page.waitForTimeout(500)
   }
-  return menuRowAt(place.index, place.rows, 312)
+  return menuRowAt(place.index, place.rows, MENU_MIDDLE())
 }
 
 /** The delete cross on the nth saved survey's row, which sits at the right-hand edge. */
 async function savedSurveyDelete(nth, savedSurveys) {
   const place = menuPlace('file:survey', savedSurveys)
   const group = menuPlace('file', savedSurveys)
-  await at(...(await menuRowAt(group.index, group.rows, 312)))
+  await at(...(await menuRowAt(group.index, group.rows, MENU_MIDDLE())))
   await page.waitForTimeout(500)
-  return menuRowAt(place.index + nth, place.rows, 392)
+  return menuRowAt(place.index + nth, place.rows, MENU_RIGHT())
 }
 const IMPORT_CHOOSE = [284, 494]
 const IMPORT_FIRST_ROW = [210, 446]
@@ -684,7 +694,11 @@ const dialogTextRows = async () => {
     for (let y = 0; y < c.height; y++) {
       let cardPixels = 0
       for (let x = 0; x < c.width; x++) if (isCard(x, y)) cardPixels++
-      if (cardPixels > c.width * 0.5) {
+      // 200 pixels of card, not half the *screen*. A dialog card is about 330 wide whatever the
+      // screen is — Material does not stretch it — so on a 667-wide landscape phone half the
+      // screen is 334 and the card falls a few pixels short of its own detector. All three of
+      // these helpers had that threshold and all three missed the same dialog.
+      if (cardPixels > 200) {
         if (top < 0) top = y
         bottom = y
       }
@@ -743,7 +757,8 @@ const dialogTop = async () => {
     for (let y = 0; y < c.height; y++) {
       let count = 0
       for (let x = 0; x < c.width; x++) if (isCard(x, y)) count++
-      if (count > c.width * 0.5) return y
+      // 200 rather than half the screen — see `dialogTextRows`.
+      if (count > 200) return y
     }
     return null
   }, [b64, DIALOG_CARD])
@@ -773,7 +788,8 @@ const dialogHeight = async () => {
           Math.abs(px[i + 2] - card[2]) < 4
         ) count++
       }
-      if (count > c.width * 0.5) {
+      // 200 rather than half the screen — see `dialogTextRows`.
+      if (count > 200) {
         if (top < 0) top = y
         bottom = y
       }
@@ -848,7 +864,7 @@ if ((await page.$$('input')).length === 0) {
 await page.keyboard.press('Escape'); await page.waitForTimeout(500)
 
 // ---- create a named survey -----------------------------------------------------------
-await at(...OVERFLOW); await page.waitForTimeout(500)
+await at(...overflowButton()); await page.waitForTimeout(500)
 await at(...(await menuRow('new', 0))); await page.waitForTimeout(700)
 await at(...NAME_FIELD); await page.waitForTimeout(250)
 
@@ -1907,7 +1923,7 @@ if ((await connectingLegs()) !== beforeSloppy) {
 // view stopped following them after they adjusted a tolerance.
 await toggleOption('auto-recentre')
 
-await at(...OVERFLOW); await page.waitForTimeout(500)
+await at(...overflowButton()); await page.waitForTimeout(500)
 await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
 await retype(SETTING_DISTANCE, '0.5')
 await retype(SETTING_ANGLE, '12')
@@ -1967,7 +1983,7 @@ if (leftCorners.length === 2) {
 }
 
 // Back on, because the rest of this file is written for the app's own defaults.
-await at(...OVERFLOW); await page.waitForTimeout(500)
+await at(...overflowButton()); await page.waitForTimeout(500)
 await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
 await at(...SETTING_HOT_CORNERS); await page.waitForTimeout(300)
 await at(...SETTINGS_SAVE); await page.waitForTimeout(700)
@@ -2152,7 +2168,7 @@ if (!savedSettings || !savedSettings.includes('maxAngleDelta=12')) {
 // Every exporter in the port already knew how to write a team and a date; until there was a
 // dialog, every file this app produced went out anonymous. A survey that does not say who made it
 // cannot be checked against anybody's notebook.
-await at(...OVERFLOW); await page.waitForTimeout(500)
+await at(...overflowButton()); await page.waitForTimeout(500)
 await at(...(await menuRow('trip', 1))); await page.waitForTimeout(800)
 await at(...TRIP_ADD_NAME); await page.waitForTimeout(250)
 await page.keyboard.type('L. Waterworth', { delay: 15 })
@@ -2179,7 +2195,7 @@ if (!trip) {
 // The clipboard reaches an email. Only a file reaches Therion, and a survey that cannot get into
 // Therion is a weekend of somebody's life spent producing something they then have to type up
 // again from a photograph of a screen.
-await at(...OVERFLOW); await page.waitForTimeout(500)
+await at(...overflowButton()); await page.waitForTimeout(500)
 await page.screenshot({ path: join(shotDir, 'field-menu.png') })
 await at(...(await menuRow('export', 1))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-export.png') })
@@ -2421,7 +2437,7 @@ await ctx.setOffline(false)
 // survey on the way to the cave and wants it gone; without this the library only ever grows, and
 // on a phone the delete control sits a few millimetres from the one that opens it — so it asks
 // first, and this checks that it asks.
-await at(...OVERFLOW); await page.waitForTimeout(600)
+await at(...overflowButton()); await page.waitForTimeout(600)
 await at(...(await savedSurveyDelete(0, 1))); await page.waitForTimeout(700)
 await page.screenshot({ path: join(shotDir, 'field-confirm-delete-survey.png') })
 
@@ -2436,7 +2452,7 @@ if ((await savedLegs()).length !== beforeCancel.length) {
   pass('a delete can be called off')
 }
 
-await at(...OVERFLOW); await page.waitForTimeout(600)
+await at(...overflowButton()); await page.waitForTimeout(600)
 await at(...(await savedSurveyDelete(0, 1))); await page.waitForTimeout(700)
 await at(...CONFIRM_DELETE_SURVEY); await page.waitForTimeout(900)
 
@@ -2455,7 +2471,7 @@ if (left.length > 0) {
 // recovered after a phone dies or continued from somebody else's copy. The browser has no folder to drop a file
 // into, so its chooser writes the file into the app's own storage and one shared code path imports
 // it exactly as iOS does with a file dropped into the Files app.
-await at(...OVERFLOW); await page.waitForTimeout(600)
+await at(...overflowButton()); await page.waitForTimeout(600)
 await page.screenshot({ path: join(shotDir, 'field-import-menu.png') })
 await at(...(await menuRow('import', 0))); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-import-dialog.png') })
@@ -2496,7 +2512,7 @@ await page.evaluate((svx) => {
   localStorage.removeItem('sexytopo:f:Eastwater.data.json')
   localStorage.setItem('sexytopo:f:Bar Pot.svx', svx)
 }, EXAMPLE_SURVEX)
-await at(...OVERFLOW); await page.waitForTimeout(600)
+await at(...overflowButton()); await page.waitForTimeout(600)
 // One saved survey now: the Eastwater just imported.
 await at(...(await menuRow('import', 1))); await page.waitForTimeout(1000)
 await page.screenshot({ path: join(shotDir, 'field-import-survex-dialog.png') })
@@ -2537,7 +2553,7 @@ await page.evaluate(() => {
     if (/^sexytopo:f:[^/]+\.(json|svx|th|txt)$/i.test(key)) localStorage.removeItem(key)
   }
 })
-await at(...OVERFLOW); await page.waitForTimeout(600)
+await at(...overflowButton()); await page.waitForTimeout(600)
 await at(...(await menuRow('import', 2))); await page.waitForTimeout(900)
 
 chosenFile = { name: 'CeiledUp.top', mimeType: 'application/octet-stream', buffer: topFile }
@@ -2596,7 +2612,7 @@ const savedCount = await page.evaluate(() => {
 // is that the box opens and that Material has not clipped it to nothing: it is a screenful and a
 // half of text, and a Compose dialog that does not fit is cut off from the bottom, which is where
 // the licence is.
-await at(...OVERFLOW); await page.waitForTimeout(600)
+await at(...overflowButton()); await page.waitForTimeout(600)
 await at(...(await menuRow('about', savedCount))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-about.png') })
 
@@ -2695,7 +2711,7 @@ const profileChange = (before, after) => {
   return moved / before.rows.length
 }
 
-await at(...OVERFLOW); await page.waitForTimeout(600)
+await at(...overflowButton()); await page.waitForTimeout(600)
 await at(...(await menuRow('manual', savedCount)))
 
 // Waited for rather than slept through. The manual is a 23 KB resource read off the bundle and
@@ -2826,9 +2842,9 @@ if (backToTheCave < 1000) {
   pass(`closing the manual gives the survey back (${backToTheCave} pixels of app bar and toolbar)`)
 }
 
-await at(...OVERFLOW); await page.waitForTimeout(600)
+await at(...overflowButton()); await page.waitForTimeout(600)
 await at(...(await menuRow('demo', savedCount))); await page.waitForTimeout(900)
-await at(...OVERFLOW); await page.waitForTimeout(600)
+await at(...overflowButton()); await page.waitForTimeout(600)
 await at(...(await menuRow('3d', savedCount))); await page.waitForTimeout(1400)
 await page.screenshot({ path: join(shotDir, 'field-3d.png') })
 
@@ -3071,6 +3087,104 @@ if (smallDialogTop === null || smallDialogHeight === null) {
       fail('tapping the dialog\'s own button did not close it on a small screen')
     } else {
       pass('and the button below the text can still be reached and pressed')
+    }
+  }
+}
+
+// ---- and sideways, which is the keyboard case in disguise -----------------------------------
+// An iPhone SE turned over is 667x375, and 375 is about what a portrait phone has left when a
+// keyboard takes a third of it. This file has never had a keyboard — a headless browser has not
+// got one — so the vertical squeeze has gone untested in the case it was written for.
+//
+// It cannot be simulated, but it can be *reproduced*: a dialog with fields in a 375-pixel-tall
+// window is the same layout problem whichever way the phone is held. What this does not test is
+// the other half — whether iOS reports the keyboard's height as a window inset at all, which only
+// a device can answer. Said plainly rather than implied, because a check that half-covers a case
+// is worse than no check if it is read as covering it.
+//
+// Landscape is also how a wide passage actually gets drawn, so this is worth having on its own.
+await page.setViewportSize({ width: 667, height: 375 })
+await page.waitForTimeout(1200)
+box = await (await page.$('canvas')).boundingBox()
+const wide = box
+await page.screenshot({ path: join(shotDir, 'field-landscape.png') })
+
+// The sketch still works sideways: same toolbar arithmetic, same stroke.
+const wideColumn = wide.width / 9
+const wideToolRow = wide.height - 20
+const wideInk = async () => {
+  const b64 = (await page.screenshot({ clip: wide })).toString('base64')
+  return page.evaluate(async ([data]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    let ink = 0
+    // The middle of what is left of the canvas once the chrome has taken its share.
+    for (let y = 90; y < 170; y++) {
+      for (let x = 120; x < 520; x++) {
+        const i = (y * c.width + x) * 4
+        const lightest = Math.max(px[i], px[i + 1], px[i + 2])
+        if (lightest < 200) ink += 200 - lightest
+      }
+    }
+    return ink
+  }, [b64])
+}
+await page.mouse.click(wide.x + wideColumn * 1.5, wide.y + wideToolRow)
+await page.waitForTimeout(500)
+const wideInkBefore = await wideInk()
+await page.mouse.move(wide.x + 140, wide.y + 110)
+await page.mouse.down()
+await page.mouse.move(wide.x + 500, wide.y + 150, { steps: 14 })
+await page.mouse.up()
+await page.waitForTimeout(700)
+await page.screenshot({ path: join(shotDir, 'field-landscape-drawn.png') })
+if (!((await wideInk()) > wideInkBefore)) {
+  fail('turned sideways the toolbar or the canvas was not where it should be — no stroke')
+} else {
+  pass('turned sideways the toolbar still works and the sketch still takes a stroke')
+}
+
+// A dialog with a text field in it, in 375 pixels of height. New survey is the one always
+// reachable whatever the run has left on screen, and it is a field and two buttons — the shape
+// every dialog that needs a keyboard has.
+await at(...overflowButton()); await page.waitForTimeout(600)
+await at(...(await menuRow('new', smallSaved))); await page.waitForTimeout(900)
+await page.screenshot({ path: join(shotDir, 'field-landscape-dialog.png') })
+
+const wideTop = await dialogTop()
+const wideHeight = await dialogHeight()
+if (wideTop === null || wideHeight === null) {
+  fail('the new-survey dialog did not open sideways')
+} else if (wideTop + wideHeight > wide.height) {
+  fail(
+    `sideways the dialog runs from ${wideTop} to ${wideTop + wideHeight} in ${wide.height} ` +
+      'pixels of height, so its buttons are off the bottom — which is what a keyboard would do',
+  )
+} else {
+  pass(
+    `a dialog with a field in it fits 375 pixels of height (${wideHeight} tall at y=${wideTop})`,
+  )
+  // And it is usable, not merely present: the field takes a name and the button takes it.
+  const rows = await dialogTextRows()
+  const confirm = await dialogConfirm()
+  if (confirm === null || rows.length === 0) {
+    fail('sideways the new-survey dialog has no field or no button on screen')
+  } else {
+    await page.mouse.click(wide.x + wide.width / 2, wide.y + wideTop + wideHeight / 2)
+    await page.waitForTimeout(250)
+    await page.keyboard.type('Sideways', { delay: 25 })
+    await page.waitForTimeout(250)
+    await at(...confirm); await page.waitForTimeout(1200)
+    if ((await dialogTop()) !== null) {
+      fail('sideways the new-survey dialog would not close from its own button')
+    } else {
+      pass('and it can be typed into and confirmed, which is the whole point of the keyboard case')
     }
   }
 }

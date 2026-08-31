@@ -47,7 +47,8 @@ Being precise about this matters more than the demo looking good.
 | **The view can follow the survey as it grows** | **Verified** | the preference round-trips with every other one, and `field.mjs` turns *Follow the survey* on, promotes a station from three readings, and finds the active station's amber brackets within forty pixels of the middle of the sketch — an assertion about where the view ended up, not merely that the screen changed, which it would have anyway |
 | **A station can be found by name, and the last leg taken back** | **Verified** | `FindStationTest` — names and comments both searched, a station the survey no longer holds has no position rather than a crash, and the last leg is the last one *taken* rather than the last in any walk of the tree — and `field.mjs` finds a station on a phone screen and checks the view moved, then adds a splay, takes it back from the drawing menu and checks only it went |
 | **The plan says which end of the survey you are working at** | **Verified** | `CentrelineDisplayTest` and `DashedLineTest` — the mark follows the last reading *taken*, splay included, as the Java's own paint order does; a leg is matched by identity, because two shots down a straight passage read the same; a pitch is out of the plan's plane and in the extended elevation's; and a leg too short to dash draws nothing rather than one stub that would read as solid — plus `field.mjs` finds the app's magenta on the drawn plan, turns the mark off and checks every magenta pixel went, fades the rest of the cave and checks the drawing got lighter, then brings it back |
-| **It fits a small phone** | **Mostly** | `field.mjs` ends by resizing to 375x667 — an iPhone SE — and checking the toolbar is still where it computes it to be and the canvas still takes a stroke. It then opens the one dialog certain to overflow that screen and checks the mechanism the other dialogs rely on: the card is sized to the window rather than clipped, a wheel scrolls its text, and the button below the text is on screen and closes it. What is *not* checked is the keyboard, which takes a third of that screen and which a headless browser does not have |
+| **It fits a small phone** | **Mostly** | `field.mjs` ends by resizing to 375x667 — an iPhone SE — and checking the toolbar is still where it computes it to be and the canvas still takes a stroke. It then opens the one dialog certain to overflow that screen and checks the mechanism the other dialogs rely on: the card is sized to the window rather than clipped, a wheel scrolls its text, and the button below the text is on screen and closes it |
+| **And sideways, which is most of the keyboard case** | **Verified, for the half that is layout** | then 667x375 — the same phone turned over, and about the height a portrait phone has left once a keyboard has taken a third. The sketch still takes a stroke, and a dialog with a text field in it is measured to fit that height, typed into and confirmed from its own button. What this does **not** test is whether iOS reports the keyboard's height as a window inset at all; that is a device question. The vertical squeeze is the same problem either way, and it is now checked |
 | **The table and the drawing are joined up, both ways** | **Verified** | `StationMenuTest` for each menu offering the views the other is not showing, `SurveyTableTest` for which row a station is found at and for which station a cell is about when the shot was booked backwards — and `field.mjs` taps both ends of one leg on a phone screen, checks they offer different menus, follows *show it on the plan* to a station that lands within forty pixels of the middle, then holds a station on the drawing and follows *show it in the table* back |
 | **A reading can be corrected, annotated, reversed or unmade** | **Verified** | `LegActionsTest` and `SurveyUpdaterTest` — which actions each row offers and what they do: a leg with splays hanging off its far end is not offered the downgrade `SurveyUpdater` would throw over, the first reading of a survey is not offered a promotion there is no leg above for, a leg the survey no longer holds answers "no" instead of throwing, and a comment marks the survey unsaved, which the Android app's own dialogs do not — and `field.mjs` counts what the menu offers a splay and a leg on a phone screen, writes a note against a leg, checks the table gains the app's dagger, and turns the shot end for end and back again |
 | **Any station can be reached from the sketch, not just the active one** | **Verified** | `StationMenuTest` for which actions a station offers — the origin has no incoming leg and no delete, cross-sections belong to the plan, a backsight is normalised the way the table normalises it — and `field.mjs` finds a station that is *not* the active one on the drawn plan, holds it, and checks that the menu moved the active station there without marking the paper |
@@ -615,10 +616,18 @@ the window rather than running off the bottom of it; a wheel over the text moves
 button below the text is still on screen and still closes the dialog. That is the half that was
 reasoned rather than run, and it is run now.
 
-What is still not run is the keyboard, which takes a third of this screen and which a headless
-browser has not got. So a dialog taller than the window is known to behave; the station dialog
-*with a keyboard up* is not. If one does come up short on your phone, the fix is one modifier and
-the four that have it show where it goes.
+The keyboard itself is still not run — a headless browser has not got one — but half of that case
+is now covered, and it is the half that fails silently. A keyboard's effect on layout is that the
+window gets shorter, and an iPhone SE turned over is 667x375: about what a portrait phone has left
+once a third of it is keypad. So `field.mjs` finishes there too, draws a stroke, and opens a dialog
+*with a text field in it* — measuring that the card fits those 375 pixels, then typing a name into
+it and confirming from its own button.
+
+What that does not answer is whether iOS reports the keyboard's height as a window inset in the
+first place, which is plumbing rather than layout and which only a device can settle. Said plainly
+because a check that covers half a case is worse than none if it is read as covering all of it. If
+a dialog does come up short on your phone, the fix is one modifier and the four that have it show
+where it goes.
 
 #### What to expect that is missing
 
@@ -1242,6 +1251,26 @@ These are the things that would actually shape a real port.
    which is what a dialog does whenever anything is added to it — and something is added to a
    dialog rather often.
 
+41. **Every check in this file was written for one screen size, and it showed the moment there was
+   a second.** Adding a landscape pass — an iPhone SE turned over is 667x375, which is roughly the
+   height a portrait phone has left when a keyboard takes a third, so it covers the layout half of
+   the case this README had been calling untestable — broke four things at once, and none of them
+   was the app.
+
+   The overflow button was `[box.width - 16, 26]` evaluated *once*, at load, on the 420-wide
+   layout. The submenu tap was a bare `312`, and the delete cross on a saved survey a bare `392`;
+   both are the 420-wide layout's numbers. And all three dialog helpers decided "this row is the
+   card" by counting more than **half the screen width** of card colour — which works until the
+   screen is 667 wide and the card, which Material does not stretch, is 330. Half of 667 is 334.
+   The dialog was open, on screen, entirely usable, and its own detector reported it missing by
+   four pixels.
+
+   The repair in each case was to measure from something that moves with the layout rather than
+   from the origin: the current width for the button and the menu, and an absolute run of 200
+   pixels of card colour for the card. That last one is the general lesson — *half the screen* was
+   never the property being tested. The property is "there is a card here", and a card is a size,
+   not a fraction.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1347,7 +1376,8 @@ this up again is which of the remaining items are *blocked* and which are merely
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 709
 shared tests on three targets, 266 over the UI's own logic, 17 running the iOS half in a simulator,
-82 browser checks driving the real page on a 420-pixel screen and finishing at 375x667. The
+85 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
+667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.
 
