@@ -30,6 +30,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.model.survey.Leg
+import org.hwyl.sexytopo.shared.comms.InstrumentProfile
 import org.hwyl.sexytopo.shared.survey.DegreesMinutesSeconds
 import org.hwyl.sexytopo.shared.survey.InputMode
 
@@ -121,6 +122,34 @@ fun ManualReadingDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/**
+ * Which of the field bar's two buttons are on it.
+ *
+ * A value with a function rather than two conditions written inline, because one of them is a
+ * data-safety rule and the other is a preference, and a rule that lives inside a composable is a
+ * rule nothing can test.
+ */
+internal data class FieldControls(
+    /** *Add reading*: `pref_manual_controls`, which the Android app applies to its own two FABs. */
+    val manualEntry: Boolean,
+    /** *Simulate*: this port's own, and never over a real instrument. See finding 58. */
+    val simulator: Boolean,
+) {
+    companion object {
+        fun of(preferences: AppPreferences, attachedInstrument: InstrumentProfile?) =
+            FieldControls(
+                manualEntry = preferences.manualControls,
+                // The whole of the rule, and the reason for it: `SurveySession.takeReading`
+                // *detaches whatever is attached* and emits a fabricated shot into the live
+                // survey. Pressed with a BRIC on the tripod that is two harms at once — a made-up
+                // leg indistinguishable from a real one afterwards, and an instrument silently
+                // disconnected while the surveyor goes on shooting. The button exists to show the
+                // app working with no instrument in the room, so it belongs only there.
+                simulator = attachedInstrument == null,
+            )
+    }
 }
 
 /**

@@ -377,16 +377,108 @@ const SETTING_TWO_FINGER = settingsRow(320, 692)
 // position depended on its own state — which is how a check that turned it on and then failed to
 // turn it off again passed anyway. The field is greyed out rather than hidden now, as
 // `android:dependency` actually behaves, and the dialog is one height.
-const CHASE_SWITCH_ABOVE_BOTTOM = 281
-const DMS_AZIMUTH_SWITCH_ABOVE_BOTTOM = 502
-const DMS_INCLINATION_SWITCH_ABOVE_BOTTOM = 398
-const settingsSwitch = async (aboveBottom) => {
-  const top = await dialogTop()
-  const height = await dialogHeight()
-  if (top === null || height === null) throw new Error('the settings dialog is not open')
-  return [320, top + height - aboveBottom]
+/**
+ * Every switch in the open dialog, top to bottom, found rather than measured.
+ *
+ * This replaces three hand-measured offsets, and it replaces them because measuring cost a
+ * re-measure every single time a row was added to this dialog — three times, and the third was a
+ * check that silently stopped doing its job (it turned a setting on and then missed the switch
+ * turning it off again, and passed anyway because it only asserted the turning on).
+ *
+ * How it works: a Material 3 `Switch` is the only thing in the dialog's right-hand column that is
+ * a *tall* solid run of non-background colour. Its track is about thirty pixels high; a divider is
+ * one pixel; the border of a text field is one pixel at each edge and its interior is the dialog's
+ * own surface. So sampling one column and keeping runs between twenty and forty pixels finds the
+ * switches and nothing else — whatever order they are in and however many rows are above them.
+ */
+const switchRows = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, x]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    const rgb = (px_, xx, yy) => {
+      const i = (yy * c.width + xx) * 4
+      return [px_[i], px_[i + 1], px_[i + 2]]
+    }
+    // The dialog's own surface, sampled where no control is ever laid out: the right-hand column,
+    // just under the title.
+    const surface = rgb(px, x, Math.min(60, c.height - 1))
+    // A *large* margin, because the thing that has to be caught is not the track. An M3 switch
+    // that is off has a track within a few units of the dialog's own surface — two thresholds
+    // were tried against it and both found only the switched-on ones — but its **thumb** is a
+    // solid mid-grey circle and its outline is darker still. Those are what this looks for, and
+    // they are present whichever way the switch is set.
+    const differs = (p) =>
+      Math.abs(p[0] - surface[0]) > 25 ||
+      Math.abs(p[1] - surface[1]) > 25 ||
+      Math.abs(p[2] - surface[2]) > 25
+
+    // A *band* rather than a single column, counting how much of the switch's width is filled.
+    //
+    // One column was not enough and the way it failed is worth keeping: an M3 switch that is
+    // **off** has a pale grey track that a per-pixel threshold reads as the dialog's own surface,
+    // so only the switched-*on* ones were found — and "the last switch" silently became a
+    // different setting from the one the check meant. It turned the wrong preference off and the
+    // failure surfaced four hundred lines later as a dialog that would not open.
+    //
+    // A whole track is about fifty pixels wide, so most of the band differs on a switch row and
+    // only a few glyphs' worth does on a line of text. That holds for on and off alike.
+    const left = x - 26
+    const right = x + 26
+    const rows = []
+    let start = -1
+    for (let y = 0; y < c.height; y++) {
+      let filled = 0
+      for (let xx = left; xx <= right; xx++) if (differs(rgb(px, xx, y))) filled++
+      // Ten, not thirty: an on switch fills the whole band with primary, an off one contributes
+      // only its thumb and outline. A line of the description text contributes nothing at all,
+      // because that column wraps well to the left of the switches.
+      const isControl = filled > 10
+      if (isControl) {
+        if (start < 0) start = y
+      } else if (start >= 0) {
+        const height = y - start
+        // Twelve, not twenty. An on switch fills its whole thirty-pixel track; an off one is
+        // found by its thumb alone, which is about sixteen pixels tall — so a minimum of twenty
+        // silently kept only the switches that were already on, which is how "the last switch"
+        // became a different setting from the one the check meant.
+        if (height >= 12 && height <= 40) rows.push(Math.round(start + height / 2))
+        start = -1
+      }
+    }
+    return rows
+  }, [b64, 320])
 }
-const chaseSwitch = async () => settingsSwitch(CHASE_SWITCH_ABOVE_BOTTOM)
+
+/**
+ * The nth switch in the dialog. **Negative counts from the end**, which is what these checks use.
+ *
+ * From the end because they wheel to the bottom first and because new settings get added *above*
+ * the ones already there — so counting down from the top would drift for the same reason the
+ * pixel offsets did, while counting up from the last switch does not.
+ */
+const settingsSwitch = async (index) => {
+  const rows = await switchRows()
+  const nth = index < 0 ? rows.length + index : index
+  if (nth < 0 || nth >= rows.length) {
+    throw new Error(`wanted switch ${index} but the dialog shows ${rows.length}: ${rows}`)
+  }
+  return [320, rows[nth]]
+}
+
+// The last four switches in *Surveying*, in the order the dialog lays them out.
+const SWITCH_CHASE_LOST_INSTRUMENT = -1
+const SWITCH_INCLINATIONS_IN_MINUTES = -2
+const SWITCH_BEARINGS_IN_MINUTES = -3
+const SWITCH_MANUAL_ENTRY = -4
+
+const chaseSwitch = async () => settingsSwitch(SWITCH_CHASE_LOST_INSTRUMENT)
 
 // The *Sketching* dialog's eight boxes, which are evenly spaced down it: leg width, splay width,
 // drawn line width, station size, station name size, legend size, symbol size, text size.
@@ -2578,6 +2670,72 @@ if (grew.length > 0) {
   pass(`Splays Only keeps three agreeing readings as splays (${splaysNow} splays, no new station)`)
 }
 
+// ---- the manual entry button can be put away --------------------------------------------------
+// `pref_manual_controls`. On the Android table view it hides two floating buttons; here it is the
+// *Add reading* button on the field bar, which is the same control. Worth having once an
+// instrument is talking, for the room it gives back on a phone.
+//
+// Checked by the ink in the field bar rather than by looking for a word: the bar is drawn to a
+// canvas, and a button that has gone takes a measurable amount of dark pixels with it.
+const fieldBarInk = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    // The strip holding the two buttons, above the sketch toolbar.
+    let ink = 0
+    for (let y = c.height - 130; y < c.height - 95; y++) {
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        // The buttons are Material 3 filled: a solid block of primary against the panel grey.
+        if (px[i + 2] > px[i] + 25 && px[i + 2] > 120) ink++
+      }
+    }
+    return ink
+  }, [b64])
+}
+
+const withManualButton = await fieldBarInk()
+
+await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
+await scrollSettingsToTheEnd()
+await at(...(await settingsSwitch(SWITCH_MANUAL_ENTRY))); await page.waitForTimeout(300)
+await at(...(await settingsSave())); await page.waitForTimeout(800)
+await page.screenshot({ path: join(shotDir, 'field-no-manual-entry.png') })
+
+const withoutManualButton = await fieldBarInk()
+const savedManual = await page.evaluate(() =>
+  localStorage.getItem('sexytopo:f:preferences.txt'),
+)
+if (!(withManualButton > 400)) {
+  fail(`the field bar's buttons were not found to begin with (${withManualButton})`)
+} else if (!(withoutManualButton < withManualButton * 0.7)) {
+  fail(
+    `turning the manual controls off left the button on screen ` +
+      `(${withManualButton} then ${withoutManualButton})`,
+  )
+} else if (!savedManual || !savedManual.includes('manualControls=false')) {
+  fail(`the manual-controls preference was not written down (${JSON.stringify(savedManual)})`)
+} else {
+  pass(
+    `the manual entry button can be put away (${withManualButton} to ${withoutManualButton})`,
+  )
+}
+
+// Back on, because the checks below type readings.
+await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
+await scrollSettingsToTheEnd()
+await at(...(await settingsSwitch(SWITCH_MANUAL_ENTRY))); await page.waitForTimeout(300)
+await at(...(await settingsSave())); await page.waitForTimeout(800)
+
 // ---- a bearing can be typed the way a compass reads it ---------------------------------------
 // `pref_deg_mins_secs` and `pref_inc_deg_mins_secs`. A DistoX reports a decimal and nobody needs
 // this; a sighting compass is graduated in minutes, reads 123° 30′, and converting that in your
@@ -2591,8 +2749,8 @@ if (grew.length > 0) {
 await at(...overflowButton()); await page.waitForTimeout(500)
 await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
 await scrollSettingsToTheEnd()
-await at(...(await settingsSwitch(DMS_AZIMUTH_SWITCH_ABOVE_BOTTOM))); await page.waitForTimeout(300)
-await at(...(await settingsSwitch(DMS_INCLINATION_SWITCH_ABOVE_BOTTOM)))
+await at(...(await settingsSwitch(SWITCH_BEARINGS_IN_MINUTES))); await page.waitForTimeout(300)
+await at(...(await settingsSwitch(SWITCH_INCLINATIONS_IN_MINUTES)))
 await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 
@@ -2632,8 +2790,8 @@ if (dmsSplays.length !== splaysBeforeDms + 1) {
 await at(...overflowButton()); await page.waitForTimeout(500)
 await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
 await scrollSettingsToTheEnd()
-await at(...(await settingsSwitch(DMS_AZIMUTH_SWITCH_ABOVE_BOTTOM))); await page.waitForTimeout(300)
-await at(...(await settingsSwitch(DMS_INCLINATION_SWITCH_ABOVE_BOTTOM)))
+await at(...(await settingsSwitch(SWITCH_BEARINGS_IN_MINUTES))); await page.waitForTimeout(300)
+await at(...(await settingsSwitch(SWITCH_INCLINATIONS_IN_MINUTES)))
 await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 

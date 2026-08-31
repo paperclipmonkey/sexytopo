@@ -59,6 +59,7 @@ fun SurveySettingsDialog(
     var buzz by remember { mutableStateOf(preferences.buzzOnNewStation) }
     var hotCorners by remember { mutableStateOf(preferences.hotCorners) }
     var twoFingerMove by remember { mutableStateOf(preferences.twoFingerMove) }
+    var manualControls by remember { mutableStateOf(preferences.manualControls) }
     var azimuthInDms by remember { mutableStateOf(preferences.azimuthInDms) }
     var inclinationInDms by remember { mutableStateOf(preferences.inclinationInDms) }
     var autoReconnect by remember { mutableStateOf(preferences.autoReconnect) }
@@ -170,6 +171,18 @@ fun SurveySettingsDialog(
 
                 HorizontalDivider()
 
+                // `pref_manual_controls`. The Android app applies it to the two floating buttons
+                // on its table view; the same control here is *Add reading* on the field bar.
+                Toggle(
+                    title = "Offer a reading typed by hand",
+                    detail =
+                        "How a DistoX's display gets into the survey when the radio will not " +
+                            "play. Worth turning off once an instrument is talking, for the room " +
+                            "it gives back.",
+                    checked = manualControls,
+                    onCheckedChange = { manualControls = it },
+                )
+
                 // `pref_deg_mins_secs` and `pref_inc_deg_mins_secs`, from the Android app's
                 // *Manual data entry* screen. They are here, with the tolerances, because both
                 // answer the same question — what a reading looks like when it is not coming off
@@ -246,6 +259,7 @@ fun SurveySettingsDialog(
                                 reconnectWindow,
                                 azimuthInDms,
                                 inclinationInDms,
+                                manualControls,
                             ),
                         )
                     }
@@ -279,6 +293,7 @@ internal fun preferencesFrom(
     autoReconnectWindow: String,
     azimuthInDms: Boolean,
     inclinationInDms: Boolean,
+    manualControls: Boolean,
 ): AppPreferences =
     current.copy(
         buzzOnNewStation = buzzOnNewStation,
@@ -290,6 +305,7 @@ internal fun preferencesFrom(
                 ?: current.autoReconnectWindowMinutes,
         azimuthInDms = azimuthInDms,
         inclinationInDms = inclinationInDms,
+        manualControls = manualControls,
     )
 
 /** A labelled switch with a line of explanation, as the settings rows above it already are. */

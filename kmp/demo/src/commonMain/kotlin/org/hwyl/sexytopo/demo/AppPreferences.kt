@@ -112,6 +112,13 @@ data class AppPreferences(
     val deletePathFragments: Boolean = SketchDefaults.DELETE_PATH_FRAGMENTS_DEFAULT,
     /** How big everything on the drawing is. `preferences_sketching.xml`'s numeric group. */
     val sketchStyle: SketchStyle = SketchStyle.DEFAULT,
+    /**
+     * Offer the buttons that put a reading in by hand. `pref_manual_controls`.
+     *
+     * On, as upstream has it. The Android app applies it to the two floating buttons on its table
+     * view; here it is the *Add reading* button on the field bar, which is the same control.
+     */
+    val manualControls: Boolean = true,
     /** Type a bearing as degrees, minutes and seconds. `pref_deg_mins_secs`. */
     val azimuthInDms: Boolean = false,
     /** And an inclination. `pref_inc_deg_mins_secs`, a separate preference upstream. */
@@ -333,6 +340,7 @@ object AppPreferencesStore {
             appendLine("legendSizeSp=${style.legendSizeSp}")
             appendLine("symbolSizeDp=${style.symbolSizeDp}")
             appendLine("textSizeSp=${style.textSizeSp}")
+            appendLine("manualControls=${preferences.manualControls}")
             appendLine("azimuthInDms=${preferences.azimuthInDms}")
             appendLine("inclinationInDms=${preferences.inclinationInDms}")
         }
@@ -451,6 +459,7 @@ object AppPreferencesStore {
                     textSizeSp =
                         SketchStyle.size(values["textSizeSp"], SketchStyle.DEFAULT_TEXT_SIZE_SP),
                 ),
+            manualControls = values["manualControls"]?.toBooleanStrictOrNull() ?: true,
             azimuthInDms = values["azimuthInDms"]?.toBooleanStrictOrNull() ?: false,
             inclinationInDms = values["inclinationInDms"]?.toBooleanStrictOrNull() ?: false,
         )

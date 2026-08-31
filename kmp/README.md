@@ -67,6 +67,7 @@ Being precise about this matters more than the demo looking good.
 | **A bearing can be typed the way a compass reads it** | **Verified** | `pref_deg_mins_secs` and `pref_inc_deg_mins_secs`. A DistoX reports a decimal and nobody needs this; a sighting compass is graduated in minutes and reads 123° 30′, and converting that in your head at every station is how a survey acquires arithmetic errors nobody can find afterwards — which matters here because this port already went out of its way to support a compass and tape and then asked for a decimal nobody's instrument shows. `DegreesMinutesSecondsTest` has the conversion both ways, the rounding carry, and the case upstream gets wrong; `field.mjs` turns both switches on, types 123 and 30 into the three boxes on a phone screen, flips the inclination's sign with the +/- button, and checks the survey stored 123.5 and **-5.5** — the direction as well as the size |
 | **A packet the app cannot read costs a shot, not the trip** | **Verified** | every byte from a radio reaches one method, on the main thread, and none of it is under anybody's control — a truncated notification, a firmware revision with a field more, a device whose advertised name matched a profile it does not really speak. On iOS a Kotlin exception raised inside a CoreBluetooth callback ends the process, and an app that dies takes the connection, the screen and the surveyor's confidence with it. `InstrumentSessionTest` attaches a decoder that throws and checks the link stays up, nothing becomes a reading, and the log says a packet was dropped — run against the unguarded version, where it fails. Finding 56 |
 | **A scan that finds nothing says what it did find** | **Verified** | *"no BRIC5 found — is it switched on and in range?"* is the right question only when the answer might be no. An instrument on the table, switched on, advertising under a name the app does not match — a renamed BRIC, a firmware that drops the underscore, the wrong model picked on the connection screen — gives exactly the same silence, and sends the surveyor to check batteries that are fine. `GattSession` now remembers the named devices it turned down and the failure lists them, naming any that *are* instruments this app knows: **"no BRIC5 found - saw BRIC4_0123 (a BRIC4) instead"**. Four tests in `GattSessionTest`, including that nameless peripherals are not listed and that a car park does not fill the screen. Finding 57 |
+| **A fabricated reading cannot reach a real survey** | **Verified** | *Simulate* sits ten millimetres from *Add reading* on the field bar, and `SurveySession.takeReading` **detaches whatever instrument is attached** and emits a made-up shot into the live survey. Pressed with a BRIC on the tripod that is two harms at once: a leg indistinguishable from a real one for ever afterwards, and a radio silently dropped while the surveyor goes on shooting. The button is now absent whenever a real instrument is attached, and `FieldControlsTest` asserts both the rule and the harm it prevents — that `takeReading` really does drop the profile. `pref_manual_controls` ported alongside it, with a browser check that the button leaves the bar. Finding 58 |
 | The instrument log is kept, persisted and readable on the phone | **Verified** | `ActivityLogTest` for the bounded queues and the file format; `instrument.mjs` connects a fake DistoX-BLE, takes a calibration, and then reads the log back off the clipboard — count, timestamps and all |
 | The desktop build keeps its surveys too | **Verified** | a survey written by one `SurveyLibrary` and read by a second over the same directory, in SexyTopo's own file layout, plus the three platform conventions for where that directory goes |
 | **A real-sized cave works, not just a demo one** | **Verified** | `BigSurveyTest` builds a four-thousand-station passage — past where every tree walk in this port used to overflow the stack — and projects it to a plan and an extended elevation, builds its wireframe, counts its statistics, exports it to Survex and Therion and reads it back, on all three targets, along with SVG, `.xvi`, `.th2`, Compass and PocketTopo — and rubs out and undoes on a drawing of eight thousand strokes |
@@ -1808,6 +1809,43 @@ These are the things that would actually shape a real port.
    message did not say "I found nothing" — it said "your instrument is off or far away", which is
    a claim about the world the app had not checked.
 
+58. **A button that fabricates a survey, ten millimetres from the one that records it.** This
+   port's own, and found while porting `pref_manual_controls` — which is to say, found by reading
+   the field bar with the question *"what does each of these do if the surveyor has a real
+   instrument connected?"*
+
+   `SurveySession.takeReading` is three lines:
+
+   ```kotlin
+   if (transport !== simulator) useSimulator()
+   connect()
+   simulator.emitNextShot()
+   ```
+
+   The first line **detaches whatever is attached**. So *Simulate*, pressed with a BRIC4 on the
+   tripod, does two things at once and neither is recoverable: it puts a made-up leg into the live
+   survey, indistinguishable from a real one for ever afterwards, and it silently disconnects the
+   instrument, so the surveyor carries on shooting into nothing. It is on the field bar next to
+   *Add reading*, on a phone, in a wet bag, with cold hands.
+
+   Nothing was wrong with the *function*: it is the demo's own affordance and it does exactly what
+   it says. What was wrong is that it was on screen at a moment when it could only do harm. The
+   button now appears only when no real instrument is attached — which is the only time it was
+   ever for.
+
+   Two things worth keeping from it:
+
+   - **The test asserts the harm, not just the rule.** It is easy to write "the button is hidden
+     when a profile is attached" and prove nothing about why that matters.
+     `takingASimulatedReadingReallyDoesAbandonTheInstrument` attaches a profile, calls
+     `takeReading`, and asserts the profile is *gone* — so if somebody later makes the simulator
+     non-destructive, the test that justifies the hiding fails and asks to be reconsidered.
+   - **It was found by porting something adjacent.** `pref_manual_controls` is a small preference
+     about screen space. Asking what it should hide meant asking what each button on that bar is
+     for, and the answer for one of them was "nothing good, here". That is the third time on this
+     branch that reading upstream to port a small thing turned up a larger one — see findings 40
+     and 53.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1928,8 +1966,8 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 737
-shared tests on three targets, 319 over the UI's own logic, 18 running the iOS half in a simulator,
-94 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
+shared tests on three targets, 324 over the UI's own logic, 18 running the iOS half in a simulator,
+95 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

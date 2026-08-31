@@ -99,6 +99,7 @@ class AppPreferencesTest {
                 autoReconnectWindow = "15",
                 azimuthInDms = false,
                 inclinationInDms = false,
+                manualControls = true,
             )
 
         assertTrue(saved.autoRecentre, "the drawing menu's preference is not this screen's to reset")
@@ -127,6 +128,7 @@ class AppPreferencesTest {
                 autoReconnectWindow = "",
                 azimuthInDms = false,
                 inclinationInDms = false,
+                manualControls = true,
             )
 
         assertEquals(40, saved.autoReconnectWindowMinutes)

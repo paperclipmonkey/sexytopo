@@ -1038,8 +1038,13 @@ private fun FieldBar(state: DemoState) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Button(onClick = { entering = true }) { Text("Add reading") }
-        Button(onClick = { session.takeReading() }) { Text("Simulate") }
+        val controls = FieldControls.of(state.preferences, session.profile)
+        if (controls.manualEntry) {
+            Button(onClick = { entering = true }) { Text("Add reading") }
+        }
+        if (controls.simulator) {
+            Button(onClick = { session.takeReading() }) { Text("Simulate") }
+        }
         // Which station the next leg hangs off is the single most important thing on this screen,
         // and it was not on it at all. Tapping it names the station and says what is there, which
         // is what a surveyor does at a junction the moment they reach one.
