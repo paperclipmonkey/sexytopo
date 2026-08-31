@@ -74,7 +74,7 @@ fun main() {
         App(survey = survey, initialProjection = Projection2D.EXTENDED_ELEVATION)
     }
     render("plan-dark.png", 1200, 820) {
-        App(survey = survey, initialProjection = Projection2D.PLAN, initialDarkMode = true)
+        App(survey = survey, initialProjection = Projection2D.PLAN, systemDark = true)
     }
     render("drawing-tool.png", 1200, 820) {
         App(survey = survey, initialTool = SketchTool.DRAW)
@@ -106,7 +106,7 @@ fun main() {
             App(survey = survey, initialScreen = Screen.TABLE)
         }
         render("$name-dark.png", width, height) {
-            App(survey = survey, initialDarkMode = true, initialTool = SketchTool.DRAW)
+            App(survey = survey, systemDark = true, initialTool = SketchTool.DRAW)
         }
         render("$name-3d.png", width, height, warmUpFrames = 2) {
             App(survey = survey, initialView3D = true)

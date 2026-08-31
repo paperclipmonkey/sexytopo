@@ -251,7 +251,16 @@ const MENU_PAGES = {
   file: { before: ['new', 'rename'], after: ['import', 'export'], holdsSurveys: true },
   view: { before: ['demo', 'trip', '3d', 'stats'], after: [], holdsSurveys: false },
   instrument: { before: ['connect', 'calibrate', 'log'], after: [], holdsSurveys: false },
-  settings: { before: ['fullscreen', 'surveying', 'dark'], after: [], holdsSurveys: false },
+  settings: { before: ['fullscreen', 'surveying', 'theme'], after: [], holdsSurveys: false },
+  // `pref_theme` is a three-value list, so it is a page rather than a checkbox — and the only
+  // page two levels down, which is why `menuRow` walks a chain of parents instead of assuming
+  // every group hangs off the top.
+  theme: {
+    under: 'settings',
+    before: ['automatic', 'light', 'dark'],
+    after: [],
+    holdsSurveys: false,
+  },
   // `help_menu`: Manual then About, which is the order action_bar.xml puts them in. About was a
   // row on the top page while the manual was missing, so moving it here is what the app's own
   // menu always said - and the only change any check needed is this line.
@@ -269,10 +278,14 @@ const MENU_RIGHT = () => box.width - 28
 function menuPlace(name, savedSurveys) {
   const top = MENU_TOP.indexOf(name)
   if (top >= 0) return { page: null, index: top, rows: MENU_TOP.length }
+  // A group whose row sits on another group's page, rather than on the top one.
+  const under = MENU_PAGES[name]?.under
+  if (under !== undefined) return menuPlace(`${under}:${name}`, savedSurveys)
   for (const [page, { before, after, holdsSurveys }] of Object.entries(MENU_PAGES)) {
     const surveys = holdsSurveys ? savedSurveys : 0
     const rows = 1 + before.length + surveys + after.length
-    const inBefore = before.indexOf(name)
+    const wanted = name.startsWith(`${page}:`) ? name.slice(page.length + 1) : name
+    const inBefore = before.indexOf(wanted)
     if (inBefore >= 0) return { page, index: 1 + inBefore, rows }
     const inAfter = after.indexOf(name)
     if (inAfter >= 0) {
@@ -292,8 +305,17 @@ function menuPlace(name, savedSurveys) {
  */
 async function menuRow(name, savedSurveys) {
   const place = menuPlace(name, savedSurveys)
-  if (place.page !== null) {
-    const group = menuPlace(place.page, savedSurveys)
+  // The chain of pages from the top down to the one holding the item. One deep for everything but
+  // the theme list; walking it rather than clicking a single parent is what let that page be added
+  // without every other call site here changing.
+  const path = []
+  // Not `page` as the loop variable: that is this file's Playwright page, and shadowing it here
+  // turns every wait inside this function into a call on a string.
+  for (let group = place.page; group !== null; group = MENU_PAGES[group].under ?? null) {
+    path.unshift(group)
+  }
+  for (const ancestor of path) {
+    const group = menuPlace(ancestor, savedSurveys)
     await at(...(await menuRowAt(group.index, group.rows, MENU_MIDDLE())))
     await page.waitForTimeout(500)
   }
@@ -3261,6 +3283,105 @@ if (wideTop === null || wideHeight === null) {
       pass('and it can be typed into and confirmed, which is the whole point of the keyboard case')
     }
   }
+}
+
+// ---- the theme, which was forgotten every time the app closed -------------------------------
+// `pref_theme` is a three-value list in the Android app — auto, light, dark — applied through
+// `AppCompatDelegate.setDefaultNightMode`. This port had a two-state toggle on the menu that was a
+// plain `var`, so it started light on every run.
+//
+// That is not cosmetic underground. The phone is the brightest object in a cave, the OS kills a
+// backgrounded app while it is in a pocket between stations, and the surveyor gets a
+// full-brightness white page in the face at the next one — after which their night vision is gone
+// for a quarter of an hour.
+//
+// Measured as the mean of each pixel's brightest channel over the whole canvas: the light ground
+// is #F5F5F5 and the dark one #121212, so the two are nowhere near each other and no threshold
+// needs to be fine.
+const meanBrightness = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    let total = 0
+    for (let i = 0; i < px.length; i += 4) {
+      total += Math.max(px[i], px[i + 1], px[i + 2])
+    }
+    return Math.round(total / (px.length / 4))
+  }, [b64])
+}
+
+const themeLight = await meanBrightness()
+
+// Automatic means the phone's own setting, which is what `prefers-color-scheme` is in a browser
+// and the trait collection on iOS. Nothing else here has ever asked the platform anything, so this
+// is the check that the wiring exists rather than that a constant is false.
+await page.emulateMedia({ colorScheme: 'dark' })
+await page.waitForTimeout(1200)
+const themeFollowed = await meanBrightness()
+await page.screenshot({ path: join(shotDir, 'field-theme-automatic-dark.png') })
+if (!(themeLight > 150 && themeFollowed < 110)) {
+  fail(
+    `Automatic did not follow the phone into dark (${themeLight} then ${themeFollowed})`,
+  )
+} else {
+  pass('on Automatic the app follows the phone into dark, and back')
+}
+await page.emulateMedia({ colorScheme: 'light' })
+await page.waitForTimeout(1200)
+
+// And the surveyor can overrule it, which is the point of the other two values: a cave is dark at
+// noon, and Automatic on a phone only ever answers "is it evening".
+// Counted again rather than reusing the count from the small-screen block: a survey has been
+// created since. Neither Settings nor the theme list grows with the library, so it happens not to
+// matter here — but a number that is wrong and harmless is the one that bites the next edit.
+const themeSaved0 = await page.evaluate(() => {
+  const prefix = 'sexytopo:f:surveys/'
+  const names = Object.keys(localStorage)
+    .filter((k) => k.startsWith(prefix))
+    .map((k) => k.slice(prefix.length).split('/')[0])
+  return new Set(names).size
+})
+await at(...overflowButton()); await page.waitForTimeout(600)
+await at(...(await menuRow('dark', themeSaved0))); await page.waitForTimeout(900)
+// The menu stays open on the theme page on purpose — comparing two themes should not mean walking
+// back down the menu — so it has to be dismissed before the screen can be measured. The app bar's
+// title takes a tap without doing anything, which the canvas underneath would not.
+await at(20, 20); await page.waitForTimeout(700)
+await page.screenshot({ path: join(shotDir, 'field-theme-dark.png') })
+
+const themeChosen = await meanBrightness()
+const themeSaved = await page.evaluate(() =>
+  localStorage.getItem('sexytopo:f:preferences.txt'),
+)
+if (!(themeChosen < 110)) {
+  fail(`choosing Dark left the screen light (${themeChosen})`)
+} else if (!themeSaved || !themeSaved.includes('theme=dark')) {
+  fail(`the theme was not written to storage (${JSON.stringify(themeSaved)})`)
+} else {
+  pass('the theme can be set against the phone, and is written down')
+}
+
+// The half that was missing, and the half no amount of reading the code proves: reload the page
+// with the browser still saying light, and the app has to come back dark.
+await page.reload({ waitUntil: 'load' })
+await page.waitForSelector('canvas', { timeout: 60000 })
+await page.waitForTimeout(4000)
+box = await (await page.$('canvas')).boundingBox()
+await page.screenshot({ path: join(shotDir, 'field-theme-reopened.png') })
+const themeReopened = await meanBrightness()
+if (!(themeReopened < 110)) {
+  fail(
+    `the app came back light after being closed (${themeReopened}); dark mode is session-only`,
+  )
+} else {
+  pass('and it is still dark the next time the app opens, which is the whole point of it')
 }
 
 if (pageErrors.length > 0) {

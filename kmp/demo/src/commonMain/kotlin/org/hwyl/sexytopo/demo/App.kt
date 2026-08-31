@@ -2,6 +2,7 @@ package org.hwyl.sexytopo.demo
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -74,7 +76,8 @@ import org.jetbrains.compose.resources.painterResource
 fun App(
     survey: Survey = remember { ExampleSurvey.create() },
     initialProjection: Projection2D = Projection2D.PLAN,
-    initialDarkMode: Boolean = false,
+    /** What the platform reports; overridden by the theme preference unless it is Automatic. */
+    systemDark: Boolean = isSystemInDarkTheme(),
     initialTool: SketchTool = SketchTool.MOVE,
     initialMode: SurveyMode = SurveyMode.EXAMPLE,
     initialScreen: Screen = Screen.SKETCH,
@@ -86,7 +89,7 @@ fun App(
             DemoState(
                 exampleSurvey = survey,
                 initialProjection = initialProjection,
-                initialDarkMode = initialDarkMode,
+                initialSystemDark = systemDark,
                 initialTool = initialTool,
                 initialMode = initialMode,
                 initialScreen = initialScreen,
@@ -94,6 +97,11 @@ fun App(
         }
     val editor = rememberSketchEditor(state)
     val canvas = rememberCanvasController(state)
+
+    // A phone that crosses into its own night while the survey is open should take the app with
+    // it, if the theme is left on Automatic. `SideEffect` and not an assignment in the body of the
+    // composable: writing to state during composition is what makes a UI recompose forever.
+    SideEffect { state.systemDark = systemDark }
 
     // Pick up where the surveyor left off. A cave trip is not one sitting: the phone goes in a
     // pocket, the app is killed by the OS, and coming back to an empty screen would lose the
@@ -415,7 +423,7 @@ private fun SexyTopoAppBar(state: DemoState) {
                     DropdownMenuItem(
                         text = { Text("< Back") },
                         leadingIcon = { CheckDot(false) },
-                        onClick = { page = MenuPage.TOP },
+                        onClick = { page = page.parent },
                     )
                 }
 
@@ -619,11 +627,27 @@ private fun SexyTopoAppBar(state: DemoState) {
                             page = MenuPage.TOP
                         },
                     )
-                    DropdownMenuItem(
-                        text = { Text("Dark mode") },
-                        leadingIcon = { CheckDot(state.darkMode) },
-                        onClick = { state.darkMode = !state.darkMode },
-                    )
+                    // `pref_theme` is a three-value list and not a checkbox, which matters: a
+                    // surveyor who wants the app dark in daylight has to be able to say so, and
+                    // *Automatic* on a phone means "is it evening", not "am I underground".
+                    MenuGroup("Theme: ${state.preferences.theme.label}", MenuPage.THEME) {
+                        page = it
+                    }
+                }
+
+                if (page == MenuPage.THEME) {
+                    for (theme in AppTheme.entries) {
+                        DropdownMenuItem(
+                            text = { Text(theme.label) },
+                            leadingIcon = { CheckDot(state.preferences.theme == theme) },
+                            onClick = {
+                                state.updatePreferences(state.preferences.copy(theme = theme))
+                                // Stay on the page. Choosing a theme is the one setting whose
+                                // effect is the whole screen, so a surveyor comparing two of them
+                                // should not have to walk back down the menu between looks.
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -644,7 +668,14 @@ enum class MenuPage {
     INSTRUMENT,
     SETTINGS,
     HELP,
+
+    /** `pref_theme`'s three values, which live under Settings rather than beside it. */
+    THEME,
 }
+
+/** Where *< Back* goes: one level up, which for the theme list is Settings and not the top. */
+internal val MenuPage.parent: MenuPage
+    get() = if (this == MenuPage.THEME) MenuPage.SETTINGS else MenuPage.TOP
 
 /** A row that opens one of the submenus. */
 @Composable

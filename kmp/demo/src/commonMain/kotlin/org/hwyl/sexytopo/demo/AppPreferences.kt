@@ -4,6 +4,44 @@ import org.hwyl.sexytopo.shared.io.store.FileStore
 import org.hwyl.sexytopo.shared.sketch.SketchDefaults
 
 /**
+ * Light, dark, or whatever the phone says. `pref_theme`'s three values, under their own names.
+ *
+ * A cave is dark and a phone screen is the brightest thing in it, so this is not a matter of
+ * taste underground: a white page at full brightness costs a surveyor their night vision and the
+ * battery they need to get out. The Android app's default is [AUTO] and so is this one, but auto
+ * on a phone means "is it evening" and not "am I underground", which is why the other two exist.
+ */
+enum class AppTheme(
+    /** What `pref_theme` stores, so a reader can match the two up. */
+    val key: String,
+    /** What the menu row says. */
+    val label: String,
+) {
+    /** Follow the phone: `MODE_NIGHT_FOLLOW_SYSTEM`. */
+    AUTO("auto", "Automatic"),
+
+    /** `MODE_NIGHT_NO`. */
+    LIGHT("light", "Light"),
+
+    /** `MODE_NIGHT_YES`. */
+    DARK("dark", "Dark"),
+    ;
+
+    /** Whether to draw dark, given what the platform reports. */
+    fun isDark(systemDark: Boolean): Boolean =
+        when (this) {
+            AUTO -> systemDark
+            LIGHT -> false
+            DARK -> true
+        }
+
+    companion object {
+        /** Unknown text reads as the default rather than throwing: see [AppPreferencesStore]. */
+        fun of(key: String?): AppTheme? = entries.firstOrNull { it.key == key }
+    }
+}
+
+/**
  * The settings that are about the app rather than about surveying.
  *
  * A separate file from the tolerances for the same reason the Android app has a separate
@@ -43,6 +81,8 @@ data class AppPreferences(
     val showCompass: Boolean = DEFAULT_SHOW_COMPASS,
     /** Give the drawing the app bar's height as well. `action_fullscreen`. */
     val fullScreen: Boolean = DEFAULT_FULL_SCREEN,
+    /** Light, dark, or what the phone says. `pref_theme`. */
+    val theme: AppTheme = DEFAULT_THEME,
 ) {
     companion object {
         /**
@@ -165,6 +205,15 @@ data class AppPreferences(
          */
         const val DEFAULT_FULL_SCREEN = false
 
+        /**
+         * Follow the phone, as `GeneralPreferences.getTheme` does with its `"auto"` fallback.
+         *
+         * Unlike the vibration key above, this one really is the app's behaviour and not just what
+         * its settings screen claims: `getString("pref_theme", "auto")` supplies the default at
+         * the point of reading, so a fresh install with no key follows the system either way.
+         */
+        val DEFAULT_THEME = AppTheme.AUTO
+
         val DEFAULT = AppPreferences()
     }
 }
@@ -203,6 +252,7 @@ object AppPreferencesStore {
             appendLine("snapToLines=${preferences.snapToLines}")
             appendLine("showCompass=${preferences.showCompass}")
             appendLine("fullScreen=${preferences.fullScreen}")
+            appendLine("theme=${preferences.theme.key}")
         }
 
     fun parse(text: String): AppPreferences {
@@ -260,6 +310,10 @@ object AppPreferencesStore {
             fullScreen =
                 values["fullScreen"]?.toBooleanStrictOrNull()
                     ?: AppPreferences.DEFAULT_FULL_SCREEN,
+            // Not an enum lookup that throws: this file is written by whatever version of the app
+            // last ran, and a value a later one invented should leave the surveyor on the default
+            // rather than on a screen that will not open.
+            theme = AppTheme.of(values["theme"]) ?: AppPreferences.DEFAULT_THEME,
         )
     }
 

@@ -65,6 +65,7 @@ class AppPreferencesTest {
                 snapToLines = true,
                 showCompass = false,
                 fullScreen = true,
+                theme = AppTheme.DARK,
             )
         AppPreferencesStore.save(store, flipped)
 
@@ -215,5 +216,77 @@ class AppPreferencesTest {
         // cross-survey links behind it here — plus the latest-leg mark, which the Android app
         // keeps on its general settings screen rather than this menu.
         assertEquals(8, DISPLAY_TOGGLES.size)
+    }
+
+    // -------------------------------------------------------------------------------------
+    // The theme, which was a session-only toggle
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * Dark mode was a `var` on [DemoState] flipped straight from the menu, so it came back light
+     * every time the app was reopened. In a cave that is not cosmetic: the phone is the brightest
+     * thing down there, the OS kills a backgrounded app while it is in a pocket between stations,
+     * and the surveyor gets a full-brightness white page in the face at the next one.
+     */
+    @Test
+    fun theThemeSurvivesTheAppBeingClosed() {
+        val store = InMemoryFileStore()
+        AppPreferencesStore.save(store, AppPreferences(theme = AppTheme.DARK))
+
+        assertEquals(AppTheme.DARK, AppPreferencesStore.load(store).theme)
+    }
+
+    /** `GeneralPreferences.getTheme` reads `pref_theme` with `"auto"` as its fallback. */
+    @Test
+    fun theDefaultIsToFollowThePhone() {
+        assertEquals(AppTheme.AUTO, AppPreferences.DEFAULT.theme)
+    }
+
+    /**
+     * The three values are `settings_theme_values`, spelt the same way, because this file is a
+     * survey folder that an Android install may also read.
+     */
+    @Test
+    fun theStoredValuesAreTheAndroidApps() {
+        assertEquals(listOf("auto", "light", "dark"), AppTheme.entries.map { it.key })
+        assertTrue("theme=dark" in AppPreferencesStore.format(AppPreferences(theme = AppTheme.DARK)))
+    }
+
+    /**
+     * Automatic follows the platform; the other two overrule it.
+     *
+     * Which is the reason a checkbox would not have done. Auto on a phone answers "is it evening",
+     * and a cave is dark at noon — so a surveyor has to be able to say *dark* at eleven in the
+     * morning and have the app believe them.
+     */
+    @Test
+    fun automaticFollowsThePhoneAndTheOthersDoNot() {
+        assertTrue(AppTheme.AUTO.isDark(systemDark = true))
+        assertFalse(AppTheme.AUTO.isDark(systemDark = false))
+
+        assertTrue(AppTheme.DARK.isDark(systemDark = false), "dark means dark in daylight too")
+        assertFalse(AppTheme.LIGHT.isDark(systemDark = true), "light means light at night too")
+    }
+
+    /** A theme a later version invented leaves the surveyor on the default, not on no screen. */
+    @Test
+    fun anUnknownThemeReadsAsTheDefault() {
+        assertEquals(AppTheme.AUTO, AppPreferencesStore.parse("theme=solarized").theme)
+        assertEquals(AppTheme.AUTO, AppPreferencesStore.parse("theme=").theme)
+    }
+
+    /**
+     * The menu row for the theme is a submenu, and *< Back* from it goes to Settings.
+     *
+     * A one-line rule with a test on it because the previous rule — always back to the top — was
+     * right until this page existed, and a surveyor thrown to the top of the menu after choosing a
+     * theme has to walk back down two rows to try the other one.
+     */
+    @Test
+    fun backFromTheThemeListGoesToSettingsAndNotTheTop() {
+        assertEquals(MenuPage.SETTINGS, MenuPage.THEME.parent)
+        for (page in MenuPage.entries.filter { it != MenuPage.THEME }) {
+            assertEquals(MenuPage.TOP, page.parent, "$page")
+        }
     }
 }

@@ -44,7 +44,7 @@ enum class SurveyMode(val label: String) {
 class DemoState(
     val exampleSurvey: Survey,
     initialProjection: Projection2D,
-    initialDarkMode: Boolean,
+    initialSystemDark: Boolean,
     initialTool: SketchTool,
     initialMode: SurveyMode,
     initialScreen: Screen,
@@ -54,7 +54,26 @@ class DemoState(
     var projection by mutableStateOf(initialProjection)
     var tool by mutableStateOf(initialTool)
     var brushColour by mutableStateOf(Colour.BLACK)
-    var darkMode by mutableStateOf(initialDarkMode)
+
+    /**
+     * What the platform says about light and dark: `prefers-color-scheme` in a browser, the trait
+     * collection on iOS, the night resource qualifier on Android.
+     *
+     * A `var` that the composition keeps up to date rather than a constructor value, because the
+     * answer changes while the app is running — a phone crossing into its own night, or a
+     * surveyor pulling down the shade and hitting the moon — and [darkMode] has to follow it.
+     */
+    var systemDark by mutableStateOf(initialSystemDark)
+
+    /**
+     * Whether to draw dark, which is the theme preference and the platform's answer together.
+     *
+     * Derived rather than stored. It was a plain `var` toggled straight from the menu, and that
+     * is the whole of why it was forgotten on every restart: nothing owned it, so nothing saved
+     * it. See finding 48.
+     */
+    val darkMode: Boolean
+        get() = preferences.theme.isDark(systemDark)
 
     /**
      * How the surveyor is holding the instrument, which decides what a run of repeated readings

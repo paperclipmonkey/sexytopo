@@ -59,6 +59,7 @@ Being precise about this matters more than the demo looking good.
 | **Any station can be reached from the sketch, not just the active one** | **Verified** | `StationMenuTest` for which actions a station offers — the origin has no incoming leg and no delete, cross-sections belong to the plan, a backsight is normalised the way the table normalises it — and `field.mjs` finds a station that is *not* the active one on the drawn plan, holds it, and checks that the menu moved the active station there without marking the paper |
 | **The drawing can be moved without putting the pencil down** | **Verified** | `MultiTouchTest` for the pinch arithmetic and the corner geometry, and `field.mjs` finds the corner squares on the drawn page, drags one, and checks the plan moved, that no stroke was left behind, and that the next stroke still draws — with no toolbar round trip |
 | A station being made can be felt rather than looked at | **Verified** | the callback fires once per station and not once per reading, the preference round-trips, and `field.mjs` turns it off through the settings screen and checks it stayed off |
+| **The app can be told to stay dark, and remembers it** | **Verified** | `pref_theme` is a three-value list in the Android app — auto, light, dark — and this port had a session-only checkbox that started light on every run. In a cave that is the difference between a survey and fifteen minutes of no night vision. `AppPreferencesTest` covers the three values, the resolution against what the platform reports, and the round trip through the file; `field.mjs` sets Chromium to `prefers-color-scheme: dark` and watches *Automatic* follow it, then chooses **Dark** with the browser back on light, **reloads the page**, and checks the app comes back dark |
 | The instrument log is kept, persisted and readable on the phone | **Verified** | `ActivityLogTest` for the bounded queues and the file format; `instrument.mjs` connects a fake DistoX-BLE, takes a calibration, and then reads the log back off the clipboard — count, timestamps and all |
 | The desktop build keeps its surveys too | **Verified** | a survey written by one `SurveyLibrary` and read by a second over the same directory, in SexyTopo's own file layout, plus the three platform conventions for where that directory goes |
 | **A real-sized cave works, not just a demo one** | **Verified** | `BigSurveyTest` builds a four-thousand-station passage — past where every tree walk in this port used to overflow the stack — and projects it to a plan and an extended elevation, builds its wireframe, counts its statistics, exports it to Survex and Therion and reads it back, on all three targets, along with SVG, `.xvi`, `.th2`, Compass and PocketTopo — and rubs out and undoes on a drawing of eight thousand strokes |
@@ -1481,6 +1482,37 @@ These are the things that would actually shape a real port.
    refusing to open it, and a station silently renamed on export is a station nobody can match back
    to their notes. So it stops the problem being made rather than pretending it cannot exist.
 
+48. **A preference that is only a `var` is not a preference, and dark mode was one.**
+   This port's own. `DemoState.darkMode` was a `mutableStateOf(false)` flipped straight from a
+   checkbox on the menu, so it came back light on every run — and the Android app it was copied
+   from has `pref_theme`, a three-value `ListPreference` (auto, light, dark) applied through
+   `AppCompatDelegate.setDefaultNightMode`, defaulting to *auto*.
+
+   Two things were wrong and only one of them looks like a bug. The obvious one is that the
+   setting went nowhere — which is finding 32 again, in a sixth place, for the same reason: the
+   value was reached through `DemoState` rather than through `AppPreferences`, so nothing about
+   `state.darkMode = !state.darkMode` suggests a missing file write. Finding 32 was five toggles
+   found by comparing the menu against `drawing.xml`; this one survived that sweep because it is
+   not on that menu. **A value held on the state object and a value held in the preferences file
+   are indistinguishable at every call site**, so the only reliable way to find these is to ask
+   of each setting, one at a time, whether closing the app would lose it — which is what turned
+   this one up. `darkMode` is now a computed property with no setter, so the shape that caused
+   it twice cannot recur here a third time.
+
+   The less obvious one is that a checkbox was the wrong control. *Automatic* on a phone answers
+   "is it evening"; it has never been asked "am I underground", and a cave is dark at noon. A
+   two-state toggle can be set to dark, but there is then no way back to following the phone —
+   and the surveyor who wants that is the one who leaves the app open on the walk out.
+
+   Why it matters more here than the wording suggests: a phone is the brightest object in a cave,
+   the OS kills a backgrounded app while it is in a pocket between stations, and the surveyor
+   reopening it got a full-brightness white page in the face — after which their dark adaptation
+   is gone for a quarter of an hour, on the trip where seeing the passage is the job.
+
+   The check that would have caught it is the one now in `field.mjs`, and it is the reload that
+   gives it teeth: choosing Dark and measuring the screen passes with the bug live. It has to
+   close the page and come back.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1585,8 +1617,8 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 713
-shared tests on three targets, 286 over the UI's own logic, 18 running the iOS half in a simulator,
-88 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
+shared tests on three targets, 292 over the UI's own logic, 18 running the iOS half in a simulator,
+91 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

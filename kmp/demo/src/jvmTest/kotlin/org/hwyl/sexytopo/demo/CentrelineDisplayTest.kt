@@ -203,7 +203,7 @@ class CentrelineDisplayTest {
             DemoState(
                 exampleSurvey = passage(),
                 initialProjection = Projection2D.PLAN,
-                initialDarkMode = false,
+                initialSystemDark = false,
                 initialTool = SketchTool.DRAW,
                 initialMode = SurveyMode.EXAMPLE,
                 initialScreen = Screen.SKETCH,

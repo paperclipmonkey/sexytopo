@@ -68,7 +68,7 @@ class StationSelectionTest {
             DemoState(
                 exampleSurvey = straightNorth(),
                 initialProjection = Projection2D.PLAN,
-                initialDarkMode = false,
+                initialSystemDark = false,
                 initialTool = org.hwyl.sexytopo.shared.sketch.SketchTool.SELECT,
                 initialMode = SurveyMode.EXAMPLE,
                 initialScreen = Screen.SKETCH,
@@ -86,7 +86,7 @@ class StationSelectionTest {
             DemoState(
                 exampleSurvey = straightNorth(),
                 initialProjection = Projection2D.PLAN,
-                initialDarkMode = false,
+                initialSystemDark = false,
                 initialTool = org.hwyl.sexytopo.shared.sketch.SketchTool.SELECT,
                 initialMode = SurveyMode.EXAMPLE,
                 initialScreen = Screen.SKETCH,
@@ -103,7 +103,7 @@ class StationSelectionTest {
             DemoState(
                 exampleSurvey = straightNorth(),
                 initialProjection = Projection2D.PLAN,
-                initialDarkMode = false,
+                initialSystemDark = false,
                 initialTool = org.hwyl.sexytopo.shared.sketch.SketchTool.SELECT,
                 initialMode = SurveyMode.EXAMPLE,
                 initialScreen = Screen.SKETCH,
