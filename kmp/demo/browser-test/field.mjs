@@ -214,6 +214,10 @@ const DMS_INCLINATION_MINUTES = [191, 295]
 const DMS_SIGN_BUTTON = [107, 354]
 // Two chips a row, in `OFFERED_MODES` order: Forward, Backsight, then Fore + back, Splays only.
 const CARD_MODES = [[116, 243], [214, 243], [128, 295], [242, 295]]
+// The four passage-size boxes, which are on the card only while `pref_lrud_fields` is on — so
+// these offsets are only ever used by the check that turns it on. Measured off a rendered frame,
+// like every other offset here.
+const CARD_LRUD = [[105, 450], [175, 450], [244, 450], [314, 450]]
 const CARD_BUTTONS_ABOVE_BOTTOM = 44
 const CARD_CANCEL_X = 139
 const CARD_ADD_SPLAY_X = 225
@@ -472,11 +476,18 @@ const settingsSwitch = async (index) => {
   return [320, rows[nth]]
 }
 
-// The last four switches in *Surveying*, in the order the dialog lays them out.
+// The last five switches in *Surveying*, in the order the dialog lays them out.
+//
+// Counted from the end, and these numbers move when a row is inserted among them rather than
+// added above them: *Book passage size* went in directly under *Offer a reading typed by hand*,
+// because it is a sub-option of it, which pushed the manual-entry switch from -4 to -5. That is
+// what these named constants are for — the alternative is four bare negative numbers spread over
+// two hundred lines, which is the shape the pixel offsets had before switchRows() replaced them.
 const SWITCH_CHASE_LOST_INSTRUMENT = -1
 const SWITCH_INCLINATIONS_IN_MINUTES = -2
 const SWITCH_BEARINGS_IN_MINUTES = -3
-const SWITCH_MANUAL_ENTRY = -4
+const SWITCH_BOOK_PASSAGE_SIZE = -4
+const SWITCH_MANUAL_ENTRY = -5
 
 const chaseSwitch = async () => settingsSwitch(SWITCH_CHASE_LOST_INSTRUMENT)
 
@@ -1182,7 +1193,7 @@ async function modeChip(index) {
   return onCard(CARD_MODES[index])
 }
 
-async function reading(d, a, i, { splay = false, mode = null } = {}) {
+async function reading(d, a, i, { splay = false, mode = null, lrud = null } = {}) {
   await at(...ADD_READING); await page.waitForTimeout(700)
   if (mode !== null) { await at(...(await modeChip(mode))); await page.waitForTimeout(250) }
   await at(...(await onCard(CARD_DISTANCE))); await page.waitForTimeout(200)
@@ -1192,6 +1203,15 @@ async function reading(d, a, i, { splay = false, mode = null } = {}) {
   await at(...(await onCard(CARD_INCLINATION))); await page.waitForTimeout(200)
   await page.keyboard.type(String(Math.abs(i)), { delay: 20 })
   if (i < 0) { await at(...(await onCard(CARD_SIGN_TOGGLE))); await page.waitForTimeout(200) }
+  // Only when `pref_lrud_fields` is on: the boxes are not on the card otherwise, and tapping
+  // where they would be would land on the explanation under the mode chips.
+  if (lrud !== null) {
+    for (const [index, value] of lrud.entries()) {
+      if (value === null) continue
+      await at(...(await onCard(CARD_LRUD[index]))); await page.waitForTimeout(200)
+      await page.keyboard.type(String(value), { delay: 20 })
+    }
+  }
   await page.waitForTimeout(250)
   await at(...(await cardButton(splay ? CARD_ADD_SPLAY_X : CARD_ADD_LEG_X)))
   await page.waitForTimeout(700)
@@ -2849,6 +2869,82 @@ if (grew.length > 0) {
 } else {
   pass(`Splays Only keeps three agreeing readings as splays (${splaysNow} splays, no new station)`)
 }
+
+// ---- the passage can be booked with the leg, at the station you are standing at ---------------
+// `pref_lrud_fields`. Four tape measurements beside the reading, which for a compass-and-tape
+// survey is the whole station in one dialog instead of going back to one you have already left.
+//
+// The check is about *which station they land on*, because that is the way this goes wrong
+// silently. A reading that promotes moves the active station to the far end of the shot, so a
+// passage size attached after the leg lands on the station just created — putting the walls of
+// this chamber around the next one. Nothing in the numbers afterwards says so: they are ordinary
+// splays either way, on a station that exists, at a bearing that really was measured.
+await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(900)
+await scrollSettingsToTheEnd()
+await at(...(await settingsSwitch(SWITCH_BOOK_PASSAGE_SIZE))); await page.waitForTimeout(300)
+await at(...(await settingsSave())); await page.waitForTimeout(900)
+
+/** Every station in the saved survey, by name, with how many splays hang off it. */
+const splayCounts = () => page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
+  if (!key) return {}
+  const out = {}
+  for (const st of JSON.parse(localStorage.getItem(key)).stations ?? []) {
+    out[st.name] = (st.legs ?? []).filter((l) => l.destination === '-').length
+  }
+  return out
+})
+
+const wallsBefore = await splayCounts()
+// Forward, explicitly. The check above leaves the app in **Splays Only**, where nothing promotes
+// at all — so without this the three readings below stay three splays, no station is created, and
+// the from-station rule this check exists for is never exercised. It failed exactly that way
+// first time, which is the check doing its job: it counted seven splays where it wanted four and
+// said so, rather than passing on a survey that had never promoted.
+//
+// The first two readings do not promote, so the third is the one that moves the active station —
+// which makes it the only one where getting the from-station wrong is visible.
+await reading(6.0, 300, 0, { mode: 0 })
+await reading(6.01, 300.2, 0.1)
+await reading(5.99, 299.8, -0.1, { lrud: ['1.2', '2.3', '3.4', '0.6'] })
+await page.screenshot({ path: join(shotDir, 'field-lrud-with-reading.png') })
+
+const wallsAfter = await splayCounts()
+const gained = Object.keys(wallsAfter)
+  .filter((name) => (wallsAfter[name] ?? 0) - (wallsBefore[name] ?? 0) === 4)
+const fresh = Object.keys(wallsAfter).filter((name) => !(name in wallsBefore))
+if (gained.length !== 1) {
+  fail(
+    `the passage size did not become four splays on one station ` +
+      `(before ${JSON.stringify(wallsBefore)}, after ${JSON.stringify(wallsAfter)})`,
+  )
+} else if (fresh.length !== 1) {
+  fail(`the third reading did not make a station, so this check proves nothing (${fresh.join(', ')})`)
+} else if (gained[0] === fresh[0]) {
+  fail(
+    `the passage size landed on ${fresh[0]}, the station the reading created — it was measured ` +
+      `at the one the surveyor was standing at`,
+  )
+} else {
+  pass(`passage size is booked with the reading, at the station you are standing at (${gained[0]})`)
+}
+
+// Put the input mode back, and not as tidying-up: the check above this one sets **Splays Only**
+// and a check *below* asserts that it survived being written to the preferences file. Selecting
+// Forward here to make the readings promote therefore broke that one — which it duly reported,
+// two checks later, as "Splays Only did not reach the preferences file". A chip tap and a Cancel
+// sets the mode without recording anything, because `chooseInputMode` persists on the tap.
+await at(...ADD_READING); await page.waitForTimeout(700)
+await at(...(await modeChip(3))); await page.waitForTimeout(300)
+await at(...(await cardButton(CARD_CANCEL_X))); await page.waitForTimeout(600)
+
+// Put it back, so the dialogs checked after this one are the ones they were written for.
+await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(900)
+await scrollSettingsToTheEnd()
+await at(...(await settingsSwitch(SWITCH_BOOK_PASSAGE_SIZE))); await page.waitForTimeout(300)
+await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 // ---- the manual entry button can be put away --------------------------------------------------
 // `pref_manual_controls`. On the Android table view it hides two floating buttons; here it is the

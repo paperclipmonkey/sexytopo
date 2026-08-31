@@ -1012,19 +1012,21 @@ private fun FieldBar(state: DemoState) {
             inputMode = state.inputMode,
             onInputMode = { state.chooseInputMode(it) },
             onDismiss = { entering = false },
-            onAdd = { leg, asSplay ->
+            lrudFields = state.preferences.lrudFields,
+            onAdd = { leg, asSplay, lrud ->
                 // liveSurvey, not state.survey: this composable only runs in LIVE mode, and being
-                // explicit here is what stops that ever silently changing.
-                val survey = state.liveSurvey
-                if (asSplay) {
-                    // A splay is wall detail, taken where you stand. There is no far end to have
-                    // stood at, so the input mode does not apply to one.
-                    SurveyBuilder.addSplay(survey, survey.activeStation, leg)
-                } else if (
-                    SurveyUpdater.update(survey, leg, state.inputMode, state.surveySettings)
-                ) {
-                    state.noteStationCreated()
-                }
+                // explicit here is what stops that ever silently changing. The rest is in
+                // [addTypedReading], out here where it can be tested — see the note there about
+                // which station the passage was measured at.
+                addTypedReading(
+                    survey = state.liveSurvey,
+                    leg = leg,
+                    asSplay = asSplay,
+                    lrud = lrud,
+                    inputMode = state.inputMode,
+                    settings = state.surveySettings,
+                    onStationCreated = { state.noteStationCreated() },
+                )
                 state.noteSketchEdited()
                 entering = false
             },

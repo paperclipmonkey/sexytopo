@@ -121,6 +121,14 @@ data class AppPreferences(
      * view; here it is the *Add reading* button on the field bar, which is the same control.
      */
     val manualControls: Boolean = true,
+    /**
+     * Offer the four passage measurements beside the reading. `pref_lrud_fields`, off upstream.
+     *
+     * For a compass-and-tape survey this is the whole workflow in one dialog: stand at the
+     * station, measure the four walls, shoot on. Without it the passage size is a second dialog on
+     * a station the surveyor has already walked away from.
+     */
+    val lrudFields: Boolean = false,
     /** Type a bearing as degrees, minutes and seconds. `pref_deg_mins_secs`. */
     val azimuthInDms: Boolean = false,
     /** And an inclination. `pref_inc_deg_mins_secs`, a separate preference upstream. */
@@ -364,6 +372,7 @@ object AppPreferencesStore {
             appendLine("symbolSizeDp=${style.symbolSizeDp}")
             appendLine("textSizeSp=${style.textSizeSp}")
             appendLine("manualControls=${preferences.manualControls}")
+            appendLine("lrudFields=${preferences.lrudFields}")
             appendLine("azimuthInDms=${preferences.azimuthInDms}")
             appendLine("inclinationInDms=${preferences.inclinationInDms}")
             val svg = preferences.svgExport
@@ -512,6 +521,7 @@ object AppPreferencesStore {
                         SketchStyle.size(values["textSizeSp"], SketchStyle.DEFAULT_TEXT_SIZE_SP),
                 ),
             manualControls = values["manualControls"]?.toBooleanStrictOrNull() ?: true,
+            lrudFields = values["lrudFields"]?.toBooleanStrictOrNull() ?: false,
             azimuthInDms = values["azimuthInDms"]?.toBooleanStrictOrNull() ?: false,
             inclinationInDms = values["inclinationInDms"]?.toBooleanStrictOrNull() ?: false,
             svgExport = svgExportFrom(values),

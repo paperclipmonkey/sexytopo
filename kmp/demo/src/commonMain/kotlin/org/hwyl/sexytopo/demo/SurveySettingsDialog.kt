@@ -60,6 +60,7 @@ fun SurveySettingsDialog(
     var hotCorners by remember { mutableStateOf(preferences.hotCorners) }
     var twoFingerMove by remember { mutableStateOf(preferences.twoFingerMove) }
     var manualControls by remember { mutableStateOf(preferences.manualControls) }
+    var lrudFields by remember { mutableStateOf(preferences.lrudFields) }
     var azimuthInDms by remember { mutableStateOf(preferences.azimuthInDms) }
     var inclinationInDms by remember { mutableStateOf(preferences.inclinationInDms) }
     var autoReconnect by remember { mutableStateOf(preferences.autoReconnect) }
@@ -183,6 +184,21 @@ fun SurveySettingsDialog(
                     onCheckedChange = { manualControls = it },
                 )
 
+                // `pref_lrud_fields`. Disabled rather than hidden when there is no hand-typed
+                // reading to put them in — `android:dependency`'s own behaviour, and the right
+                // one: a row that vanishes is a row nobody can find again to work out why their
+                // setting did nothing.
+                Toggle(
+                    title = "Book passage size with the reading",
+                    detail =
+                        "Four tape measurements beside the leg, taken where you are standing. " +
+                            "For a compass-and-tape survey that is the whole station in one " +
+                            "dialog instead of going back to one you have already left.",
+                    checked = lrudFields,
+                    onCheckedChange = { lrudFields = it },
+                    enabled = manualControls,
+                )
+
                 // `pref_deg_mins_secs` and `pref_inc_deg_mins_secs`, from the Android app's
                 // *Manual data entry* screen. They are here, with the tolerances, because both
                 // answer the same question — what a reading looks like when it is not coming off
@@ -260,6 +276,7 @@ fun SurveySettingsDialog(
                                 azimuthInDms,
                                 inclinationInDms,
                                 manualControls,
+                                lrudFields,
                             ),
                         )
                     }
@@ -294,6 +311,7 @@ internal fun preferencesFrom(
     azimuthInDms: Boolean,
     inclinationInDms: Boolean,
     manualControls: Boolean,
+    lrudFields: Boolean,
 ): AppPreferences =
     current.copy(
         buzzOnNewStation = buzzOnNewStation,
@@ -306,6 +324,7 @@ internal fun preferencesFrom(
         azimuthInDms = azimuthInDms,
         inclinationInDms = inclinationInDms,
         manualControls = manualControls,
+        lrudFields = lrudFields,
     )
 
 /**

@@ -2010,6 +2010,40 @@ These are the things that would actually shape a real port.
    not the `.th` would produce a project whose files point at names nothing wrote — which compiles
    to a centreline and no drawing, and is invisible until Therion runs on somebody's laptop.
 
+63. **A measurement that lands on the wrong station, and looks right afterwards.** The last of the
+   unported preference groups: `pref_lrud_fields` puts four passage-size boxes beside the reading,
+   so a compass-and-tape surveyor books the whole station in one dialog instead of going back to
+   one they have already walked away from. Small, and the port had LRUD entry only as a separate
+   dialog on the station.
+
+   The porting was five minutes. What took the time is the rule underneath it, which is the kind
+   of bug this whole branch is about.
+
+   A reading that promotes moves the active station to the far end of the shot. So a passage size
+   attached *after* the leg goes in lands on the station the reading just created — putting the
+   walls of this chamber around the next one. And nothing afterwards says so: they are ordinary
+   splays either way, on a station that really exists, at a bearing that really was measured.
+   There is no error, no warning and no impossible number. It comes out as a drawing that is
+   subtly the wrong shape, on a trip nobody can identify later.
+
+   Upstream gets this right and does it visibly: `LegDialogs` calls
+   `survey.setActiveStation(fromStation)` before its four `createLrudIfPresent` calls and
+   `setActiveStation(newToStation)` after them, purely so the LRUDs are computed against the
+   station the surveyor was standing at. Reading that shuffle is what made the hazard obvious.
+
+   Two things came out of it worth keeping:
+
+   - **The rule moved out of the composable.** It was going to live in the field bar's `onAdd`
+     lambda, where nothing could test it. `addTypedReading` is an ordinary function now, and
+     `thePassageIsMeasuredWhereTheSurveyorIsStanding` sets a repeat count of one so the reading
+     promotes immediately — the only case where the bug is visible — and asserts the splays are on
+     the old station *and* that the new one has none. Run against the defect reintroduced, it
+     fails; that was checked rather than assumed.
+   - **The browser check asserts the same thing through the app.** It types the passage size into
+     the third reading of three, which is the one that promotes, and then compares splay counts
+     per station name across the save: exactly one station gained four, and it is not the station
+     the reading created.
+
 ---
 
 ## A defect worth reporting upstream
@@ -2130,8 +2164,8 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 744
-shared tests on three targets, 349 over the UI's own logic, 18 running the iOS half in a simulator,
-100 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
+shared tests on three targets, 352 over the UI's own logic, 18 running the iOS half in a simulator,
+101 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

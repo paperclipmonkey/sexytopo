@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -20,6 +21,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -30,6 +32,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.model.survey.Leg
+import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.survey.SurveySettings
+import org.hwyl.sexytopo.shared.survey.Lrud
+import org.hwyl.sexytopo.shared.survey.SurveyBuilder
+import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
 import org.hwyl.sexytopo.shared.survey.DegreesMinutesSeconds
 import org.hwyl.sexytopo.shared.survey.InputMode
@@ -53,11 +60,15 @@ fun ManualReadingDialog(
     inputMode: InputMode,
     onInputMode: (InputMode) -> Unit,
     onDismiss: () -> Unit,
-    onAdd: (Leg, Boolean) -> Unit,
+    /** The reading, whether it is a splay, and the four optional passage measurements. */
+    onAdd: (Leg, Boolean, List<String>) -> Unit,
+    /** `pref_lrud_fields`: offer the passage size here rather than in a second dialog. */
+    lrudFields: Boolean = false,
 ) {
     var distance by remember { mutableStateOf("") }
     var azimuth by remember { mutableStateOf("") }
     var inclination by remember { mutableStateOf("") }
+    val lrud = remember { mutableStateListOf("", "", "", "") }
 
     val parsed = parseReading(distance, azimuth, inclination)
 
@@ -96,6 +107,34 @@ fun ManualReadingDialog(
                         )
                     }
                 }
+                // `pref_lrud_fields`, off by default as upstream has it. On, the passage size
+                // is booked in the same dialog as the leg — which for a compass-and-tape survey
+                // is the whole workflow: stand at the station, measure the four walls, shoot on.
+                // Doing it in two dialogs means going back to a station you have already left.
+                if (lrudFields) {
+                    HorizontalDivider()
+                    Text(
+                        "Passage size here, taken where you are standing. Left and right go " +
+                            "square to the passage; up and down are vertical. Leave any of them " +
+                            "blank.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for ((index, side) in Lrud.entries.withIndex()) {
+                            OutlinedTextField(
+                                value = lrud[index],
+                                onValueChange = { lrud[index] = it },
+                                label = { Text(side.name.take(1)) },
+                                singleLine = true,
+                                keyboardOptions =
+                                    KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+
                 Text(
                     parsed.problem ?: promotionRuleFor(inputMode),
                     style = MaterialTheme.typography.bodySmall,
@@ -110,18 +149,63 @@ fun ManualReadingDialog(
         },
         confirmButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                // A splay takes no passage size with it, as upstream has it: `addSplay` goes
+                // through the dialog that has no LRUD fields at all. A splay *is* a wall
+                // measurement, so booking four more against it would be recording the same thing
+                // twice from the same place.
                 TextButton(
                     enabled = parsed.leg != null,
-                    onClick = { parsed.leg?.let { onAdd(it, true) } },
+                    onClick = { parsed.leg?.let { onAdd(it, true, emptyList()) } },
                 ) { Text("Add splay") }
                 TextButton(
                     enabled = parsed.leg != null,
-                    onClick = { parsed.leg?.let { onAdd(it, false) } },
+                    onClick = { parsed.leg?.let { onAdd(it, false, lrud.toList()) } },
                 ) { Text("Add leg") }
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/**
+ * What a hand-typed reading does to the survey.
+ *
+ * Lifted out of the field bar's `onAdd` lambda for the reason the port keeps rediscovering: a rule
+ * that lives inside a composable is a rule nothing can test. And there is a rule in here worth
+ * testing, because it is the kind that is wrong silently.
+ *
+ * ## Which station the passage was measured at
+ *
+ * [measuredFrom] is read *before* the leg goes in. A reading that promotes moves the active
+ * station to the far end of the shot, so a passage size read afterwards would be attached to the
+ * station the surveyor has just created and not the one they are standing at — putting the walls
+ * of this chamber around the next one. Nothing in the numbers afterwards says so: they are
+ * ordinary splays either way, on a station that really exists, at a bearing that really was
+ * measured. It would come out as a drawing that is subtly the wrong shape.
+ *
+ * Upstream does the same thing more visibly, shuffling `survey.setActiveStation` back to the
+ * from-station around its own LRUD calls and forward again afterwards.
+ *
+ * @return how many passage splays were added, which is what a test can assert on.
+ */
+internal fun addTypedReading(
+    survey: Survey,
+    leg: Leg,
+    asSplay: Boolean,
+    lrud: List<String>,
+    inputMode: InputMode,
+    settings: SurveySettings,
+    onStationCreated: () -> Unit = {},
+): Int {
+    val measuredFrom = survey.activeStation
+    if (asSplay) {
+        // A splay is wall detail, taken where you stand. There is no far end to have stood at, so
+        // the input mode does not apply to one.
+        SurveyBuilder.addSplay(survey, survey.activeStation, leg)
+    } else if (SurveyUpdater.update(survey, leg, inputMode, settings)) {
+        onStationCreated()
+    }
+    return addLruds(survey, measuredFrom, lrud)
 }
 
 /**

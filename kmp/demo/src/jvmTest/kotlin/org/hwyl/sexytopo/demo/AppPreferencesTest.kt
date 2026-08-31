@@ -100,6 +100,7 @@ class AppPreferencesTest {
                 azimuthInDms = false,
                 inclinationInDms = false,
                 manualControls = true,
+                lrudFields = false,
             )
 
         assertTrue(saved.autoRecentre, "the drawing menu's preference is not this screen's to reset")
@@ -129,6 +130,7 @@ class AppPreferencesTest {
                 azimuthInDms = false,
                 inclinationInDms = false,
                 manualControls = true,
+                lrudFields = false,
             )
 
         assertEquals(40, saved.autoReconnectWindowMinutes)
