@@ -3,6 +3,7 @@ package org.hwyl.sexytopo.shared.io
 import org.hwyl.sexytopo.shared.io.export.SurveyFormat
 import org.hwyl.sexytopo.shared.io.export.SurvexExporter
 import org.hwyl.sexytopo.shared.io.export.SurvexTherionWriter
+import org.hwyl.sexytopo.shared.io.export.ThconfigExporter
 import org.hwyl.sexytopo.shared.io.export.TherionExporter
 import org.hwyl.sexytopo.shared.io.export.formatAzimuth
 import org.hwyl.sexytopo.shared.io.export.formatDistance
@@ -112,8 +113,7 @@ class ExportTest {
                 "survey Test\n" +
                 "# Created with SexyTopo on 2026-08-29\n" +
                 "\n" +
-                // Where the `input "....th2"` lines go; the port has no .th2 exporter yet, but the
-                // blank line the original leaves around them is kept.
+                // No scraps named, and the blank line the original leaves around them regardless.
                 "\n" +
                 "\n" +
                 "centreline\n" +
@@ -129,6 +129,71 @@ class ExportTest {
                 "endsurvey\n"
 
         assertEquals(expected, TherionExporter.export(simpleSurvey(), createdOn = "2026-08-29"))
+    }
+
+    /**
+     * The scrap files, without which Therion draws a centreline and no cave.
+     *
+     * `ThExporter` puts the `input` lines between the creation comment and the centreline block,
+     * and appends its two newlines whether or not there were any — so the file with scraps is the
+     * file without them plus exactly these lines, and nothing else moves.
+     */
+    @Test
+    fun therionPullsInTheScrapFilesItIsGiven() {
+        val withScraps =
+            TherionExporter.export(
+                simpleSurvey(),
+                createdOn = "2026-08-29",
+                th2Files = listOf("Test.plan.th2", "Test.ee.th2"),
+            )
+        val without = TherionExporter.export(simpleSurvey(), createdOn = "2026-08-29")
+
+        assertTrue(withScraps.contains("input \"Test.plan.th2\"\ninput \"Test.ee.th2\"\n"))
+        assertEquals(
+            without,
+            withScraps.replace("input \"Test.plan.th2\"\ninput \"Test.ee.th2\"\n", ""),
+            "naming the scraps moved something else in the file",
+        )
+    }
+
+    /**
+     * Therion compiles a *project*, not a `.th`, and this is the project file. Byte for byte
+     * against `ThconfigExporter`, including the two commented-out layout lines: the second is
+     * commented out in the original because with it on Therion can fail to compile the survey.
+     */
+    @Test
+    fun theThconfigIsExact() {
+        val expected =
+            "encoding utf-8\n" +
+                "\n" +
+                "layout local\n" +
+                "  debug off\n" +
+                "  # map-header 0 0 off\n" +
+                "  # symbol-hide group cave-centreline\n" +
+                "endlayout\n" +
+                "\n" +
+                "source \"Test.th\"\n" +
+                "\n" +
+                "export model -fmt survex -o \"Test-th.3d\"\n" +
+                "\n" +
+                "export map -proj plan -layout local -o \"Test-plan.pdf\"\n" +
+                "\n" +
+                "export map -proj extended -layout local -o \"Test-ee.pdf\""
+
+        assertEquals(expected, ThconfigExporter.export(simpleSurvey()))
+    }
+
+    @Test
+    fun theThconfigNamesTheSurveyEverywhereItHasTo() {
+        // Four references to the survey's name, and a project whose source line disagreed with the
+        // file beside it would fail to build with an error about a missing file rather than
+        // anything a surveyor could act on.
+        val output = ThconfigExporter.export(Survey("Swildons"))
+
+        assertTrue(output.contains("source \"Swildons.th\""))
+        assertTrue(output.contains("\"Swildons-th.3d\""))
+        assertTrue(output.contains("\"Swildons-plan.pdf\""))
+        assertTrue(output.contains("\"Swildons-ee.pdf\""))
     }
 
     @Test

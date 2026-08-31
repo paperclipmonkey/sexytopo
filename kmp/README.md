@@ -41,6 +41,7 @@ Being precise about this matters more than the demo looking good.
 | A PocketTopo text export imports, drawing included | **Verified** | the Android app's own `FAKE_TEXT` fixture and its three assertions, on three targets, plus the four files that crash the Java |
 | A Survex or Therion file from other software imports | **Verified** | round-trip tests through the ported exporters, plus a `.svx` written by hand — team, date, backsights, splays, station comments and leg comments — and `field.mjs` brings one into the browser build end to end |
 | The `.th2` and `.xvi` a Therion user actually needs come out of the app | **Verified** | golden tests on the scrap file and the tracing image, and `field.mjs` picks the `.th2` chip on a 420-pixel screen, saves the file and checks it has an encoding line, a named plan scrap and the `##XTHERION##` block that points it at the `.xvi` |
+| Therion can build what comes out, rather than five files and a config to write | **Verified** | golden test on the `.thconfig` and on the `input` lines; `field.mjs` saves the project file and the `.th` from a phone-sized screen and checks each names what the other saves under |
 | Compass `.dat` exports byte-identically | **Verified** | a golden captured by *running* the Android app's own exporter, not by reading it — which caught a transcription slip on the first attempt |
 | PocketTopo `.txt` exports the same survey data | **Verified** | its DATA section is golden against the Android app; its station sections deliberately diverge, because the Java's are not reproducible even against themselves |
 | **The view can follow the survey as it grows** | **Verified** | the preference round-trips with every other one, and `field.mjs` turns *Follow the survey* on, promotes a station from three readings, and finds the active station's amber brackets within forty pixels of the middle of the sketch — an assertion about where the view ended up, not merely that the screen changed, which it would have anyway |
@@ -148,8 +149,9 @@ missing.
   projection is arithmetic and the drawing is the same 2D canvas as everything else, so it runs on
   iOS, Android, the desktop and the web from one file.
 - **The active station**, in the app's amber corner brackets, and the select tool that moves them.
-- **Export** to Survex `.svx`, Therion `.th` and `.th2`, an `.xvi` tracing image, Compass `.dat`,
-  PocketTopo `.txt`, SVG, and the app's own JSON — the same bytes the Android app would read back.
+- **Export** to Survex `.svx`, a Therion project — `.thconfig`, `.th`, and a `.th2` scrap and
+  `.xvi` tracing image for each drawing — Compass `.dat`, PocketTopo `.txt`, SVG, and the app's own
+  JSON, the same bytes the Android app would read back.
 - **Import** of a Survex `.svx`, Therion `.th`, PocketTopo `.txt` or PocketTopo's own binary
   `.top`, as well as the app's own files: the club's existing survey of the cave, opened here to be
   extended. Both PocketTopo readers bring the *drawing* in as well as the centreline.
@@ -517,8 +519,11 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   On iOS that is CoreBluetooth; in Chrome, including on Android, it is Web Bluetooth. Neither has
   met real hardware — see the table above — but the acknowledgement handshake four of these
   instruments need is implemented and tested, which is the part that fails silently.
-- **Take it home.** Survex, Therion `.th` and `.th2`, Compass, PocketTopo, the native JSON,
-  Therion's own `.xvi` tracing image — or the drawing itself as SVG, which is the whole plan or extended elevation with its passage walls, centreline, splays,
+- **Take it home.** Survex, Compass, PocketTopo, the native JSON — or a Therion *project* rather
+  than a pile of files: the `.thconfig` Therion actually compiles, the `.th` centreline naming both
+  scraps, and a `.th2` and an `.xvi` for each drawing, each named after the drawing it holds so the
+  plan and the elevation are not the same file. Nothing to write by hand between saving them and
+  running `therion` — or the drawing itself as SVG, which is the whole plan or extended elevation with its passage walls, centreline, splays,
   station labels, symbols and cross-sections, openable in Inkscape or any browser. The SVG carries
   a legend below the drawing: title, date, who was there, surveyed length and vertical range, the
   copyright line, a scale bar and — in plan, where it means something — a north arrow. A drawing
@@ -622,6 +627,8 @@ Honest limits, so nothing is a surprise in a cave:
 | `GraphView.drawCompass` | `demo/.../SurveyCanvas.kt` (`drawNorthArrow`) | The arrow, plan-only, at a heading of zero — which is *correct* on a plan; the magnetometer that would turn it is not ported |
 | `model/sketch/Sketch`'s twin history stacks | `shared/sketch/SketchEditor.kt` | `DeletedDetail` becomes a sealed type |
 | `control/io/thirdparty/{survex,therion,survextherion}` | `shared/io/export/` | Golden-tested, metadata block included |
+| `ThconfigExporter`, `SurvexTherionUtil.getInputText` | `shared/io/export/SurvexTherion.kt` | The project file Therion actually compiles, and the `input` lines that pull the scraps into the `.th` |
+| `DoubleSketchFileExporter`, `PLAN_SUFFIX`/`EE_SUFFIX` | `demo/.../ExportView.kt` (`fileNameFor`) | One file per drawing rather than per survey, for the three formats that have one of each |
 | `PocketTopoFile`, `PocketTopoImporter` | `shared/io/imports/PocketTopoFile.kt`, `PocketTopoImport.kt` | A cursor over a byte array rather than an `InputStream`; the calendar arithmetic `new Date()` used to do, written out |
 | `PocketTopoTxtImporter` | `shared/io/imports/PocketTopoTxtImport.kt` | The only import that brings a drawing in too; four crashes in the Java are fixed rather than reproduced |
 | `SurvexImporter`, `TherionImporter`, `SurvexTherionImporter`, `SexyTopoVersion` | `shared/io/imports/` | Round-tripped against the exporters above; fixes a station-comment bug found doing so |
@@ -941,6 +948,20 @@ These are the things that would actually shape a real port.
    messages about cross-sections and hot corners and none about menus. The fix is the same one —
    find the menu's own surface and divide it by the rows it is known to have.
 
+   Then a third time, and this one is the clearest of the three. The export screen's format chips
+   are a `FlowRow`, and adding the `.thconfig` reflowed them from three rows to four. The check
+   that had been clicking "second row, middle chip" now clicked *Tracing .xvi* — and went on
+   passing, against the wrong format, until the filename it asserted disagreed; Save file moved
+   fifty pixels down at the same time and landed on a chip. So the chips are found now as well: a
+   chip is the only thing drawn on that screen's background, so its edge is a long horizontal run
+   of not-the-background, and the runs on a row's top edge are the chips.
+
+   Which promptly found *twice* as many chips as there are, and is worth recording because it is
+   the same mistake in the finding: the first version grouped rows by looking for a gap between
+   them, and a row shows its chips at its top edge and again at its bottom edge, with nothing in
+   between unless one of them happens to be the selected one. Assuming the shape of what you are
+   looking for is what all four of these have in common.
+
    The other repeat was cheaper to fix and had cost more: four separate times, a pixel helper has
    passed `page.evaluate` a name that is not in scope out here. The callback destructures the
    arguments under its own names, so nothing checks the two against each other, and the error
@@ -973,6 +994,27 @@ These are the things that would actually shape a real port.
    split the menu — which is to say, by comparing against the original rather than by testing what
    was here. The check that would have caught it is now in `field.mjs`: turn the grid off and look
    in storage for it.
+
+33. **An export nobody could use, and nothing said so.** The port wrote a `.th`, both `.th2`
+   scraps and both `.xvi` tracing images, every one of them golden-tested against the Android app
+   byte for byte. It was still not a Therion export. Therion does not compile a `.th`; it compiles
+   a *project*, and the project file — the `.thconfig` — was not written at all. Nor did the `.th`
+   carry the `input` lines naming its scraps, because it had been written when this port had no
+   `.th2` exporter and the comment saying so outlived the thing it described. So a surveyor got
+   five correct files, no way to build them, and a centreline with no cave on it if they wrote the
+   config themselves.
+
+   Underneath it, a worse one: the `.th2` and the `.xvi` are one file *per drawing*, and this port
+   named them after the survey. Exporting the plan and then the elevation wrote `Swildons.th2`
+   twice. The Android app has a whole class for this — `DoubleSketchFileExporter`, which puts
+   `PLAN_SUFFIX` or `EE_SUFFIX` in the name — and the port had reimplemented the exporters without
+   it. Two files that are the same format of the same cave are indistinguishable once written, so
+   the surveyor's evidence that something went wrong is a drawing that is not the one they exported.
+
+   The lesson is about what a golden test is worth. Each file was right; the *set* was wrong, and a
+   test that asserts one file at a time cannot see that. What found it was reading the Java's
+   `TherionExporter.run` — the method that decides which files there are — rather than the classes
+   that write them.
 
 ---
 
@@ -1122,8 +1164,8 @@ before it is a branch to write.
 
 This is a proof of concept. File formats are no longer one of the gaps: every importer and every
 exporter the Android app has is ported. In come Survex, Therion, PocketTopo `.txt` and PocketTopo's
-binary `.top`; out go Survex, Therion `.th` and `.th2`, the `.xvi` tracing image, Compass `.dat`,
-PocketTopo `.txt`, SVG and the native JSON.
+binary `.top`; out go Survex, a whole Therion project — `.thconfig`, `.th` and a `.th2` and `.xvi`
+per drawing, each naming the next — Compass `.dat`, PocketTopo `.txt`, SVG and the native JSON.
 
 What it does **not** include:
 

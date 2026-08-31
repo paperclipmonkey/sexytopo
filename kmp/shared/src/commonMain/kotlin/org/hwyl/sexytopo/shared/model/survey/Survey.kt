@@ -77,6 +77,8 @@ class Survey(name: String = DEFAULT_NAME) {
         when (projection) {
             Projection2D.PLAN -> planSketch
             Projection2D.EXTENDED_ELEVATION -> elevationSketch
+            // Which is what `Projection2D.isDrawable` reports, and the two must agree: the
+            // export screen asks that question to decide how many scrap files to name.
             else -> throw IllegalArgumentException("Not a drawable projection: $projection")
         }
 

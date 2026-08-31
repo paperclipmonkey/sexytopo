@@ -414,6 +414,16 @@ object SurvexTherionWriter {
      */
     fun creationComment(format: SurveyFormat, versionInfo: String, createdOn: String): String =
         "${format.commentChar} Created with $versionInfo on $createdOn"
+
+    /**
+     * The `input` lines a `.th` uses to pull its scrap files in. `SurvexTherionUtil.getInputText`.
+     *
+     * Empty for an empty list rather than a blank line, which is the original's behaviour and
+     * matters: `ThExporter` appends two newlines after this regardless, so a survey exported
+     * without scraps and one exported with them differ by exactly these lines.
+     */
+    fun inputText(th2Files: List<String>): String =
+        th2Files.joinToString("") { "input \"$it\"\n" }
 }
 
 /** Emits a Survex `.svx` file. Ported from `SurvexExporter`. */
@@ -440,23 +450,69 @@ object SurvexExporter {
 }
 
 /**
+ * Emits the `.thconfig` that makes the rest of the Therion export buildable. `ThconfigExporter`.
+ *
+ * Therion does not compile a `.th`; it compiles a *project*, and the project file is this. Without
+ * one, everything else this app exports for Therion — the centreline, both scraps, both tracing
+ * images — is a pile of files somebody has to write a config for before they can look at any of
+ * it. It is thirty lines of boilerplate that never varies except for the survey's name, which is
+ * exactly the sort of thing an app should write for you.
+ *
+ * The four blank-line-separated blocks are the original's, in its order: the encoding, a layout
+ * with everything commented out, the source, and three exports — a Survex 3D model and a PDF of
+ * each projection.
+ */
+object ThconfigExporter {
+
+    /**
+     * `# symbol-hide group cave-centreline` is left commented out, as it is in the original, with
+     * the original's reason: with it on, Therion can fail to compile the survey.
+     */
+    const val DEFAULT_LAYOUT =
+        "layout local\n" +
+            "  debug off\n" +
+            "  # map-header 0 0 off\n" +
+            "  # symbol-hide group cave-centreline\n" +
+            "endlayout"
+
+    fun export(survey: Survey): String {
+        val name = survey.name
+        return listOf(
+                "encoding utf-8",
+                DEFAULT_LAYOUT,
+                "source \"$name.th\"",
+                "export model -fmt survex -o \"$name-th.3d\"",
+                "export map -proj plan -layout local -o \"$name-plan.pdf\"",
+                "export map -proj extended -layout local -o \"$name-ee.pdf\"",
+            )
+            .joinToString("\n\n")
+    }
+}
+
+/**
  * Emits a Therion `.th` file. Ported from `ThExporter`.
  *
- * The `input` lines referencing `.th2` sketch files are the one thing missing, since this port has
- * no `.th2` exporter yet — so a Therion project built from this file gets the centreline and the
- * metadata but not the drawn sketch.
+ * [th2Files] are the scrap files to pull in — `Name.plan.th2` and `Name.ee.th2` as the Android app
+ * names them. It defaults to none, because the `.th` is a valid file without them and the earliest
+ * version of this port had no `.th2` exporter to name; it is not optional in practice, though. A
+ * `.th` with no `input` lines compiles to a centreline and no drawing, which is a survey with the
+ * survey taken out of it.
  */
 object TherionExporter {
 
-    fun export(survey: Survey, versionInfo: String = "SexyTopo", createdOn: String = ""): String =
+    fun export(
+        survey: Survey,
+        versionInfo: String = "SexyTopo",
+        createdOn: String = "",
+        th2Files: List<String> = emptyList(),
+    ): String =
         buildString {
             append("encoding utf-8\n")
             append("survey ").append(survey.name).append('\n')
             append(SurvexTherionWriter.creationComment(SurveyFormat.THERION, versionInfo, createdOn))
             append("\n\n")
-            // Where the `input "...th2"` lines would go. The original writes the (here empty) list
-            // followed by two newlines regardless, so the blank line is kept rather than tidied
-            // away: a .th2 exporter dropping in later should not shift every line of the file.
+            append(SurvexTherionWriter.inputText(th2Files))
+            // Unconditional in the original, whether or not there were any input lines.
             append("\n\n")
             append("centreline\n")
             // Therion, unlike Survex, has no blank line after the copyright line.

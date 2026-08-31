@@ -63,6 +63,17 @@ enum class Projection2D(val displayName: String, val abbreviation: String) {
     },
     ;
 
+    /**
+     * Whether a surveyor can draw on this projection — which is to say whether [Survey] keeps a
+     * sketch for it. Two of the five: the plan and the unrolled elevation, as in the Android app,
+     * where `GraphActivity` has exactly those two subclasses.
+     *
+     * Here rather than at each caller because two places already asked the question and a third
+     * (the Therion export, which names one scrap file per drawing) was about to.
+     */
+    val isDrawable: Boolean
+        get() = this == PLAN || this == EXTENDED_ELEVATION
+
     abstract fun project(coord3D: Coord3D): Coord2D
 
     abstract fun isLegInPlane(leg: Leg): Boolean

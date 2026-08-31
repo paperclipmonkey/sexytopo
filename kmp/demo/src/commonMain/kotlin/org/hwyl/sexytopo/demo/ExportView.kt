@@ -31,6 +31,7 @@ import org.hwyl.sexytopo.shared.io.export.PocketTopoExporter
 import org.hwyl.sexytopo.shared.io.export.SurvexExporter
 import org.hwyl.sexytopo.shared.io.export.SvgExporter
 import org.hwyl.sexytopo.shared.io.export.Th2Exporter
+import org.hwyl.sexytopo.shared.io.export.ThconfigExporter
 import org.hwyl.sexytopo.shared.io.export.TherionExporter
 import org.hwyl.sexytopo.shared.io.export.XviExporter
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
@@ -43,16 +44,35 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
  * [extension] is not decoration: Survex will not open a file that is not named `.svx`, and a
  * surveyor who has to rename four downloads on a laptop after every trip will stop using the app.
  */
-enum class ExportFormat(val label: String, val extension: String) {
+enum class ExportFormat(
+    val label: String,
+    val extension: String,
+    /**
+     * Whether there is one of these file per *projection* rather than one per survey.
+     *
+     * The plan and the extended elevation are different drawings, so they are different files, and
+     * the Android app tells them apart in the name: `Name.plan.th2` and `Name.ee.th2`,
+     * `SexyTopoConstants.PLAN_SUFFIX` and `EE_SUFFIX` through `DoubleSketchFileExporter`. This
+     * port exported both under one name until that was noticed, so saving the elevation quietly
+     * overwrote the plan — and the two are indistinguishable once written, being the same format
+     * of the same cave.
+     */
+    val perProjection: Boolean = false,
+) {
     SURVEX("Survex .svx", "svx"),
     THERION("Therion .th", "th"),
-    SVG("Drawing .svg", "svg"),
-    XVI("Tracing .xvi", "xvi"),
-    TH2("Therion .th2", "th2"),
+    THCONFIG("Therion .thconfig", "thconfig"),
+    SVG("Drawing .svg", "svg", perProjection = true),
+    XVI("Tracing .xvi", "xvi", perProjection = true),
+    TH2("Therion .th2", "th2", perProjection = true),
     COMPASS("Compass .dat", "dat"),
     POCKET_TOPO("PocketTopo .txt", "txt"),
     NATIVE("SexyTopo JSON", "data.json"),
 }
+
+/** `PLAN_SUFFIX` and `EE_SUFFIX`, which is what goes in a filename before the extension. */
+internal val Projection2D.fileSuffix: String
+    get() = if (this == Projection2D.PLAN) "plan" else "ee"
 
 /**
  * Shows what the survey exports as.
@@ -83,7 +103,19 @@ fun ExportView(
         remember(survey, revision, format, today, projection) {
             when (format) {
                 ExportFormat.SURVEX -> SurvexExporter.export(survey, createdOn = today)
-                ExportFormat.THERION -> TherionExporter.export(survey, createdOn = today)
+                // Naming both scraps, so a Therion project built from these files gets the
+                // drawing and not just the centreline. The names are what this screen would save
+                // them as, which is what makes them findable beside the .th.
+                ExportFormat.THERION ->
+                    TherionExporter.export(
+                        survey,
+                        createdOn = today,
+                        th2Files =
+                            Projection2D.entries
+                                .filter { it.isDrawable }
+                                .map { fileNameFor(survey, ExportFormat.TH2, it) },
+                    )
+                ExportFormat.THCONFIG -> ThconfigExporter.export(survey)
                 // The only export that is a picture. It follows the view the surveyor is looking
                 // at, so exporting from the extended elevation gives the elevation drawing.
                 ExportFormat.SVG -> SvgExporter.export(survey, projection)
@@ -118,7 +150,7 @@ fun ExportView(
                         scale = SvgExporter.SCALE.toFloat(),
                         options =
                             Th2Exporter.Options(
-                                xviFileName = fileNameFor(survey, ExportFormat.XVI),
+                                xviFileName = fileNameFor(survey, ExportFormat.XVI, projection),
                             ),
                     )
 
@@ -158,7 +190,7 @@ fun ExportView(
             }
             TextButton(
                 onClick = {
-                    val where = saveTextFile(fileNameFor(survey, format), text)
+                    val where = saveTextFile(fileNameFor(survey, format, projection), text)
                     savedTo = where
                     saveFailed = where == null
                 },
@@ -168,7 +200,7 @@ fun ExportView(
                 when {
                     saveFailed -> "Could not save a file here"
                     savedTo != null -> "Saved to $savedTo"
-                    else -> fileNameFor(survey, format)
+                    else -> fileNameFor(survey, format, projection)
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color =
@@ -214,7 +246,16 @@ fun ExportView(
  * What the file is called.
  *
  * The survey's own name, which [Survey] has already stripped of path separators, so this cannot
- * escape the directory it is written into however the survey was named.
+ * escape the directory it is written into however the survey was named — plus, for the three
+ * formats that are one file per drawing, which drawing it is.
  */
-internal fun fileNameFor(survey: Survey, format: ExportFormat): String =
-    "${survey.name}.${format.extension}"
+internal fun fileNameFor(
+    survey: Survey,
+    format: ExportFormat,
+    projection: Projection2D = Projection2D.PLAN,
+): String =
+    if (format.perProjection) {
+        "${survey.name}.${projection.fileSuffix}.${format.extension}"
+    } else {
+        "${survey.name}.${format.extension}"
+    }

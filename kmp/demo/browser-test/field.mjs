@@ -434,6 +434,103 @@ async function toggleOption(name) {
   await page.keyboard.press('Escape'); await page.waitForTimeout(600)
 }
 
+/**
+ * Where the export screen's format chips are, found rather than counted.
+ *
+ * They are a FlowRow, so adding one format reflows every chip after it and can push a whole row
+ * down. Adding the `.thconfig` did exactly that: the old hard-coded "second row, middle chip" then
+ * pointed at *Tracing .xvi*, and the check went on passing — against the wrong format — until the
+ * filename it asserted disagreed. Save file moved fifty pixels down at the same time and landed on
+ * a chip.
+ *
+ * A chip is the only thing drawn on this screen's background, so its top edge is a long horizontal
+ * run of not-the-background: an outline for an unselected chip, a filled one for the selected one.
+ * The row's top edge shows every chip in the row; the rows below it show only the filled one, so
+ * the y with the most runs in each band is the top edge and the runs on it are the chips.
+ */
+const exportChips = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, background]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    const isBackground = (x, y) => {
+      const i = (y * c.width + x) * 4
+      return Math.abs(px[i] - background[0]) < 6 &&
+        Math.abs(px[i + 1] - background[1]) < 6 &&
+        Math.abs(px[i + 2] - background[2]) < 6
+    }
+    const runsAcross = (y) => {
+      const found = []
+      let start = null
+      for (let x = 0; x < c.width; x++) {
+        const bg = isBackground(x, y)
+        if (!bg && start === null) start = x
+        if (bg && start !== null) {
+          if (x - start >= 30) found.push([start, x - 1])
+          start = null
+        }
+      }
+      if (start !== null && c.width - start >= 30) found.push([start, c.width - 1])
+      return found
+    }
+    // Below the app bar, above the exported text: the chips live in that band and nothing else
+    // wide enough to make a run does.
+    //
+    // Grouped by how far apart the y's are rather than by whether there is a gap between them: a
+    // row shows its chips at its top edge *and* again at its bottom edge, and the two are not
+    // contiguous when no chip in that row is the selected one. Gap-banding therefore found seven
+    // rows in four, and every chip twice.
+    //
+    // Forty is the threshold because a chip is 32 tall and the rows are 50 apart, so it is the
+    // only number that separates a row from the next one without splitting a row in half.
+    const rows = []
+    for (let y = 56; y < 280; y++) {
+      const found = runsAcross(y)
+      if (found.length === 0) continue
+      const row = rows[rows.length - 1]
+      if (row && y - row.top <= 40) {
+        row.bottom = y
+        if (found.length > row.runs.length) row.runs = found
+      } else {
+        rows.push({ top: y, bottom: y, runs: found })
+      }
+    }
+    // A chip is 32 tall, so its top and bottom edges are 31 apart. A line of text is a third of
+    // that — which is what the "Saved to ..." line under the buttons turned out to be, appearing
+    // as a tenth chip only *after* the first save in the run and only in that one check.
+    return rows
+      .filter((row) => row.bottom - row.top >= 24)
+      .flatMap((row) =>
+        row.runs.map(([from, to]) => [Math.round((from + to) / 2), row.top + 16]))
+  }, [b64, EXPORT_BACKGROUND])
+}
+
+/** Where to tap for a named export format, with the export screen showing. */
+async function exportChip(name) {
+  const index = EXPORT_FORMATS.indexOf(name)
+  if (index < 0) throw new Error(`no export format called ${name}`)
+  const chips = await exportChips()
+  if (chips.length !== EXPORT_FORMATS.length) {
+    throw new Error(
+      `the export screen shows ${chips.length} chips, not ${EXPORT_FORMATS.length}` +
+        ` (at ${chips.map((chip) => chip.join(',')).join(' ')})`)
+  }
+  return chips[index]
+}
+
+/** Save file, which sits below the last row of chips however many rows there are. */
+async function exportSaveFile() {
+  const chips = await exportChips()
+  const lowest = Math.max(...chips.map(([, y]) => y))
+  return [117, lowest + 52]
+}
+
 /** A finger drag on the canvas, in canvas coordinates. */
 async function drag([x0, y0], [x1, y1]) {
   await page.mouse.move(box.x + x0, box.y + y0)
@@ -446,10 +543,21 @@ const PALETTE_BLOCKS = [112, 388]
 const PALETTE_WATER = [112, 588]
 const CANCEL_DELETE_SURVEY = [237, 516]
 const CONFIRM_DELETE_SURVEY = [312, 516]
-// The export screen's chips wrap to three rows on a phone, so Save file sits below all of them.
-const EXPORT_SAVE_FILE = [117, 232]
-// Second row, middle chip.
-const EXPORT_TH2_CHIP = [179, 130]
+// The export screen's own background, which its chips are the only thing drawn on.
+const EXPORT_BACKGROUND = [245, 245, 245]
+// The chips, in the order ExportFormat declares them. They wrap, so which row a chip lands on
+// depends on how wide the ones before it are and on how wide the phone is — see exportChips().
+const EXPORT_FORMATS = [
+  'svx',
+  'th',
+  'thconfig',
+  'svg',
+  'xvi',
+  'th2',
+  'dat',
+  'txt',
+  'json',
+]
 // The cross-section editor's own bar: Cancel at the left, Done at the right.
 const EDITOR_CANCEL = [46, 24]
 // The station menu's first action row. Measured once from the rendered dialog, like the settings
@@ -1863,7 +1971,7 @@ await page.screenshot({ path: join(shotDir, 'field-export.png') })
 
 const download = await Promise.all([
   page.waitForEvent('download', { timeout: 10000 }).catch(() => null),
-  at(...EXPORT_SAVE_FILE),
+  at(...(await exportSaveFile())),
 ]).then(([d]) => d)
 
 if (!download) {
@@ -1904,17 +2012,17 @@ await page.screenshot({ path: join(shotDir, 'field-export-saved.png') })
 // `.th2`, the last format that used to be off the edge, and the one with the most structure to get
 // wrong: it is the drawing rather than the centreline.
 await page.screenshot({ path: join(shotDir, 'field-export-formats.png') })
-await at(...EXPORT_TH2_CHIP); await page.waitForTimeout(700)
+await at(...(await exportChip('th2'))); await page.waitForTimeout(700)
 await page.screenshot({ path: join(shotDir, 'field-export-th2.png') })
 
 const th2Download = await Promise.all([
   page.waitForEvent('download', { timeout: 10000 }).catch(() => null),
-  at(...EXPORT_SAVE_FILE),
+  at(...(await exportSaveFile())),
 ]).then(([d]) => d)
 
 if (!th2Download) {
   fail('the .th2 chip produced no download — the format may be off the edge of the screen again')
-} else if (th2Download.suggestedFilename() !== 'Swildons.th2') {
+} else if (th2Download.suggestedFilename() !== 'Swildons.plan.th2') {
   fail(`the .th2 came out named ${th2Download.suggestedFilename()}`)
 } else {
   const th2 = readFileSync(await th2Download.path(), 'utf8')
@@ -1922,10 +2030,52 @@ if (!th2Download) {
     fail('the .th2 has no encoding line, so Therion will not read it')
   } else if (!th2.includes('scrap Swildons-plan')) {
     fail(`the .th2 has no plan scrap: ${th2.slice(0, 200)}`)
-  } else if (!th2.includes('##XTHERION##') || !th2.includes('Swildons.xvi')) {
+  } else if (!th2.includes('##XTHERION##') || !th2.includes('Swildons.plan.xvi')) {
     fail('the .th2 does not reference the tracing image it is meant to be drawn over')
   } else {
     pass('every export format can be reached on a phone, and the .th2 is right')
+  }
+}
+
+// ---- and Therion can actually build what comes out -----------------------------------------
+// Therion does not compile a .th; it compiles a project, and the project file is the .thconfig.
+// Without one, everything this app exports for Therion is a pile of files somebody has to write a
+// config for before they can look at any of it — and the .th has to name both scraps, or the
+// project builds a centreline with no cave on it.
+//
+// The two are checked together because that is the only way to check either: what matters is that
+// the names in one file are the names the other saves under.
+await at(...(await exportChip('thconfig'))); await page.waitForTimeout(700)
+
+const thconfig = await Promise.all([
+  page.waitForEvent('download', { timeout: 10000 }).catch(() => null),
+  at(...(await exportSaveFile())),
+]).then(([d]) => d)
+
+await at(...(await exportChip('th'))); await page.waitForTimeout(700)
+
+const th = await Promise.all([
+  page.waitForEvent('download', { timeout: 10000 }).catch(() => null),
+  at(...(await exportSaveFile())),
+]).then(([d]) => d)
+
+if (!thconfig || !th) {
+  fail('the .thconfig or the .th produced no download')
+} else if (thconfig.suggestedFilename() !== 'Swildons.thconfig') {
+  fail(`the project file came out named ${thconfig.suggestedFilename()}`)
+} else {
+  const config = readFileSync(await thconfig.path(), 'utf8')
+  const centreline = readFileSync(await th.path(), 'utf8')
+  if (!config.includes('source "Swildons.th"')) {
+    fail(`the project file does not name the survey beside it: ${config.slice(0, 120)}`)
+  } else if (!config.includes('export map -proj plan') || !config.includes('-proj extended')) {
+    fail('the project file does not ask Therion for either drawing')
+  } else if (!centreline.includes('input "Swildons.plan.th2"')) {
+    fail('the .th does not pull in the plan scrap, so Therion would draw no cave')
+  } else if (!centreline.includes('input "Swildons.ee.th2"')) {
+    fail('the .th does not pull in the elevation scrap')
+  } else {
+    pass('the Therion export is a project Therion can build, drawings and all')
   }
 }
 
