@@ -2150,6 +2150,34 @@ These are the things that would actually shape a real port.
    the sentences rather than the hex. It reaches the *live* session as well as the next one, since
    the only moment anybody turns it on is with a misbehaving instrument already connected.
 
+67. **The drawing you make inside a cross-section was invisible on the plan.** This port's own, and
+   the largest missing *drawing* behaviour found on the branch. `GraphView.drawCrossSection` calls
+   `drawCrossSectionSubSketch`, which is one line — `getSketch().scale(xsScale).translate(
+   centreOnSurvey)` — and this port had nothing corresponding to it: the canvas drew the splay
+   star and the marker dot and never read `CrossSectionDetail.sketch` at all.
+
+   What that costs is the feature's entire point. A surveyor drops a section at a station, taps it,
+   draws the shape of the passage inside it, goes back to the plan — and sees the same star of
+   splays that was there before. The drawing is saved, it round-trips through the file, it exports
+   to Therion and SVG, and it reopens correctly in the editor. There is simply nothing on the plan
+   to say so, and the only reasonable conclusion from looking at the plan is that it did not save.
+   The natural second move is to draw it again.
+
+   How it hid: every check over cross-sections was about *the model or the file* — that the drawing
+   is stored, that it survives a restart, that it reaches the exporters — and every one of them
+   passed. None asked what the plan looks like afterwards, which is the one question a surveyor
+   asks. `CrossSectionOnThePlanTest` renders the plan through headless Skia with a box drawn inside
+   a section in a colour nothing else on the canvas uses, and counts it: **0 pixels before, and the
+   paired case proves the colour is absent until the section is drawn in**. A scene assembled
+   correctly and never drawn passes any test written one layer up.
+
+   Only the paths are drawn, because this port's section editor offers move, draw and erase and no
+   way to place a symbol or a label — so `symbolDetails` and `textDetails` in a section's sketch
+   are always empty. Worth writing down for whoever changes that: `SymbolDetail.scale` grows a
+   symbol *in place* rather than moving it, which is deliberate and right for the plan's own
+   sizing and wrong for this transform. Upstream has the same semantics, so upstream has that bug
+   waiting wherever a symbol can be stamped inside a section.
+
 ---
 
 ## A defect worth reporting upstream
@@ -2282,7 +2310,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 744
-shared tests on three targets, 359 over the UI's own logic, 18 running the iOS half in a simulator,
+shared tests on three targets, 360 over the UI's own logic, 18 running the iOS half in a simulator,
 101 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the

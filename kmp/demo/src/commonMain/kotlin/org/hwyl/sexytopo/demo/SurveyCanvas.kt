@@ -1185,6 +1185,33 @@ private fun DrawScope.drawSurvey(
                 radius = CanvasSizes.CROSS_SECTION_RADIUS_DP.dp.toPx(),
                 center = centre,
             )
+
+            // The passage outline drawn *inside* the section, on the plan where the section sits.
+            //
+            // `GraphView.drawCrossSectionSubSketch`, which is one line of Java —
+            // `getSketch().scale(xsScale).translate(centreOnSurvey)` — and was missing here
+            // entirely: this port drew the splay star and the marker dot and never read
+            // `CrossSectionDetail.sketch` at all. That makes the feature's whole point invisible.
+            // A surveyor drops a section, taps it, draws the shape of the passage, comes back to
+            // the plan and sees the same star of splays as before. It saved, it exports, it
+            // reopens in the editor — but the only reasonable conclusion from the plan is that it
+            // did not, and the second attempt is to draw it again.
+            //
+            // Only the paths: this port's section editor offers move, draw and erase and no way
+            // to place a symbol or a label, so `symbolDetails` and `textDetails` are always empty
+            // in a section's sketch. Worth knowing if that ever changes, because `scale` grows a
+            // symbol *in place* rather than moving it — deliberate for the plan's own sizing, and
+            // wrong for this transform, in the Java as much as here.
+            for (stroke in shown.sketch.pathDetails) {
+                if (stroke.path.size < 2) continue
+                val ink = stroke.getDrawColour(options.darkMode)
+                if (!ink.isDrawable) continue
+                drawPolyline(
+                    stroke.path.map { project(it.scale(sectionScale) + shown.position) },
+                    Color(ink.intValue),
+                    options.style.sketchLineWidthDp.dp.toPx(),
+                )
+            }
         }
 
         // While re-aiming, the line the section is being aimed along: station to finger. Without
