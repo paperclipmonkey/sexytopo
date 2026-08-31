@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 733 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 737 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
@@ -66,6 +66,7 @@ Being precise about this matters more than the demo looking good.
 | **The drawing can be made big enough to read by head torch** | **Verified** | `preferences_sketching.xml`'s eight numbers — line widths, station size, the two font sizes, the symbol and text starting sizes — plus `pref_delete_path_fragments`, which decides whether the eraser takes the bit of a wall under your finger or the whole stroke. All nine were hard-coded here, and the eraser rule was worse than that: `SketchEditor.eraseAt` has taken the flag since the sketch was ported and nothing ever passed it. `SketchStyleTest` covers the file and the bounds; `DrawingSizeTest` renders the same survey at two leg widths through headless Skia and counts the red, because a number in a file is not a thicker line; `field.mjs` types 8 into the box on a phone screen and watches the plan go from 605 red pixels to 1852. Two upstream preferences that do nothing came out of reading this — finding 52 |
 | **A bearing can be typed the way a compass reads it** | **Verified** | `pref_deg_mins_secs` and `pref_inc_deg_mins_secs`. A DistoX reports a decimal and nobody needs this; a sighting compass is graduated in minutes and reads 123° 30′, and converting that in your head at every station is how a survey acquires arithmetic errors nobody can find afterwards — which matters here because this port already went out of its way to support a compass and tape and then asked for a decimal nobody's instrument shows. `DegreesMinutesSecondsTest` has the conversion both ways, the rounding carry, and the case upstream gets wrong; `field.mjs` turns both switches on, types 123 and 30 into the three boxes on a phone screen, flips the inclination's sign with the +/- button, and checks the survey stored 123.5 and **-5.5** — the direction as well as the size |
 | **A packet the app cannot read costs a shot, not the trip** | **Verified** | every byte from a radio reaches one method, on the main thread, and none of it is under anybody's control — a truncated notification, a firmware revision with a field more, a device whose advertised name matched a profile it does not really speak. On iOS a Kotlin exception raised inside a CoreBluetooth callback ends the process, and an app that dies takes the connection, the screen and the surveyor's confidence with it. `InstrumentSessionTest` attaches a decoder that throws and checks the link stays up, nothing becomes a reading, and the log says a packet was dropped — run against the unguarded version, where it fails. Finding 56 |
+| **A scan that finds nothing says what it did find** | **Verified** | *"no BRIC5 found — is it switched on and in range?"* is the right question only when the answer might be no. An instrument on the table, switched on, advertising under a name the app does not match — a renamed BRIC, a firmware that drops the underscore, the wrong model picked on the connection screen — gives exactly the same silence, and sends the surveyor to check batteries that are fine. `GattSession` now remembers the named devices it turned down and the failure lists them, naming any that *are* instruments this app knows: **"no BRIC5 found - saw BRIC4_0123 (a BRIC4) instead"**. Four tests in `GattSessionTest`, including that nameless peripherals are not listed and that a car park does not fill the screen. Finding 57 |
 | The instrument log is kept, persisted and readable on the phone | **Verified** | `ActivityLogTest` for the bounded queues and the file format; `instrument.mjs` connects a fake DistoX-BLE, takes a calibration, and then reads the log back off the clipboard — count, timestamps and all |
 | The desktop build keeps its surveys too | **Verified** | a survey written by one `SurveyLibrary` and read by a second over the same directory, in SexyTopo's own file layout, plus the three platform conventions for where that directory goes |
 | **A real-sized cave works, not just a demo one** | **Verified** | `BigSurveyTest` builds a four-thousand-station passage — past where every tree walk in this port used to overflow the stack — and projects it to a plan and an extended elevation, builds its wireframe, counts its statistics, exports it to Survex and Therion and reads it back, on all three targets, along with SVG, `.xvi`, `.th2`, Compass and PocketTopo — and rubs out and undoes on a drawing of eight thousand strokes |
@@ -1780,6 +1781,33 @@ These are the things that would actually shape a real port.
    exception on Kotlin/Native is not catchable at all, so the only defence against those is not
    provoking them.
 
+57. **A diagnosis that sends you to check the batteries.** This port's own, and found by asking
+   what would happen when somebody first points this at a real instrument — which, as of tonight,
+   is a question with a date on it.
+
+   The connection attempt scans, ignores every peripheral whose advertised name does not match the
+   selected profile's prefix, and eventually times out with *"no BRIC5 found — is it switched on
+   and in range?"*. That message is correct for one cause and misleading for several others, and
+   the others are more likely on a first attempt: a renamed unit (BRIC firmware lets you), a
+   model selected that is one prefix away from the one on the table, a firmware that spells its
+   name differently from `InstrumentType`'s table. All of them look identical from the app: a
+   silent scan and a wrong question at the end of it.
+
+   The instrument this port is about to meet is a **BRIC5**, and the BRIC4 and BRIC5 differ by
+   exactly one character of advertised name and share a driver in the Android app — `InstrumentType`
+   maps both to `Bric4Communicator`, which this port mirrors as `BRIC5 = BRIC4.copy(...)`. So the
+   most probable first failure is the one the old message described worst.
+
+   The scan now keeps the names it turned down and the failure lists them, running them back
+   through `InstrumentProfile.forAdvertisedName` — the same matcher the connection screen uses —
+   so a known instrument is named as one: *"no BRIC5 found - saw BRIC4_0123 (a BRIC4) instead"*.
+   Bounded at six, and nameless peripherals are skipped, because most of a BLE scan is a car park.
+
+   The general form is the one worth keeping: **a failure message is a hypothesis, and a hypothesis
+   that fits only one cause is worse than none when it fits the wrong one confidently.** The
+   message did not say "I found nothing" — it said "your instrument is off or far away", which is
+   a claim about the world the app had not checked.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1899,7 +1927,7 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 733
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 737
 shared tests on three targets, 319 over the UI's own logic, 18 running the iOS half in a simulator,
 94 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The

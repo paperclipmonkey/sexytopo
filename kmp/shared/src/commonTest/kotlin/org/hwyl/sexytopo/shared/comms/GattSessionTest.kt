@@ -264,6 +264,85 @@ class GattSessionTest {
         )
     }
 
+    /**
+     * When something *was* there, the failure names it instead of asking about the batteries.
+     *
+     * "Is it switched on and in range?" is the right question only when the answer might be no.
+     * An instrument on the table, switched on, advertising under a name this app does not match —
+     * a renamed BRIC, a firmware that drops the underscore, the wrong model picked on the
+     * connection screen — produces exactly the same silence, and sends the surveyor to check
+     * batteries that are fine. Underground that is the difference between a fixed problem and an
+     * abandoned trip.
+     */
+    @Test
+    fun aScanThatFoundNothingUsableSaysWhatItDidFind() {
+        val session = session()
+        session.start(0)
+        session.peripheralDiscovered("Someone's AirPods", session.generation)
+        session.peripheralDiscovered("TPMS-4471", session.generation)
+
+        session.tick(GattSession.DEFAULT_TIMEOUT_MILLIS)
+
+        val failure = session.failure.orEmpty()
+        assertTrue(failure.contains("AirPods"), "did not say what it saw: $failure")
+        assertTrue(failure.contains("TPMS-4471"), failure)
+        assertTrue(
+            !failure.contains("switched on and in range"),
+            "it saw devices, so asking whether the instrument is on is the wrong question: $failure",
+        )
+    }
+
+    /**
+     * And when one of them is an instrument this app knows, it says which — by name.
+     *
+     * The commonest way to meet this is having the wrong model selected: a BRIC5 and a BRIC4 are
+     * one prefix apart, share a driver, and look identical on a table. Naming the thing that *was*
+     * there turns a dead end into a one-tap fix.
+     */
+    @Test
+    fun anInstrumentOfAnotherKindIsNamedAsSuch() {
+        val session = session(InstrumentProfile.BRIC5)
+        session.start(0)
+        session.peripheralDiscovered("BRIC4_0123", session.generation)
+
+        session.tick(GattSession.DEFAULT_TIMEOUT_MILLIS)
+
+        val failure = session.failure.orEmpty()
+        assertTrue(failure.contains("BRIC4_0123"), failure)
+        assertTrue(failure.contains("a BRIC4"), "did not say what kind of thing it was: $failure")
+    }
+
+    /** An unnamed peripheral is most of a BLE scan and none of it is a clue. */
+    @Test
+    fun namelessDevicesAreNotListed() {
+        val session = session()
+        session.start(0)
+        session.peripheralDiscovered(null, session.generation)
+        session.peripheralDiscovered("", session.generation)
+
+        session.tick(GattSession.DEFAULT_TIMEOUT_MILLIS)
+
+        assertTrue(
+            session.failure!!.contains("switched on and in range"),
+            "nothing identifiable was seen, so the original question is still the right one: " +
+                "${session.failure}",
+        )
+    }
+
+    /** And a car park full of them does not fill the screen. */
+    @Test
+    fun theListOfWhatWasSeenIsBounded() {
+        val session = session()
+        session.start(0)
+        repeat(40) { session.peripheralDiscovered("Device-$it", session.generation) }
+
+        session.tick(GattSession.DEFAULT_TIMEOUT_MILLIS)
+
+        val failure = session.failure.orEmpty()
+        val listed = (0 until 40).count { failure.contains("Device-$it") }
+        assertEquals(GattSession.MOST_NAMES_WORTH_REPORTING, listed, failure)
+    }
+
     @Test
     fun timingOutAfterConnectingTearsTheConnectionDown() {
         val session = session()

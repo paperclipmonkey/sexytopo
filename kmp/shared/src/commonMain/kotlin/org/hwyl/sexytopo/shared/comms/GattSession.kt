@@ -167,9 +167,49 @@ class GattSession(
     /** A peripheral advertised [advertisedName]. Returns [Action.CONNECT] if it is ours. */
     fun peripheralDiscovered(advertisedName: String?, generation: Int): Action {
         if (!isCurrent(generation) || phase != Phase.SCANNING) return Action.NONE
-        if (!link.matches(advertisedName)) return Action.NONE
+        if (!link.matches(advertisedName)) {
+            noteSeen(advertisedName)
+            return Action.NONE
+        }
         phase = Phase.CONNECTING
         return Action.CONNECT
+    }
+
+    /**
+     * Every named device the scan turned down, so the timeout can say what it saw.
+     *
+     * Bounded, and ordered by first sighting. A scan in a car park picks up phones, watches, tyre
+     * sensors and somebody's headphones, and a failure message is worth reading only if it fits on
+     * a phone screen.
+     */
+    private val declined = LinkedHashSet<String>()
+
+    private fun noteSeen(advertisedName: String?) {
+        val name = advertisedName?.trim().orEmpty()
+        // Unnamed peripherals are most of a BLE scan and none of them can be identified by a
+        // surveyor, so counting them would be noise where a name is signal.
+        if (name.isEmpty() || declined.size >= MOST_NAMES_WORTH_REPORTING) return
+        declined += name
+    }
+
+    /**
+     * What the scan saw and turned down, and whether any of it is an instrument this app knows.
+     *
+     * The second half is the useful half. `InstrumentProfile.forAdvertisedName` is the same
+     * matcher the connection screen uses, so if the surveyor has BRIC5 selected and a BRIC4 is
+     * what is actually on the table, this says so by name instead of leaving them to guess.
+     */
+    internal fun whatElseWasSeen(): String? {
+        if (declined.isEmpty()) return null
+        val recognised =
+            declined.mapNotNull { name ->
+                InstrumentProfile.forAdvertisedName(name)?.let { "$name (a ${it.name})" }
+            }
+        return if (recognised.isNotEmpty()) {
+            "saw " + recognised.joinToString() + " instead"
+        } else {
+            "saw " + declined.joinToString() + ", none of which is an instrument this app knows"
+        }
     }
 
     fun peripheralConnected(generation: Int): Action {
@@ -242,7 +282,17 @@ class GattSession(
 
     private fun timeoutMessage(): String =
         when (phase) {
-            Phase.SCANNING -> "no ${profile.name} found - is it switched on and in range?"
+            // "Is it switched on and in range?" is the right question only when the answer might
+            // be no. An instrument sitting on the table, switched on, advertising under a name
+            // this app does not match — a renamed BRIC, a firmware that drops the underscore, the
+            // wrong model selected — gives exactly the same silence, and sends the surveyor to
+            // check the batteries on a device whose batteries are fine.
+            Phase.SCANNING ->
+                listOfNotNull(
+                    "no ${profile.name} found",
+                    whatElseWasSeen(),
+                    if (declined.isEmpty()) "is it switched on and in range?" else null,
+                ).joinToString(" - ")
             Phase.CONNECTING -> "${profile.name} found but would not connect"
             else -> "${profile.name} connected but did not finish setting up"
         }
@@ -262,6 +312,15 @@ class GattSession(
     private fun isCurrent(generation: Int): Boolean = generation == this.generation
 
     companion object {
+        /**
+         * How many declined names a failure message will list.
+         *
+         * A scan in a car park sees phones, watches, headphones and tyre sensors. Six is enough
+         * to spot the instrument that was there under the wrong name and few enough to read on a
+         * phone, in a cave, by head torch.
+         */
+        const val MOST_NAMES_WORTH_REPORTING = 6
+
         const val DEFAULT_TIMEOUT_MILLIS: Long = 15_000
     }
 }
