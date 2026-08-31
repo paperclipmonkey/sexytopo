@@ -103,62 +103,7 @@ fun ExportView(
 
     val text =
         remember(survey, revision, format, today, projection) {
-            when (format) {
-                ExportFormat.SURVEX -> SurvexExporter.export(survey, createdOn = today)
-                // Naming both scraps, so a Therion project built from these files gets the
-                // drawing and not just the centreline. The names are what this screen would save
-                // them as, which is what makes them findable beside the .th.
-                ExportFormat.THERION ->
-                    TherionExporter.export(
-                        survey,
-                        createdOn = today,
-                        th2Files =
-                            Projection2D.entries
-                                .filter { it.isDrawable }
-                                .map { fileNameFor(survey, ExportFormat.TH2, it) },
-                    )
-                ExportFormat.THCONFIG -> ThconfigExporter.export(survey)
-                // The only export that is a picture. It follows the view the surveyor is looking
-                // at, so exporting from the extended elevation gives the elevation drawing.
-                ExportFormat.SVG -> SvgExporter.export(survey, projection)
-                ExportFormat.COMPASS ->
-                    CompassExporter.export(survey, fallbackDate = SurveyDate.parseOrNull(today))
-                // Therion's own background-image format: the drawing as line segments, to trace
-                // over in xtherion. The scale and frame are the SVG exporter's, so the two files
-                // describe the same drawing at the same size.
-                ExportFormat.XVI ->
-                    XviExporter.export(
-                        sketch = survey.getSketch(projection),
-                        space = projection.project(survey),
-                        scale = SvgExporter.SCALE.toFloat(),
-                        gridFrame =
-                            SvgExporter.addBorder(SvgExporter.exportFrame(survey, projection))
-                                .scale(SvgExporter.SCALE.toFloat()),
-                    )
-
-                // The scrap file, naming the .xvi it expects beside it. Exporting the two
-                // together is the point: a .th2 alone has the stations and the symbols but not
-                // the passage walls, which live in the image the surveyor traces.
-                ExportFormat.TH2 ->
-                    Th2Exporter.export(
-                        survey = survey,
-                        projection = projection,
-                        innerFrame =
-                            SvgExporter.exportFrame(survey, projection)
-                                .scale(SvgExporter.SCALE.toFloat()),
-                        outerFrame =
-                            SvgExporter.addBorder(SvgExporter.exportFrame(survey, projection))
-                                .scale(SvgExporter.SCALE.toFloat()),
-                        scale = SvgExporter.SCALE.toFloat(),
-                        options =
-                            Th2Exporter.Options(
-                                xviFileName = fileNameFor(survey, ExportFormat.XVI, projection),
-                            ),
-                    )
-
-                ExportFormat.POCKET_TOPO -> PocketTopoExporter.export(survey)
-                ExportFormat.NATIVE -> SurveyJson.write(survey)
-            }
+            exportText(survey, format, projection, today)
         }
 
     Column(modifier.fillMaxSize()) {
@@ -260,6 +205,80 @@ fun ExportView(
  * escape the directory it is written into however the survey was named — plus, for the three
  * formats that are one file per drawing, which drawing it is.
  */
+/**
+ * What a format's file says, as a function of the survey rather than of the screen.
+ *
+ * Lifted out of the composable it lived inside, and not as tidying-up. While it was an expression
+ * in a `remember` block, the only way to learn what any of these exporters does with a given survey
+ * was to run the app and look — and a throw in there is a throw *inside a composition*, which on
+ * the web is finding 11: no error, no blank page, the last frame simply stays up and the app looks
+ * frozen. An exporter that fails on some shape of survey is invisible exactly where it matters.
+ *
+ * Out here it can be handed an empty survey, or a one-station one, and asked whether it throws.
+ */
+internal fun exportText(
+    survey: Survey,
+    format: ExportFormat,
+    projection: Projection2D,
+    today: String,
+): String =
+        when (format) {
+            ExportFormat.SURVEX -> SurvexExporter.export(survey, createdOn = today)
+            // Naming both scraps, so a Therion project built from these files gets the
+            // drawing and not just the centreline. The names are what this screen would save
+            // them as, which is what makes them findable beside the .th.
+            ExportFormat.THERION ->
+                TherionExporter.export(
+                    survey,
+                    createdOn = today,
+                    th2Files =
+                        Projection2D.entries
+                            .filter { it.isDrawable }
+                            .map { fileNameFor(survey, ExportFormat.TH2, it) },
+                )
+            ExportFormat.THCONFIG -> ThconfigExporter.export(survey)
+            // The only export that is a picture. It follows the view the surveyor is looking
+            // at, so exporting from the extended elevation gives the elevation drawing.
+            ExportFormat.SVG -> SvgExporter.export(survey, projection)
+            ExportFormat.COMPASS ->
+                CompassExporter.export(survey, fallbackDate = SurveyDate.parseOrNull(today))
+            // Therion's own background-image format: the drawing as line segments, to trace
+            // over in xtherion. The scale and frame are the SVG exporter's, so the two files
+            // describe the same drawing at the same size.
+            ExportFormat.XVI ->
+                XviExporter.export(
+                    sketch = survey.getSketch(projection),
+                    space = projection.project(survey),
+                    scale = SvgExporter.SCALE.toFloat(),
+                    gridFrame =
+                        SvgExporter.addBorder(SvgExporter.exportFrame(survey, projection))
+                            .scale(SvgExporter.SCALE.toFloat()),
+                )
+
+            // The scrap file, naming the .xvi it expects beside it. Exporting the two
+            // together is the point: a .th2 alone has the stations and the symbols but not
+            // the passage walls, which live in the image the surveyor traces.
+            ExportFormat.TH2 ->
+                Th2Exporter.export(
+                    survey = survey,
+                    projection = projection,
+                    innerFrame =
+                        SvgExporter.exportFrame(survey, projection)
+                            .scale(SvgExporter.SCALE.toFloat()),
+                    outerFrame =
+                        SvgExporter.addBorder(SvgExporter.exportFrame(survey, projection))
+                            .scale(SvgExporter.SCALE.toFloat()),
+                    scale = SvgExporter.SCALE.toFloat(),
+                    options =
+                        Th2Exporter.Options(
+                            xviFileName = fileNameFor(survey, ExportFormat.XVI, projection),
+                        ),
+                )
+
+            ExportFormat.POCKET_TOPO -> PocketTopoExporter.export(survey)
+            ExportFormat.NATIVE -> SurveyJson.write(survey)
+        }
+
 /**
  * The other files a format writes, besides the one shown on screen.
  *
