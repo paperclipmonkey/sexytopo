@@ -90,11 +90,14 @@ fun ExportView(
     revision: Int,
     modifier: Modifier = Modifier,
     projection: Projection2D = Projection2D.PLAN,
+    svgOptions: SvgExporter.Options = SvgExporter.Options.DEFAULT,
+    onSvgOptionsChange: (SvgExporter.Options) -> Unit = {},
 ) {
     var format by remember { mutableStateOf(ExportFormat.SURVEX) }
     var copied by remember(format) { mutableStateOf(false) }
     var savedTo by remember(format) { mutableStateOf<String?>(null) }
     var saveFailed by remember(format) { mutableStateOf(false) }
+    var choosingSvgOptions by remember { mutableStateOf(false) }
 
     // Today, from the device's own clock, because these files date the trip. The shared exporters
     // take the date as a parameter rather than reading a clock - that is what makes their golden
@@ -102,9 +105,20 @@ fun ExportView(
     val today = remember(survey, revision) { todayIso() }
 
     val text =
-        remember(survey, revision, format, today, projection) {
-            exportText(survey, format, projection, today)
+        remember(survey, revision, format, today, projection, svgOptions) {
+            exportText(survey, format, projection, today, svgOptions)
         }
+
+    if (choosingSvgOptions) {
+        SvgExportDialog(
+            options = svgOptions,
+            onDismiss = { choosingSvgOptions = false },
+            onSave = {
+                onSvgOptionsChange(it)
+                choosingSvgOptions = false
+            },
+        )
+    }
 
     Column(modifier.fillMaxSize()) {
         // Wrapped rather than scrolled sideways, which is what this was.
@@ -148,6 +162,14 @@ fun ExportView(
                     saveFailed = where == null || !companionsSaved
                 },
             ) { Text(if (companionFiles(survey, format).isEmpty()) "Save file" else "Save files") }
+            // Only on the format it is about. The Android app asks these thirteen questions in a
+            // dialog *on the way out* - tap SVG, answer, then the file is written - which is one
+            // tap more than anybody wants when they already know the answers. Here the preview
+            // below redraws as they are changed, so the dialog is worth opening only when the
+            // drawing is wrong, and the export itself stays a single button.
+            if (format == ExportFormat.SVG) {
+                TextButton(onClick = { choosingSvgOptions = true }) { Text("Options") }
+            }
             Spacer(Modifier.weight(1f))
             Text(
                 when {
@@ -221,6 +243,7 @@ internal fun exportText(
     format: ExportFormat,
     projection: Projection2D,
     today: String,
+    svgOptions: SvgExporter.Options = SvgExporter.Options.DEFAULT,
 ): String =
         when (format) {
             ExportFormat.SURVEX -> SurvexExporter.export(survey, createdOn = today)
@@ -239,7 +262,7 @@ internal fun exportText(
             ExportFormat.THCONFIG -> ThconfigExporter.export(survey)
             // The only export that is a picture. It follows the view the surveyor is looking
             // at, so exporting from the extended elevation gives the elevation drawing.
-            ExportFormat.SVG -> SvgExporter.export(survey, projection)
+            ExportFormat.SVG -> SvgExporter.export(survey, projection, svgOptions)
             ExportFormat.COMPASS ->
                 CompassExporter.export(survey, fallbackDate = SurveyDate.parseOrNull(today))
             // Therion's own background-image format: the drawing as line segments, to trace

@@ -308,26 +308,42 @@ internal fun preferencesFrom(
         manualControls = manualControls,
     )
 
-/** A labelled switch with a line of explanation, as the settings rows above it already are. */
+/**
+ * A labelled switch with a line of explanation, as the settings rows above it already are.
+ *
+ * [enabled] greys the row out rather than removing it, which is what `android:dependency` does on
+ * an Android preference screen and is the right behaviour for the same reason: a setting that
+ * disappears when its parent is turned off is a setting the surveyor cannot find again to work out
+ * why it did nothing. It also keeps the dialog one height, which the browser checks rely on.
+ */
 @Composable
 internal fun Toggle(
     title: String,
     detail: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
 ) {
+    val dim = if (enabled) 1f else DISABLED_ALPHA
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = dim),
+            )
             Text(
                 detail,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = dim),
             )
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
+
+/** Material's own disabled opacity, which is what the greyed-out rows above are drawn at. */
+private const val DISABLED_ALPHA = 0.38f
 
 @Composable
 internal fun NumberField(

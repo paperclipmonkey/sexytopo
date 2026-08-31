@@ -104,6 +104,23 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
 
                 HorizontalDivider()
 
+                // Said before Start is pressed rather than after, because "this instrument cannot
+                // be calibrated from the app" is something to learn while deciding whether to
+                // carry a target board into a cave. A BRIC has no calibration commands at all -
+                // `InstrumentFamily.BRIC4` is declared with an empty command set, which is what
+                // the Android app's Bric4Manager sends too - because a BRIC is calibrated on the
+                // device, from its own menu.
+                if (!session.canCalibrate) {
+                    Text(
+                        session.profile?.name?.let {
+                            "$it cannot be calibrated from the app. It is calibrated on the " +
+                                "instrument itself, from its own menu."
+                        } ?: "Connect an instrument to calibrate it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
                 // FlowRow, not Row: five buttons do not fit across a phone, and a Row squeezes
                 // the last one into a column of single letters rather than wrapping it.
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

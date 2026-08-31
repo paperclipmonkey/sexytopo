@@ -9,6 +9,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 
 /** Whether the naming dialog is starting a survey or renaming the current one. */
 enum class NamingIntent { NONE, NEW, RENAME }
@@ -32,6 +34,7 @@ fun SurveyNameDialog(
         mutableStateOf(if (intent == NamingIntent.RENAME) current else "")
     }
     val valid = name.isNotBlank()
+    val focus = rememberOpeningFocus()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -42,6 +45,7 @@ fun SurveyNameDialog(
                 onValueChange = { name = it },
                 label = { Text("Cave or trip name") },
                 singleLine = true,
+                modifier = Modifier.focusRequester(focus),
             )
         },
         confirmButton = {

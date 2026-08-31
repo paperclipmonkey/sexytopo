@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 
 /**
  * Typing a label onto the sketch.
@@ -26,6 +27,7 @@ import androidx.compose.ui.Modifier
 @Composable
 fun LabelDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
+    val focus = rememberOpeningFocus()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -37,7 +39,7 @@ fun LabelDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
                 label = { Text("Text") },
                 placeholder = { Text("Sump") },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().focusRequester(focus),
             )
         },
         confirmButton = {

@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.math.adjustAngle
 import org.hwyl.sexytopo.shared.model.survey.Leg
@@ -316,6 +317,7 @@ private fun LegCommentDialog(
     onSave: (String) -> Unit,
 ) {
     var comment by remember(row) { mutableStateOf(row.leg.comment) }
+    val focus = rememberOpeningFocus()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -326,7 +328,7 @@ private fun LegCommentDialog(
                 onValueChange = { comment = it },
                 label = { Text("Comment") },
                 placeholder = { Text("Sump; do not follow") },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().focusRequester(focus),
             )
         },
         confirmButton = { TextButton(onClick = { onSave(comment) }) { Text("Save") } },

@@ -63,6 +63,31 @@ fun InstrumentDialog(state: DemoState, onDismiss: () -> Unit) {
                         },
                 )
 
+                // Why the instrument is refusing to shoot, in the surveyor's terms. The log
+                // below already carries the instrument's own wording; this says what to do about
+                // it, and it is up here because somebody who has opened this dialog has opened it
+                // to find out why nothing is arriving.
+                session.trouble?.let { trouble ->
+                    Text(
+                        trouble.summary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Text(
+                        trouble.whatToDo,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    session.troubleDetail?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    HorizontalDivider()
+                }
+
                 val unavailable = whyNoInstruments()
                 if (unavailable.isNotEmpty()) {
                     Text(
@@ -72,7 +97,7 @@ fun InstrumentDialog(state: DemoState, onDismiss: () -> Unit) {
                     )
                 } else {
                     Text(
-                        "Which instrument have you got? Your phone will ask which one to pair with.",
+                        howConnectingWorks(),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 737 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 744 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
@@ -1846,6 +1846,134 @@ These are the things that would actually shape a real port.
      branch that reading upstream to port a small thing turned up a larger one — see findings 40
      and 53.
 
+59. **Seventeen options the exporter took and the app never offered.** The shared `SvgExporter`
+   has honoured every switch on `preferences_export_svg.xml` since it was ported — background,
+   grid, sketch, symbols, cross-sections, centreline, splays, stations, legend, north arrow,
+   scale bar, team, copyright, tagline and three stroke widths — and every caller in the app
+   passed `Options.DEFAULT`. So the feature was complete, tested, and unreachable: the same shape
+   as findings 48, 49 and 53, and the reason it kept happening is the same one. The thing that
+   went nowhere was reached through a *default parameter*, so nothing about the code drew
+   attention to the fact that nobody set it.
+
+   Why it matters more than a settings screen usually does: an SVG is what the survey looks like
+   to everybody who was not on the trip, and what it must contain depends entirely on where it is
+   going. A drawing headed for Inkscape to be composed with three other trips wants no legend, no
+   grid and a transparent page. A drawing headed for a club newsletter wants all of it. The same
+   file cannot be both, and asking the recipient to delete what they do not want is how a survey
+   gets redrawn by hand.
+
+   The options are now a dialog on the export screen — the Android app asks thirteen of them at
+   the moment of export and keeps the other four on a settings screen nobody exporting a file is
+   looking at, which is one question split over two places — and they are saved, so the surveyor
+   who sets them up at home does not set them again at the entrance.
+
+   While porting it, a claim this port had written down turned out to be wrong, and it is worth
+   recording *how* it was wrong. `Svg.kt` documented "two deliberate departures" from the Java on
+   `whiteBackground` and `showGrid`, both of which `SvgExportOptions` declares `false`. Those
+   field initialisers belong to a **no-argument constructor nothing calls**: every options object
+   the Android app builds comes from `getOrLoadOptions` or the export dialog, and both fill all
+   thirteen fields from `GeneralPreferences`, whose own fallbacks are `"white"` and `true`. The
+   port's defaults matched the app's behaviour all along; the documentation had read a dead
+   initialiser as the behaviour. It is now corrected, and it is the second time on this branch
+   that a confident sentence about upstream turned out to describe code that never runs.
+
+   The genuine disagreement is elsewhere, and the Android app has it with itself:
+   `preferences_export_svg.xml` gives the grid `android:defaultValue="false"`, so its settings
+   screen shows the box unticked, while `isExportSvgGridEnabled` reads the key with a fallback of
+   `true`. Nothing calls `PreferenceManager.setDefaultValues`, so on a fresh install the key is
+   absent, the fallback wins, and the file has a grid in it — the screen says one thing, the
+   export dialog shows another, and the drawing does a third. This port follows the behaviour, as
+   it does for the vibration preference.
+
+   One departure of its own: a stroke width is clamped to at least 1. The Android app parses
+   whatever the text box stored and hands it over, so typing `0` produces an SVG whose centreline
+   is drawn invisibly — which looks, to the surveyor, exactly like an export that lost the survey.
+
+60. **An instrument saying why, in a vocabulary nobody has.** Found the way the best ones here
+   have been: somebody used the app. A BRIC4 connected, beeped high-low at every shot, and sent
+   nothing but errors. Everything under that worked — the radio, the routing by characteristic,
+   the decoder, the error table — and what the app did with it was print the instrument's own word
+   for each code into a log four taps away behind the overflow menu:
+
+   ```
+   instrument: magnetometer 1 high magnitude
+   instrument: azimuth calculation problem
+   instrument: accelerometer 1 high magnitude
+   ```
+
+   Every line is a true statement about a sensor and no help at all to somebody in a passage
+   wondering whether the app is broken. The Android app does the same thing — `Bric4Manager`
+   toasts `Bric4Error.description` — so this is a port of a defect rather than one of its own,
+   which is why it took a real instrument to notice.
+
+   `ShotTrouble` is the translation, and it is in `shared` rather than in the UI on purpose: the
+   mapping from a code to a cause is a fact about the instrument, the same on every platform, and
+   a thing worth having a test for. It is shown on the field bar, where somebody waiting for a
+   reading is already looking, and it clears the moment a shot gets through — a warning left up
+   after the problem is fixed is worse than none, because next time nobody reads it.
+
+   Two things the mapping has to get right, and both came from the real session:
+
+   - **Several codes arrive together and only one of them says what to do.** A distrusted
+     magnetometer makes the azimuth calculation that uses it fail too, so a refusal reports both,
+     and often an accelerometer complaint as well. Reporting all of them is what the log already
+     does. `ShotTrouble.order` picks the magnetic one, because a surveyor told to hold the
+     instrument stiller will hold it stiller and it will refuse again.
+   - **The instrument sends numbers and the app was dropping them.** Every BRIC error carries two
+     floats, and `InstrumentPacket.DeviceFailure` has carried them since the decoder was ported;
+     nothing ever read them. They are the same values the instrument prints on its own screen -
+     `Mag1 Low: 0.8235` - and they are the only thing on the app's screen that *moves while the
+     surveyor does*. That is what makes them worth showing: the advice is "walk outside", and a
+     line that reads *magnetometer 1 high magnitude* before and after the walk says nothing about
+     whether walking helped. The number does. They are shown as the instrument sent them and
+     labelled as the instrument's own, because this port does not know what scale they are on and
+     guessing at that on screen would be inventing a fact.
+   - **The advice has to name the cheap test.** "Something magnetic is nearby" and "your
+     calibration is stale" need opposite actions, and the app cannot tell them apart — but the
+     surveyor can, by walking outside. A steel-framed building weakens the field enough to fail
+     on its own, which is exactly what a bench test looks like. So the advice is: move the phone
+     away; then go outdoors; and only then the calibration menu — which is on the **instrument**,
+     because `InstrumentFamily.BRIC4` is declared with an empty command set and this app cannot
+     calibrate a BRIC at all. The calibration screen now says so before Start is pressed rather
+     than after.
+
+61. **Three taps to type one word, and the third of them is the expensive one.** Reported from a
+   real iPhone: writing a label on the sketch worked, but only "after a period of time", with a
+   page of UIKit log to go with it. Almost all of that log is Apple's - `TUIPredictionViewCell`
+   constraint warnings from the keyboard's predictive bar, RunningBoard chatter that every debug
+   build produces - and there is not a single Kotlin frame in the stack it prints. So the app was
+   not at fault, and it was not crashing. It was still slow.
+
+   What was avoidable is when the wait *starts*. Every text dialog in this port opened with
+   nothing focused, so the sequence was: tap the tool, tap the paper, tap the box, wait for iOS to
+   start the keyboard's process and load its layout, type. `rememberOpeningFocus` asks for focus
+   as the dialog appears, so that work begins while the surveyor's finger is still moving rather
+   than after it has landed a second time. Underground the difference is bigger than it sounds: a
+   surveyor who cannot tell whether a tap registered taps again, and the second tap dismisses the
+   field the first one focused.
+
+   It is applied to the dialogs whose whole purpose is typing - the label, the survey name, a leg
+   comment - and deliberately **not** to *Find a station*, which is a list as much as a field: the
+   commonest way to use it is to tap the station you want, and a keyboard raised on open covers
+   the list you came to read.
+
+   A second thing the same report turned up, and the one that actually cost the evening: the
+   instrument dialog said *"Your phone will ask which one to pair with"*, in `commonMain`, on
+   every platform. On iOS that is simply untrue. A BLE instrument is not a paired accessory — it
+   never appears under Settings > Bluetooth, there is no chooser, and there is nothing to pair;
+   CoreBluetooth scans for the advertised name and connects. Somebody with a BRIC4 switched on
+   beside them, hunting through Settings because the app told them their phone would ask, is
+   looking for something that will never be there. On the web the sentence is right, because Web
+   Bluetooth *requires* a chooser — a page may not enumerate devices. Two platforms, two facts, so
+   it is an `expect fun howConnectingWorks()` now: the seam where a platform fact belongs.
+
+   That last exclusion was not a design decision made in advance. It was made because focusing
+   *Find* broke a browser check, and the way it broke is the finding: a Material `OutlinedTextField`
+   floats its label onto its own border when it gains focus, so a focused box contributes a row of
+   writing above the list, `rows[0]` stopped being a station, the tap landed in the text box, and
+   the failure surfaced two hundred lines later as *"the reading dialog is not open"*. The check
+   had a silent dependency on a label not moving. It is written down beside it now.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1965,9 +2093,9 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 737
-shared tests on three targets, 324 over the UI's own logic, 18 running the iOS half in a simulator,
-95 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 744
+shared tests on three targets, 340 over the UI's own logic, 18 running the iOS half in a simulator,
+98 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

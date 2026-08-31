@@ -21,6 +21,8 @@ import org.hwyl.sexytopo.shared.comms.InstrumentTransport
 import org.hwyl.sexytopo.shared.comms.InstrumentTransportListener
 import org.hwyl.sexytopo.shared.comms.ReconnectionPolicy
 import org.hwyl.sexytopo.shared.comms.TransportSubscription
+import org.hwyl.sexytopo.shared.comms.ShotTrouble
+import org.hwyl.sexytopo.shared.io.export.formatFixed
 import org.hwyl.sexytopo.shared.comms.measurements
 import org.hwyl.sexytopo.shared.comms.sim.SimulatedInstrument
 import org.hwyl.sexytopo.shared.model.survey.Leg
@@ -101,6 +103,42 @@ class SurveySession(
         private set
 
     /**
+     * Why the instrument is refusing to shoot, in the surveyor's terms rather than its own.
+     *
+     * Null until an instrument reports a problem, and null again the moment a reading arrives -
+     * because a refusal that has been superseded by a good shot is history, and a banner about it
+     * left on screen is worse than none. Everything that ever went wrong is still in [log].
+     *
+     * The reason this exists at all is what a refused BRIC shot looks like from the outside: two
+     * beeps, high then low, and nothing on the phone. Until this, the *only* place the instrument's
+     * side of that was written down was the log, four taps away behind the overflow menu, in the
+     * instrument's own vocabulary.
+     */
+    var trouble by mutableStateOf<ShotTrouble?>(null)
+        private set
+
+    /** Everything reported since the last good shot, so [trouble] can pick the one to act on. */
+    private val troublesSinceAReading = mutableSetOf<ShotTrouble>()
+
+    /**
+     * The instrument's own numbers for the codes it last refused on, newest value per code.
+     *
+     * A BRIC sends two floats with every error and this app used to drop both. They are the same
+     * numbers the instrument prints on its own screen - `Mag1 Low: 0.8235` - and they are the only
+     * thing on offer that *moves* while the surveyor does: walking away from a steel wall changes
+     * them, and a code that says "magnetometer 1 high magnitude" every time does not.
+     *
+     * Shown as the instrument sent them and labelled as the instrument's, because this port does
+     * not know what scale they are on. Guessing at that in the UI would be inventing a fact; a
+     * surveyor with the instrument in their hand can compare the two screens and see.
+     */
+    var troubleDetail by mutableStateOf<String?>(null)
+        private set
+
+    /** Latest value per error code, in the order the codes were first seen. */
+    private val troubleNumbers = LinkedHashMap<Int, String>()
+
+    /**
      * Everything the instrument has done, oldest first, bounded at a hundred lines.
      *
      * The real `Log.LogType.DEVICE`, not a summary of it. The instrument dialog shows the last few;
@@ -146,6 +184,16 @@ class SurveySession(
      * @return false if this instrument has no calibration commands — FCL exposes none — so the
      *   screen can say so rather than appearing to work.
      */
+    /**
+     * Whether this instrument can be put into calibration mode at all.
+     *
+     * False for a BRIC, whose [org.hwyl.sexytopo.shared.comms.InstrumentFamily] is declared with
+     * an empty command set, and for FCL, which exposes none either. The screen asks *before*
+     * offering the workflow rather than reporting the failure afterwards.
+     */
+    val canCalibrate: Boolean
+        get() = commandFor(InstrumentCommand.START_CALIBRATION) != null
+
     fun startCalibration(): Boolean {
         val command = commandFor(InstrumentCommand.START_CALIBRATION) ?: return false
         decoder.calibrating = true
@@ -283,9 +331,25 @@ class SurveySession(
                 decoder.acknowledgementFor(channel, bytes)?.let { transport.send(it) }
 
                 for (packet in packets) {
-                    if (packet is InstrumentPacket.DeviceFailure && packet.showToUser) {
-                        note("instrument: ${packet.description}")
+                    if (packet !is InstrumentPacket.DeviceFailure) continue
+                    // Both slots go to the log; only the first is toasted upstream, which is what
+                    // `showToUser` carries. The *cause* is collected from both, because the two
+                    // halves of a refusal are usually a distrusted sensor and the calculation
+                    // that depended on it, and it is the sensor that says what to do.
+                    val numbers = "${formatFixed(packet.data1, 4)}, ${formatFixed(packet.data2, 4)}"
+                    // The numbers go in the log line too. The log is the thing a surveyor copies
+                    // off the phone and sends to somebody, and a record of *which* readings were
+                    // refused is worth more than a record that some were.
+                    if (packet.showToUser) note("instrument: ${packet.description} ($numbers)")
+                    troublesSinceAReading += ShotTrouble.ofBric(packet.code)
+                    trouble = ShotTrouble.worstOf(troublesSinceAReading)
+                    troubleNumbers[packet.code] = "${packet.description} $numbers"
+                    while (troubleNumbers.size > MOST_NUMBERS_WORTH_SHOWING) {
+                        troubleNumbers.remove(troubleNumbers.keys.first())
                     }
+                    troubleDetail =
+                        "The instrument reported: " +
+                            troubleNumbers.values.joinToString("; ") + "."
                 }
 
                 if (calibrating) {
@@ -299,6 +363,11 @@ class SurveySession(
                 for (leg in packets.measurements()) {
                     lastReading = leg
                     readingsTaken++
+                    // A shot got through, so whatever was wrong is no longer what is happening.
+                    troublesSinceAReading.clear()
+                    troubleNumbers.clear()
+                    trouble = null
+                    troubleDetail = null
 
                     val stationCreated = SurveyUpdater.update(survey, leg, settings = settings)
                     revision++
@@ -506,6 +575,15 @@ class SurveySession(
                 }
             }
         }
+
+        /**
+         * Enough to see a pattern, few enough to read at arm's length by head torch.
+         *
+         * Four codes covers the commonest refusal - two magnetometers, an accelerometer and the
+         * azimuth calculation that failed because of them - which is exactly the run this was
+         * written for.
+         */
+        private const val MOST_NUMBERS_WORTH_SHOWING = 4
     }
 }
 

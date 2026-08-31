@@ -1,6 +1,7 @@
 package org.hwyl.sexytopo.demo
 
 import org.hwyl.sexytopo.shared.comms.AutoReconnect
+import org.hwyl.sexytopo.shared.io.export.SvgExporter
 import org.hwyl.sexytopo.shared.io.store.FileStore
 import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
@@ -123,6 +124,16 @@ data class AppPreferences(
     val azimuthInDms: Boolean = false,
     /** And an inclination. `pref_inc_deg_mins_secs`, a separate preference upstream. */
     val inclinationInDms: Boolean = false,
+    /**
+     * What goes into an SVG export: `preferences_export_svg.xml`, seventeen settings of it.
+     *
+     * The exporter has taken all seventeen since it was ported and every caller passed
+     * [SvgExporter.Options.DEFAULT], so the app had the whole feature and offered none of it -
+     * finding 59, and the same shape as findings 48, 49 and 53. Whether the drawing carries a
+     * grid, a legend, the team's names or the splays is not a matter of taste: it is what the
+     * person receiving the file can do with it, and it is decided once, at export.
+     */
+    val svgExport: SvgExporter.Options = SvgExporter.Options.DEFAULT,
 ) {
     /** The two above as the value [LocalAngleEntry] carries. */
     val angleEntry: AngleEntry
@@ -343,6 +354,24 @@ object AppPreferencesStore {
             appendLine("manualControls=${preferences.manualControls}")
             appendLine("azimuthInDms=${preferences.azimuthInDms}")
             appendLine("inclinationInDms=${preferences.inclinationInDms}")
+            val svg = preferences.svgExport
+            appendLine("svgWhiteBackground=${svg.whiteBackground}")
+            appendLine("svgShowGrid=${svg.showGrid}")
+            appendLine("svgShowSketch=${svg.showSketch}")
+            appendLine("svgShowSymbols=${svg.showSymbols}")
+            appendLine("svgShowCrossSections=${svg.showCrossSections}")
+            appendLine("svgShowCentreline=${svg.showCentreline}")
+            appendLine("svgShowSplays=${svg.showSplays}")
+            appendLine("svgShowStations=${svg.showStations}")
+            appendLine("svgShowLegend=${svg.showLegend}")
+            appendLine("svgShowNorthArrow=${svg.showNorthArrow}")
+            appendLine("svgShowScaleBar=${svg.showScaleBar}")
+            appendLine("svgShowTeam=${svg.showTeam}")
+            appendLine("svgShowCopyright=${svg.showCopyright}")
+            appendLine("svgShowTagline=${svg.showTagline}")
+            appendLine("svgSketchStrokeWidth=${svg.sketchStrokeWidth}")
+            appendLine("svgLegStrokeWidth=${svg.legStrokeWidth}")
+            appendLine("svgSplayStrokeWidth=${svg.splayStrokeWidth}")
         }
 
     fun parse(text: String): AppPreferences {
@@ -462,8 +491,58 @@ object AppPreferencesStore {
             manualControls = values["manualControls"]?.toBooleanStrictOrNull() ?: true,
             azimuthInDms = values["azimuthInDms"]?.toBooleanStrictOrNull() ?: false,
             inclinationInDms = values["inclinationInDms"]?.toBooleanStrictOrNull() ?: false,
+            svgExport = svgExportFrom(values),
         )
     }
+
+    /**
+     * The seventeen SVG export settings, each falling back to the exporter's own default.
+     *
+     * Read through [SvgExporter.Options.DEFAULT] rather than through literals so that the
+     * exporter stays the one place that says what a default export looks like: a new option added
+     * there arrives here already right, and a changed default cannot end up meaning two things.
+     */
+    private fun svgExportFrom(values: Map<String, String>): SvgExporter.Options {
+        val default = SvgExporter.Options.DEFAULT
+        fun flag(key: String, fallback: Boolean) = values[key]?.toBooleanStrictOrNull() ?: fallback
+        return SvgExporter.Options(
+            whiteBackground = flag("svgWhiteBackground", default.whiteBackground),
+            showGrid = flag("svgShowGrid", default.showGrid),
+            showSketch = flag("svgShowSketch", default.showSketch),
+            showSymbols = flag("svgShowSymbols", default.showSymbols),
+            showCrossSections = flag("svgShowCrossSections", default.showCrossSections),
+            showCentreline = flag("svgShowCentreline", default.showCentreline),
+            showSplays = flag("svgShowSplays", default.showSplays),
+            showStations = flag("svgShowStations", default.showStations),
+            showLegend = flag("svgShowLegend", default.showLegend),
+            showNorthArrow = flag("svgShowNorthArrow", default.showNorthArrow),
+            showScaleBar = flag("svgShowScaleBar", default.showScaleBar),
+            showTeam = flag("svgShowTeam", default.showTeam),
+            showCopyright = flag("svgShowCopyright", default.showCopyright),
+            showTagline = flag("svgShowTagline", default.showTagline),
+            sketchStrokeWidth = strokeWidth(values["svgSketchStrokeWidth"], default.sketchStrokeWidth),
+            legStrokeWidth = strokeWidth(values["svgLegStrokeWidth"], default.legStrokeWidth),
+            splayStrokeWidth = strokeWidth(values["svgSplayStrokeWidth"], default.splayStrokeWidth),
+        )
+    }
+
+    /**
+     * A stroke width as typed, clamped rather than merely parsed.
+     *
+     * Zero is not a thinner line, it is an invisible one, and an SVG whose centreline is drawn at
+     * width 0 looks to the surveyor exactly like an export that lost the survey. The Android app
+     * accepts it - `getInt` parses whatever the `EditTextPreference` stored - so this is a
+     * departure, and a deliberate one: nothing typed into a text box should be able to produce a
+     * blank drawing that the app then reports as saved.
+     */
+    internal fun strokeWidth(typed: String?, fallback: Int): Int =
+        typed?.trim()?.toIntOrNull()?.coerceIn(MIN_STROKE_WIDTH, MAX_STROKE_WIDTH) ?: fallback
+
+    /** Thin, but drawn. See [strokeWidth]. */
+    internal const val MIN_STROKE_WIDTH = 1
+
+    /** At [SvgExporter.SCALE] pixels to the metre, a line a metre wide. Nobody wants more. */
+    internal const val MAX_STROKE_WIDTH = 50
 
     /**
      * A tool worth reopening the app on — which is not every tool.

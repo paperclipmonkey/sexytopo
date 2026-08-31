@@ -26,3 +26,9 @@ actual fun whyNoInstruments(): String =
 actual fun tickTransport(transport: InstrumentTransport) {
     (transport as? WebBluetoothTransport)?.pump()
 }
+
+
+/** Web Bluetooth's chooser is the browser's own, and a page may not go round it. */
+actual fun howConnectingWorks(): String =
+    "Which instrument have you got? Your browser will show you the devices it can see and ask " +
+        "which one to connect to."

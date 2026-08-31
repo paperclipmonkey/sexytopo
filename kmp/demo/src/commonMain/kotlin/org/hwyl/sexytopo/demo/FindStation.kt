@@ -54,6 +54,11 @@ fun FindStationDialog(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
+                    // Deliberately *not* given [rememberOpeningFocus], unlike the other dialogs
+                    // whose whole purpose is typing. This one is also a list: it shows every
+                    // station in the survey, and the commonest way to use it is to tap the one
+                    // you want rather than to name it. Focusing the box on open raises the
+                    // keyboard over the list the surveyor came here to read.
                     label = { Text("Name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),

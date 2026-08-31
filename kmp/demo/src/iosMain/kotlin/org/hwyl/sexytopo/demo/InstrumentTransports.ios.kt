@@ -25,3 +25,17 @@ actual fun whyNoInstruments(): String = ""
 actual fun tickTransport(transport: InstrumentTransport) {
     (transport as? CoreBluetoothTransport)?.checkTimeout()
 }
+
+
+/**
+ * The sentence somebody hunting through Settings for their instrument needs to read.
+ *
+ * A BLE peripheral is not a paired accessory. It does not appear under Settings > Bluetooth, there
+ * is no chooser, and there is nothing to pair: the app scans for the advertised name in the
+ * profile and connects to what answers. Saying so here is the difference between "the app is
+ * broken" and "press Connect".
+ */
+actual fun howConnectingWorks(): String =
+    "Which instrument have you got? The app looks for one broadcasting that name and connects " +
+        "to it. There is nothing to pair: a survey instrument never appears in the iPhone's own " +
+        "Bluetooth settings, so do not go looking for it there."

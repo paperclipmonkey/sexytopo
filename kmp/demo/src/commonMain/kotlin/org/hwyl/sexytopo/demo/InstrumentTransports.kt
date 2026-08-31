@@ -21,6 +21,22 @@ expect fun platformTransportFor(profile: InstrumentProfile): InstrumentTransport
 expect fun whyNoInstruments(): String
 
 /**
+ * How connecting actually works here, which is not the same on two platforms.
+ *
+ * It used to be one sentence in `commonMain` - *"Your phone will ask which one to pair with"* -
+ * and on iOS that is simply untrue, in a way that costs a surveyor an evening. A BLE instrument is
+ * not a paired accessory: it does not appear in the iPhone's own Bluetooth settings, there is no
+ * chooser, and nothing to pair. CoreBluetooth scans for the advertised name and connects. Somebody
+ * with a BRIC4 switched on beside them, hunting for it in Settings because the app told them their
+ * phone would ask, is looking for something that will never be there.
+ *
+ * On the web it *is* a chooser, because Web Bluetooth requires one: a page may not enumerate
+ * devices, only ask the browser to offer some. So the two platforms need two sentences, and this
+ * is the seam where a platform fact belongs.
+ */
+expect fun howConnectingWorks(): String
+
+/**
  * Whether a connection attempt needs to be nudged along from the host's run loop.
  *
  * [org.hwyl.sexytopo.shared.comms.GattSession] holds the timeout policy and has no clock of its

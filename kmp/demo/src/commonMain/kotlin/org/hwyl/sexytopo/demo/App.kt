@@ -46,6 +46,7 @@ import org.hwyl.sexytopo.demo.resources.Res
 import org.hwyl.sexytopo.demo.resources.elevation
 import org.hwyl.sexytopo.demo.resources.plan
 import org.hwyl.sexytopo.demo.resources.table
+import org.hwyl.sexytopo.shared.comms.ShotTrouble
 import org.hwyl.sexytopo.shared.demo.ExampleSurvey
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
@@ -827,7 +828,17 @@ private fun ScreenContent(
                 scrollTo = state.pendingTableJump,
                 onScrolled = { state.tableJumpDone() },
             )
-        Screen.EXPORT -> ExportView(state.survey, state.revision, modifier, state.projection)
+        Screen.EXPORT ->
+            ExportView(
+                state.survey,
+                state.revision,
+                modifier,
+                state.projection,
+                svgOptions = state.preferences.svgExport,
+                onSvgOptionsChange = {
+                    state.updatePreferences(state.preferences.copy(svgExport = it))
+                },
+            )
         Screen.SKETCH ->
             SketchScreen(
                 state,
@@ -1028,12 +1039,20 @@ private fun FieldBar(state: DemoState) {
         )
     }
 
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .background(
                 if (dark) SexyTopoColours.innerPanelNight else SexyTopoColours.innerPanel,
-            )
+            ),
+    ) {
+    // Above the buttons rather than inside the line of status text, because it is a paragraph
+    // and that line is a row of short facts. It is on screen only while an instrument is
+    // refusing to shoot, and it goes the moment one gets through - see `SurveySession.trouble`.
+    session.trouble?.let { trouble -> ShotTroubleBanner(trouble, session.troubleDetail) }
+    Row(
+        Modifier
+            .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1074,6 +1093,49 @@ private fun FieldBar(state: DemoState) {
             modifier = Modifier.clickable { namingStation = true },
         )
         Spacer(Modifier.weight(1f))
+    }
+    }
+}
+
+/**
+ * Why the instrument will not shoot, where somebody waiting for a reading is looking.
+ *
+ * A BRIC4 that refuses a shot beeps twice and says why over its errors characteristic, and until
+ * this the only place that reached was the log - four taps away, behind the overflow menu, in the
+ * instrument's own words: *magnetometer 1 high magnitude*. That is a true statement about a sensor
+ * and no help at all to somebody standing in a passage wondering whether the app is broken.
+ *
+ * So the app says what is wrong and what to try, at the bottom of the screen the surveyor is
+ * already looking at. See [ShotTrouble], which holds the wording, and which is in `shared` because
+ * the mapping from a code to a cause is a fact about the instrument rather than about this screen.
+ */
+@Composable
+private fun ShotTroubleBanner(trouble: ShotTrouble, detail: String?) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            trouble.summary,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+        )
+        Text(
+            trouble.whatToDo,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // The instrument's own numbers, verbatim. They are here because they are the only thing
+        // on this screen that *moves* while the surveyor does: the advice above says to walk
+        // outside, and these are how you find out whether walking outside helped, without
+        // squinting at the instrument's own display in the dark.
+        detail?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

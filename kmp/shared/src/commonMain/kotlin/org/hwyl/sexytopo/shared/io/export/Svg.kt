@@ -30,9 +30,8 @@ import kotlin.math.pow
  *    at runtime and splicing the markup in between sentinel strings. [Symbol] already carries the
  *    artwork, so a `<symbol>` definition is a `<path>` and needs no escaping dance.
  *
- * Not ported: the legend, north arrow, scale bar, team block and tagline. They are decoration
- * around the drawing rather than the drawing, and each is a block of layout arithmetic; the
- * geometry is the part that has to be right.
+ * The legend, north arrow, scale bar, team block and tagline were left out of the first pass here
+ * - they are decoration around the drawing rather than the drawing - and are in [SvgLegend] now.
  */
 object SvgExporter {
 
@@ -46,13 +45,23 @@ object SvgExporter {
     const val STATION_FONT = 15
 
     /**
-     * What to draw. The names and meanings are `SvgExportOptions`'; two of the defaults are not.
+     * What to draw. The names and meanings are `SvgExportOptions`', and so are the defaults.
      *
-     * `whiteBackground` and `showGrid` are false in the Java, which exports a transparent,
-     * grid-less drawing for compositing in Inkscape. They are true here because this port's export
-     * goes straight to a phone's Files app or a browser download, where a transparent SVG opens as
-     * an invisible drawing on a dark viewer and looks broken. Everything else matches, and both are
-     * one argument away from the Java's behaviour.
+     * They were once documented here as departing from the Java on `whiteBackground` and
+     * `showGrid`, both of which `SvgExportOptions` declares false. That reading was wrong, and
+     * wrong in a way worth recording: those field initialisers belong to a no-argument constructor
+     * **nothing calls**. Every `SvgExportOptions` the app builds comes from `getOrLoadOptions` or
+     * from the export dialog, and both fill all thirteen fields from `GeneralPreferences` - whose
+     * own fallbacks are `"white"` and `true`. So the Java exports a white, gridded drawing on a
+     * fresh install, which is what this does.
+     *
+     * The grid is worth a second line, because the Android app disagrees with itself about it:
+     * `preferences_export_svg.xml` says `android:defaultValue="false"`, so its settings screen
+     * shows the box unticked, while `isExportSvgGridEnabled` reads the key with a fallback of
+     * true. Nothing calls `PreferenceManager.setDefaultValues`, so on a fresh install the key is
+     * absent and the fallback wins: the screen says no grid, the export dialog shows the box
+     * ticked, and the file has a grid in it. This port follows the behaviour rather than the
+     * screen, as it does for the vibration preference - see `AppPreferencesStore`.
      *
      * Stroke widths are in pixels at [SCALE] and are the app's own: sketch lines 1, centreline legs
      * 2, splays 1.

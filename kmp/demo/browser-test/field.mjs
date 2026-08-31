@@ -809,6 +809,79 @@ async function exportSaveFile() {
   return [117, lowest + 52]
 }
 
+/**
+ * The labelled buttons on the export screen's action row, left to right.
+ *
+ * Not found the way the chips are. A chip has an outline, so its top edge is a long solid run of
+ * not-the-background; a `TextButton` has no outline at all, and its label is a row of glyphs with
+ * background between every one of them. So this collects the *columns* that have any ink in the
+ * button band and joins ones less than fourteen pixels apart into a label — a gap that swallows
+ * the space inside "Save file" and not the fifty-odd pixels of padding between two buttons.
+ *
+ * Third from the left is *Options*, which only exists while the SVG chip is selected. The status
+ * text at the right-hand end of the row is a fourth group and, after a save, several — which is
+ * why this counts from the left rather than from the end.
+ */
+const exportButtons = async () => {
+  const chips = await exportChips()
+  const row = Math.max(...chips.map(([, y]) => y)) + 52
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, background, y]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    const inked = (x) => {
+      for (let yy = Math.max(0, y - 11); yy <= Math.min(c.height - 1, y + 11); yy++) {
+        const i = (yy * c.width + x) * 4
+        if (Math.abs(px[i] - background[0]) > 24 ||
+            Math.abs(px[i + 1] - background[1]) > 24 ||
+            Math.abs(px[i + 2] - background[2]) > 24) return true
+      }
+      return false
+    }
+    const groups = []
+    let start = null
+    let lastInk = null
+    for (let x = 0; x < c.width; x++) {
+      if (!inked(x)) continue
+      if (start === null || x - lastInk > 14) {
+        if (start !== null) groups.push([start, lastInk])
+        start = x
+      }
+      lastInk = x
+    }
+    if (start !== null) groups.push([start, lastInk])
+    return groups
+      .filter(([from, to]) => to - from >= 18)
+      .map(([from, to]) => [Math.round((from + to) / 2), y])
+  }, [b64, EXPORT_BACKGROUND, row])
+}
+
+/** *Options*, which is on the row only for the one format it is about. */
+const exportOptionsButton = async () => {
+  const buttons = await exportButtons()
+  if (buttons.length < 3) {
+    throw new Error(
+      `the export row shows ${buttons.length} button(s), so there is no Options among them` +
+        ` (at ${buttons.map((b) => b.join(',')).join(' ')})`)
+  }
+  return buttons[2]
+}
+
+/** Press Save file and read what came out, or null if nothing did. */
+const savedExport = async () => {
+  const download = await Promise.all([
+    page.waitForEvent('download', { timeout: 10000 }).catch(() => null),
+    at(...(await exportSaveFile())),
+  ]).then(([d]) => d)
+  return download === null ? null : readFileSync(await download.path(), 'utf8')
+}
+
 /** A finger drag on the canvas, in canvas coordinates. */
 async function drag([x0, y0], [x1, y1]) {
   await page.mouse.move(box.x + x0, box.y + y0)
@@ -1673,6 +1746,14 @@ if ((await dialogTop()) === null) {
 } else {
   const rows = await dialogTextRows()
   // The last row is the dialog's own Close button; the ones above it are the stations.
+  //
+  // This quietly depends on the name box being *unfocused*, which is worth knowing: a Material
+  // OutlinedTextField floats its label up onto its own border when it gains focus, so a focused
+  // box contributes a row of writing above the list and `rows[0]` stops being a station. That is
+  // exactly what happened when every typing dialog was given an opening focus - the tap landed in
+  // the text box, the dialog stayed open, and the failure surfaced two hundred lines later as
+  // "the reading dialog is not open". FindStationDialog is not focused on open, for a reason
+  // written down there: it is a list as much as a field.
   if (rows.length < 2) {
     fail(`the find dialog listed no stations (${rows.length} rows)`)
     await page.keyboard.press('Escape'); await page.waitForTimeout(400)
@@ -2619,6 +2700,64 @@ if (missing.length > 0) {
 } else {
   pass(`this app's own format exports the whole survey (${nativeFiles.length} files)`)
 }
+
+// ---- and the drawing that leaves the cave is the one the surveyor asked for ------------------
+// The SVG is the only export that is a picture, and it is what everybody who was not on the trip
+// sees. What it should contain depends entirely on where it is going: a drawing headed for Inkscape
+// to be composed with three other trips wants no legend, no grid and a transparent page, because
+// all of that gets added once at the end; a drawing headed for a club newsletter wants every bit
+// of it. The exporter has taken all seventeen of those options since it was ported and every
+// caller passed the defaults, so the app had the whole feature and offered none of it.
+//
+// The check is the one that catches a switch wired to nothing: export, turn one thing off, export
+// again, and require the file to have changed in exactly that way.
+await at(...(await exportChip('svg'))); await page.waitForTimeout(700)
+await page.screenshot({ path: join(shotDir, 'field-export-svg.png') })
+
+const svgAsShipped = await savedExport()
+if (svgAsShipped === null) {
+  fail('the drawing does not save as an SVG at all')
+} else if (!svgAsShipped.includes('id="sketch"') || !svgAsShipped.includes('id="grid"')) {
+  fail('a default SVG export is missing the sketch or the grid, so the check below cannot fail')
+} else {
+  pass('the drawing exports as an SVG with the sketch and the grid in it')
+}
+
+await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
+await page.screenshot({ path: join(shotDir, 'field-export-svg-options.png') })
+// The first switch in the dialog: *Draw the sketch*. Found rather than measured, like every other
+// switch in this file — see switchRows().
+await at(...(await settingsSwitch(0))); await page.waitForTimeout(300)
+await at(...(await settingsSave())); await page.waitForTimeout(900)
+
+const svgWithoutSketch = await savedExport()
+if (svgWithoutSketch === null) {
+  fail('the SVG would not save after its options were changed')
+} else if (svgWithoutSketch.includes('id="sketch"')) {
+  fail('turning the sketch off left it in the exported drawing — the switch reaches nothing')
+} else if (!svgWithoutSketch.includes('id="centreline"')) {
+  fail('turning the sketch off took the centreline with it, which is a different drawing')
+} else {
+  pass('an SVG export option reaches the file, and takes out only what it names')
+}
+
+// And it is remembered, so a surveyor who sets this up at home does not set it again at the
+// entrance. The file rather than a reload, because the reload is checked further down and the
+// value has to be *written* before it can be read back.
+const savedOptions = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('preferences.txt'))
+  return key === undefined ? null : localStorage.getItem(key)
+})
+if (savedOptions === null || !savedOptions.includes('svgShowSketch=false')) {
+  fail('the SVG export options were not written to storage, so they last until the app closes')
+} else {
+  pass('the SVG export options are remembered between runs')
+}
+
+// Put it back, so the exports checked after this one are the drawing they were written for.
+await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
+await at(...(await settingsSwitch(0))); await page.waitForTimeout(300)
+await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 await at(...PLAN_TAB); await page.waitForTimeout(600)
 
