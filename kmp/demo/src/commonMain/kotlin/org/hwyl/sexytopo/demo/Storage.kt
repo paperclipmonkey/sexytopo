@@ -60,10 +60,12 @@ class SurveyLibrary(private val store: FileStore = platformFileStore()) {
             lastError = null
         }.onFailure { lastError = it.message ?: "could not save" }.isSuccess
 
-    fun open(name: String): Survey? =
-        runCatching { SurveyStorage.load(store, SURVEYS_ROOT + name) }
-            .onFailure { lastError = it.message }
-            .getOrNull()
+    fun open(name: String): Survey? {
+        lastWarning = null
+        return runCatching {
+            SurveyStorage.load(store, SURVEYS_ROOT + name) { lastWarning = it }
+        }.onFailure { lastError = it.message }.getOrNull()
+    }
 
     fun delete(name: String): Boolean =
         runCatching { store.delete(SURVEYS_ROOT + name) }

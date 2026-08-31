@@ -300,6 +300,9 @@ class DemoState(
             return false
         }
         adopt(loaded)
+        // After `adopt`, which clears it. A survey that opens short of what its file holds is
+        // worth saying, and worth saying *before* the next edit writes the shortfall back.
+        importProblem = library.lastWarning
         return true
     }
 

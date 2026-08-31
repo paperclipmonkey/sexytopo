@@ -31,6 +31,9 @@ import org.hwyl.sexytopo.shared.sketch.simplify
  * level (but never a further `x-sections`: cross-sections do not nest).
  */
 @OptIn(ExperimentalSerializationApi::class)
+/** A sketch as it was read, and how much of it could not be. */
+class SketchRead(val sketch: Sketch, val dropped: Int)
+
 object SketchJson {
 
     const val PATHS_TAG = "paths"
@@ -59,23 +62,40 @@ object SketchJson {
      *   station object. Cross-sections are skipped when it is absent (or names a station the survey
      *   does not have) — see [toCrossSectionDetail].
      */
-    fun parse(text: String, survey: Survey? = null): Sketch {
+    fun parse(text: String, survey: Survey? = null): Sketch = read(text, survey).sketch
+
+    /**
+     * The same read, and how much of the drawing it had to leave behind.
+     *
+     * Every detail is parsed inside its own `runCatching`, so one damaged stroke costs one stroke
+     * rather than the drawing — which is a deliberate divergence from
+     * `SketchJsonTranslater.populateSketch`, where the loop over paths sits *inside* a single try:
+     * one bad stroke there throws out of the loop, `setPathDetails` is never reached, and the whole
+     * plan is lost. (Its symbols loop has an inner try and does not behave that way; its paths,
+     * labels and cross-sections do.)
+     *
+     * Being more forgiving is only an improvement if it is not also quieter. The Java logs each of
+     * those failures; this said nothing at all, so a drawing that arrived three strokes short
+     * looked exactly like a drawing that was drawn three strokes short. [dropped] is what the
+     * importer needs to say so.
+     */
+    fun read(text: String, survey: Survey? = null): SketchRead {
         val root = json.parseToJsonElement(text).jsonObject
         val sketch = Sketch()
 
-        readDrawnDetails(root, sketch)
+        var dropped = readDrawnDetails(root, sketch)
 
         for (element in root.arrayOrEmpty(CROSS_SECTIONS_TAG)) {
-            runCatching { toCrossSectionDetail(element.jsonObject, survey) }
-                .getOrNull()
-                ?.let { sketch.crossSectionDetails.add(it) }
+            val detail =
+                runCatching { toCrossSectionDetail(element.jsonObject, survey) }.getOrNull()
+            if (detail == null) dropped++ else sketch.crossSectionDetails.add(detail)
         }
 
         runCatching { root[SETTINGS_TAG]?.jsonObject?.floatOrNull(CROSS_SECTION_SCALE_TAG) }
             .getOrNull()
             ?.let { sketch.crossSectionScale = it }
 
-        return sketch
+        return SketchRead(sketch, dropped)
     }
 
     fun write(sketch: Sketch, surveyName: String): String {
@@ -153,37 +173,44 @@ object SketchJson {
     // Paths, labels and symbols — shared by the top-level sketch and by every sub-sketch
     // -----------------------------------------------------------------------------------------
 
-    private fun readDrawnDetails(root: JsonObject, sketch: Sketch) {
+    /** Returns how many details could not be read. */
+    private fun readDrawnDetails(root: JsonObject, sketch: Sketch): Int {
+        var dropped = 0
+
         for (element in root.arrayOrEmpty(PATHS_TAG)) {
-            runCatching { toPathDetail(element.jsonObject) }.getOrNull()?.let {
-                sketch.pathDetails.add(it)
-            }
+            val path = runCatching { toPathDetail(element.jsonObject) }.getOrNull()
+            if (path == null) dropped++ else sketch.pathDetails.add(path)
         }
 
         for (element in root.arrayOrEmpty(SYMBOLS_TAG)) {
-            runCatching {
+            val added = runCatching {
                 val entry = element.jsonObject
                 sketch.addSymbolDetail(
                     position = toCoord2D(entry[POSITION_TAG]!!.jsonObject),
-                    symbolName = entry.stringOrNull(SYMBOL_ID_TAG) ?: return@runCatching,
+                    symbolName = entry.stringOrNull(SYMBOL_ID_TAG) ?: return@runCatching false,
                     size = entry.floatOrNull(SIZE_TAG) ?: 1f,
                     angle = entry.floatOrNull(ANGLE_TAG) ?: 0f,
                     colour = colourOf(entry),
                 )
-            }
+                true
+            }.getOrDefault(false)
+            if (!added) dropped++
         }
 
         for (element in root.arrayOrEmpty(LABELS_TAG)) {
-            runCatching {
+            val added = runCatching {
                 val entry = element.jsonObject
                 sketch.addTextDetail(
                     position = toCoord2D(entry[POSITION_TAG]!!.jsonObject),
-                    text = entry.stringOrNull(TEXT_TAG) ?: return@runCatching,
+                    text = entry.stringOrNull(TEXT_TAG) ?: return@runCatching false,
                     size = entry.floatOrNull(SIZE_TAG) ?: 0f,
                     colour = colourOf(entry),
                 )
-            }
+                true
+            }.getOrDefault(false)
+            if (!added) dropped++
         }
+        return dropped
     }
 
     private fun pathsToJson(sketch: Sketch): JsonArray = buildJsonArray {

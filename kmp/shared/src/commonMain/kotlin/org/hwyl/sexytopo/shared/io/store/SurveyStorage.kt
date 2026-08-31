@@ -152,10 +152,21 @@ object SurveyStorage {
      * an autosave that only got as far as the data file should still give you the saved sketches
      * rather than nothing.
      */
+    /**
+     * [onProblem] is told when a drawing came back smaller than the file it was read from.
+     *
+     * Worth a callback rather than nothing, because the consequence outlives the read: the app
+     * saves on every change, so a survey opened with three unreadable strokes is *written back*
+     * without them the moment anything is edited. The damaged file was at least still damaged;
+     * after that it is tidily, permanently short. A surveyor who is told can copy the file
+     * somewhere before touching the survey. Default is to say nothing, so every existing caller
+     * behaves as it did.
+     */
     fun load(
         store: FileStore,
         directory: List<String>,
         restoreAutosave: Boolean = false,
+        onProblem: (String) -> Unit = {},
     ): Survey {
         require(isSurveyDirectory(store, directory)) {
             "not a survey directory: ${directory.joinToString("/")}"
@@ -175,9 +186,20 @@ object SurveyStorage {
         // private and the name comes from the folder rather than from inside the file.
         survey.name = name
 
-        read(SurveyFileType.PLAN_SKETCH)?.let { survey.planSketch = SketchJson.parse(it, survey) }
+        var dropped = 0
+        read(SurveyFileType.PLAN_SKETCH)?.let {
+            val plan = SketchJson.read(it, survey)
+            survey.planSketch = plan.sketch
+            dropped += plan.dropped
+        }
         read(SurveyFileType.EXTENDED_ELEVATION_SKETCH)?.let {
-            survey.elevationSketch = SketchJson.parse(it, survey)
+            val elevation = SketchJson.read(it, survey)
+            survey.elevationSketch = elevation.sketch
+            dropped += elevation.dropped
+        }
+        if (dropped > 0) {
+            val marks = if (dropped == 1) "mark" else "marks"
+            onProblem("$dropped $marks of the drawing could not be read")
         }
         return survey
     }

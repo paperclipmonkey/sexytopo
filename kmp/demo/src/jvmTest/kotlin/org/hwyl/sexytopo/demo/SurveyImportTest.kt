@@ -111,6 +111,66 @@ class SurveyImportTest {
         assertNull(library.lastWarning, "a survey sent without drawings is ordinary")
     }
 
+    /**
+     * The likelier damage: a drawing that arrives *short* rather than empty.
+     *
+     * Each detail is parsed inside its own guard, so one broken stroke costs one stroke and the
+     * rest of the plan comes through — better than `SketchJsonTranslater`, where the loop over
+     * paths sits inside a single try and one bad stroke throws out of it, losing the whole plan.
+     *
+     * But being more forgiving only helps if it is not also quieter, and it was: a drawing three
+     * strokes short looked exactly like a drawing that was drawn three strokes short.
+     */
+    @Test
+    fun aDrawingThatCameInShortSaysSo() {
+        val store = store()
+        val survey = aSurvey("Eastwater")
+        survey.planSketch.pathDetails.add(
+            PathDetail(listOf(Coord2D(0f, 0f), Coord2D(1f, 1f)), Colour.BLACK),
+        )
+        store.writeText(listOf("Eastwater.data.json"), SurveyJson.write(survey))
+        // One good stroke and one whose points are not points.
+        val good = SketchJson.write(survey.planSketch, "Eastwater")
+        val damaged = good.replace("\"paths\": [", "\"paths\": [ { \"colour\": \"BLACK\" },")
+        store.writeText(listOf("Eastwater.plan.json"), damaged)
+
+        val library = SurveyLibrary(store)
+        val imported = assertNotNull(
+            SurveyImport.import(library, store, "Eastwater.data.json"),
+        )
+        assertEquals(1, imported.planSketch.pathDetails.size, "the good stroke still came through")
+        val warning = assertNotNull(library.lastWarning, "nothing was said about the lost stroke")
+        assertTrue("short" in warning, warning)
+    }
+
+    /**
+     * And the same on *open*, where the consequence is worse than on import.
+     *
+     * The app saves on every change, so a survey opened three strokes short is written back
+     * without them the moment anything is edited. The damaged file was at least still damaged;
+     * after that it is tidily, permanently short. A surveyor who is told can copy the file first.
+     */
+    @Test
+    fun aSurveyThatOpensShortSaysSoBeforeTheNextSaveMakesItPermanent() {
+        val store = store()
+        val survey = aSurvey("Swildons")
+        survey.planSketch.pathDetails.add(
+            PathDetail(listOf(Coord2D(0f, 0f), Coord2D(1f, 1f)), Colour.BLACK),
+        )
+        SurveyStorage.save(store, survey, SURVEYS_ROOT + "Swildons")
+        val path = SURVEYS_ROOT + "Swildons" + "Swildons.plan.json"
+        store.writeText(
+            path,
+            store.readText(path)!!.replace("\"paths\": [", "\"paths\": [ { \"colour\": \"BLACK\" },"),
+        )
+
+        val library = SurveyLibrary(store)
+        val opened = assertNotNull(library.open("Swildons"))
+        assertEquals(1, opened.planSketch.pathDetails.size, "the good stroke still came through")
+        val warning = assertNotNull(library.lastWarning, "the survey opened short and said nothing")
+        assertTrue("could not be read" in warning, warning)
+    }
+
     /** And a good drawing is not reported either. */
     @Test
     fun aDrawingThatReadsIsNotReported() {

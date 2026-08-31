@@ -1331,6 +1331,25 @@ These are the things that would actually shape a real port.
    purpose, and inventing a test that scribbles in a user's application-support directory would be
    a worse trade than saying this sentence.
 
+   Sweeping the rest of the port for the same shape — a `runCatching` whose failure goes nowhere —
+   turned up one more, and a difference from the Java worth passing on. `SketchJson` parses every
+   stroke, symbol, label and cross-section inside its own guard, so one damaged mark costs one mark
+   and the rest of the drawing survives. `SketchJsonTranslater.populateSketch` does not: its loop
+   over paths sits *inside* a single `try`, so one bad stroke throws out of the loop,
+   `setPathDetails` is never reached, and **the whole plan is lost**. (Its symbols loop has an inner
+   try and behaves like this port's; its paths, labels and cross-sections do not.)
+
+   Being more forgiving is only an improvement if it is not also quieter, and it was: the Java logs
+   each of those failures and this said nothing, so a drawing that arrived three strokes short
+   looked exactly like a drawing that was drawn three strokes short. The reader counts what it
+   dropped now, and both the importer and the library say so.
+
+   Saying it on **open** matters more than saying it on import, which is not the order I came to
+   it in. This app saves on every change, so a survey opened three strokes short is written back
+   without them the moment anything is edited: the damaged file was at least still damaged, and
+   after that it is tidily, permanently short. The warning is what lets a surveyor copy the file
+   somewhere before touching the survey.
+
    The fifth answer was not a bug but a false claim of mine. Asking the same question of the fourth
    file — `Name.metadata.json` — found that this port does not read or write it *at all*, while the
    pull request said the cross-survey links it carries "are read and written". They are not. The
@@ -1443,7 +1462,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 709
-shared tests on three targets, 278 over the UI's own logic, 18 running the iOS half in a simulator,
+shared tests on three targets, 280 over the UI's own logic, 18 running the iOS half in a simulator,
 88 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the

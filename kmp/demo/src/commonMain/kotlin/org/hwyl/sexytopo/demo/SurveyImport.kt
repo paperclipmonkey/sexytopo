@@ -210,6 +210,7 @@ object SurveyImport {
     ): String? {
         val base = fileName.dropExtension(".json").dropExtension(".data")
         val unreadable = mutableListOf<String>()
+        var dropped = 0
 
         fun read(type: SurveyFileType, into: (Sketch) -> Unit) {
             val name = type.filenameFor(base)
@@ -218,20 +219,30 @@ object SurveyImport {
             // surveys are handed over as their data file alone — but a drawing that is *there* and
             // will not parse means the file somebody sent is damaged, and silently importing a
             // survey with an empty plan tells them the opposite.
-            runCatching { SketchJson.parse(text, survey) }
-                .onSuccess(into)
+            runCatching { SketchJson.read(text, survey) }
+                .onSuccess {
+                    into(it.sketch)
+                    // And the partial case, which is the likelier one. The reader drops a damaged
+                    // stroke rather than the drawing, so a sketch can arrive short without
+                    // arriving empty — and a drawing three strokes short looks exactly like a
+                    // drawing that was drawn three strokes short.
+                    dropped += it.dropped
+                }
                 .onFailure { unreadable += name }
         }
 
         read(SurveyFileType.PLAN_SKETCH) { survey.planSketch = it }
         read(SurveyFileType.EXTENDED_ELEVATION_SKETCH) { survey.elevationSketch = it }
 
-        return if (unreadable.isEmpty()) {
-            null
-        } else {
-            "the centreline came in but ${unreadable.joinToString(" and ")} could not be read"
+        return when {
+            unreadable.isNotEmpty() ->
+                "the centreline came in but ${unreadable.joinToString(" and ")} could not be read"
+            dropped > 0 -> "the drawing came in $dropped ${plural(dropped)} short"
+            else -> null
         }
     }
+
+    private fun plural(dropped: Int) = if (dropped == 1) "mark" else "marks"
 
     /**
      * Strips the extensions SexyTopo puts on, so `Swildons.data.json` imports as `Swildons` rather
