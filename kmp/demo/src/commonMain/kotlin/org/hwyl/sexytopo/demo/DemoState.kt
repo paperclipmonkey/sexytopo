@@ -344,8 +344,20 @@ class DemoState(
             return null
         }
         adopt(imported)
+        // After `adopt`, which clears it: a survey that came in without a drawing it should have
+        // had is worth saying out loud, and it is the *last* thing to happen so it survives.
+        importProblem = library.lastWarning
         return imported.name
     }
+
+    /**
+     * Something came in, but not all of it.
+     *
+     * Separate from [storageProblem], which is about writing. This is about reading, and the
+     * difference is what a surveyor should do next: a save that failed is worth retrying, a
+     * drawing that would not parse is a damaged file and retrying will not help.
+     */
+    var importProblem: String? by mutableStateOf(null)
 
     fun renameLiveSurvey(name: String) {
         val trimmed = name.trim()

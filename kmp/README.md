@@ -1314,6 +1314,14 @@ These are the things that would actually shape a real port.
    Four bugs, one missing idea, found in an hour by asking the same question in four places. None
    of them was subtle once the question was asked; all four had passing tests over them.
 
+   And then a fifth, committed by the fix for the first. Reading the sketches beside the data file,
+   I wrapped the parse in a `runCatching` that threw the failure away — so a survey whose plan file
+   was *present and damaged* imported with an empty plan and said nothing, and a caver would
+   conclude the sender had never drawn anything. That is the same silent loss, one level down,
+   introduced by the commit that fixed it. Absent and unreadable are different things and only the
+   second is worth a word; the library has a warning channel for it now, separate from the one that
+   means "could not save", because a save worth retrying and a damaged file are different advice.
+
    The fifth answer was not a bug but a false claim of mine. Asking the same question of the fourth
    file — `Name.metadata.json` — found that this port does not read or write it *at all*, while the
    pull request said the cross-survey links it carries "are read and written". They are not. The
@@ -1426,7 +1434,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 709
-shared tests on three targets, 274 over the UI's own logic, 18 running the iOS half in a simulator,
+shared tests on three targets, 277 over the UI's own logic, 18 running the iOS half in a simulator,
 88 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the

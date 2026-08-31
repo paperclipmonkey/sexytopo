@@ -9,6 +9,7 @@ import org.hwyl.sexytopo.shared.io.imports.SurveyImporter
 import org.hwyl.sexytopo.shared.io.store.FileStore
 import org.hwyl.sexytopo.shared.io.store.SurveyFileType
 import org.hwyl.sexytopo.shared.io.store.SurveyStorage
+import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.survey.Survey
 
 /**
@@ -151,6 +152,14 @@ object SurveyImport {
             } else {
                 runCatching { parse(store, fileName, name) }.getOrNull()
             } ?: return null
+
+        // A loose data file is only ever part of a survey, so the drawings beside it come too —
+        // and if one of them is there and will not parse, the library is told, because a survey
+        // that arrives with an empty plan and no explanation is the same silent loss this whole
+        // area has just been fixed for.
+        if (!isSurveyFolder(store, fileName) && isNative(fileName)) {
+            library.lastWarning = withSketchesBesideIt(store, fileName, survey)
+        }
         // An empty survey means the file parsed but held nothing this app understands — a Therion
         // file that is all `scrap`, say. Importing it would put a survey with no legs in the
         // library and look like success.
@@ -175,7 +184,7 @@ object SurveyImport {
         return when {
             format != null -> SurveyImporter.read(text, format, name)
             isPocketTopo(fileName) -> PocketTopoTxtImporter.read(text, name)
-            else -> SurveyJson.parse(text).also { withSketchesBesideIt(store, fileName, it) }
+            else -> SurveyJson.parse(text)
         }
     }
 
@@ -194,16 +203,33 @@ object SurveyImport {
      *
      * A survey sent as its data file alone still imports, with empty sketches, exactly as before.
      */
-    private fun withSketchesBesideIt(store: FileStore, fileName: String, survey: Survey) {
+    private fun withSketchesBesideIt(
+        store: FileStore,
+        fileName: String,
+        survey: Survey,
+    ): String? {
         val base = fileName.dropExtension(".json").dropExtension(".data")
-        fun sketch(type: SurveyFileType) =
-            runCatching { store.readText(listOf(type.filenameFor(base))) }.getOrNull()
+        val unreadable = mutableListOf<String>()
 
-        sketch(SurveyFileType.PLAN_SKETCH)?.let {
-            runCatching { survey.planSketch = SketchJson.parse(it, survey) }
+        fun read(type: SurveyFileType, into: (Sketch) -> Unit) {
+            val name = type.filenameFor(base)
+            val text = runCatching { store.readText(listOf(name)) }.getOrNull() ?: return
+            // Present but unreadable is the case worth reporting. Absent is ordinary — plenty of
+            // surveys are handed over as their data file alone — but a drawing that is *there* and
+            // will not parse means the file somebody sent is damaged, and silently importing a
+            // survey with an empty plan tells them the opposite.
+            runCatching { SketchJson.parse(text, survey) }
+                .onSuccess(into)
+                .onFailure { unreadable += name }
         }
-        sketch(SurveyFileType.EXTENDED_ELEVATION_SKETCH)?.let {
-            runCatching { survey.elevationSketch = SketchJson.parse(it, survey) }
+
+        read(SurveyFileType.PLAN_SKETCH) { survey.planSketch = it }
+        read(SurveyFileType.EXTENDED_ELEVATION_SKETCH) { survey.elevationSketch = it }
+
+        return if (unreadable.isEmpty()) {
+            null
+        } else {
+            "the centreline came in but ${unreadable.joinToString(" and ")} could not be read"
         }
     }
 

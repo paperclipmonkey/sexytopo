@@ -76,6 +76,61 @@ class SurveyImportTest {
         )
     }
 
+    /**
+     * A drawing that is *there* and will not parse is reported, not swallowed.
+     *
+     * This is the fix for the dropped-drawings bug committing the same sin one level down: it read
+     * the sketches beside the data file inside a `runCatching` that discarded the failure, so a
+     * survey whose plan file was damaged imported with an empty plan and said nothing. A caver
+     * would conclude the sender had not drawn anything.
+     *
+     * Absent is different from unreadable, and only the second is worth a word: plenty of surveys
+     * are handed over as their data file alone.
+     */
+    @Test
+    fun aDrawingThatWillNotParseIsReported() {
+        val store = store()
+        store.writeText(listOf("Eastwater.data.json"), SurveyJson.write(aSurvey("Eastwater")))
+        store.writeText(listOf("Eastwater.plan.json"), "this is not a sketch")
+
+        val library = SurveyLibrary(store)
+        val imported = assertNotNull(SurveyImport.import(library, store, "Eastwater.data.json"))
+        assertTrue(imported.origin.onwardLegs.isNotEmpty(), "the centreline still came in")
+        val warning = assertNotNull(library.lastWarning, "nothing was said about the broken plan")
+        assertTrue("Eastwater.plan.json" in warning, warning)
+    }
+
+    /** And a survey with no sketch files at all says nothing, because nothing is wrong. */
+    @Test
+    fun aSurveyWithNoDrawingIsNotAProblem() {
+        val store = store()
+        store.writeText(listOf("Eastwater.data.json"), SurveyJson.write(aSurvey("Eastwater")))
+
+        val library = SurveyLibrary(store)
+        assertNotNull(SurveyImport.import(library, store, "Eastwater.data.json"))
+        assertNull(library.lastWarning, "a survey sent without drawings is ordinary")
+    }
+
+    /** And a good drawing is not reported either. */
+    @Test
+    fun aDrawingThatReadsIsNotReported() {
+        val store = store()
+        val survey = aSurvey("Eastwater")
+        survey.planSketch.pathDetails.add(
+            PathDetail(listOf(Coord2D(0f, 0f), Coord2D(1f, 1f)), Colour.BLACK),
+        )
+        store.writeText(listOf("Eastwater.data.json"), SurveyJson.write(survey))
+        store.writeText(
+            listOf("Eastwater.plan.json"),
+            SketchJson.write(survey.planSketch, "Eastwater"),
+        )
+
+        val library = SurveyLibrary(store)
+        val imported = assertNotNull(SurveyImport.import(library, store, "Eastwater.data.json"))
+        assertEquals(1, imported.planSketch.pathDetails.size)
+        assertNull(library.lastWarning)
+    }
+
     /** And a survey sent as its data file alone still imports, with nothing drawn. */
     @Test
     fun aSurveySentOnItsOwnStillImports() {

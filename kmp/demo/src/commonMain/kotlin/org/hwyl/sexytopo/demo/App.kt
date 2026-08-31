@@ -978,11 +978,13 @@ private fun FieldBar(state: DemoState) {
                     append("  ·  ${oneDp(it.distance)}m ${oneDp(it.azimuth)}°")
                 }
                 state.storageProblem?.let { append("  ·  not saved: $it") }
+                state.importProblem?.let { append("  ·  $it") }
             },
             style = MaterialTheme.typography.bodySmall,
             color =
                 when {
-                    state.storageProblem != null -> MaterialTheme.colorScheme.error
+                    state.storageProblem != null || state.importProblem != null ->
+                        MaterialTheme.colorScheme.error
                     dark -> SexyTopoColours.legendNight
                     else -> SexyTopoColours.legend
                 },

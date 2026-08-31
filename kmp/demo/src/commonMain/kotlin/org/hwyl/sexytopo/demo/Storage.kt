@@ -36,6 +36,19 @@ class SurveyLibrary(private val store: FileStore = platformFileStore()) {
     var lastError: String? = null
         private set
 
+    /**
+     * A problem that did not stop the operation: something came through, but not all of it.
+     *
+     * Separate from [lastError] because the difference matters to a surveyor. "It failed" means try
+     * again; "it worked but the drawing was unreadable" means the file you were sent is damaged and
+     * trying again will not help. Importing a survey whose sketch file is present and corrupt used
+     * to produce a survey with an empty drawing and say nothing at all — which is the silent loss
+     * this port has now written three findings about, committed once more by the fix for the first
+     * of them.
+     */
+    var lastWarning: String? = null
+        internal set
+
     fun list(): List<String> =
         runCatching { SurveyStorage.listSurveys(store, SURVEYS_ROOT) }
             .onFailure { lastError = it.message }
@@ -64,10 +77,12 @@ class SurveyLibrary(private val store: FileStore = platformFileStore()) {
     /** Files at the storage root that might be surveys somebody has put there to import. */
     fun importCandidates(): List<String> = SurveyImport.candidates(store)
 
-    fun import(fileName: String): Survey? =
-        SurveyImport.import(this, store, fileName).also {
+    fun import(fileName: String): Survey? {
+        lastWarning = null
+        return SurveyImport.import(this, store, fileName).also {
             if (it == null) lastError = "could not read $fileName"
         }
+    }
 
     /** Where the instrument's calibration lives, in the Android app's own JSON format. */
     private val CALIBRATION_PATH = listOf("calibration.json")
