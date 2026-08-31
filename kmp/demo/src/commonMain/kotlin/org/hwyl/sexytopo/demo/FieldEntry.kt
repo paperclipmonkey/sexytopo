@@ -18,6 +18,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,8 +27,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.model.survey.Leg
+import org.hwyl.sexytopo.shared.survey.DegreesMinutesSeconds
 import org.hwyl.sexytopo.shared.survey.InputMode
 
 /**
@@ -121,6 +124,26 @@ fun ManualReadingDialog(
 }
 
 /**
+ * How the surveyor wants angles typed: `pref_deg_mins_secs` and `pref_inc_deg_mins_secs`.
+ *
+ * A composition local rather than a parameter threaded down. The reading fields are reached
+ * through four layers of dialog — the table row's action menu, the leg dialog, the edit dialog —
+ * and none of those layers is about angles; adding a parameter to each would be four signatures
+ * whose only job is to carry a value past. The alternative shape, a defaulted parameter at the
+ * bottom, is the one finding 53 is about.
+ *
+ * Provided once, in [App], from the saved preferences. The default here is decimal, which is what
+ * a test rendering these fields on their own should get.
+ */
+val LocalAngleEntry = compositionLocalOf { AngleEntry() }
+
+/** The two preferences, as one value to provide. */
+data class AngleEntry(
+    val azimuthInDms: Boolean = false,
+    val inclinationInDms: Boolean = false,
+)
+
+/**
  * The three numbers that make a shot, laid out the way a phone wants them.
  *
  * Shared by the add and edit dialogs so a fix to either reaches both — and there is one fix here
@@ -142,18 +165,104 @@ fun ReadingFields(
     onInclination: (String) -> Unit,
     lastImeAction: ImeAction = ImeAction.Done,
 ) {
+    // `pref_deg_mins_secs` and `pref_inc_deg_mins_secs`, which are two preferences upstream and
+    // stay two here: a sighting compass is graduated in minutes and a clinometer often is not.
+    val angleEntry = LocalAngleEntry.current
+    val azimuthInDms = angleEntry.azimuthInDms
+    val inclinationInDms = angleEntry.inclinationInDms
+
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (azimuthInDms) {
             ReadingField(distance, onDistance, "Distance (m)")
-            ReadingField(azimuth, onAzimuth, "Azimuth (\u00b0)")
+            DmsFields("Azimuth", azimuth, onAzimuth, signed = false)
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ReadingField(distance, onDistance, "Distance (m)")
+                ReadingField(azimuth, onAzimuth, "Azimuth (\u00b0)")
+            }
         }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        if (inclinationInDms) {
+            DmsFields("Inclination", inclination, onInclination, signed = true, lastImeAction)
+        } else {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ReadingField(inclination, onInclination, "Inclination (\u00b0)", lastImeAction)
+                OutlinedButton(onClick = { onInclination(withSignFlipped(inclination)) }) {
+                    Text("+/-")
+                }
+            }
+        }
+    }
+}
+
+/**
+ * One angle as three boxes, reporting a decimal upward.
+ *
+ * The three boxes are this composable's own state and the decimal is what leaves it, so the two
+ * dialogs above go on holding one string per reading and parsing it the one way. What a surveyor
+ * types and what the model stores are different shapes, and the conversion belongs at the edge.
+ *
+ * Seeded from whatever came in — blank for a new reading, the existing angle for an edit — and
+ * never re-seeded, because the only thing that writes the incoming value is this composable.
+ *
+ * The +/- button is here for the same reason it is on the decimal field: **no mobile numeric
+ * keypad has a minus key**. It flips the *degrees* box, which is where the direction lives, and it
+ * does so textually — so `-0` survives, and 0° 30′ down is enterable at all. See finding 54.
+ */
+/** Narrow enough that three fit across a phone card with the gaps between them. */
+private val DMS_FIELD_WIDTH = 74.dp
+
+@Composable
+private fun DmsFields(
+    label: String,
+    value: String,
+    onValue: (String) -> Unit,
+    signed: Boolean,
+    lastImeAction: ImeAction = ImeAction.Done,
+) {
+    val initial = remember(Unit) { value.trim().toFloatOrNull()?.let(DegreesMinutesSeconds::of) }
+    var degrees by remember { mutableStateOf(initial?.degreesText ?: "") }
+    var minutes by remember { mutableStateOf(initial?.minutesText ?: "") }
+    var seconds by remember { mutableStateOf(initial?.secondsText ?: "") }
+
+    fun report() {
+        val decimal = DegreesMinutesSeconds.toDecimal(degrees, minutes, seconds)
+        onValue(decimal?.toString() ?: "")
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            "$label (\u00b0 \u2032 \u2033)",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // `FlowRow` and not `Row`, and the boxes are narrow. Three 140dp fields and a button are
+        // wider than a phone card, and a `Row` **clips** what does not fit rather than wrapping it
+        // — so the seconds box and the +/- button were simply not on screen, with nothing to say
+        // they existed. That is findings 30 and 34 for the third time in this file: a container
+        // that cannot grow, given another item. Measured on a 420-pixel screen, where the card's
+        // content is 270 wide: three 74dp boxes and two gaps fit, and the button wraps below them
+        // if anything ever stops fitting.
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
         ) {
-            ReadingField(inclination, onInclination, "Inclination (\u00b0)", lastImeAction)
-            OutlinedButton(onClick = { onInclination(withSignFlipped(inclination)) }) {
-                Text("+/-")
+            ReadingField(degrees, { degrees = it; report() }, "\u00b0", width = DMS_FIELD_WIDTH)
+            ReadingField(minutes, { minutes = it; report() }, "\u2032", width = DMS_FIELD_WIDTH)
+            ReadingField(
+                seconds,
+                { seconds = it; report() },
+                "\u2033",
+                if (signed) ImeAction.Next else lastImeAction,
+                width = DMS_FIELD_WIDTH,
+            )
+            if (signed) {
+                OutlinedButton(onClick = { degrees = withSignFlipped(degrees); report() }) {
+                    Text("+/-")
+                }
             }
         }
     }
@@ -182,6 +291,8 @@ private fun ReadingField(
     onValueChange: (String) -> Unit,
     label: String,
     imeAction: ImeAction = ImeAction.Next,
+    /** Two of these fit a phone card side by side; three of the degrees-and-minutes ones do. */
+    width: Dp = 140.dp,
 ) {
     OutlinedTextField(
         value = value,
@@ -190,7 +301,7 @@ private fun ReadingField(
         singleLine = true,
         keyboardOptions =
             KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = imeAction),
-        modifier = Modifier.width(140.dp),
+        modifier = Modifier.width(width),
     )
 }
 

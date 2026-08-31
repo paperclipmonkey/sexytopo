@@ -112,7 +112,15 @@ data class AppPreferences(
     val deletePathFragments: Boolean = SketchDefaults.DELETE_PATH_FRAGMENTS_DEFAULT,
     /** How big everything on the drawing is. `preferences_sketching.xml`'s numeric group. */
     val sketchStyle: SketchStyle = SketchStyle.DEFAULT,
+    /** Type a bearing as degrees, minutes and seconds. `pref_deg_mins_secs`. */
+    val azimuthInDms: Boolean = false,
+    /** And an inclination. `pref_inc_deg_mins_secs`, a separate preference upstream. */
+    val inclinationInDms: Boolean = false,
 ) {
+    /** The two above as the value [LocalAngleEntry] carries. */
+    val angleEntry: AngleEntry
+        get() = AngleEntry(azimuthInDms, inclinationInDms)
+
     /** The two above as the value [ReconnectionPolicy] reads. */
     val reconnection: AutoReconnect
         get() = AutoReconnect(autoReconnect, autoReconnectWindowMinutes)
@@ -325,6 +333,8 @@ object AppPreferencesStore {
             appendLine("legendSizeSp=${style.legendSizeSp}")
             appendLine("symbolSizeDp=${style.symbolSizeDp}")
             appendLine("textSizeSp=${style.textSizeSp}")
+            appendLine("azimuthInDms=${preferences.azimuthInDms}")
+            appendLine("inclinationInDms=${preferences.inclinationInDms}")
         }
 
     fun parse(text: String): AppPreferences {
@@ -441,6 +451,8 @@ object AppPreferencesStore {
                     textSizeSp =
                         SketchStyle.size(values["textSizeSp"], SketchStyle.DEFAULT_TEXT_SIZE_SP),
                 ),
+            azimuthInDms = values["azimuthInDms"]?.toBooleanStrictOrNull() ?: false,
+            inclinationInDms = values["inclinationInDms"]?.toBooleanStrictOrNull() ?: false,
         )
     }
 

@@ -204,6 +204,14 @@ const CARD_DISTANCE = [144, 107]
 const CARD_AZIMUTH = [284, 107]
 const CARD_INCLINATION = [144, 181]
 const CARD_SIGN_TOGGLE = [255, 177]
+// The same card with `pref_deg_mins_secs` on: the two angles become three narrow boxes each, and
+// the +/- button wraps to a line of its own. Measured off a rendered frame, from the card's own
+// top like everything else here, because the card is taller in this mode and vertically centred.
+const DMS_AZIMUTH_DEGREES = [111, 201]
+const DMS_AZIMUTH_MINUTES = [191, 201]
+const DMS_INCLINATION_DEGREES = [111, 295]
+const DMS_INCLINATION_MINUTES = [191, 295]
+const DMS_SIGN_BUTTON = [107, 354]
 // Two chips a row, in `OFFERED_MODES` order: Forward, Backsight, then Fore + back, Splays only.
 const CARD_MODES = [[116, 243], [214, 243], [128, 295], [242, 295]]
 const CARD_BUTTONS_ABOVE_BOTTOM = 44
@@ -361,13 +369,24 @@ const SETTING_TWO_FINGER = settingsRow(320, 692)
 // of travel: a wheel of six hundred is clamped to however much scroll there actually is, so the
 // end of the list is a fixed place however many settings are above it. Measured off a rendered
 // frame, like the reading card's buttons.
-const CHASE_SWITCH_ABOVE_BOTTOM = 145
-const chaseSwitch = async () => {
+// The three switches at the end of the *Surveying* dialog, once it has been wheeled to the end.
+//
+// Anchored to the dialog's bottom, which is the window's, because the dialog is taller than this
+// screen and so is capped by it. They are stable now in a way they were not: *Chase a lost
+// instrument* used to reveal a text field below itself when it was switched on, so its own
+// position depended on its own state — which is how a check that turned it on and then failed to
+// turn it off again passed anyway. The field is greyed out rather than hidden now, as
+// `android:dependency` actually behaves, and the dialog is one height.
+const CHASE_SWITCH_ABOVE_BOTTOM = 281
+const DMS_AZIMUTH_SWITCH_ABOVE_BOTTOM = 502
+const DMS_INCLINATION_SWITCH_ABOVE_BOTTOM = 398
+const settingsSwitch = async (aboveBottom) => {
   const top = await dialogTop()
   const height = await dialogHeight()
   if (top === null || height === null) throw new Error('the settings dialog is not open')
-  return [320, top + height - CHASE_SWITCH_ABOVE_BOTTOM]
+  return [320, top + height - aboveBottom]
 }
+const chaseSwitch = async () => settingsSwitch(CHASE_SWITCH_ABOVE_BOTTOM)
 
 // The *Sketching* dialog's eight boxes, which are evenly spaced down it: leg width, splay width,
 // drawn line width, station size, station name size, legend size, symbol size, text size.
@@ -2558,6 +2577,66 @@ if (grew.length > 0) {
 } else {
   pass(`Splays Only keeps three agreeing readings as splays (${splaysNow} splays, no new station)`)
 }
+
+// ---- a bearing can be typed the way a compass reads it ---------------------------------------
+// `pref_deg_mins_secs` and `pref_inc_deg_mins_secs`. A DistoX reports a decimal and nobody needs
+// this; a sighting compass is graduated in minutes, reads 123° 30′, and converting that in your
+// head at every station is how a survey acquires arithmetic errors nobody can find afterwards.
+// This port went out of its way to support a compass and tape — loosened tolerances, manual entry
+// — and then asked for a decimal nobody's instrument shows.
+//
+// `DegreesMinutesSecondsTest` has the conversion, including the one upstream gets wrong (finding
+// 54). This is the half only a running app can show: that the switch changes the card, and that
+// what is typed into the three boxes reaches the survey as one angle.
+await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
+await scrollSettingsToTheEnd()
+await at(...(await settingsSwitch(DMS_AZIMUTH_SWITCH_ABOVE_BOTTOM))); await page.waitForTimeout(300)
+await at(...(await settingsSwitch(DMS_INCLINATION_SWITCH_ABOVE_BOTTOM)))
+await page.waitForTimeout(300)
+await at(...(await settingsSave())); await page.waitForTimeout(800)
+
+await at(...ADD_READING); await page.waitForTimeout(700)
+await page.screenshot({ path: join(shotDir, 'field-dms-card.png') })
+
+// 123 degrees 30 minutes, and five and a half degrees *down* — typed as the degrees box's sign,
+// which is the +/- button, because no mobile numeric keypad has a minus key.
+const splaysBeforeDms = (await savedLegs()).filter(isSplay).length
+await retype(await onCard(CARD_DISTANCE), '5')
+await retype(await onCard(DMS_AZIMUTH_DEGREES), '123')
+await retype(await onCard(DMS_AZIMUTH_MINUTES), '30')
+await retype(await onCard(DMS_INCLINATION_DEGREES), '5')
+await retype(await onCard(DMS_INCLINATION_MINUTES), '30')
+await at(...(await onCard(DMS_SIGN_BUTTON))); await page.waitForTimeout(300)
+await page.screenshot({ path: join(shotDir, 'field-dms-typed.png') })
+await at(...(await cardButton(CARD_ADD_SPLAY_X))); await page.waitForTimeout(900)
+
+const dmsSplays = (await savedLegs()).filter(isSplay)
+const typedInMinutes = dmsSplays.find((l) => Math.abs(l.azimuth - 123.5) < 0.01)
+if (dmsSplays.length !== splaysBeforeDms + 1) {
+  fail(`typing an angle in minutes did not make a reading (${splaysBeforeDms} then ${dmsSplays.length})`)
+} else if (!typedInMinutes) {
+  fail(
+    '123 degrees 30 minutes did not reach the survey as 123.5: ' +
+      dmsSplays.map((l) => l.azimuth).join(', '),
+  )
+} else if (!(Math.abs(typedInMinutes.inclination + 5.5) < 0.01)) {
+  // The direction, not just the magnitude: minutes are a magnitude and the degrees box carries
+  // the sign, so a port that added them without looking would store +5.5 for a downward shot.
+  fail(`the shot went ${typedInMinutes.inclination} degrees rather than -5.5`)
+} else {
+  pass('a bearing can be typed the way a compass reads it, minutes and all')
+}
+
+// Back to decimal, because every check below reads the ordinary card.
+await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
+await scrollSettingsToTheEnd()
+await at(...(await settingsSwitch(DMS_AZIMUTH_SWITCH_ABOVE_BOTTOM))); await page.waitForTimeout(300)
+await at(...(await settingsSwitch(DMS_INCLINATION_SWITCH_ABOVE_BOTTOM)))
+await page.waitForTimeout(300)
+await at(...(await settingsSave())); await page.waitForTimeout(800)
+
 
 // ---- and the mode the surveyor chose is written down ----------------------------------------
 // `SurveyManager.getInputMode` reads this out of `generalPrefs` on the Android app's way in. Here

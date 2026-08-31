@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.LaunchedEffect
@@ -145,6 +146,9 @@ fun App(
     }
 
     WithBundledFont { typography ->
+      // Provided here rather than threaded down: the reading fields are four dialogs deep and
+      // none of the layers between is about angles. See [LocalAngleEntry].
+      CompositionLocalProvider(LocalAngleEntry provides state.preferences.angleEntry) {
         MaterialTheme(
             colorScheme = if (state.darkMode) darkColorScheme() else lightColorScheme(),
             typography = typography,
@@ -219,6 +223,7 @@ fun App(
                 }
             }
         }
+      }
     }
 }
 

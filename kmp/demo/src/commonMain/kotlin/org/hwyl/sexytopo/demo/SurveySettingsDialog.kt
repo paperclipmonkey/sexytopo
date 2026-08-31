@@ -59,6 +59,8 @@ fun SurveySettingsDialog(
     var buzz by remember { mutableStateOf(preferences.buzzOnNewStation) }
     var hotCorners by remember { mutableStateOf(preferences.hotCorners) }
     var twoFingerMove by remember { mutableStateOf(preferences.twoFingerMove) }
+    var azimuthInDms by remember { mutableStateOf(preferences.azimuthInDms) }
+    var inclinationInDms by remember { mutableStateOf(preferences.inclinationInDms) }
     var autoReconnect by remember { mutableStateOf(preferences.autoReconnect) }
     var reconnectWindow by
         remember { mutableStateOf(preferences.autoReconnectWindowMinutes.toString()) }
@@ -168,6 +170,32 @@ fun SurveySettingsDialog(
 
                 HorizontalDivider()
 
+                // `pref_deg_mins_secs` and `pref_inc_deg_mins_secs`, from the Android app's
+                // *Manual data entry* screen. They are here, with the tolerances, because both
+                // answer the same question — what a reading looks like when it is not coming off
+                // a DistoX — and because the surveyor who loosens the tolerances for a compass
+                // and tape is the same surveyor who needs these.
+                Toggle(
+                    title = "Type bearings in minutes",
+                    detail =
+                        "A sighting compass is graduated in minutes, so it reads 123\u00b0 30\u2032 " +
+                            "and not 123.5. Converting that in your head at every station is how " +
+                            "a survey acquires errors nobody can find afterwards.",
+                    checked = azimuthInDms,
+                    onCheckedChange = { azimuthInDms = it },
+                )
+
+                Toggle(
+                    title = "Type inclinations in minutes",
+                    detail =
+                        "Its own switch, as upstream: plenty of clinometers read in degrees while " +
+                            "the compass beside them reads in minutes.",
+                    checked = inclinationInDms,
+                    onCheckedChange = { inclinationInDms = it },
+                )
+
+                HorizontalDivider()
+
                 // `pref_auto_reconnect` and `pref_auto_reconnect_window`, which the Android app
                 // keeps on this same preference screen — `preferences_instruments.xml`, below the
                 // tolerances — so this is where they belong here too.
@@ -181,21 +209,25 @@ fun SurveySettingsDialog(
                     onCheckedChange = { autoReconnect = it },
                 )
 
-                // Only while it is on, which is what `android:dependency` does on the Android
-                // screen: a number with nothing reading it is a setting that looks broken.
-                if (autoReconnect) {
-                    NumberField(
-                        reconnectWindow,
-                        { reconnectWindow = it },
-                        "Give up after (minutes)",
-                    )
-                    Text(
-                        "Counted from the first failure, not the last — so an instrument left " +
-                            "behind at the last station stops costing battery on the way out.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                // Greyed out while the switch above is off, rather than hidden — which is what
+                // `android:dependency` actually does: `Preference.setDependency` *disables* the
+                // dependent, it does not remove it. Hiding it was both less faithful and worse
+                // here for a reason worth writing down: a dialog that changes height when you
+                // touch a control in it moves every other control in it, and `field.mjs` finds
+                // these by measurement. A check that turned this on and then failed to turn it
+                // off again passed anyway, because it only asserted the turning on.
+                NumberField(
+                    reconnectWindow,
+                    { reconnectWindow = it },
+                    "Give up after (minutes)",
+                    enabled = autoReconnect,
+                )
+                Text(
+                    "Counted from the first failure, not the last — so an instrument left " +
+                        "behind at the last station stops costing battery on the way out.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         },
         confirmButton = {
@@ -212,6 +244,8 @@ fun SurveySettingsDialog(
                                 twoFingerMove,
                                 autoReconnect,
                                 reconnectWindow,
+                                azimuthInDms,
+                                inclinationInDms,
                             ),
                         )
                     }
@@ -243,6 +277,8 @@ internal fun preferencesFrom(
      * and the field is only on screen at all while the toggle above it is on.
      */
     autoReconnectWindow: String,
+    azimuthInDms: Boolean,
+    inclinationInDms: Boolean,
 ): AppPreferences =
     current.copy(
         buzzOnNewStation = buzzOnNewStation,
@@ -252,6 +288,8 @@ internal fun preferencesFrom(
         autoReconnectWindowMinutes =
             autoReconnectWindow.trim().toIntOrNull()?.coerceIn(0, AppPreferencesStore.MAX_WINDOW_MINUTES)
                 ?: current.autoReconnectWindowMinutes,
+        azimuthInDms = azimuthInDms,
+        inclinationInDms = inclinationInDms,
     )
 
 /** A labelled switch with a line of explanation, as the settings rows above it already are. */
@@ -276,11 +314,17 @@ internal fun Toggle(
 }
 
 @Composable
-internal fun NumberField(value: String, onValueChange: (String) -> Unit, label: String) {
+internal fun NumberField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    enabled: Boolean = true,
+) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
+        enabled = enabled,
         singleLine = true,
         // Decimal, not Number: iOS numberPad has no decimal point, and every value here has one.
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),

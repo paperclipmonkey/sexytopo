@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 722 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 733 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
@@ -64,6 +64,7 @@ Being precise about this matters more than the demo looking good.
 | **A lost instrument can be chased, and given up on** | **Verified** | a cave breaks Bluetooth constantly — the surveyor walks round a corner with the phone, the instrument sleeps, a cold battery sags — and every one of those cost a trip to the connection screen with cold hands. `ReconnectionPolicy` is ported from the Java with its scheduling taken out, so it can be driven by a clock a test controls: `ReconnectionPolicyTest` has the decisions, including that the window is measured from the *first* failure of a run so an instrument left at the last station stops costing battery on the way out. `ReconnectionTest` drives a fake radio through a drop, a recovery, an instrument that never comes back, and a second bad patch four hours later. `field.mjs` scrolls the settings dialog to the end, turns it on and reads the file |
 | **The instrument's clock runs where the surveyor is** | **Verified** | it used to tick only while the connection or calibration dialog was open, so an attempt abandoned by closing the dialog never timed out and left the radio scanning, and a reconnection could never have happened at all — a surveyor waiting for an instrument to come back is drawing. One loop in `App`, keyed on the attached instrument, so it costs nothing on the demo cave. Finding 51 |
 | **The drawing can be made big enough to read by head torch** | **Verified** | `preferences_sketching.xml`'s eight numbers — line widths, station size, the two font sizes, the symbol and text starting sizes — plus `pref_delete_path_fragments`, which decides whether the eraser takes the bit of a wall under your finger or the whole stroke. All nine were hard-coded here, and the eraser rule was worse than that: `SketchEditor.eraseAt` has taken the flag since the sketch was ported and nothing ever passed it. `SketchStyleTest` covers the file and the bounds; `DrawingSizeTest` renders the same survey at two leg widths through headless Skia and counts the red, because a number in a file is not a thicker line; `field.mjs` types 8 into the box on a phone screen and watches the plan go from 605 red pixels to 1852. Two upstream preferences that do nothing came out of reading this — finding 52 |
+| **A bearing can be typed the way a compass reads it** | **Verified** | `pref_deg_mins_secs` and `pref_inc_deg_mins_secs`. A DistoX reports a decimal and nobody needs this; a sighting compass is graduated in minutes and reads 123° 30′, and converting that in your head at every station is how a survey acquires arithmetic errors nobody can find afterwards — which matters here because this port already went out of its way to support a compass and tape and then asked for a decimal nobody's instrument shows. `DegreesMinutesSecondsTest` has the conversion both ways, the rounding carry, and the case upstream gets wrong; `field.mjs` turns both switches on, types 123 and 30 into the three boxes on a phone screen, flips the inclination's sign with the +/- button, and checks the survey stored 123.5 and **-5.5** — the direction as well as the size |
 | The instrument log is kept, persisted and readable on the phone | **Verified** | `ActivityLogTest` for the bounded queues and the file format; `instrument.mjs` connects a fake DistoX-BLE, takes a calibration, and then reads the log back off the clipboard — count, timestamps and all |
 | The desktop build keeps its surveys too | **Verified** | a survey written by one `SurveyLibrary` and read by a second over the same directory, in SexyTopo's own file layout, plus the three platform conventions for where that directory goes |
 | **A real-sized cave works, not just a demo one** | **Verified** | `BigSurveyTest` builds a four-thousand-station passage — past where every tree walk in this port used to overflow the stack — and projects it to a plan and an extended elevation, builds its wireframe, counts its statistics, exports it to Survex and Therion and reads it back, on all three targets, along with SVG, `.xvi`, `.th2`, Compass and PocketTopo — and rubs out and undoes on a drawing of eight thousand strokes |
@@ -1709,6 +1710,35 @@ These are the things that would actually shape a real port.
    Compose's `boolValue != true` in exactly the same way as a missing one — and both failure modes
    were run against the test before it was written down.
 
+55. **Half a degree, in the wrong direction, and no way to type the right one.** Upstream, found
+   porting degrees-and-minutes entry and confirmed by *running* the Java rather than reading it.
+
+   `EditLegForm.getInclination` builds a signed angle out of three fields:
+
+   ```java
+   float sign = degrees < 0 ? -1.0f : 1.0f;
+   return degrees + sign * (minutes / 60f + seconds / 3600f);
+   ```
+
+   with a comment saying minutes and seconds are always positive and take their direction from the
+   degrees. That is right for every input but one. A shot **less than a degree below horizontal**
+   has degrees `-0`, and `Float.parseFloat("-0")` is negative zero, and `-0.0f < 0` is **false** by
+   IEEE 754. Compiled and run: `parsed=-0.0 sign=1.0 result=0.5`. So 0° 30′ *down* is stored as
+   0° 30′ *up* — and since the minutes field is documented as always positive, **there is no other
+   way to express that angle in that mode at all.**
+
+   Why it is worth a line rather than a shrug. Half a degree is nothing; half a degree *the wrong
+   way* is a metre of depth over two hundred, and nearly-horizontal shots are not a corner case —
+   they are what a level passage is made of. Nothing in the numbers afterwards says which was
+   meant, because a shot half a degree up and one half a degree down are both perfectly ordinary
+   readings.
+
+   The fix is one line and it is the same lesson as `withSignFlipped`, which this port already had
+   for the decimal field: **take the sign from the text, not from the parsed number.** A minus sign
+   is a character a surveyor typed; a float cannot carry it once the magnitude is zero.
+   `DegreesMinutesSeconds` does that, and its `Parts` keeps `negative` as its own flag rather than
+   signing the degrees, so the same value survives being written back into the box.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1757,6 +1787,13 @@ meet — so the text tool's size can be set to anything and the app goes on plac
 `pref_label_font_size_sp` is the same fault mirrored: read by `getLabelFontSizeSp` and on no screen
 at all. Both are a one-word change. Written up in full, with the four preferences whose screen
 default and code default disagree, as finding 52.
+
+And a fifth, one line long and quietly wrong in the direction that matters: **a shot less than a
+degree below horizontal is stored as one above it.** `EditLegForm.getInclination` takes its sign
+from `degrees < 0`, and `Float.parseFloat("-0") < 0` is false — compiled and run, it prints
+`parsed=-0.0 sign=1.0 result=0.5`. So 0° 30′ down becomes 0° 30′ up, and because the minutes field
+is documented as always positive there is no other way to type that angle. Take the sign from the
+typed text rather than from the parsed number. Finding 55.
 
 ---
 
@@ -1821,9 +1858,9 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 722
-shared tests on three targets, 316 over the UI's own logic, 18 running the iOS half in a simulator,
-93 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 733
+shared tests on three targets, 318 over the UI's own logic, 18 running the iOS half in a simulator,
+94 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

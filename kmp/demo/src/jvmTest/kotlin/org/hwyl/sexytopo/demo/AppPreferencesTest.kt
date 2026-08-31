@@ -97,6 +97,8 @@ class AppPreferencesTest {
                 twoFingerMove = true,
                 autoReconnect = false,
                 autoReconnectWindow = "15",
+                azimuthInDms = false,
+                inclinationInDms = false,
             )
 
         assertTrue(saved.autoRecentre, "the drawing menu's preference is not this screen's to reset")
@@ -123,6 +125,8 @@ class AppPreferencesTest {
                 twoFingerMove = false,
                 autoReconnect = true,
                 autoReconnectWindow = "",
+                azimuthInDms = false,
+                inclinationInDms = false,
             )
 
         assertEquals(40, saved.autoReconnectWindowMinutes)
@@ -155,6 +159,28 @@ class AppPreferencesTest {
                 .parse("autoReconnectWindowMinutes=99999999")
                 .autoReconnectWindowMinutes,
         )
+    }
+
+    /**
+     * The two angle-entry preferences round-trip, and are off by default.
+     *
+     * `pref_deg_mins_secs` and `pref_inc_deg_mins_secs`, both false upstream: a DistoX reports a
+     * decimal and most surveys are shot with one. They are two switches rather than one, as they
+     * are there, because plenty of clinometers read in degrees while the compass beside them
+     * reads in minutes.
+     */
+    @Test
+    fun typingAnglesInMinutesIsAChoiceThatSurvivesTheAppBeingClosed() {
+        assertFalse(AppPreferences.DEFAULT.azimuthInDms)
+        assertFalse(AppPreferences.DEFAULT.inclinationInDms)
+
+        val store = InMemoryFileStore()
+        AppPreferencesStore.save(store, AppPreferences(azimuthInDms = true))
+
+        val reopened = AppPreferencesStore.load(store)
+        assertTrue(reopened.azimuthInDms)
+        assertFalse(reopened.inclinationInDms, "one switch does not turn the other on")
+        assertEquals(AngleEntry(azimuthInDms = true), reopened.angleEntry)
     }
 
     /** Off, as `pref_auto_reconnect` is: chasing a radio is the surveyor's decision to make. */
