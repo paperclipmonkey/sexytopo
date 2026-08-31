@@ -70,6 +70,7 @@ Being precise about this matters more than the demo looking good.
 | **The same code compiles for a real iPhone** | **Verified** | `:shared:compileKotlinIosArm64` and `:demo:linkDebugFrameworkIosArm64` — a separate Kotlin/Native target from the simulator, with its own platform libraries, so a green simulator build does not imply it |
 | **The iOS half of the app runs, not just compiles** | **Verified** | `:demo:iosSimulatorArm64Test` on a macOS runner: the Documents file store round-trips text, non-ASCII, nested directories and a whole survey; a file's exact bytes come back through the hand-written `NSData` copy the PocketTopo reader needs; the log's timestamps come out in the Android app's own format; the clipboard and the new-station haptic do not bring the app down |
 | **The iOS *app* builds, not only the framework it links** | **Verified** | `xcodegen` then `xcodebuild` for the simulator on the macOS runner, so `project.yml`, `Info.plist`, `Assets.xcassets` and the two Swift files are *compiled* rather than merely written — all four were authored on Linux and none had been near a compiler. It is also the only thing that runs `actool`, which is the only real answer to whether an app icon drawn here with PIL is one iOS accepts: an alpha channel or a wrong size is rejected outright, and nothing on Linux says so |
+| **Compose actually draws the survey on iOS** | **Verified** | CI boots a simulator, installs the app, launches it and photographs it. The picture has to contain the app's own panel green — an app that crashed shows Springboard, one with no UI shows white — *and* enough distinct colours to rule out the launch screen, which is that same green on purpose. Measured on the runner: **2340 green pixels and 609 distinct colours** against thresholds of 500 and 40. The screenshot is uploaded as the `ios-simulator-screenshot` artifact on every run |
 | The iOS app runs on a device | **Not verified** | needs Xcode, an Apple developer account and a physical phone. The app *bundle* is now built by CI, so what is left is signing and installing it |
 | **The app can ask to connect to an instrument** | **Verified** | `instrument.mjs` in CI stands a stub where `navigator.bluetooth` would be and makes it behave like a DistoX-BLE: the profile's name prefix and UUIDs reach the browser API, the notification arrives as a frame, the decoder reads it, the acknowledgement goes back, and three readings make a station in a saved survey |
 | **A calibration can be taken, solved and written back** | **Verified** | `instrument.mjs` puts the fake DistoX-BLE into calibration mode, feeds it the Android app's own 56-shot dataset over Web Bluetooth, and checks the twelve coefficient blocks reach the device |
@@ -388,15 +389,20 @@ does not.
 
 **Checked on every push, on a macOS runner:** the shared code compiles for the phone (`iosArm64`,
 a different target from the simulator with its own platform libraries); the whole ported test suite
-passes on Kotlin/Native; the Compose UI links as an iOS framework; and the iOS half of the app —
+passes on Kotlin/Native; the Compose UI links as an iOS framework; the iOS half of the app —
 `DocumentsFileStore`, a survey saved and reopened, a file's exact bytes through the `NSData` copy
 the PocketTopo reader needs, the date, the log's timestamps, the clipboard and the new-station
-haptic — *runs* in a simulator.
+haptic — *runs* in a simulator; the Xcode project builds, `actool` and all; and then the app is
+installed on a booted simulator, launched, and **photographed**. The screenshot is attached to
+every run as `ios-simulator-screenshot`, and a check on it is what makes it evidence rather than
+decoration: it has to hold the app's own panel green *and* enough distinct colours to prove the
+launch screen is not all that is on the glass. The last run: 2340 green pixels, 609 colours.
 
-**Never run at all:** the app itself, as an app, on any Apple device. Nobody has pressed ⌘R before
-you. The pieces are all verified and the assembly is not, so the plausible failure is something
-dull at startup rather than something deep — and if it does fail, the Xcode console will say so
-loudly rather than misbehaving quietly.
+**Never run on a device.** A simulator is a different thing from a phone: no touchscreen, no
+Bluetooth, no Apple Pencil, and an Apple Silicon Mac's own GPU rather than a phone's. Nobody has
+pressed ⌘R with a cable attached before you. What that leaves genuinely unknown is the *feel* —
+latency under a finger, the two-finger gestures, whether a stroke keeps up — rather than whether it
+comes up at all, which is now a picture rather than a hope.
 
 **Never near a radio:** `CoreBluetoothTransport`. The simulator has no Bluetooth stack, so CI
 cannot exercise it, and no instrument has been near a phone running this. *Instrument* will ask for
@@ -1089,6 +1095,23 @@ These are the things that would actually shape a real port.
    so it references no API and the warning is about provenance rather than behaviour. Worth saying
    out loud anyway: **nobody has run this on anything older than the runner's simulator**, so 15.0
    is a declared minimum rather than a tested one.
+
+36. **The picture was the check that was missing.** Everything about iOS here was inference. The
+   framework links, so Compose is probably fine. The platform code passes, so the file store is
+   fine. The Xcode project builds, so the app is probably fine. None of it drew a cave, and drawing
+   a cave on iOS is the entire question this branch exists to answer.
+
+   `xcrun simctl` does it in five lines: boot, install, launch, wait, screenshot. What took the
+   thought was making it a *check* rather than a photograph, because a photograph nobody looks at
+   proves nothing on the run where it matters. The app's panel green is the obvious test — a crash
+   shows Springboard and an empty Compose canvas shows white, and neither has any of it.
+
+   Except the launch screen is that same green, chosen on purpose to make the first moment look
+   like the app starting. So an app that hung before its first frame would pass a green-only check
+   looking *exactly* like a working one — the one failure mode most worth catching, invisible to
+   the obvious test. Hence the second condition: a drawn survey is hundreds of distinct colours
+   and a launch screen is two. Measured, both ways, against a real frame and a synthetic launch
+   screen, before it was ever pushed.
 
 ---
 
