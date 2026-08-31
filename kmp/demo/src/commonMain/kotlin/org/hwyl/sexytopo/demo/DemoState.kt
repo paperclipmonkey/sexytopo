@@ -396,7 +396,7 @@ class DemoState(
     }
 
     /**
-     * The other direction: `action_jump_to_station_in_table`, from the sketch's own station menu.
+     * The other direction: `action_jump_to_table`, from the sketch's own station menu.
      *
      * Simpler than [showOnDrawing] because the table does not have a viewport to move — it has a
      * scroll position, and a `LazyColumn` can be told to put a row at the top without waiting for

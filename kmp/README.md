@@ -367,7 +367,7 @@ Three things go wrong, in roughly this order of likelihood:
 One cosmetic thing, and one honest caveat about it:
 
 - **The icon and the launch screen compile, and have still never been *looked at*.**
-  `iosApp/Assets.xcassets` holds a 1024×1024 icon — a cave centreline drawn on a pale panel, in the
+  `iosApp/iosApp/Assets.xcassets` holds a 1024×1024 icon — a cave centreline drawn on a pale panel, in the
   app's own colours — and a colour called `LaunchBackground` that `UILaunchScreen` names, so the
   first moment shows the panel green rather than white. Both were written on Linux, where there is
   no Xcode to compile an asset catalogue.
@@ -379,7 +379,7 @@ One cosmetic thing, and one honest caveat about it:
 
   What nobody has done is *look* at either. A build that succeeds says the icon is well-formed, not
   that it is any good at 60 pixels on a home screen. If you dislike it, delete
-  `iosApp/Assets.xcassets` and rebuild: nothing else refers to it.
+  `iosApp/iosApp/Assets.xcassets` and rebuild: nothing else refers to it.
 
 #### Before you demo it: what has and has not been run
 
@@ -649,7 +649,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `Sketch.addSymbolDetail`'s blue-water override | `shared/sketch/SymbolColour.kt` | A rule about a preference, kept out of the generated `Symbol` enum |
 | `res/menu/context_leg.xml`, `ContextMenuManager.configureMenuVisibility`, `SurveyEditorActivity`'s leg handlers | `demo/.../LegActions.kt`, `SurveyUpdater.can{Downgrade,PromoteToAbove}Leg` | An action that cannot work is left out rather than shown greyed out or answered with a toast |
 | `res/menu/table_station_selected.xml`, `TableActivity.onCellClicked` | `demo/.../SurveyTableView.kt`, `StationMenu.kt` (`fromTable`) | One dialog reached two ways; the jump is left as a request for the sketch to pick up, because the viewport belongs to a canvas that does not exist yet |
-| `menu_navigate` (`action_jump_to_station_in_table`) | `demo/.../SurveyTableView.kt` (`rowIndexFor`), `DemoState.showInTable` | The row a station is found at is the leg that arrived at it, which is also the row its splays sit under |
+| `menu_navigate` (`action_jump_to_table`) | `demo/.../SurveyTableView.kt` (`rowIndexFor`), `DemoState.showInTable` | The row a station is found at is the leg that arrived at it, which is also the row its splays sit under |
 | `values/about_text.xml`, `openAboutDialog` | `demo/.../AboutDialog.kt` | Verbatim but for the bullet character, plus a paragraph saying what this build is and is not |
 | `TableRowAdapter`'s `COMMENT_MARKER` | `demo/.../SurveyTableView.kt` | The dagger goes on the station the row *shows*, which for a backsight is not the one the leg starts at |
 | `res/menu/context_station.xml`, `ContextMenuManager`, `GraphView.LongPressListener` | `demo/.../StationMenu.kt`, `SurveyCanvas.detectLongPress` | A dialog rather than a menu anchored at the finger; the links submenu is out, since nothing here draws a neighbouring survey |

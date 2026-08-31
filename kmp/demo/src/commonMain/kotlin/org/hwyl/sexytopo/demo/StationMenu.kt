@@ -58,13 +58,13 @@ enum class StationAction(val label: String) {
     /** `action_delete_station`, which takes the passage beyond it too. */
     DELETE("Delete this station"),
 
-    /** `action_jump_to_station_in_plan`, offered from the table and not from the sketch. */
+    /** `action_jump_to_plan`, offered from the table and not from the sketch. */
     SHOW_IN_PLAN("Show it on the plan"),
 
-    /** `action_jump_to_station_in_elevation`, likewise. */
+    /** `action_jump_to_elevation`, likewise. */
     SHOW_IN_ELEVATION("Show it in the elevation"),
 
-    /** `action_jump_to_station_in_table`, offered from the sketch and not from the table. */
+    /** `action_jump_to_table`, offered from the sketch and not from the table. */
     SHOW_IN_TABLE("Show it in the table"),
     ;
 }

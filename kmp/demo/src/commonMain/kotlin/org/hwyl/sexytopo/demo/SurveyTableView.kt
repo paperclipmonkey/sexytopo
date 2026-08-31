@@ -53,7 +53,7 @@ fun SurveyTableView(
      */
     onStation: ((Station) -> Unit)? = null,
     /**
-     * A station to scroll to, from `action_jump_to_station_in_table` on the sketch's own menu.
+     * A station to scroll to, from `action_jump_to_table` on the sketch's own menu.
      *
      * The *first* row that mentions it, which is the leg that arrives at it — a station appears
      * twice in this table, once as a To and again as the From of everything leaving it, and the
