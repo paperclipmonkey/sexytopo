@@ -1358,6 +1358,33 @@ These are the things that would actually shape a real port.
    carrying it through untouched would silently override the station a surveyor had just been
    working at. What the round trip loses is now written down exactly.
 
+43. **One damaged stroke loses the whole plan.** Upstream, and found by sweeping this port for
+   discarded failures rather than by looking for it. `SketchJsonTranslater.populateSketch` reads
+   the paths like this:
+
+   ```java
+   try {
+       JSONArray pathsArray = json.getJSONArray(PATHS_TAG);
+       List<PathDetail> pathDetails = new ArrayList<>();
+       for (JSONObject object : IoUtils.toList(pathsArray)) {
+           pathDetails.add(toPathDetail(object));   // throws
+       }
+       sketch.setPathDetails(pathDetails);          // never reached
+   } catch (Exception e) {
+       Log.e(R.string.file_load_sketch_paths_error, e);
+   }
+   ```
+
+   The `try` is outside the loop, so one stroke that will not parse throws past
+   `setPathDetails` and the sketch keeps the empty list it started with. Not that stroke — every
+   stroke. The same shape reads the labels and the cross-sections. The *symbols* loop, twenty lines
+   away, has an inner `try` per element and loses only the bad one, which is the giveaway that the
+   other three are an oversight rather than a decision.
+
+   It is logged, so the evidence exists on a phone nobody is looking at; on screen a surveyor gets
+   a plan with the centreline and no drawing on it, and no reason given. The fix is to move the
+   `try` inside the loop in the three places, as the symbols loop already does.
+
 ---
 
 ## A defect worth reporting upstream
