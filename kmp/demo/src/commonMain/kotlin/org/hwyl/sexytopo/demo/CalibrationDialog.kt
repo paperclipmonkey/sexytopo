@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import org.hwyl.sexytopo.shared.calibration.CalibrationChoice
 import org.hwyl.sexytopo.shared.calibration.CalibrationPositions
 import org.hwyl.sexytopo.shared.calibration.CalibrationQuality
 import org.hwyl.sexytopo.shared.calibration.CalibrationResult
@@ -57,7 +58,13 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
     var problem by remember { mutableStateOf<String?>(null) }
     // Linear by default, and the Android app's own comment says why: "linear probably safer as
     // default". The non-linear variant fits three extra accelerometer coefficients.
-    var nonLinear by remember { mutableStateOf(false) }
+    //
+    // Read from the saved preferences rather than held here, which it used to be. A chip that
+    // resets every time the dialog opens is a chip a surveyor has to remember to move again after
+    // fifty-six shots — finding 49's shape, and the calibration screen is the worst place for it,
+    // because the cost of forgetting is the whole calibration.
+    val algorithm = state.preferences.calibrationAlgorithm
+    val nonLinear = algorithm.useNonLinearity(session.profile)
 
 
     // Read so this recomposes as readings arrive.
@@ -166,16 +173,34 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
                 // shortfall said plainly. The Android app refuses below 56; this reports instead,
                 // because a surveyor who has taken 40 shots and lost the light is better served by
                 // a calibration they know is partial than by none.
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = !nonLinear,
-                        onClick = { nonLinear = false },
-                        label = { Text("Linear") },
-                    )
-                    FilterChip(
-                        selected = nonLinear,
-                        onClick = { nonLinear = true },
-                        label = { Text("Non-linear") },
+                // Three chips and not two, because `pref_calibration_algorithm` has three
+                // values and the third is the useful one: *Auto* asks the instrument, and the
+                // right answer is a property of the device rather than of the surveyor — the X310
+                // and the DistoX-BLE want the non-linear fit and the A3 does not.
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    for (choice in CalibrationChoice.entries) {
+                        FilterChip(
+                            selected = algorithm == choice,
+                            onClick = {
+                                state.updatePreferences(
+                                    state.preferences.copy(calibrationAlgorithm = choice),
+                                )
+                            },
+                            label = { Text(choice.label) },
+                        )
+                    }
+                }
+                if (algorithm == CalibrationChoice.AUTO) {
+                    Text(
+                        session.profile?.let {
+                            "${it.name}: " +
+                                if (nonLinear) "non-linear" else "linear"
+                        } ?: "Nothing attached, so linear.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
 

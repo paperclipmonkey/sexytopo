@@ -3,6 +3,7 @@ package org.hwyl.sexytopo.demo
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.survey.InputMode
+import org.hwyl.sexytopo.shared.survey.LrudMode
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
 import org.hwyl.sexytopo.shared.survey.SurveySettings
 import kotlin.test.Test
@@ -172,5 +173,33 @@ class LrudEntryTest {
         )
 
         assertEquals(0, standingAt.getUnconnectedOnwardLegs().size)
+    }
+
+    /**
+     * The surveyor's choice of reference bearing reaches the splay.
+     *
+     * `pref_lrud_direction` in upstream, which reads the key and declares it in no preference
+     * screen — so on Android the choice exists in the code and nobody can make it. Offered here,
+     * which is why the dead-end fallback in [LrudMode.sideAzimuth] had to be added at the same
+     * time: the setting and the hazard it reaches arrive together.
+     */
+    @Test
+    fun theChosenReferenceBearingReachesTheSplay() {
+        // Station 3 is the corner: in from station 2 heading north, out to station 4 heading
+        // east. SURVEY bisects those to 45, so LEFT is 315; SHOT uses the outgoing leg alone, so
+        // LEFT is 0. Station 2 would prove nothing — it is straight, and both modes answer 270.
+        val survey = Survey("T")
+        SurveyBuilder.updateWithNewStation(survey, Leg(10f, 0f, 0f))
+        SurveyBuilder.updateWithNewStation(survey, Leg(10f, 0f, 0f))
+        SurveyBuilder.updateWithNewStation(survey, Leg(10f, 90f, 0f))
+        val corner = survey.getStationByName("3")!!
+
+        addLruds(survey, corner, listOf("1", "", "", ""), LrudMode.SURVEY)
+        addLruds(survey, corner, listOf("2", "", "", ""), LrudMode.SHOT)
+        val walls = corner.getUnconnectedOnwardLegs()
+
+        assertEquals(2, walls.size)
+        assertEquals(315f, walls[0].azimuth, "the passage bisects the corner")
+        assertEquals(0f, walls[1].azimuth, "the next leg alone does not")
     }
 }

@@ -1,5 +1,6 @@
 package org.hwyl.sexytopo.demo
 
+import org.hwyl.sexytopo.shared.calibration.CalibrationChoice
 import org.hwyl.sexytopo.shared.comms.AutoReconnect
 import org.hwyl.sexytopo.shared.demo.ExampleSurvey
 import org.hwyl.sexytopo.shared.io.store.InMemoryFileStore
@@ -10,6 +11,7 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.survey.InputMode
+import org.hwyl.sexytopo.shared.survey.LrudMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -97,10 +99,6 @@ class AppPreferencesTest {
                 twoFingerMove = true,
                 autoReconnect = false,
                 autoReconnectWindow = "15",
-                azimuthInDms = false,
-                inclinationInDms = false,
-                manualControls = true,
-                lrudFields = false,
             )
 
         assertTrue(saved.autoRecentre, "the drawing menu's preference is not this screen's to reset")
@@ -127,10 +125,6 @@ class AppPreferencesTest {
                 twoFingerMove = false,
                 autoReconnect = true,
                 autoReconnectWindow = "",
-                azimuthInDms = false,
-                inclinationInDms = false,
-                manualControls = true,
-                lrudFields = false,
             )
 
         assertEquals(40, saved.autoReconnectWindowMinutes)
@@ -552,5 +546,51 @@ class AppPreferencesTest {
         for (page in MenuPage.entries.filter { it != MenuPage.THEME }) {
             assertEquals(MenuPage.TOP, page.parent, "$page")
         }
+    }
+
+    /**
+     * The calibration algorithm survives, which is the whole reason it moved out of the dialog.
+     *
+     * It was a chip held in the calibration screen's own state, so it reset to Linear every time
+     * the screen opened — finding 49's shape, in the worst place for it: a surveyor recalibrating
+     * an X310 shoots fifty-six positions and then has to remember to move a chip before pressing
+     * Solve, or the fit they get is not the one their instrument wants.
+     */
+    @Test
+    fun theCalibrationAlgorithmSurvivesTheAppBeingClosed() {
+        val store = InMemoryFileStore()
+        AppPreferencesStore.save(
+            store,
+            AppPreferences(calibrationAlgorithm = CalibrationChoice.AUTO),
+        )
+
+        assertEquals(CalibrationChoice.AUTO, AppPreferencesStore.load(store).calibrationAlgorithm)
+    }
+
+    /** And so does the LRUD reference bearing, which the Android app cannot even set. */
+    @Test
+    fun theLrudDirectionSurvivesTheAppBeingClosed() {
+        val store = InMemoryFileStore()
+        AppPreferencesStore.save(store, AppPreferences(lrudMode = LrudMode.SHOT))
+
+        assertEquals(LrudMode.SHOT, AppPreferencesStore.load(store).lrudMode)
+    }
+
+    /** Both default to what the Android app's getters fall back to. */
+    @Test
+    fun theTwoLastSettingsDefaultToTheAndroidApps() {
+        // getString("pref_calibration_algorithm", "linear")
+        assertEquals(CalibrationChoice.LINEAR, AppPreferences.DEFAULT.calibrationAlgorithm)
+        // getString("pref_lrud_direction", "survey")
+        assertEquals(LrudMode.SURVEY, AppPreferences.DEFAULT.lrudMode)
+    }
+
+    /** A name a later version invented reads as the default rather than stopping the app. */
+    @Test
+    fun anUnknownAlgorithmOrDirectionReadsAsTheDefault() {
+        val loaded = AppPreferencesStore.parse("calibrationAlgorithm=quartic\nlrudMode=SIDEWAYS\n")
+
+        assertEquals(CalibrationChoice.LINEAR, loaded.calibrationAlgorithm)
+        assertEquals(LrudMode.SURVEY, loaded.lrudMode)
     }
 }

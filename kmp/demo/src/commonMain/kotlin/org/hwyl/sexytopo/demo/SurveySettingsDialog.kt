@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import org.hwyl.sexytopo.shared.survey.LrudMode
 import org.hwyl.sexytopo.shared.survey.SurveySettings
 import org.hwyl.sexytopo.shared.survey.amalgamation.LegAmalgamationAlgorithm
 
@@ -59,10 +60,6 @@ fun SurveySettingsDialog(
     var buzz by remember { mutableStateOf(preferences.buzzOnNewStation) }
     var hotCorners by remember { mutableStateOf(preferences.hotCorners) }
     var twoFingerMove by remember { mutableStateOf(preferences.twoFingerMove) }
-    var manualControls by remember { mutableStateOf(preferences.manualControls) }
-    var lrudFields by remember { mutableStateOf(preferences.lrudFields) }
-    var azimuthInDms by remember { mutableStateOf(preferences.azimuthInDms) }
-    var inclinationInDms by remember { mutableStateOf(preferences.inclinationInDms) }
     var autoReconnect by remember { mutableStateOf(preferences.autoReconnect) }
     var reconnectWindow by
         remember { mutableStateOf(preferences.autoReconnectWindowMinutes.toString()) }
@@ -172,59 +169,6 @@ fun SurveySettingsDialog(
 
                 HorizontalDivider()
 
-                // `pref_manual_controls`. The Android app applies it to the two floating buttons
-                // on its table view; the same control here is *Add reading* on the field bar.
-                Toggle(
-                    title = "Offer a reading typed by hand",
-                    detail =
-                        "How a DistoX's display gets into the survey when the radio will not " +
-                            "play. Worth turning off once an instrument is talking, for the room " +
-                            "it gives back.",
-                    checked = manualControls,
-                    onCheckedChange = { manualControls = it },
-                )
-
-                // `pref_lrud_fields`. Disabled rather than hidden when there is no hand-typed
-                // reading to put them in — `android:dependency`'s own behaviour, and the right
-                // one: a row that vanishes is a row nobody can find again to work out why their
-                // setting did nothing.
-                Toggle(
-                    title = "Book passage size with the reading",
-                    detail =
-                        "Four tape measurements beside the leg, taken where you are standing. " +
-                            "For a compass-and-tape survey that is the whole station in one " +
-                            "dialog instead of going back to one you have already left.",
-                    checked = lrudFields,
-                    onCheckedChange = { lrudFields = it },
-                    enabled = manualControls,
-                )
-
-                // `pref_deg_mins_secs` and `pref_inc_deg_mins_secs`, from the Android app's
-                // *Manual data entry* screen. They are here, with the tolerances, because both
-                // answer the same question — what a reading looks like when it is not coming off
-                // a DistoX — and because the surveyor who loosens the tolerances for a compass
-                // and tape is the same surveyor who needs these.
-                Toggle(
-                    title = "Type bearings in minutes",
-                    detail =
-                        "A sighting compass is graduated in minutes, so it reads 123\u00b0 30\u2032 " +
-                            "and not 123.5. Converting that in your head at every station is how " +
-                            "a survey acquires errors nobody can find afterwards.",
-                    checked = azimuthInDms,
-                    onCheckedChange = { azimuthInDms = it },
-                )
-
-                Toggle(
-                    title = "Type inclinations in minutes",
-                    detail =
-                        "Its own switch, as upstream: plenty of clinometers read in degrees while " +
-                            "the compass beside them reads in minutes.",
-                    checked = inclinationInDms,
-                    onCheckedChange = { inclinationInDms = it },
-                )
-
-                HorizontalDivider()
-
                 // `pref_auto_reconnect` and `pref_auto_reconnect_window`, which the Android app
                 // keeps on this same preference screen — `preferences_instruments.xml`, below the
                 // tolerances — so this is where they belong here too.
@@ -273,10 +217,6 @@ fun SurveySettingsDialog(
                                 twoFingerMove,
                                 autoReconnect,
                                 reconnectWindow,
-                                azimuthInDms,
-                                inclinationInDms,
-                                manualControls,
-                                lrudFields,
                             ),
                         )
                     }
@@ -308,10 +248,6 @@ internal fun preferencesFrom(
      * and the field is only on screen at all while the toggle above it is on.
      */
     autoReconnectWindow: String,
-    azimuthInDms: Boolean,
-    inclinationInDms: Boolean,
-    manualControls: Boolean,
-    lrudFields: Boolean,
 ): AppPreferences =
     current.copy(
         buzzOnNewStation = buzzOnNewStation,
@@ -321,10 +257,6 @@ internal fun preferencesFrom(
         autoReconnectWindowMinutes =
             autoReconnectWindow.trim().toIntOrNull()?.coerceIn(0, AppPreferencesStore.MAX_WINDOW_MINUTES)
                 ?: current.autoReconnectWindowMinutes,
-        azimuthInDms = azimuthInDms,
-        inclinationInDms = inclinationInDms,
-        manualControls = manualControls,
-        lrudFields = lrudFields,
     )
 
 /**

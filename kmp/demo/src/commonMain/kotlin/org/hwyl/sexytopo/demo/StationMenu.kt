@@ -24,6 +24,7 @@ import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.survey.LrudMode
 import org.hwyl.sexytopo.shared.survey.CrossSectioner
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 
@@ -161,6 +162,8 @@ fun StationMenuDialog(
     onShowOn: (Station, Projection2D) -> Unit = { _, _ -> },
     /** Take them to its row in the table instead. Only reached when not [fromTable]. */
     onShowInTable: (Station) -> Unit = {},
+    /** Passed through to the passage-size fields: `pref_lrud_direction`. */
+    lrudMode: LrudMode = LrudMode.DEFAULT,
 ) {
     var editing by remember(station) { mutableStateOf(false) }
     var editingLeg by remember(station) { mutableStateOf(false) }
@@ -175,6 +178,7 @@ fun StationMenuDialog(
                 station = station,
                 onDismiss = onDismiss,
                 onEdited = onEdited,
+                lrudMode = lrudMode,
             )
 
         editingLeg && incoming != null ->

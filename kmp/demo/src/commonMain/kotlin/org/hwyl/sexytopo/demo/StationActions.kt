@@ -50,6 +50,8 @@ fun StationActionsDialog(
     station: Station,
     onDismiss: () -> Unit,
     onEdited: () -> Unit,
+    /** Which bearing left and right go square to: `pref_lrud_direction`. */
+    lrudMode: LrudMode = LrudMode.DEFAULT,
 ) {
     var name by remember(station) { mutableStateOf(station.name) }
     var comment by remember(station) { mutableStateOf(station.comment) }
@@ -137,7 +139,7 @@ fun StationActionsDialog(
                 enabled = problem == null,
                 onClick = {
                     applyStationEdit(survey, station, name, comment, direction)
-                    addLruds(survey, station, lrud.toList())
+                    addLruds(survey, station, lrud.toList(), lrudMode)
                     onEdited()
                 },
             ) { Text("Save") }
@@ -225,9 +227,9 @@ internal fun applyStationEdit(
  *
  * The traditional way of recording passage size when there is a tape and no instrument: four
  * numbers per station rather than four full compass-and-clino shots, with the app inventing the
- * directions. Left and right go square to the passage — [LrudMode.SURVEY], which bisects the
- * corner at a bend, and is what most cavers mean by a left-hand wall measurement — while up and
- * down are vertical.
+ * directions. Left and right go square to whichever bearing [mode] names — [LrudMode.SURVEY] by
+ * default, which bisects the corner at a bend and is what most cavers mean by a left-hand wall
+ * measurement — while up and down are vertical.
  *
  * They become ordinary splays, which is what makes cross-sections and the exporters' passage
  * dimensions work on a hand-booked survey exactly as on an instrument-fed one.
@@ -236,7 +238,12 @@ internal fun applyStationEdit(
  * non-positive distance by throwing, and "0" is what somebody types for a wall they are standing
  * against.
  */
-internal fun addLruds(survey: Survey, station: Station, distances: List<String>): Int {
+internal fun addLruds(
+    survey: Survey,
+    station: Station,
+    distances: List<String>,
+    mode: LrudMode = LrudMode.DEFAULT,
+): Int {
     var added = 0
     for ((index, side) in Lrud.entries.withIndex()) {
         val distance = distances.getOrNull(index)?.trim()?.replace(',', '.')?.toFloatOrNull()
@@ -244,7 +251,7 @@ internal fun addLruds(survey: Survey, station: Station, distances: List<String>)
         SurveyBuilder.addSplay(
             survey,
             station,
-            side.createSplay(survey, station, LrudMode.DEFAULT, distance),
+            side.createSplay(survey, station, mode, distance),
         )
         added++
     }

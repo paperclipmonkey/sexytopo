@@ -1,5 +1,6 @@
 package org.hwyl.sexytopo.demo
 
+import org.hwyl.sexytopo.shared.calibration.CalibrationChoice
 import org.hwyl.sexytopo.shared.comms.AutoReconnect
 import org.hwyl.sexytopo.shared.io.export.SvgExporter
 import org.hwyl.sexytopo.shared.io.export.TherionExport
@@ -10,6 +11,7 @@ import org.hwyl.sexytopo.shared.sketch.SketchDefaults
 import org.hwyl.sexytopo.shared.sketch.SketchStyle
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.survey.InputMode
+import org.hwyl.sexytopo.shared.survey.LrudMode
 
 /**
  * Light, dark, or whatever the phone says. `pref_theme`'s three values, under their own names.
@@ -154,6 +156,24 @@ data class AppPreferences(
      * builds and a pile of files.
      */
     val therionExport: TherionExport = TherionExport.DEFAULT,
+    /**
+     * Which calibration fit to run. `pref_calibration_algorithm`.
+     *
+     * The port had the *choice* on the calibration screen and not the *setting*: a chip that reset
+     * to Linear every time the dialog opened. That is finding 49's shape once more, and it is
+     * worse here than most, because a surveyor recalibrating an X310 does fifty-six shots and then
+     * has to remember to move a chip before pressing Solve.
+     */
+    val calibrationAlgorithm: CalibrationChoice = CalibrationChoice.DEFAULT,
+    /**
+     * Which bearing left and right are taken square to. `pref_lrud_direction`.
+     *
+     * Upstream reads this key and has no settings entry for it at all - see the note in the
+     * README about preferences nobody can reach - so this offers a choice the Android app makes
+     * for you. [LrudMode.SURVEY] bisects the corner at a bend, which is what most cavers mean by a
+     * left-hand wall; [LrudMode.SHOT] takes it square to the outgoing leg alone.
+     */
+    val lrudMode: LrudMode = LrudMode.DEFAULT,
 ) {
     /** The two above as the value [LocalAngleEntry] carries. */
     val angleEntry: AngleEntry
@@ -373,6 +393,8 @@ object AppPreferencesStore {
             appendLine("textSizeSp=${style.textSizeSp}")
             appendLine("manualControls=${preferences.manualControls}")
             appendLine("lrudFields=${preferences.lrudFields}")
+            appendLine("calibrationAlgorithm=${preferences.calibrationAlgorithm.key}")
+            appendLine("lrudMode=${preferences.lrudMode.name}")
             appendLine("azimuthInDms=${preferences.azimuthInDms}")
             appendLine("inclinationInDms=${preferences.inclinationInDms}")
             val svg = preferences.svgExport
@@ -522,6 +544,13 @@ object AppPreferencesStore {
                 ),
             manualControls = values["manualControls"]?.toBooleanStrictOrNull() ?: true,
             lrudFields = values["lrudFields"]?.toBooleanStrictOrNull() ?: false,
+            // By name, and tolerant of a name this version does not know, for the same reason as
+            // the theme and the tool: nothing in a preferences file written by another version
+            // should be able to stop the app opening.
+            calibrationAlgorithm =
+                CalibrationChoice.of(values["calibrationAlgorithm"]) ?: CalibrationChoice.DEFAULT,
+            lrudMode =
+                LrudMode.entries.firstOrNull { it.name == values["lrudMode"] } ?: LrudMode.DEFAULT,
             azimuthInDms = values["azimuthInDms"]?.toBooleanStrictOrNull() ?: false,
             inclinationInDms = values["inclinationInDms"]?.toBooleanStrictOrNull() ?: false,
             svgExport = svgExportFrom(values),

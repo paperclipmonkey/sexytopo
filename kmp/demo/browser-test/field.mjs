@@ -264,7 +264,7 @@ const MENU_PAGES = {
   view: { before: ['demo', 'trip', '3d', 'stats'], after: [], holdsSurveys: false },
   instrument: { before: ['connect', 'calibrate', 'log'], after: [], holdsSurveys: false },
   settings: {
-    before: ['fullscreen', 'surveying', 'sketching', 'theme'],
+    before: ['fullscreen', 'surveying', 'manual-entry', 'sketching', 'theme'],
     after: [],
     holdsSurveys: false,
   },
@@ -476,18 +476,24 @@ const settingsSwitch = async (index) => {
   return [320, rows[nth]]
 }
 
-// The last five switches in *Surveying*, in the order the dialog lays them out.
-//
-// Counted from the end, and these numbers move when a row is inserted among them rather than
-// added above them: *Book passage size* went in directly under *Offer a reading typed by hand*,
-// because it is a sub-option of it, which pushed the manual-entry switch from -4 to -5. That is
-// what these named constants are for — the alternative is four bare negative numbers spread over
-// two hundred lines, which is the shape the pixel offsets had before switchRows() replaced them.
+// *Surveying* ends with one switch, so it is the only one counted from that end.
 const SWITCH_CHASE_LOST_INSTRUMENT = -1
-const SWITCH_INCLINATIONS_IN_MINUTES = -2
-const SWITCH_BEARINGS_IN_MINUTES = -3
-const SWITCH_BOOK_PASSAGE_SIZE = -4
-const SWITCH_MANUAL_ENTRY = -5
+
+// *Manual entry*'s five switches, counted from the **top** and in the order the dialog lays them
+// out. From the top because that dialog opens at the top and its rows are added at the bottom;
+// from the end in *Surveying* because that one's rows are added above the reconnect pair.
+//
+// The five used to be the tail of *Surveying*, and the reason they are not any more is worth
+// keeping: that dialog reached eleven settings, and eleven do not fit on a 420-by-900 screen at
+// once. `switchRows()` finds switches by scanning the pixels that are actually drawn, so "the
+// last switch but five" silently became a switch that was off the bottom of the card — the check
+// reported *"wanted switch -6 but the dialog shows 5"*, which is the good version of that failure
+// and only happened because the finder counts what it can see rather than what it remembers.
+const SWITCH_MANUAL_ENTRY = 0
+const SWITCH_BOOK_PASSAGE_SIZE = 1
+const SWITCH_WALLS_SQUARE_TO_NEXT_LEG = 2
+const SWITCH_BEARINGS_IN_MINUTES = 3
+const SWITCH_INCLINATIONS_IN_MINUTES = 4
 
 const chaseSwitch = async () => settingsSwitch(SWITCH_CHASE_LOST_INSTRUMENT)
 
@@ -503,11 +509,29 @@ const sketchField = async (index) => {
   return [210, top + SKETCH_FIRST_FIELD_BELOW_TOP + SKETCH_FIELD_SPACING * index]
 }
 
-/** Wheel to the end of the settings dialog, wherever that is. */
+/**
+ * Wheel to the end of the settings dialog, wherever that is — and it moves.
+ *
+ * This was one wheel of six hundred pixels, which was enough right up until the dialog gained a
+ * row. Then it stopped short, the last switch was below the fold, `switchRows()` found one fewer
+ * than there are, and every negative index pointed one row too high: the check that meant to turn
+ * on *Chase a lost instrument* turned on *Type inclinations in minutes* instead and reported that
+ * the setting had not stuck. A fixed scroll is a measurement, and measurements in this file rot —
+ * which is the same lesson as the pixel offsets that `switchRows` itself replaced.
+ *
+ * So: wheel until the picture stops changing. That is what "to the end" means, and it needs no
+ * re-tuning when the next setting is added.
+ */
 const scrollSettingsToTheEnd = async () => {
   await page.mouse.move(210, 500)
-  await page.mouse.wheel(0, 600)
-  await page.waitForTimeout(600)
+  let previous = null
+  for (let i = 0; i < 8; i++) {
+    await page.mouse.wheel(0, 600)
+    await page.waitForTimeout(400)
+    const now = (await page.screenshot({ clip: box })).toString('base64')
+    if (now === previous) return
+    previous = now
+  }
 }
 
 // Found rather than measured, now that the dialog is tall enough to be capped: its buttons sit a
@@ -2880,8 +2904,7 @@ if (grew.length > 0) {
 // this chamber around the next one. Nothing in the numbers afterwards says so: they are ordinary
 // splays either way, on a station that exists, at a bearing that really was measured.
 await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(900)
-await scrollSettingsToTheEnd()
+await at(...(await menuRow('manual-entry', 1))); await page.waitForTimeout(900)
 await at(...(await settingsSwitch(SWITCH_BOOK_PASSAGE_SIZE))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
@@ -2941,8 +2964,7 @@ await at(...(await cardButton(CARD_CANCEL_X))); await page.waitForTimeout(600)
 
 // Put it back, so the dialogs checked after this one are the ones they were written for.
 await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(900)
-await scrollSettingsToTheEnd()
+await at(...(await menuRow('manual-entry', 1))); await page.waitForTimeout(900)
 await at(...(await settingsSwitch(SWITCH_BOOK_PASSAGE_SIZE))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
@@ -2980,8 +3002,7 @@ const fieldBarInk = async () => {
 const withManualButton = await fieldBarInk()
 
 await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
-await scrollSettingsToTheEnd()
+await at(...(await menuRow('manual-entry', 1))); await page.waitForTimeout(800)
 await at(...(await settingsSwitch(SWITCH_MANUAL_ENTRY))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-no-manual-entry.png') })
@@ -3007,8 +3028,7 @@ if (!(withManualButton > 400)) {
 
 // Back on, because the checks below type readings.
 await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
-await scrollSettingsToTheEnd()
+await at(...(await menuRow('manual-entry', 1))); await page.waitForTimeout(800)
 await at(...(await settingsSwitch(SWITCH_MANUAL_ENTRY))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 
@@ -3023,8 +3043,7 @@ await at(...(await settingsSave())); await page.waitForTimeout(800)
 // 54). This is the half only a running app can show: that the switch changes the card, and that
 // what is typed into the three boxes reaches the survey as one angle.
 await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
-await scrollSettingsToTheEnd()
+await at(...(await menuRow('manual-entry', 1))); await page.waitForTimeout(800)
 await at(...(await settingsSwitch(SWITCH_BEARINGS_IN_MINUTES))); await page.waitForTimeout(300)
 await at(...(await settingsSwitch(SWITCH_INCLINATIONS_IN_MINUTES)))
 await page.waitForTimeout(300)
@@ -3064,8 +3083,7 @@ if (dmsSplays.length !== splaysBeforeDms + 1) {
 
 // Back to decimal, because every check below reads the ordinary card.
 await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
-await scrollSettingsToTheEnd()
+await at(...(await menuRow('manual-entry', 1))); await page.waitForTimeout(800)
 await at(...(await settingsSwitch(SWITCH_BEARINGS_IN_MINUTES))); await page.waitForTimeout(300)
 await at(...(await settingsSwitch(SWITCH_INCLINATIONS_IN_MINUTES)))
 await page.waitForTimeout(300)

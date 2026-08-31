@@ -46,31 +46,50 @@ enum class Lrud {
  * Ported from `model/table/LRUD.Mode`, backed in the Android app by the `pref_lrud_direction`
  * preference (default `"survey"`).
  */
-enum class LrudMode {
+enum class LrudMode(
+    /** What the settings screen's chip says. */
+    val label: String,
+) {
     /**
      * Square to the passage: the cross-section bearing, which bisects the corner at a bend. This is
      * what most cavers mean by a left-hand wall measurement.
      */
-    SURVEY,
+    SURVEY("The passage"),
 
     /**
      * Square to the outgoing shot alone, ignoring the way in. Some surveyors book LRUDs relative to
      * the leg they are about to shoot.
      */
-    SHOT,
+    SHOT("The next leg"),
     ;
 
     /**
      * The reference bearing.
      *
-     * [SHOT] indexes the first connected onward leg directly, so calling it on a station with no
-     * way on throws — reproduced from the original, which has the same unguarded `get(0)`. Callers
-     * (the manual-entry dialog) only offer LRUD entry on stations that have one.
+     * ## One deliberate departure, and why it had to be made
+     *
+     * The original indexes the first connected onward leg directly — `getConnectedOnwardLegs()
+     * .get(0)` — so on a station with no way on it throws an `IndexOutOfBoundsException`. This
+     * port reproduced that faithfully, and could afford to, because nothing could *select* [SHOT]:
+     * the Android app reads `pref_lrud_direction` and declares it in no preference screen, so on
+     * Android the value is always `"survey"` and the unguarded index is never reached.
+     *
+     * Offering the choice makes it reachable, and reachable at the worst moment. The port books
+     * passage size at the station the surveyor is standing at, which at the working end of a
+     * survey is a station with nothing beyond it yet — so *the first time anybody chose this
+     * setting and measured a wall*, the app would have thrown. On Kotlin/Native that is not an
+     * exception, it is the process ending: see finding 70.
+     *
+     * So a station with no outgoing leg falls back to the passage bearing, which is [SURVEY] and
+     * is the only other answer available. It is the same number the surveyor would have got before
+     * they touched the setting, and it cannot be wrong in a way that loses a survey.
      */
     fun sideAzimuth(survey: Survey, station: Station): Float =
         when (this) {
             SURVEY -> CrossSectioner.angleOfSection(survey, station)
-            SHOT -> station.getConnectedOnwardLegs()[0].azimuth
+            SHOT ->
+                station.getConnectedOnwardLegs().firstOrNull()?.azimuth
+                    ?: CrossSectioner.angleOfSection(survey, station)
         }
 
     companion object {

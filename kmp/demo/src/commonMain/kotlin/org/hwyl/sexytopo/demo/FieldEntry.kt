@@ -35,6 +35,7 @@ import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.survey.SurveySettings
 import org.hwyl.sexytopo.shared.survey.Lrud
+import org.hwyl.sexytopo.shared.survey.LrudMode
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
@@ -195,6 +196,8 @@ internal fun addTypedReading(
     lrud: List<String>,
     inputMode: InputMode,
     settings: SurveySettings,
+    /** Which bearing left and right go square to: `pref_lrud_direction`. */
+    lrudMode: LrudMode = LrudMode.DEFAULT,
     onStationCreated: () -> Unit = {},
 ): Int {
     val measuredFrom = survey.activeStation
@@ -205,7 +208,7 @@ internal fun addTypedReading(
     } else if (SurveyUpdater.update(survey, leg, inputMode, settings)) {
         onStationCreated()
     }
-    return addLruds(survey, measuredFrom, lrud)
+    return addLruds(survey, measuredFrom, lrud, lrudMode)
 }
 
 /**

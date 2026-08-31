@@ -5,7 +5,6 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -93,15 +92,32 @@ class LrudTest {
         assertClose(0f, down.azimuth)
     }
 
+    /**
+     * A dead end falls back to the passage bearing rather than throwing.
+     *
+     * This assertion used to be the opposite. The original indexes the first connected onward leg
+     * directly — `getConnectedOnwardLegs().get(0)` — and this port reproduced the
+     * `IndexOutOfBoundsException` faithfully, which was safe for exactly as long as nothing could
+     * *select* [LrudMode.SHOT]: the Android app reads `pref_lrud_direction` and declares it in no
+     * preference screen, so on Android the value is always `"survey"`.
+     *
+     * Offering the choice makes it reachable, and reachable at the worst moment: passage size is
+     * booked at the station the surveyor is standing at, which at the working end of a survey is a
+     * station with nothing beyond it yet. The first person to choose this setting and measure a
+     * wall would have met it — and on Kotlin/Native an uncaught throw is not an exception, it is
+     * the process ending. So the behaviour changed with the setting that made it reachable, and
+     * this test changed with it rather than being deleted.
+     */
     @Test
-    fun shotModeThrowsAtADeadEnd() {
-        // Reproduced from the original's unguarded get(0) on the connected onward legs.
+    fun shotModeAtADeadEndFallsBackToThePassage() {
         val survey = Survey("X")
         SurveyBuilder.updateWithNewStation(survey, Leg(5f, 0f, 0f))
         val deadEnd = survey.activeStation
-        assertFailsWith<IndexOutOfBoundsException> {
-            Lrud.LEFT.createSplay(survey, deadEnd, LrudMode.SHOT, 1f)
-        }
+
+        val shot = Lrud.LEFT.createSplay(survey, deadEnd, LrudMode.SHOT, 1f)
+        val passage = Lrud.LEFT.createSplay(survey, deadEnd, LrudMode.SURVEY, 1f)
+
+        assertClose(passage.azimuth, shot.azimuth)
     }
 
     @Test

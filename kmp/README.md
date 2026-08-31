@@ -2044,6 +2044,59 @@ These are the things that would actually shape a real port.
      per station name across the save: exactly one station gained four, and it is not the station
      the reading created.
 
+64. **Two settings the surveyor could not keep, and one they could not reach.** The end of the
+   preference sweep, and it turned up three different failures of the same kind.
+
+   `pref_calibration_algorithm` was a chip on the calibration screen held in that screen's own
+   state, so it reset to *Linear* every time the screen opened. Finding 49's shape again, and this
+   is the worst place on the branch for it: recalibrating an X310 is fifty-six shots, and the cost
+   of forgetting to move a chip before pressing Solve is all of them. It also had two values where
+   upstream has three, and the missing one is the useful one — *Auto* asks the instrument, because
+   the right answer is a property of the device: `DistoX.prefersNonLinearCalibration` says yes for
+   the X310 and the DistoX-BLE and no for the A3 and for anything it does not recognise. That
+   table is on `InstrumentProfile` now, beside the rest of the device matrix.
+
+   `pref_lrud_direction` is stranger. The Android app **reads it and declares it nowhere**:
+   `GeneralPreferences.getLrudMode` has exactly one caller, and the key appears in no
+   `preferences_*.xml`, so on Android the value is always `"survey"` and the choice exists in the
+   code without existing for anybody. It decides whether left and right are measured square to the
+   passage — bisecting the corner at a bend — or square to the leg you are about to shoot, which
+   is a real disagreement between surveyors. It is offered here.
+
+   And offering it is what made the third one matter. `LrudMode.SHOT` indexed the first connected
+   onward leg directly — `getConnectedOnwardLegs()[0]`, unguarded, exactly as upstream has it —
+   and this port had a test asserting the `IndexOutOfBoundsException`, on the reasoning that it
+   was faithful. It was faithful and it was safe, but only because nothing could select `SHOT`.
+   Making the setting reachable makes the throw reachable, and reachable at the worst moment: the
+   port books passage size at the station the surveyor is standing at, which at the working end of
+   a survey is a station with nothing beyond it. The first person to choose the setting and
+   measure a wall would have met it, and on Kotlin/Native an uncaught throw is not an exception,
+   it is the process ending. So `SHOT` falls back to the passage bearing at a dead end, and the
+   test that asserted the throw now asserts the fallback and says why it changed.
+
+   There is a smaller lesson in the UI, in two parts, and both were found by the checks rather than
+   by looking. The LRUD direction went in as two chips, because a choice between two conventions is
+   what chips are for. Then the second chip's right edge turned out to land seventeen pixels inside
+   the band the browser checks scan to *find the switches in this dialog*, against a threshold of
+   ten — so it would have been counted as a switch, shifting every negative index in `field.mjs` by
+   one and quietly turning off whichever setting the checks meant to touch. That exact failure has
+   happened on this branch before and took four hundred lines to surface. It is a switch now, which
+   is what every other row there is.
+
+   And then, as a switch, it was the eleventh setting on *Surveying* — and eleven do not fit on a
+   420-by-900 screen at once. `switchRows()` finds switches by scanning the pixels that are
+   actually drawn, so *"the last switch but five"* silently became a switch that was off the bottom
+   of the card. The check said `wanted switch -6 but the dialog shows 5`, which is the good version
+   of that failure: a finder that counts what it can see cannot pretend to have tapped something it
+   could not.
+
+   The fix is not a bigger scroll. Eleven settings in one card is not a screen anybody can use with
+   cold hands, and it is not the shape upstream has either: `preferences_main.xml` splits its
+   settings across eight screens, one of which is *Manual data entry*. So the five that belong to
+   it — the hand-typed reading, the passage-size boxes, the wall direction and the two
+   degrees-and-minutes switches — are their own dialog now, as *Sketching* already was. The port
+   had merged them, and the merge is what outgrew the phone.
+
 ---
 
 ## A defect worth reporting upstream
@@ -2066,6 +2119,18 @@ the maintainer to judge:
 The same class of bug is in the Compass exporter, differently: its splay counter resets whenever
 the from-station changes, so a surveyor who shoots splays off a station, moves on, and later
 returns gets a second run numbered from zero and two splays sharing a name.
+
+**Two preferences that are read by nothing, and one that is declared nowhere.** Found by sweeping
+every `android:key` in `res/xml/preferences_*.xml` against its getter and every getter against its
+callers:
+
+- `pref_developer_mode` has a settings screen of its own (`preferences_developer.xml`, reached from
+  `pref_section_developer` on the main screen) and a getter, `isDeveloperModeOn`, that **nothing
+  calls**. It is a checkbox a user can find, tick, and have no effect from whatsoever.
+- `pref_lrud_direction` is the opposite: `getLrudMode` has a real caller — the manual LRUD dialog
+  computes its wall bearings from it — and the key is declared in no preference screen at all, so
+  the value is always the `"survey"` fallback and the choice cannot be made. Two conventions exist
+  in the code and one of them is unreachable.
 
 A third, found porting the fade: **which stations come out faded depends on hash order.**
 `GraphView.drawStations` sets its paint to a fifth alpha, walks the station map, and sets the alpha

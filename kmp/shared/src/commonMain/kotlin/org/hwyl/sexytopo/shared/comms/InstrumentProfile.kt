@@ -63,6 +63,16 @@ data class InstrumentProfile(
      * it copies, and refused a device that works.
      */
     val requiresWriteCharacteristic: Boolean = true,
+    /**
+     * Whether this device wants the non-linear calibration fit, for `pref_calibration_algorithm`'s
+     * *Auto*.
+     *
+     * `DistoX.prefersNonLinearCalibration`, which is a four-row table: the X310 and the DistoX-BLE
+     * say yes, the A3 says no, and anything the Java's `fromName` does not recognise says no. That
+     * last row is why Cavway and SAP6 are false here rather than unset — upstream's name matching
+     * would call them `UNKNOWN`, so false is what it would answer for them, not a gap.
+     */
+    val prefersNonLinearCalibration: Boolean = false,
     val notes: String = "",
 ) {
     init {
@@ -85,6 +95,8 @@ data class InstrumentProfile(
                 serviceUuid = NUS_SERVICE,
                 notifyCharacteristicUuids = listOf(NUS_NOTIFY),
                 writeCharacteristicUuid = NUS_WRITE,
+                // `DistoX.BLE("BLE", true)`.
+                prefersNonLinearCalibration = true,
                 notes = "Conversion board for the Leica X310. Commands are wrapped in a " +
                     "'data:' frame on the way out (see DistoXBleFraming); inbound packets are " +
                     "bare DistoX packets, not framed - the wrapping is outbound only.",

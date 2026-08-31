@@ -246,6 +246,7 @@ private fun SexyTopoAppBar(state: DemoState) {
     var naming by remember { mutableStateOf(NamingIntent.NONE) }
     var editingTrip by remember { mutableStateOf(false) }
     var editingSettings by remember { mutableStateOf(false) }
+    var editingManualEntry by remember { mutableStateOf(false) }
     var editingSketchStyle by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
     var connecting by remember { mutableStateOf(false) }
@@ -305,6 +306,21 @@ private fun SexyTopoAppBar(state: DemoState) {
             state = state,
             onDismiss = { importing = false },
             onImported = { importing = false },
+        )
+    }
+
+    // `preferences_manual_data_entry.xml`, which is one of `preferences_main.xml`'s eight screens
+    // — so its own dialog here, as *Sketching* already is. It used to be five more rows on
+    // *Surveying*, and eleven settings in one scrolling card is not a screen anybody can use with
+    // cold hands.
+    if (editingManualEntry) {
+        ManualEntrySettingsDialog(
+            preferences = state.preferences,
+            onDismiss = { editingManualEntry = false },
+            onSave = {
+                state.updatePreferences(it)
+                editingManualEntry = false
+            },
         )
     }
 
@@ -663,6 +679,17 @@ private fun SexyTopoAppBar(state: DemoState) {
                             page = MenuPage.TOP
                         },
                     )
+                    // Likewise its own screen, and for the same reason the Android app gives it
+                    // one: everything on it is about a survey booked with a compass and a tape.
+                    DropdownMenuItem(
+                        text = { Text("Manual entry…") },
+                        leadingIcon = { CheckDot(false) },
+                        onClick = {
+                            editingManualEntry = true
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
+                    )
                     // Its own screen, as `preferences_main.xml` gives it: the tolerances answer
                     // "what counts as the same shot" and these answer "can I read this by head
                     // torch", which are different questions asked at different moments.
@@ -977,6 +1004,7 @@ private fun StationMenuFor(
         fromTable = fromTable,
         onShowOn = { at, wanted -> state.showOnDrawing(at, wanted) },
         onShowInTable = { state.showInTable(it) },
+        lrudMode = state.preferences.lrudMode,
     )
 }
 
@@ -1025,6 +1053,7 @@ private fun FieldBar(state: DemoState) {
                     lrud = lrud,
                     inputMode = state.inputMode,
                     settings = state.surveySettings,
+                    lrudMode = state.preferences.lrudMode,
                     onStationCreated = { state.noteStationCreated() },
                 )
                 state.noteSketchEdited()
@@ -1042,6 +1071,7 @@ private fun FieldBar(state: DemoState) {
                 namingStation = false
                 state.noteSketchEdited()
             },
+            lrudMode = state.preferences.lrudMode,
         )
     }
 
