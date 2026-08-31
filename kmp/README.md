@@ -1322,6 +1322,15 @@ These are the things that would actually shape a real port.
    second is worth a word; the library has a warning channel for it now, separate from the one that
    means "could not save", because a save worth retrying and a damaged file are different advice.
 
+   And a sixth, in the fix for the fifth, caught by asking one more question of it: *when does this
+   stop being true?* A warning set once and never cleared would have sat in the app bar long after
+   the surveyor had opened a different cave — a true sentence about the wrong survey, which is a
+   worse kind of wrong than no sentence at all. It is cleared where a different survey becomes the
+   one on screen. That single line is the only thing in this stretch without a test of its own:
+   every path to it goes through the real filesystem store, which nothing else here writes to on
+   purpose, and inventing a test that scribbles in a user's application-support directory would be
+   a worse trade than saying this sentence.
+
    The fifth answer was not a bug but a false claim of mine. Asking the same question of the fourth
    file — `Name.metadata.json` — found that this port does not read or write it *at all*, while the
    pull request said the cross-survey links it carries "are read and written". They are not. The
@@ -1434,7 +1443,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 709
-shared tests on three targets, 277 over the UI's own logic, 18 running the iOS half in a simulator,
+shared tests on three targets, 278 over the UI's own logic, 18 running the iOS half in a simulator,
 88 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the

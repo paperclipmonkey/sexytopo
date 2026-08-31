@@ -378,6 +378,11 @@ class DemoState(
         session = SurveySession(survey)
         mode = SurveyMode.LIVE
         storageProblem = null
+        // Cleared here so it belongs to the survey on screen and not to the session. Set once and
+        // never cleared, it would sit in the app bar saying a drawing was unreadable long after
+        // the surveyor had opened a different cave — a true sentence about the wrong survey, which
+        // is a worse kind of wrong than no sentence at all. `importSurvey` sets it *after* this.
+        importProblem = null
         sketchRevision++
         refreshLibrary()
     }

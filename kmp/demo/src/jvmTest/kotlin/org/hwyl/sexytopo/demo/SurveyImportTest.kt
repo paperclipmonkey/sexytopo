@@ -131,6 +131,28 @@ class SurveyImportTest {
         assertNull(library.lastWarning)
     }
 
+    /**
+     * The warning belongs to the survey on screen, not to the session.
+     *
+     * Set once and never cleared it would sit in the app bar long after the surveyor had opened a
+     * different cave — a true sentence about the wrong survey, which is worse than no sentence.
+     */
+    @Test
+    fun theWarningGoesWhenAnotherSurveyIsOpened() {
+        val store = store()
+        store.writeText(listOf("Eastwater.data.json"), SurveyJson.write(aSurvey("Eastwater")))
+        store.writeText(listOf("Eastwater.plan.json"), "this is not a sketch")
+
+        val library = SurveyLibrary(store)
+        assertNotNull(SurveyImport.import(library, store, "Eastwater.data.json"))
+        assertNotNull(library.lastWarning)
+
+        // A second import that has nothing wrong with it clears the first one's warning.
+        store.writeText(listOf("Swildons.data.json"), SurveyJson.write(aSurvey("Swildons")))
+        assertNotNull(library.import("Swildons.data.json"))
+        assertNull(library.lastWarning, "the warning outlived the survey it was about")
+    }
+
     /** And a survey sent as its data file alone still imports, with nothing drawn. */
     @Test
     fun aSurveySentOnItsOwnStillImports() {
