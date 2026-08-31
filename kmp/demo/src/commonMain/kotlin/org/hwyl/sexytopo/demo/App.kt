@@ -205,6 +205,7 @@ private fun SexyTopoAppBar(state: DemoState) {
     var showingStats by remember { mutableStateOf(false) }
     var showingLog by remember { mutableStateOf(false) }
     var showingAbout by remember { mutableStateOf(false) }
+    var page by remember { mutableStateOf(MenuPage.TOP) }
     var deleting by remember { mutableStateOf<String?>(null) }
 
     if (editingTrip) {
@@ -364,159 +365,249 @@ private fun SexyTopoAppBar(state: DemoState) {
                     .clickable { menuOpen = true }
                     .padding(horizontal = 12.dp, vertical = 10.dp),
             )
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                // Survey management first, because in the field it is what the menu is for.
-                DropdownMenuItem(
-                    text = { Text("New survey…") },
-                    leadingIcon = { CheckDot(false) },
-                    onClick = {
-                        naming = NamingIntent.NEW
-                        menuOpen = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Rename survey…") },
-                    leadingIcon = { CheckDot(false) },
-                    onClick = {
-                        // Both of these edit the surveyor's own survey, so show it: editing the
-                        // name or the team of something the screen is not displaying is the kind
-                        // of thing that gets noticed three trips later.
-                        state.mode = SurveyMode.LIVE
-                        naming = NamingIntent.RENAME
-                        menuOpen = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Trip details…") },
-                    leadingIcon = { CheckDot(state.liveSurvey.trip != null) },
-                    onClick = {
-                        state.mode = SurveyMode.LIVE
-                        editingTrip = true
-                        menuOpen = false
-                    },
-                )
-                for (name in state.savedSurveys) {
+            DropdownMenu(
+                expanded = menuOpen,
+                onDismissRequest = {
+                    menuOpen = false
+                    page = MenuPage.TOP
+                },
+            ) {
+                // `action_bar.xml`'s own five submenus, and for the same reason it has them: this
+                // list had grown to fourteen rows plus one per saved survey, which is 672 pixels
+                // before a single survey is saved — taller than an iPhone SE. Compose scrolls a
+                // popup that does not fit, so nothing was unreachable, but *About* was drawn half
+                // off the bottom edge and nothing said the list continued.
+                //
+                // The words are the app's: File, View, Instrument, Settings, Help. Only the last
+                // is folded away, because it holds one item here.
+                if (page == MenuPage.TOP) {
+                    MenuGroup("File", MenuPage.FILE) { page = it }
+                    MenuGroup("View", MenuPage.VIEW) { page = it }
+                    MenuGroup("Instrument", MenuPage.INSTRUMENT) { page = it }
+                    MenuGroup("Settings", MenuPage.SETTINGS) { page = it }
+                    // `action_about`, last as it is in `action_bar.xml`. Not decoration: this
+                    // build carries several thousand lines of somebody else's GPL-3.0 code, and
+                    // until it existed neither their names nor the licence appeared anywhere a
+                    // user could see them.
                     DropdownMenuItem(
-                        text = { Text(name) },
-                        leadingIcon = {
-                            CheckDot(
-                                state.mode == SurveyMode.LIVE && state.liveSurvey.name == name,
-                            )
-                        },
-                        // Deleting is on the row rather than behind a "manage surveys" screen, and
-                        // it asks first: a survey is a trip somebody cannot repeat.
-                        trailingIcon = {
-                            // "×" and not "✕": the bundled font has Latin-1 and no Dingbats, so
-                            // the prettier cross renders as a missing-glyph box.
-                            Text(
-                                "×",
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.clickable {
-                                    deleting = name
-                                    menuOpen = false
-                                }.padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
-                        },
+                        text = { Text("About…") },
+                        leadingIcon = { CheckDot(false) },
                         onClick = {
-                            state.openSurvey(name)
+                            showingAbout = true
                             menuOpen = false
+                            page = MenuPage.TOP
                         },
                     )
                 }
-                DropdownMenuItem(
-                    text = { Text(SurveyMode.EXAMPLE.label) },
-                    leadingIcon = { CheckDot(state.mode == SurveyMode.EXAMPLE) },
-                    onClick = {
-                        state.mode = SurveyMode.EXAMPLE
-                        menuOpen = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Export") },
-                    leadingIcon = { CheckDot(state.screen == Screen.EXPORT) },
-                    onClick = {
-                        state.screen = Screen.EXPORT
-                        menuOpen = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Instrument…") },
-                    leadingIcon = { CheckDot(state.session.connected) },
-                    onClick = {
-                        state.mode = SurveyMode.LIVE
-                        connecting = true
-                        menuOpen = false
-                    },
-                )
-                // Next to Statistics, where the Android app's View submenu puts it.
-                DropdownMenuItem(
-                    text = { Text("3D") },
-                    leadingIcon = { CheckDot(state.viewing3D) },
-                    onClick = {
-                        state.viewing3D = true
-                        menuOpen = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Statistics…") },
-                    leadingIcon = { CheckDot(false) },
-                    onClick = {
-                        showingStats = true
-                        menuOpen = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Calibrate…") },
-                    leadingIcon = { CheckDot(state.session.calibrating) },
-                    onClick = {
-                        state.mode = SurveyMode.LIVE
-                        calibrating = true
-                        menuOpen = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Instrument log…") },
-                    leadingIcon = { CheckDot(false) },
-                    onClick = {
-                        showingLog = true
-                        menuOpen = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Import…") },
-                    leadingIcon = { CheckDot(false) },
-                    onClick = {
-                        importing = true
-                        menuOpen = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Surveying…") },
-                    leadingIcon = { CheckDot(false) },
-                    onClick = {
-                        editingSettings = true
-                        menuOpen = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Dark mode") },
-                    leadingIcon = { CheckDot(state.darkMode) },
-                    onClick = { state.darkMode = !state.darkMode },
-                )
-                // `action_about`, last as it is in `action_bar.xml`. Not decoration: this build
-                // carries several thousand lines of somebody else's GPL-3.0 code, and until now
-                // neither their names nor the licence appeared anywhere a user could see them.
-                DropdownMenuItem(
-                    text = { Text("About…") },
-                    leadingIcon = { CheckDot(false) },
-                    onClick = {
-                        showingAbout = true
-                        menuOpen = false
-                    },
-                )
+
+                if (page != MenuPage.TOP) {
+                    // First row rather than a chevron in the corner: a surveyor in gloves needs a
+                    // way back that is the same size as everything else on the menu.
+                    DropdownMenuItem(
+                        text = { Text("< Back") },
+                        leadingIcon = { CheckDot(false) },
+                        onClick = { page = MenuPage.TOP },
+                    )
+                }
+
+                if (page == MenuPage.FILE) {
+                    // Survey management first, because in the field it is what the menu is for.
+                    DropdownMenuItem(
+                        text = { Text("New survey…") },
+                        leadingIcon = { CheckDot(false) },
+                        onClick = {
+                            naming = NamingIntent.NEW
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Rename survey…") },
+                        leadingIcon = { CheckDot(false) },
+                        onClick = {
+                            // This edits the surveyor's own survey, so show it: renaming
+                            // something the screen is not displaying is the kind of thing that
+                            // gets noticed three trips later.
+                            state.mode = SurveyMode.LIVE
+                            naming = NamingIntent.RENAME
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
+                    )
+                    // `action_file_open`, which in the app is a dialog and here is the list
+                    // itself: on a phone the shortest way to a survey is its name.
+                    for (name in state.savedSurveys) {
+                        DropdownMenuItem(
+                            text = { Text(name) },
+                            leadingIcon = {
+                                CheckDot(
+                                    state.mode == SurveyMode.LIVE && state.liveSurvey.name == name,
+                                )
+                            },
+                            // Deleting is on the row rather than behind a "manage surveys"
+                            // screen, and it asks first: a survey is a trip somebody cannot
+                            // repeat.
+                            trailingIcon = {
+                                // "×" and not "✕": the bundled font has Latin-1 and no Dingbats,
+                                // so the prettier cross renders as a missing-glyph box.
+                                Text(
+                                    "×",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.clickable {
+                                        deleting = name
+                                        menuOpen = false
+                                        page = MenuPage.TOP
+                                    }.padding(horizontal = 8.dp, vertical = 4.dp),
+                                )
+                            },
+                            onClick = {
+                                state.openSurvey(name)
+                                menuOpen = false
+                                page = MenuPage.TOP
+                            },
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text("Import…") },
+                        leadingIcon = { CheckDot(false) },
+                        onClick = {
+                            importing = true
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Export") },
+                        leadingIcon = { CheckDot(state.screen == Screen.EXPORT) },
+                        onClick = {
+                            state.screen = Screen.EXPORT
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
+                    )
+                }
+
+                if (page == MenuPage.VIEW) {
+                    DropdownMenuItem(
+                        text = { Text(SurveyMode.EXAMPLE.label) },
+                        leadingIcon = { CheckDot(state.mode == SurveyMode.EXAMPLE) },
+                        onClick = {
+                            state.mode = SurveyMode.EXAMPLE
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
+                    )
+                    // `action_trip` is in the app's View submenu, not its File one.
+                    DropdownMenuItem(
+                        text = { Text("Trip details…") },
+                        leadingIcon = { CheckDot(state.liveSurvey.trip != null) },
+                        onClick = {
+                            state.mode = SurveyMode.LIVE
+                            editingTrip = true
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("3D") },
+                        leadingIcon = { CheckDot(state.viewing3D) },
+                        onClick = {
+                            state.viewing3D = true
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Statistics…") },
+                        leadingIcon = { CheckDot(false) },
+                        onClick = {
+                            showingStats = true
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
+                    )
+                }
+
+                if (page == MenuPage.INSTRUMENT) {
+                    DropdownMenuItem(
+                        text = { Text("Connect…") },
+                        leadingIcon = { CheckDot(state.session.connected) },
+                        onClick = {
+                            state.mode = SurveyMode.LIVE
+                            connecting = true
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Calibrate…") },
+                        leadingIcon = { CheckDot(state.session.calibrating) },
+                        onClick = {
+                            state.mode = SurveyMode.LIVE
+                            calibrating = true
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
+                    )
+                    // `action_system_log`, which the app keeps under Tools; it is here because
+                    // every line in it is about an instrument.
+                    DropdownMenuItem(
+                        text = { Text("Log…") },
+                        leadingIcon = { CheckDot(false) },
+                        onClick = {
+                            showingLog = true
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
+                    )
+                }
+
+                if (page == MenuPage.SETTINGS) {
+                    DropdownMenuItem(
+                        text = { Text("Surveying…") },
+                        leadingIcon = { CheckDot(false) },
+                        onClick = {
+                            editingSettings = true
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Dark mode") },
+                        leadingIcon = { CheckDot(state.darkMode) },
+                        onClick = { state.darkMode = !state.darkMode },
+                    )
+                }
             }
         }
     }
+}
+
+/**
+ * Which page of the overflow menu is showing: `action_bar.xml`'s submenus, one at a time.
+ *
+ * A submenu rather than a nested popup because Material 3 has no nested `DropdownMenu`, and
+ * because a popup hanging off another popup on a phone is a thing to aim at with a gloved finger.
+ * Swapping the contents of the one menu keeps every row the full width of it.
+ */
+enum class MenuPage {
+    TOP,
+    FILE,
+    VIEW,
+    INSTRUMENT,
+    SETTINGS,
+}
+
+/** A row that opens one of the submenus. */
+@Composable
+private fun MenuGroup(label: String, opens: MenuPage, onOpen: (MenuPage) -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        leadingIcon = { CheckDot(false) },
+        // "›" is outside Latin-1 and the bundled font would draw a box, so the plain one.
+        trailingIcon = { Text(">", style = MaterialTheme.typography.bodyMedium) },
+        onClick = { onOpen(opens) },
+    )
 }
 
 /** Action icons in the app bar: the toolbar button height, and about as wide. */

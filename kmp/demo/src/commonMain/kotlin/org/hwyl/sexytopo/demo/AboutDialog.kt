@@ -40,10 +40,16 @@ fun AboutDialog(onDismiss: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 for (section in ABOUT) {
+                    // `onSurfaceVariant` rather than the primary colour a section heading would
+                    // normally take. Material draws a TextButton's label in primary and nothing
+                    // else on a dialog card does, which is how `field.mjs` finds the rows it can
+                    // tap; a heading in primary made this dialog's buttons unfindable and the
+                    // check clicked past them.
                     Text(
                         section.heading,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp),
                     )
                     for (line in section.lines) {

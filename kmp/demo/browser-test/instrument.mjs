@@ -163,17 +163,21 @@ if (!(await ready())) {
 const box = await (await page.$('canvas')).boundingBox()
 const at = (x, y) => page.mouse.click(box.x + x, box.y + y)
 const OVERFLOW = [box.width - 16, 26]
-// The overflow menu, by name — the saved surveys sit in the middle, so every row below them moves
-// as soon as this test has recorded one, which is exactly what happens between its two halves.
-const MENU_BEFORE_SURVEYS = ['new', 'rename', 'trip']
-const MENU_AFTER_SURVEYS =
-  ['demo', 'export', 'instrument', '3d', 'stats', 'calibrate', 'log', 'import', 'surveying', 'dark']
-function menuRow(name, savedSurveys) {
-  const before = MENU_BEFORE_SURVEYS.indexOf(name)
-  const after = MENU_AFTER_SURVEYS.indexOf(name)
-  if (before < 0 && after < 0) throw new Error(`no menu item called ${name}`)
-  const index = before >= 0 ? before : MENU_BEFORE_SURVEYS.length + savedSurveys + after
-  return [312, 80 + 48 * index]
+// The overflow menu, by name. It is `action_bar.xml`'s own two levels again: five rows at the top,
+// and everything this test wants is one tap inside *Instrument* — which is why the saved surveys
+// no longer move any of it, having gone into *File* where the app's own Open is.
+const MENU_TOP = ['file', 'view', 'instrument', 'settings', 'about']
+const INSTRUMENT_PAGE = ['connect', 'calibrate', 'log']
+const menuRowY = (index) => 80 + 48 * index
+
+/** Open the Instrument submenu and return the row for one of its items. */
+async function instrumentMenuRow(name) {
+  const index = INSTRUMENT_PAGE.indexOf(name)
+  if (index < 0) throw new Error(`no instrument-menu item called ${name}`)
+  await at(312, menuRowY(MENU_TOP.indexOf('instrument')))
+  await page.waitForTimeout(500)
+  // Row zero of a submenu is Back.
+  return [312, menuRowY(1 + index)]
 }
 // The calibration dialog. Its layout is fixed once the first reading has arrived and added the
 // "Last:" line; before that the buttons sit one line higher.
@@ -188,7 +192,7 @@ const CALIBRATION_WRITE = [150, 700]
 const FIRST_INSTRUMENT = [210, 306]
 
 await at(...OVERFLOW); await page.waitForTimeout(600)
-await at(...menuRow('instrument', 0)); await page.waitForTimeout(900)
+await at(...(await instrumentMenuRow('connect'))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'instrument-list.png') })
 
 // ---- the profile reaches the browser API ---------------------------------------------------
@@ -318,7 +322,7 @@ const CALIBRATION_ROWS = [
 await at(...INSTRUMENT_CLOSE); await page.waitForTimeout(700)
 await at(...OVERFLOW); await page.waitForTimeout(600)
 await page.screenshot({ path: join(shotDir, 'calibration-menu.png') })
-await at(...menuRow('calibrate', 1)); await page.waitForTimeout(900)
+await at(...(await instrumentMenuRow('calibrate'))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'calibration-open.png') })
 
 const writesBefore = (await page.evaluate(() => window.__fakeInstrument.written)).length
@@ -397,7 +401,7 @@ if (storedLog === null) {
 // The dialog itself, reached the way a caver would reach it.
 await at(...CALIBRATION_CLOSE); await page.waitForTimeout(700)
 await at(...OVERFLOW); await page.waitForTimeout(600)
-await at(...menuRow('log', 1)); await page.waitForTimeout(900)
+await at(...(await instrumentMenuRow('log'))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'instrument-log.png') })
 
 // Copy, and then read back what landed on the clipboard - which is how a log gets off a phone that

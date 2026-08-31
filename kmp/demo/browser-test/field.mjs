@@ -110,7 +110,10 @@ if (!(await ready())) {
   await browser.close()
   process.exit(1)
 }
-const box = await (await page.$('canvas')).boundingBox()
+// `let` rather than `const`: the last block resizes to an iPhone SE and every pixel helper below
+// screenshots `{clip: box}`, so the canvas has to be re-measured there or the clip falls outside
+// the viewport and Playwright refuses it. Reassigned once, at the resize.
+let box = await (await page.$('canvas')).boundingBox()
 
 // A guard against a mistake this file has made four times, each costing a six-minute run to find.
 //
@@ -157,7 +160,6 @@ async function retype(where, text) {
 // Positions are computed from the canvas box, so moving a control a few pixels does not break the
 // test while moving it somewhere else rightly does.
 const OVERFLOW = [box.width - 16, 26]
-const MENU_NEW = [336, 80]
 const NAME_FIELD = [210, 442]
 const NAME_CONFIRM = [312, 518]
 const ADD_READING = [74, 790]
@@ -202,37 +204,64 @@ const STATION_SAVE = [317, 700]
 // and every row moves when a menu item is added. Both have happened repeatedly, and each time the
 // checks that clicked a hard-coded y went on passing while testing the wrong thing or failed
 // somewhere unrelated. Computing the row from the menu's own order means one list to update.
-const MENU_BEFORE_SURVEYS = ['new', 'rename', 'trip']
-const MENU_AFTER_SURVEYS = [
-  'demo',
-  'export',
-  'instrument',
-  '3d',
-  'stats',
-  'calibrate',
-  'log',
-  'import',
-  'surveying',
-  'dark',
-  'about',
-]
+// `action_bar.xml`'s submenus, which this port went back to when the flat list grew past the
+// height of an iPhone SE. The top page opens one of the four groups or the About box; a group
+// page is a Back row, then the group's items, with the saved surveys inside File where the app's
+// own Open is.
+const MENU_TOP = ['file', 'view', 'instrument', 'settings', 'about']
+// `holdsSurveys` matters: only File grows with the library, and counting the surveys into the
+// other three pages put every row of them out by one per saved survey — which lands a tap outside
+// the menu, dismisses it, and reports itself several checks later as "no menu is open".
+const MENU_PAGES = {
+  file: { before: ['new', 'rename'], after: ['import', 'export'], holdsSurveys: true },
+  view: { before: ['demo', 'trip', '3d', 'stats'], after: [], holdsSurveys: false },
+  instrument: { before: ['connect', 'calibrate', 'log'], after: [], holdsSurveys: false },
+  settings: { before: ['surveying', 'dark'], after: [], holdsSurveys: false },
+}
 
-const menuRows = (savedSurveys) =>
-  MENU_BEFORE_SURVEYS.length + savedSurveys + MENU_AFTER_SURVEYS.length
+/** Which page a named item is on, and where in it. Back is row zero of every group page. */
+function menuPlace(name, savedSurveys) {
+  const top = MENU_TOP.indexOf(name)
+  if (top >= 0) return { page: null, index: top, rows: MENU_TOP.length }
+  for (const [page, { before, after, holdsSurveys }] of Object.entries(MENU_PAGES)) {
+    const surveys = holdsSurveys ? savedSurveys : 0
+    const rows = 1 + before.length + surveys + after.length
+    const inBefore = before.indexOf(name)
+    if (inBefore >= 0) return { page, index: 1 + inBefore, rows }
+    const inAfter = after.indexOf(name)
+    if (inAfter >= 0) {
+      return { page, index: 1 + before.length + surveys + inAfter, rows }
+    }
+    // The saved surveys themselves, addressed by position rather than by name.
+    if (name === `${page}:survey`) return { page, index: 1 + before.length, rows }
+  }
+  throw new Error(`no menu item called ${name}`)
+}
 
-/** The row for a named item, given how many surveys the library is showing above it. */
+/**
+ * Tap a named overflow-menu item, opening its group first if it is on one.
+ *
+ * The menu must already be open. Returns the coordinates of the final tap rather than performing
+ * it, so the call sites read as they did before the menu grew a second level.
+ */
 async function menuRow(name, savedSurveys) {
-  const before = MENU_BEFORE_SURVEYS.indexOf(name)
-  const after = MENU_AFTER_SURVEYS.indexOf(name)
-  if (before < 0 && after < 0) throw new Error(`no menu item called ${name}`)
-  const index =
-    before >= 0 ? before : MENU_BEFORE_SURVEYS.length + savedSurveys + after
-  return menuRowAt(index, menuRows(savedSurveys), 312)
+  const place = menuPlace(name, savedSurveys)
+  if (place.page !== null) {
+    const group = menuPlace(place.page, savedSurveys)
+    await at(...(await menuRowAt(group.index, group.rows, 312)))
+    await page.waitForTimeout(500)
+  }
+  return menuRowAt(place.index, place.rows, 312)
 }
 
 /** The delete cross on the nth saved survey's row, which sits at the right-hand edge. */
-const savedSurveyDelete = async (nth, savedSurveys) =>
-  menuRowAt(MENU_BEFORE_SURVEYS.length + nth, menuRows(savedSurveys), 392)
+async function savedSurveyDelete(nth, savedSurveys) {
+  const place = menuPlace('file:survey', savedSurveys)
+  const group = menuPlace('file', savedSurveys)
+  await at(...(await menuRowAt(group.index, group.rows, 312)))
+  await page.waitForTimeout(500)
+  return menuRowAt(place.index + nth, place.rows, 392)
+}
 const IMPORT_CHOOSE = [284, 494]
 const IMPORT_FIRST_ROW = [210, 446]
 // The Surveying dialog's rows, measured from the top of the dialog rather than from the top of the
@@ -739,10 +768,45 @@ const dialogHeight = async () => {
   }, [b64, DIALOG_CARD])
 }
 
-/** The confirm button, which Material puts at the bottom right of the card. */
+/** How far in from the right the dialog card's edge is, or null if there is none. */
+const dialogRight = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, card]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    let right = -1
+    for (let y = 0; y < c.height; y++) {
+      for (let x = c.width - 1; x > right; x--) {
+        const i = (y * c.width + x) * 4
+        if (
+          Math.abs(px[i] - card[0]) < 4 &&
+          Math.abs(px[i + 1] - card[1]) < 4 &&
+          Math.abs(px[i + 2] - card[2]) < 4
+        ) { right = x; break }
+      }
+    }
+    return right < 0 ? null : right
+  }, [b64, DIALOG_CARD])
+}
+
+/**
+ * The confirm button, which Material puts at the bottom right of the card.
+ *
+ * The x is measured off the card rather than fixed, because the card is narrower on a smaller
+ * screen: a value tuned at 420 pixels wide missed the button entirely at 375 and the check read
+ * as the button not working.
+ */
 const dialogConfirm = async () => {
   const rows = await dialogTextRows()
-  return rows.length === 0 ? null : [317, rows[rows.length - 1]]
+  if (rows.length === 0) return null
+  const right = await dialogRight()
+  return right === null ? null : [right - 30, rows[rows.length - 1]]
 }
 
 
@@ -771,7 +835,7 @@ await page.keyboard.press('Escape'); await page.waitForTimeout(500)
 
 // ---- create a named survey -----------------------------------------------------------
 await at(...OVERFLOW); await page.waitForTimeout(500)
-await at(...MENU_NEW); await page.waitForTimeout(700)
+await at(...(await menuRow('new', 0))); await page.waitForTimeout(700)
 await at(...NAME_FIELD); await page.waitForTimeout(250)
 
 // Checked here, with a field focused, because that is the only time it exists. Compose paints to a
@@ -2553,7 +2617,8 @@ if (backToTheSketch === 0) {
 // "does this look usable on a small phone" is not a thing a pixel count answers.
 await page.setViewportSize({ width: 375, height: 667 })
 await page.waitForTimeout(1000)
-const small = await (await page.$('canvas')).boundingBox()
+box = await (await page.$('canvas')).boundingBox()
+const small = box
 const tapSmall = (x, y) => page.mouse.click(small.x + x, small.y + y)
 const smallToolRow = small.height - 20
 const smallColumn = small.width / 9
@@ -2596,6 +2661,76 @@ if (!((await middleInk()) > smallInkBefore)) {
   fail('on a 375x667 screen the toolbar or the canvas was not where it should be — no stroke')
 } else {
   pass('on an iPhone SE-sized screen the toolbar still works and the sketch still takes a stroke')
+}
+
+// ---- and a dialog too tall for that screen scrolls rather than being cut off -----------------
+// The claim this replaces was "reasoned, not run". Material sizes a dialog to fit the window and
+// *clips* what does not fit — from the bottom, which is where the buttons are — so the three
+// dialogs with several fields in them were given `verticalScroll` by reading the layout, with
+// nothing exercising it.
+//
+// The About box is the instrument for testing that, because it is a screenful and a half of text
+// and so overflows an iPhone SE whatever else is going on. What is checked is the mechanism: the
+// card fits inside the window, its content scrolls, and its button is on screen and works.
+//
+// What is still not checked is the keyboard, which takes a third of this screen and which a
+// headless browser has not got. So this proves a dialog taller than the window behaves; it does
+// not prove the station dialog behaves *with a keyboard up*. That still needs a phone.
+await at(small.width - 16, 26); await page.waitForTimeout(700)
+const smallSaved = await page.evaluate(() => {
+  const prefix = 'sexytopo:f:surveys/'
+  const names = Object.keys(localStorage)
+    .filter((k) => k.startsWith(prefix))
+    .map((k) => k.slice(prefix.length).split('/')[0])
+  return new Set(names).size
+})
+await at(...(await menuRow('about', smallSaved))); await page.waitForTimeout(900)
+await page.screenshot({ path: join(shotDir, 'field-small-screen-dialog.png') })
+
+const smallDialogTop = await dialogTop()
+const smallDialogHeight = await dialogHeight()
+if (smallDialogTop === null || smallDialogHeight === null) {
+  fail('the About box did not open on a 375x667 screen')
+} else if (smallDialogTop + smallDialogHeight > small.height) {
+  fail(
+    `the dialog runs from ${smallDialogTop} to ${smallDialogTop + smallDialogHeight} on a ` +
+      `${small.height}-pixel screen, so its buttons are off the bottom`,
+  )
+} else {
+  pass('a dialog too tall for an iPhone SE is sized to the screen rather than run off it')
+
+  // Its content scrolls. A wheel over the middle of the card, then the same window of pixels
+  // again: if `verticalScroll` were not there the text would not have moved.
+  const textWindow = [
+    40,
+    smallDialogTop + 60,
+    small.width - 40,
+    smallDialogTop + smallDialogHeight - 60,
+  ]
+  const beforeScroll = await inkAround(textWindow)
+  await page.mouse.move(small.x + small.width / 2, small.y + smallDialogTop + 120)
+  await page.mouse.wheel(0, 400)
+  await page.waitForTimeout(700)
+  const afterScroll = await inkAround(textWindow)
+
+  if (beforeScroll === afterScroll) {
+    fail('the dialog did not scroll, so everything below the fold is unreachable')
+  } else {
+    pass('and it scrolls, so what is below the fold can be read')
+  }
+
+  // And the button at the bottom of it is a button, not a picture of one.
+  const confirm = await dialogConfirm()
+  if (confirm === null) {
+    fail('the dialog has no button on screen to close it with')
+  } else {
+    await at(...confirm); await page.waitForTimeout(800)
+    if ((await dialogTop()) !== null) {
+      fail('tapping the dialog\'s own button did not close it on a small screen')
+    } else {
+      pass('and the button below the text can still be reached and pressed')
+    }
+  }
 }
 
 if (pageErrors.length > 0) {

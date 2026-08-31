@@ -47,7 +47,7 @@ Being precise about this matters more than the demo looking good.
 | **The view can follow the survey as it grows** | **Verified** | the preference round-trips with every other one, and `field.mjs` turns *Follow the survey* on, promotes a station from three readings, and finds the active station's amber brackets within forty pixels of the middle of the sketch — an assertion about where the view ended up, not merely that the screen changed, which it would have anyway |
 | **A station can be found by name, and the last leg taken back** | **Verified** | `FindStationTest` — names and comments both searched, a station the survey no longer holds has no position rather than a crash, and the last leg is the last one *taken* rather than the last in any walk of the tree — and `field.mjs` finds a station on a phone screen and checks the view moved, then adds a splay, takes it back from the drawing menu and checks only it went |
 | **The plan says which end of the survey you are working at** | **Verified** | `CentrelineDisplayTest` and `DashedLineTest` — the mark follows the last reading *taken*, splay included, as the Java's own paint order does; a leg is matched by identity, because two shots down a straight passage read the same; a pitch is out of the plan's plane and in the extended elevation's; and a leg too short to dash draws nothing rather than one stub that would read as solid — plus `field.mjs` finds the app's magenta on the drawn plan, turns the mark off and checks every magenta pixel went, fades the rest of the cave and checks the drawing got lighter, then brings it back |
-| **It fits a small phone** | **Partly** | `field.mjs` ends by resizing to 375x667 — an iPhone SE — and checking the toolbar is still where it computes it to be and the canvas still takes a stroke, with a screenshot beside it. What is *not* checked there is the keyboard, which takes a third of that screen and which a headless browser does not have: the three dialogs that could not survive it were made scrollable by reading, not by running |
+| **It fits a small phone** | **Mostly** | `field.mjs` ends by resizing to 375x667 — an iPhone SE — and checking the toolbar is still where it computes it to be and the canvas still takes a stroke. It then opens the one dialog certain to overflow that screen and checks the mechanism the other dialogs rely on: the card is sized to the window rather than clipped, a wheel scrolls its text, and the button below the text is on screen and closes it. What is *not* checked is the keyboard, which takes a third of that screen and which a headless browser does not have |
 | **The table and the drawing are joined up, both ways** | **Verified** | `StationMenuTest` for each menu offering the views the other is not showing, `SurveyTableTest` for which row a station is found at and for which station a cell is about when the shot was booked backwards — and `field.mjs` taps both ends of one leg on a phone screen, checks they offer different menus, follows *show it on the plan* to a station that lands within forty pixels of the middle, then holds a station on the drawing and follows *show it in the table* back |
 | **A reading can be corrected, annotated, reversed or unmade** | **Verified** | `LegActionsTest` and `SurveyUpdaterTest` — which actions each row offers and what they do: a leg with splays hanging off its far end is not offered the downgrade `SurveyUpdater` would throw over, the first reading of a survey is not offered a promotion there is no leg above for, a leg the survey no longer holds answers "no" instead of throwing, and a comment marks the survey unsaved, which the Android app's own dialogs do not — and `field.mjs` counts what the menu offers a splay and a leg on a phone screen, writes a note against a leg, checks the table gains the app's dagger, and turns the shot end for end and back again |
 | **Any station can be reached from the sketch, not just the active one** | **Verified** | `StationMenuTest` for which actions a station offers — the origin has no incoming leg and no delete, cross-sections belong to the plan, a backsight is normalised the way the table normalises it — and `field.mjs` finds a station that is *not* the active one on the drawn plan, holds it, and checks that the menu moved the active station there without marking the paper |
@@ -431,6 +431,11 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   *do* something on the menu, and the twelve toggles in a dialog under that file's own two group
   names, *Shown* and *Behaviour*. The dialog applies as you tick, because "show grid" is a question
   you answer by looking, and it stays open, because nobody changes only one.
+
+  The overflow menu went the same way an hour later, and for the same reason: flat, it was fourteen
+  rows plus one per saved survey, and on an SE the last of them was drawn half off the bottom edge.
+  It is `action_bar.xml`'s own five now — File, View, Instrument, Settings, About — with the saved
+  surveys inside File where the app's own *Open* is.
 - **Take the clutter off.** *Show cross-sections* hides them when the plan is busy — and stops
   them being tapped while hidden, which is the app's own rule and the half a port forgets. *Pinch
   to zoom* turns the two-fingered zoom off for anyone drawing with a stylus, where a second contact
@@ -555,20 +560,29 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
 
 #### On a smaller phone
 
-The screenshots in this README are from a 420x900 screen. An iPhone SE is 375x667, and two things
-in this app went past that limit. The drawing menu reached eighteen rows — 864 pixels of popup, on
-a 667-pixel screen — and has been split: the seven items that *do* something stay on the menu, and
-the twelve toggles moved into a dialog of their own under `drawing.xml`'s own two group names. And
-the station dialog — a name, a comment, four passage measurements and the elevation direction — is
+The screenshots in this README are from a 420x900 screen. An iPhone SE is 375x667, and three
+things in this app went past that limit. The drawing menu reached eighteen rows — 864 pixels of
+popup, on a 667-pixel screen — and has been split: the seven items that *do* something stay on the
+menu, and the twelve toggles moved into a dialog of their own under `drawing.xml`'s own two group
+names. The overflow menu went the same way and for the same reason, back to `action_bar.xml`'s own
+File / View / Instrument / Settings / About, with the saved surveys inside File; flat, it was
+fourteen rows before a single survey was saved, and the last of them was drawn half off the bottom
+of the screen. And the station dialog — a name, a comment, four passage measurements and the elevation direction — is
 most of a screen before a keyboard takes a third of what is left. Material 3 scrolls a dropdown
 that does not fit and *clips* a dialog that does not, so the three dialogs with several fields in
 them were made scrollable: the station dialog, the reading dialog and the edit-reading dialog.
 
-Say plainly what that is worth. `field.mjs` finishes at 375x667 and checks the app still draws and
-still takes a stroke there, and leaves a screenshot; it cannot check the keyboard, because a
-headless browser has none. The scrolling is a fix made by reading the layout, like the density one.
-If a dialog does come up short on your phone, the fix is one modifier and the three that have it
-show where it goes.
+Say plainly what that is worth. `field.mjs` finishes at 375x667: it checks the app still draws and
+still takes a stroke there, and then puts up the one dialog guaranteed to overflow that screen —
+the About box, a screenful and a half of text — and checks the *mechanism*. The card is sized to
+the window rather than running off the bottom of it; a wheel over the text moves the text; and the
+button below the text is still on screen and still closes the dialog. That is the half that was
+reasoned rather than run, and it is run now.
+
+What is still not run is the keyboard, which takes a third of this screen and which a headless
+browser has not got. So a dialog taller than the window is known to behave; the station dialog
+*with a keyboard up* is not. If one does come up short on your phone, the fix is one modifier and
+the four that have it show where it goes.
 
 #### What to expect that is missing
 
@@ -636,6 +650,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `res/layout/activity_graph.xml` | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied |
 | `res/values/colors.xml` (+ `values-night`) | `demo/.../SexyTopoTheme.kt` | The app's own palette |
 | `res/drawable-hdpi/*.png` | `demo/src/commonMain/composeResources/drawable/` | The app's own icons |
+| `res/menu/action_bar.xml`'s submenus | `demo/.../App.kt` (`MenuPage`) | File, View, Instrument, Settings and About, one page at a time — Material 3 has no nested `DropdownMenu`, so the one menu swaps its contents |
 | `res/menu/drawing.xml` | `demo/.../SketchToolbar.kt`, `DemoState.BEHAVIOUR_TOGGLES`/`DISPLAY_TOGGLES` | Every checkable item on it except the neighbouring-survey one, in the menu's own three groups: the actions stay on the popup, the twelve toggles are a dialog. Hiding cross-sections stops them being tapped as well as drawn |
 | `SketchPreferences.Toggle` | `demo/.../AppPreferences.kt` | All twelve persisted, which five of them were not until the menu was split |
 | `GraphView.drawCompass` | `demo/.../SurveyCanvas.kt` (`drawNorthArrow`) | The arrow, plan-only, at a heading of zero — which is *correct* on a plan; the magnetometer that would turn it is not ported |
@@ -1029,6 +1044,22 @@ These are the things that would actually shape a real port.
    test that asserts one file at a time cannot see that. What found it was reading the Java's
    `TherionExporter.run` — the method that decides which files there are — rather than the classes
    that write them.
+
+34. **The same mistake, in the other menu, half an hour later.** Adding *About* took the overflow
+   menu to fourteen rows plus one per saved survey. Fourteen rows is 672 pixels; an iPhone SE is
+   667. So the last row — the licence and the authors, added precisely so a user could see them —
+   was drawn half off the bottom edge, on the device this whole port exists for.
+
+   It was not *unreachable*: Compose scrolls a popup that does not fit, so it could be scrolled to.
+   That is what made it a bug rather than a crash, and it is why the browser check did not catch it
+   the way it caught the drawing menu — the row arithmetic simply pointed at the wrong item and
+   opened *Import a survey* instead, and the screenshot beside the failure is what said so.
+
+   The fix is the one the drawing menu got, from the same source: `action_bar.xml` is seven
+   top-level items with submenus, and this port had flattened them. It is five rows now — File,
+   View, Instrument, Settings, About — with the saved surveys inside File where the app's own Open
+   is. Twice in one sitting the answer to "this menu is too tall" was in the file being ported
+   from, and twice I had flattened it away first.
 
 ---
 
