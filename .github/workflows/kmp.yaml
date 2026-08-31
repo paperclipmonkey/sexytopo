@@ -177,11 +177,53 @@ jobs:
             -scheme iosApp \
             -configuration Debug \
             -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
             ONLY_ACTIVE_ARCH=NO \
             ARCHS=arm64 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             build
+
+      # And then run it, which is the question this whole branch asks.
+      #
+      # Everything else about iOS here is inference: the framework links, so Compose is *probably*
+      # fine; the platform code passes its tests, so the file store is fine. None of it draws a
+      # cave. Booting a simulator, installing the app and photographing it is the difference
+      # between "this should work on iOS" and a picture of it working on iOS.
+      #
+      # The assertion is what makes it a check rather than a photo opportunity. The app's panel
+      # green is in the app bar and under the toolbar and nowhere else on a phone screen, so an app
+      # that crashed on launch, or drew nothing, or came up as a white Compose canvas with no UI in
+      # it, has none of that colour in the screenshot. Springboard's own wallpaper is not it either.
+      - name: Run it in a simulator and photograph it
+        working-directory: kmp/iosApp
+        run: |
+          set -euo pipefail
+          device=$(xcrun simctl list devices available | grep -m1 "iPhone" |
+            grep -oE "[0-9A-F]{8}-[0-9A-F-]+")
+          echo "Using simulator $device"
+          xcrun simctl boot "$device" || true
+          xcrun simctl bootstatus "$device" -b
+          xcrun simctl install "$device" "build/Build/Products/Debug-iphonesimulator/SexyTopo KMP.app"
+          xcrun simctl launch "$device" org.hwyl.sexytopo.kmpdemo
+          # Compose's first frame on a cold simulator is not instant, and this is the one place
+          # where waiting too long costs nothing and waiting too little reports a working app as
+          # broken.
+          sleep 25
+          xcrun simctl io "$device" screenshot ios-simulator.png
+          # Downscaled first because the check below is a PNG decoder written in the standard
+          # library — there is no Pillow on a macOS runner — and a phone screenshot is three
+          # million pixels. The app bar is a solid block of the colour being looked for, so it
+          # survives the scaling.
+          sips -Z 240 ios-simulator.png --out ios-small.png > /dev/null
+          python3 check-screenshot.py ios-small.png
+
+      - name: Upload the iOS screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-screenshot
+          path: kmp/iosApp/ios-simulator.png
 
       - name: Upload test report
         if: always()
