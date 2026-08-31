@@ -154,6 +154,35 @@ jobs:
         working-directory: kmp
         run: ./gradlew :shared:compileKotlinIosArm64 :demo:linkDebugFrameworkIosArm64
 
+      # The app, not the framework.
+      #
+      # Everything above builds Kotlin. None of it touches the Xcode project, and the Xcode project
+      # is where the things authored on Linux live: project.yml, Info.plist, the asset catalogue
+      # and two Swift files, none of which had ever been compiled by anything. That is the half of
+      # an iOS app a Kotlin compiler cannot check.
+      #
+      # It is also the only way to run actool, which is the only thing that can say whether the app
+      # icon drawn here with PIL is one iOS will accept - an alpha channel or a wrong size is
+      # rejected outright, and nothing on Linux reports either.
+      #
+      # No signing: a simulator build needs none, and this is about whether the project compiles
+      # rather than whether it can be installed.
+      - name: Build the iOS app itself
+        working-directory: kmp/iosApp
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild \
+            -project iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            ONLY_ACTIVE_ARCH=NO \
+            ARCHS=arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
