@@ -1386,6 +1386,29 @@ These are the things that would actually shape a real port.
    a plan with the centreline and no drawing on it, and no reason given. The fix is to move the
    `try` inside the loop in the three places, as the symbols loop already does.
 
+44. **The document's strongest sentence had nothing checking it.** This README's central claim is a
+   table of rows marked **Verified**, and most of them back that word with the name of a test.
+   Nothing read those names. A test renamed, deleted, or never written would leave the citation
+   pointing at nothing, and it would be invisible in both directions: nothing here reads the README,
+   and nothing in the README reads the tests.
+
+   `ReadmeReferencesTest` checks them now — every backticked name ending in Test must be a class
+   that exists, in this port or in the Android app, whose fixtures several of these claims are
+   measured against. It cannot check that a test *asserts* what the row claims; no regex will. What
+   it catches is the citation that has quietly stopped pointing at anything, which is the failure
+   that actually happens.
+
+   It is strict enough that this very paragraph tripped it: a backticked placeholder standing in
+   for a test name read as a citation of a test called exactly that, and the check failed on prose
+   about itself. Which is the correct behaviour and the reason the sentence above is worded the way
+   it is — there is no way for the document to name a test it does not have.
+
+   Its first run reported `PocketTopoImporterTest` as missing, which was the check being wrong
+   rather than the README: that is a real Java test in `app/`, and being able to cite the original's
+   own fixtures is the point of crediting it. Widening the search to both trees is the fix; the
+   version that only looked in `kmp/` would have been a check that failed on correct documents,
+   which is worse than no check at all.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1490,7 +1513,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 709
-shared tests on three targets, 282 over the UI's own logic, 18 running the iOS half in a simulator,
+shared tests on three targets, 283 over the UI's own logic, 18 running the iOS half in a simulator,
 88 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the

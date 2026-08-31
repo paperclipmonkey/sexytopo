@@ -70,6 +70,56 @@ class ReadmeReferencesTest {
     }
 
     /**
+     * Every test the README cites as evidence has to exist.
+     *
+     * This document's central claim is a table of things marked **Verified**, and most rows back
+     * that word with the name of a test. A cited test that does not exist — renamed, deleted, or
+     * never written — turns the strongest sentence in the file into the weakest kind of assertion,
+     * and it is invisible: nothing else here reads the README, and nothing in the README reads the
+     * tests.
+     *
+     * Names only, not what they assert. That a test called `ManualContentTest` exists says nothing
+     * about whether it checks the manual, and no regex will. What it does catch is the citation
+     * that has quietly stopped pointing at anything, which is the failure that actually happens.
+     *
+     * Both trees, because the README cites two kinds: this port's own tests, and the Android app's
+     * — whose fixtures several of these claims are measured against. The first version of this
+     * looked only in `kmp/` and reported `PocketTopoImporterTest` as missing when it is a real
+     * Java test the port's goldens are taken from, which is the whole reason it is credited.
+     */
+    @Test
+    fun everyTestItCitesAsEvidenceExists() {
+        val cited =
+            Regex("`([A-Z][A-Za-z0-9]*Test)`")
+                .findAll(readme)
+                .map { it.groupValues[1] }
+                .toSet()
+
+        assertTrue(cited.size >= 8, "the README stopped citing tests by name, which is unlikely")
+
+        val trees = listOf(File(kmp, "."), File(kmp, "../app/src")).filter { it.isDirectory }
+        val declared =
+            trees
+                .asSequence()
+                .flatMap { it.walkTopDown() }
+                .filter {
+                    it.isFile &&
+                        (it.extension == "kt" || it.extension == "java") &&
+                        "/build/" !in it.path
+                }
+                .flatMap { file ->
+                    Regex("class ([A-Za-z0-9]+)").findAll(file.readText()).map { it.groupValues[1] }
+                }
+                .toSet()
+
+        val absent = cited.filterNot { it in declared }
+        assertTrue(
+            absent.isEmpty(),
+            "the README cites ${absent.size} tests that do not exist: $absent",
+        )
+    }
+
+    /**
      * The Android identifiers it credits — menu ids, preference keys, class names — have to be
      * findable in `app/`, or the mapping table is describing an app nobody has.
      *
