@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 713 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 722 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
@@ -61,6 +61,8 @@ Being precise about this matters more than the demo looking good.
 | A station being made can be felt rather than looked at | **Verified** | the callback fires once per station and not once per reading, the preference round-trips, and `field.mjs` turns it off through the settings screen and checks it stayed off |
 | **The app can be told to stay dark, and remembers it** | **Verified** | `pref_theme` is a three-value list in the Android app — auto, light, dark — and this port had a session-only checkbox that started light on every run. In a cave that is the difference between a survey and fifteen minutes of no night vision. `AppPreferencesTest` covers the three values, the resolution against what the platform reports, and the round trip through the file; `field.mjs` sets Chromium to `prefers-color-scheme: dark` and watches *Automatic* follow it, then chooses **Dark** with the browser back on light, **reloads the page**, and checks the app comes back dark |
 | **The mode the instrument is being held in is remembered** | **Verified** | the Android app reads `inputMode` out of `generalPrefs` on its way in; this port held it in a `var` that started at foresights every run, and the field bar only says anything when the mode is *not* foresights — so the state it came back in is the one that looks normal, and every leg after it is turned end for end with nothing in the numbers to show it. Now written down, along with the tool, the brush and the symbol, which `SketchPreferences` also keeps. `AppPreferencesTest` closes and reopens a `DemoState` over one store — the reading half as well as the writing half — and checks that a tool armed for a single touch is *not* restored; `field.mjs` taps the chips on a phone screen and watches the file follow, both ways round |
+| **A lost instrument can be chased, and given up on** | **Verified** | a cave breaks Bluetooth constantly — the surveyor walks round a corner with the phone, the instrument sleeps, a cold battery sags — and every one of those cost a trip to the connection screen with cold hands. `ReconnectionPolicy` is ported from the Java with its scheduling taken out, so it can be driven by a clock a test controls: `ReconnectionPolicyTest` has the decisions, including that the window is measured from the *first* failure of a run so an instrument left at the last station stops costing battery on the way out. `ReconnectionTest` drives a fake radio through a drop, a recovery, an instrument that never comes back, and a second bad patch four hours later. `field.mjs` scrolls the settings dialog to the end, turns it on and reads the file |
+| **The instrument's clock runs where the surveyor is** | **Verified** | it used to tick only while the connection or calibration dialog was open, so an attempt abandoned by closing the dialog never timed out and left the radio scanning, and a reconnection could never have happened at all — a surveyor waiting for an instrument to come back is drawing. One loop in `App`, keyed on the attached instrument, so it costs nothing on the demo cave. Finding 51 |
 | The instrument log is kept, persisted and readable on the phone | **Verified** | `ActivityLogTest` for the bounded queues and the file format; `instrument.mjs` connects a fake DistoX-BLE, takes a calibration, and then reads the log back off the clipboard — count, timestamps and all |
 | The desktop build keeps its surveys too | **Verified** | a survey written by one `SurveyLibrary` and read by a second over the same directory, in SexyTopo's own file layout, plus the three platform conventions for where that directory goes |
 | **A real-sized cave works, not just a demo one** | **Verified** | `BigSurveyTest` builds a four-thousand-station passage — past where every tree walk in this port used to overflow the stack — and projects it to a plan and an extended elevation, builds its wireframe, counts its statistics, exports it to Survex and Therion and reads it back, on all three targets, along with SVG, `.xvi`, `.th2`, Compass and PocketTopo — and rubs out and undoes on a drawing of eight thousand strokes |
@@ -1556,6 +1558,59 @@ These are the things that would actually shape a real port.
    the same in-memory store, which is the reading half as well — the thing a surveyor actually
    does when the OS kills the app in their pocket. Run against the `var` put back, it fails.
 
+50. **A callback wired up once, and the object holding it rebuilt every time a survey is
+   opened.** This port's own, and the one that has been broken for longest without anyone
+   noticing. `DemoState.loadSettings` sets `session.onStationCreated = ::noteStationCreated`, and
+   it runs once, when the app opens. Every route to a survey the surveyor actually cares about —
+   *New*, *Open*, *Import*, and deleting the open one — goes through `adopt`, which builds a
+   **fresh** `SurveySession`. A fresh session has no callback.
+
+   So the buzz when a station is made worked on the demo cave and stopped the moment somebody
+   made a survey of their own, which is every real use of the app. And so did *Follow the survey*,
+   because the counter it watches is incremented by the same callback: the view stops re-centring
+   at exactly the point the surveyor starts needing it to.
+
+   Two things about how it hid:
+
+   - **It is invisible in a diff.** `loadSettings` and `adopt` are two hundred lines apart and
+     neither mentions the other. Nothing about `session = SurveySession(survey)` says that four
+     things hanging off the old session have just been dropped. This is the third finding in a row
+     — with 48 and 49 — whose whole cause is that a *connection* between two objects is not
+     visible where either of them is written.
+   - **The browser check passed anyway.** `field.mjs` has a check that the active station lands
+     within forty pixels of the middle of the screen after a leg goes in, deliberately written to
+     assert *where the view ended up* rather than that the screen changed. It has been green
+     through every run with this defect live — because the canvas fits the whole survey to the
+     screen when it is not following, and on a small survey that puts the newest station near the
+     middle anyway. A check can assert exactly the right thing and still not discriminate, if the
+     fixture is small enough that both behaviours look alike. Same lesson as finding 42, from the
+     opposite direction: there the fixture could not express the failure, here it cannot
+     distinguish the fix.
+
+   The test that does discriminate takes two lines and is at the level the bug lives at: make a
+   survey through `DemoState`, take three readings, and count the stations the *app* noticed. It
+   fails against the code as it was.
+
+51. **A clock that only ran while its own dialog was open.** This port's own, found while wiring
+   up the reconnection policy and worth writing down separately, because it is the reason the
+   policy could not have worked whatever the policy said.
+
+   `SurveySession.tick` ages out a connection attempt — `GattSession.tick` is what turns *waiting*
+   into "the instrument is off or out of range" — and it was driven by a `LaunchedEffect` inside
+   the connection dialog and another inside the calibration dialog. Which means: a surveyor who
+   pressed Connect and then closed the dialog left an attempt that could never time out, with the
+   radio scanning until they went back and looked. On an iPhone that is a battery cost on the one
+   device with the survey on it.
+
+   And it makes auto-reconnect impossible by construction. A surveyor waiting for an instrument to
+   come back is **drawing**, not sitting on the connection screen. A retry loop that only runs on
+   a screen nobody is looking at is a retry loop that never runs.
+
+   The general shape, which is worth more than the instance: **work that has to happen while the
+   app is *doing* something must not be owned by the screen that configures it.** One loop in
+   `App`, keyed on whether an instrument is attached, costs nothing when there is not one and runs
+   everywhere when there is.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1659,9 +1714,9 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 713
-shared tests on three targets, 299 over the UI's own logic, 18 running the iOS half in a simulator,
-91 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 722
+shared tests on three targets, 308 over the UI's own logic, 18 running the iOS half in a simulator,
+92 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

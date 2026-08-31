@@ -1,5 +1,6 @@
 package org.hwyl.sexytopo.demo
 
+import org.hwyl.sexytopo.shared.comms.AutoReconnect
 import org.hwyl.sexytopo.shared.demo.ExampleSurvey
 import org.hwyl.sexytopo.shared.io.store.InMemoryFileStore
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
@@ -88,12 +89,79 @@ class AppPreferencesTest {
     @Test
     fun savingTheSettingsScreenLeavesThePreferencesItDoesNotShowAlone() {
         val current = AppPreferences(autoRecentre = true)
-        val saved = preferencesFrom(current, buzzOnNewStation = false, hotCorners = false, twoFingerMove = true)
+        val saved =
+            preferencesFrom(
+                current,
+                buzzOnNewStation = false,
+                hotCorners = false,
+                twoFingerMove = true,
+                autoReconnect = false,
+                autoReconnectWindow = "15",
+            )
 
         assertTrue(saved.autoRecentre, "the drawing menu's preference is not this screen's to reset")
         assertFalse(saved.buzzOnNewStation)
         assertFalse(saved.hotCorners)
         assertTrue(saved.twoFingerMove)
+    }
+
+    /**
+     * And a half-typed window keeps the value that was there rather than resetting it.
+     *
+     * The field is a text box, so it passes through every prefix of a number on the way to one.
+     * Falling back to the *default* rather than to the current value would quietly overwrite a
+     * surveyor's forty minutes with fifteen the moment they cleared the box to retype it.
+     */
+    @Test
+    fun aHalfTypedReconnectWindowKeepsTheValueItHad() {
+        val current = AppPreferences(autoReconnect = true, autoReconnectWindowMinutes = 40)
+        val saved =
+            preferencesFrom(
+                current,
+                buzzOnNewStation = true,
+                hotCorners = true,
+                twoFingerMove = false,
+                autoReconnect = true,
+                autoReconnectWindow = "",
+            )
+
+        assertEquals(40, saved.autoReconnectWindowMinutes)
+    }
+
+    /** Both reconnect settings round-trip, and the window is clamped rather than trusted. */
+    @Test
+    fun theReconnectSettingsSurviveTheAppBeingClosed() {
+        val store = InMemoryFileStore()
+        AppPreferencesStore.save(
+            store,
+            AppPreferences(autoReconnect = true, autoReconnectWindowMinutes = 40),
+        )
+
+        val reopened = AppPreferencesStore.load(store)
+        assertTrue(reopened.autoReconnect)
+        assertEquals(40, reopened.autoReconnectWindowMinutes)
+        assertEquals(AutoReconnect(true, 40), reopened.reconnection)
+
+        // A negative window is not a shorter one: every deadline would already be past, so the
+        // first failure would be retried and the second would give up — which reads on screen as
+        // the setting being on and doing next to nothing.
+        assertEquals(
+            0,
+            AppPreferencesStore.parse("autoReconnectWindowMinutes=-5").autoReconnectWindowMinutes,
+        )
+        assertEquals(
+            AppPreferencesStore.MAX_WINDOW_MINUTES,
+            AppPreferencesStore
+                .parse("autoReconnectWindowMinutes=99999999")
+                .autoReconnectWindowMinutes,
+        )
+    }
+
+    /** Off, as `pref_auto_reconnect` is: chasing a radio is the surveyor's decision to make. */
+    @Test
+    fun chasingALostInstrumentIsOffUntilAskedFor() {
+        assertFalse(AppPreferences.DEFAULT.autoReconnect)
+        assertEquals(15, AppPreferences.DEFAULT.autoReconnectWindowMinutes)
     }
 
     @Test
@@ -409,6 +477,29 @@ class AppPreferencesTest {
         asked.loadSettings()
 
         assertEquals(SketchTool.DRAW, asked.tool)
+    }
+
+    /**
+     * And it still happens once the surveyor is working on their own survey.
+     *
+     * The callback was wired up in `loadSettings`, which runs once when the app opens. Every route
+     * to a real survey — new, open, import, delete-the-open-one — goes through `adopt`, which
+     * builds a *fresh* `SurveySession`, and a fresh session has no callback. So the buzz and the
+     * station counter both worked on the demo cave and stopped the moment the surveyor made a
+     * survey of their own, which is every real use of the app. See finding 50.
+     */
+    @Test
+    fun theStationCounterSurvivesOpeningASurvey() {
+        val state = reopen(SurveyLibrary(InMemoryFileStore()))
+        state.newSurvey("Swildons")
+
+        repeat(3) { state.session.takeReading() }
+
+        assertEquals(
+            1,
+            state.stationsCreated,
+            "a station was made and nothing on the app noticed",
+        )
     }
 
     /** A theme a later version invented leaves the surveyor on the default, not on no screen. */

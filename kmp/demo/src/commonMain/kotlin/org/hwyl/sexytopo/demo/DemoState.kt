@@ -171,6 +171,7 @@ class DemoState(
         surveySettings = library.loadSettings()
         preferences = library.loadPreferences()
         session.onStationCreated = ::noteStationCreated
+        session.autoReconnect = preferences.reconnection
         restoreSelections()
     }
 
@@ -223,6 +224,7 @@ class DemoState(
 
     fun updatePreferences(updated: AppPreferences) {
         preferences = updated
+        session.autoReconnect = updated.reconnection
         if (!library.savePreferences(updated)) {
             storageProblem = library.lastError ?: "could not save preferences"
         }
@@ -439,6 +441,10 @@ class DemoState(
     private fun adopt(survey: Survey) {
         liveSurvey = survey
         session = SurveySession(survey)
+        // A new session starts on the class default, which is off — so opening a second survey
+        // would quietly turn auto-reconnect off for the rest of the trip.
+        session.autoReconnect = preferences.reconnection
+        session.onStationCreated = ::noteStationCreated
         mode = SurveyMode.LIVE
         storageProblem = null
         // Cleared here so it belongs to the survey on screen and not to the session. Set once and

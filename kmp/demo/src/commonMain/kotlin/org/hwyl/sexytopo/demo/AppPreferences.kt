@@ -1,5 +1,6 @@
 package org.hwyl.sexytopo.demo
 
+import org.hwyl.sexytopo.shared.comms.AutoReconnect
 import org.hwyl.sexytopo.shared.io.store.FileStore
 import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
@@ -95,7 +96,15 @@ data class AppPreferences(
     val brushColour: Colour = DEFAULT_BRUSH_COLOUR,
     /** Which symbol the stamp will place. `pref_sketch_symbol`. */
     val symbol: Symbol = DEFAULT_SYMBOL,
+    /** Chase an instrument that drops out. `pref_auto_reconnect`. */
+    val autoReconnect: Boolean = AutoReconnect.DEFAULT_ENABLED,
+    /** For how long, from the first failure of a run. `pref_auto_reconnect_window`. */
+    val autoReconnectWindowMinutes: Int = AutoReconnect.DEFAULT_WINDOW_MINUTES,
 ) {
+    /** The two above as the value [ReconnectionPolicy] reads. */
+    val reconnection: AutoReconnect
+        get() = AutoReconnect(autoReconnect, autoReconnectWindowMinutes)
+
     companion object {
         /**
          * On, which is what `preferences_general.xml` says and what the Android settings screen
@@ -292,6 +301,8 @@ object AppPreferencesStore {
             appendLine("tool=${preferences.tool.name}")
             appendLine("brushColour=${preferences.brushColour.name}")
             appendLine("symbol=${preferences.symbol.name}")
+            appendLine("autoReconnect=${preferences.autoReconnect}")
+            appendLine("autoReconnectWindowMinutes=${preferences.autoReconnectWindowMinutes}")
         }
 
     fun parse(text: String): AppPreferences {
@@ -368,6 +379,15 @@ object AppPreferencesStore {
             symbol =
                 Symbol.entries.firstOrNull { it.name == values["symbol"] }
                     ?: AppPreferences.DEFAULT_SYMBOL,
+            autoReconnect =
+                values["autoReconnect"]?.toBooleanStrictOrNull() ?: AutoReconnect.DEFAULT_ENABLED,
+            // Coerced rather than merely parsed. A negative window is not a shorter one: it would
+            // make every deadline already past, so the *first* failure would be retried and the
+            // second would give up — which reads on screen as auto-reconnect being on and doing
+            // almost nothing.
+            autoReconnectWindowMinutes =
+                values["autoReconnectWindowMinutes"]?.toIntOrNull()?.coerceIn(0, MAX_WINDOW_MINUTES)
+                    ?: AutoReconnect.DEFAULT_WINDOW_MINUTES,
         )
     }
 
@@ -388,6 +408,12 @@ object AppPreferencesStore {
         val tool = SketchTool.entries.firstOrNull { it.name == name } ?: return AppPreferences.DEFAULT_TOOL
         return if (tool in RESTORABLE_TOOLS) tool else AppPreferences.DEFAULT_TOOL
     }
+
+    /**
+     * A day. Not a limit the Android app has, and not one a surveyor will meet — it is here so
+     * that a typo in a text field cannot ask the radio to keep trying for a hundred years.
+     */
+    internal const val MAX_WINDOW_MINUTES = 24 * 60
 
     /** The six the toolbar lights, plus the symbol stamp the palette arms. */
     internal val RESTORABLE_TOOLS =

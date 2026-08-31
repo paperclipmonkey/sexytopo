@@ -8,6 +8,7 @@ import org.hwyl.sexytopo.shared.calibration.CalibrationPositions
 import org.hwyl.sexytopo.shared.calibration.CalibrationReading
 import org.hwyl.sexytopo.shared.calibration.CalibrationResult
 import org.hwyl.sexytopo.shared.calibration.CalibrationRun
+import org.hwyl.sexytopo.shared.comms.AutoReconnect
 import org.hwyl.sexytopo.shared.comms.InstrumentCommand
 import org.hwyl.sexytopo.shared.comms.FrameChannel
 import org.hwyl.sexytopo.shared.demo.ExampleCalibration
@@ -18,6 +19,7 @@ import org.hwyl.sexytopo.shared.comms.InstrumentPacket
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
 import org.hwyl.sexytopo.shared.comms.InstrumentTransport
 import org.hwyl.sexytopo.shared.comms.InstrumentTransportListener
+import org.hwyl.sexytopo.shared.comms.ReconnectionPolicy
 import org.hwyl.sexytopo.shared.comms.TransportSubscription
 import org.hwyl.sexytopo.shared.comms.measurements
 import org.hwyl.sexytopo.shared.comms.sim.SimulatedInstrument
@@ -25,6 +27,7 @@ import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 import org.hwyl.sexytopo.shared.survey.SurveySettings
+import kotlin.time.TimeSource
 
 /**
  * A live surveying session: readings arrive from an instrument, are decoded, and build the survey.
@@ -45,9 +48,33 @@ import org.hwyl.sexytopo.shared.survey.SurveySettings
 class SurveySession(
     val survey: Survey,
     private val settings: SurveySettings = SurveySettings.DEFAULT,
+    /**
+     * Milliseconds since this session began, for the reconnection window.
+     *
+     * A monotonic clock rather than the wall clock the Java uses. `System.currentTimeMillis()` is
+     * the wrong clock for measuring an interval: a phone that has been underground for six hours
+     * and catches a signal on the way out corrects itself, and the correction lands inside
+     * somebody's fifteen-minute window. Monotonic time cannot jump, and nothing here needs to know
+     * what o'clock it is.
+     *
+     * A parameter because a test cannot otherwise wait three seconds for a retry, let alone
+     * fifteen minutes for the policy to give up.
+     */
+    private val elapsedMillis: () -> Long = monotonicElapsed(),
 ) {
     /** Kept so the demo's "Simulate" button can nudge it; a real instrument needs no such help. */
     val simulator = SimulatedInstrument(script = fieldScript(), loop = true)
+
+    /**
+     * Whether to chase a lost instrument, and for how long. Kept current by [DemoState].
+     *
+     * `pref_auto_reconnect` and `pref_auto_reconnect_window`; see [ReconnectionPolicy] for what a
+     * cave does to a Bluetooth link and why this is worth having.
+     */
+    var autoReconnect by mutableStateOf(AutoReconnect())
+
+    private val reconnection =
+        ReconnectionPolicy(settings = { autoReconnect }, now = elapsedMillis)
 
     private var transport: InstrumentTransport = simulator
     private var decoder: InstrumentDecoder = InstrumentDecoder.classicDistoX()
@@ -196,18 +223,24 @@ class SurveySession(
             override fun onConnected() {
                 connected = true
                 failure = null
+                // Ready, not merely joined: `GattSession` withholds this until every
+                // characteristic has been found and every subscription confirmed, which is the
+                // distinction `ReconnectionPolicy.noteReady` is documented to need.
+                reconnection.noteReady()
                 note("connected to ${profile?.name ?: "the simulated instrument"}")
             }
 
             override fun onDisconnected(reason: String?) {
                 connected = false
                 note("disconnected${reason?.let { ": $it" } ?: ""}")
+                considerReconnecting()
             }
 
             override fun onFailure(reason: String) {
                 connected = false
                 failure = reason
                 note(reason, isError = true)
+                considerReconnecting()
             }
 
             override fun onFrame(channel: FrameChannel, bytes: ByteArray) {
@@ -272,12 +305,33 @@ class SurveySession(
 
     fun connect() {
         failure = null
+        reconnection.noteUserRequestedConnect()
         if (!connected) transport.connect()
     }
 
     fun disconnect() {
+        // Before the disconnect, not after: the transport reports the drop synchronously on some
+        // platforms, and a policy told afterwards would have already decided to chase it.
+        reconnection.noteUserRequestedDisconnect()
         transport.disconnect()
         connected = false
+    }
+
+    /**
+     * A link has gone. Chase it, give up on it, or leave it alone.
+     *
+     * Never for the simulator, which cannot drop and would only be theatre — and would fire on
+     * every switch away from it, since [attach] disconnects the old transport on the way out.
+     */
+    private fun considerReconnecting() {
+        val instrument = profile ?: return
+        when (val decision = reconnection.onUnexpectedDisconnection()) {
+            is ReconnectionPolicy.Decision.Retry ->
+                note("auto-reconnecting to ${instrument.name}…")
+            ReconnectionPolicy.Decision.GaveUp ->
+                note("persistent connection failure; pausing auto-connection", isError = true)
+            ReconnectionPolicy.Decision.LeaveItAlone -> Unit
+        }
     }
 
     /**
@@ -303,8 +357,11 @@ class SurveySession(
      * a test can run on returns null, so there would otherwise be no way to exercise the half of
      * this that a cave exercises.
      */
-    internal fun attachForTest(transport: InstrumentTransport, decoder: InstrumentDecoder) =
-        attach(transport, decoder, null)
+    internal fun attachForTest(
+        transport: InstrumentTransport,
+        decoder: InstrumentDecoder,
+        profile: InstrumentProfile? = null,
+    ) = attach(transport, decoder, profile)
 
     private fun attach(
         transport: InstrumentTransport,
@@ -314,6 +371,7 @@ class SurveySession(
         // Unsubscribe and disconnect the old one first: a transport left observed goes on feeding
         // readings into the survey from an instrument the surveyor thinks they have put away.
         subscription.cancel()
+        reconnection.cancel()
         runCatching { this.transport.disconnect() }
 
         this.transport = transport
@@ -334,7 +392,21 @@ class SurveySession(
      * radio awake, which is worse than the failure it fixes. So the host calls this while the
      * connection screen is open, which is also the only time anybody is waiting.
      */
-    fun tick() = tickTransport(transport)
+    /**
+     * Let time pass: age out a connection attempt, and perform a retry that has come due.
+     *
+     * Driven from [App] whenever an instrument is attached, rather than from the connection dialog
+     * as it used to be. That was the whole reason none of this could work: a surveyor waiting for
+     * an instrument to come back is *drawing*, not sitting on the connection screen, and a clock
+     * that only runs while a dialog is open is a clock that never runs when it is needed.
+     */
+    fun tick() {
+        tickTransport(transport)
+        if (reconnection.retryIsDue()) {
+            note("reconnecting to ${profile?.name ?: "the instrument"}")
+            transport.connect()
+        }
+    }
 
     /** Takes one reading from the simulator, connecting first if needed. */
     fun takeReading() {
@@ -409,4 +481,10 @@ internal fun oneDp(value: Float): String {
     val whole = rounded.toInt()
     val tenths = kotlin.math.abs(kotlin.math.round(rounded * 10).toInt() % 10)
     return if (rounded < 0 && whole == 0) "-0.$tenths" else "$whole.$tenths"
+}
+
+/** The default clock for [SurveySession]: milliseconds since the session was constructed. */
+private fun monotonicElapsed(): () -> Long {
+    val start = TimeSource.Monotonic.markNow()
+    return { start.elapsedNow().inWholeMilliseconds }
 }

@@ -30,6 +30,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -119,6 +120,22 @@ fun App(
     }
 
     KeepScreenAwake()
+
+    // Let the instrument's clock run wherever the surveyor is.
+    //
+    // This used to live in the connection dialog and the calibration dialog, which meant it only
+    // ran while one of them was open — so a connection attempt abandoned by closing the dialog
+    // never timed out and left the radio scanning, and a reconnection could never happen at all,
+    // because a surveyor waiting for an instrument to come back is drawing. Keyed on the attached
+    // instrument so it costs nothing on the demo cave, where the simulator needs no clock.
+    val instrument = state.session.profile
+    LaunchedEffect(state.session, instrument) {
+        if (instrument == null) return@LaunchedEffect
+        while (true) {
+            delay(TICK_MILLIS)
+            state.session.tick()
+        }
+    }
 
     // Save after every change rather than on a timer. A survey is a few tens of kilobytes and the
     // write is synchronous, so the cost is nothing against the thing it prevents: losing the last

@@ -340,14 +340,45 @@ const IMPORT_FIRST_ROW = [210, 446]
 // repeat count and left the dialog open over everything the checks did next. Anchoring to the
 // dialog's own top means adding a setting is one number here (the height) plus one row, instead of
 // six numbers that all have to be re-measured.
-const SETTINGS_DIALOG_HEIGHT = 830
+// 900 and not 830: adding *Chase a lost instrument* pushed the dialog past the height of this
+// window, so it is now capped at the screen and scrolls — which means its top is the top of the
+// screen, and the offsets below are measured from there. The offsets themselves did not move,
+// because nothing was added above them; that is the whole point of anchoring to the dialog.
+const SETTINGS_DIALOG_HEIGHT = 900
 const settingsRow = (x, fromTop) => [x, (900 - SETTINGS_DIALOG_HEIGHT) / 2 + fromTop]
 const SETTING_DISTANCE = settingsRow(210, 271)
 const SETTING_ANGLE = settingsRow(210, 347)
 const SETTING_BUZZ = settingsRow(320, 503)
 const SETTING_HOT_CORNERS = settingsRow(320, 596)
 const SETTING_TWO_FINGER = settingsRow(320, 692)
-const SETTINGS_SAVE = settingsRow(317, 782)
+// The last switch in the dialog, once it has been scrolled to the end.
+//
+// Anchored to the dialog's *bottom* rather than to its top, and only after a scroll that runs out
+// of travel: a wheel of six hundred is clamped to however much scroll there actually is, so the
+// end of the list is a fixed place however many settings are above it. Measured off a rendered
+// frame, like the reading card's buttons.
+const CHASE_SWITCH_ABOVE_BOTTOM = 145
+const chaseSwitch = async () => {
+  const top = await dialogTop()
+  const height = await dialogHeight()
+  if (top === null || height === null) throw new Error('the settings dialog is not open')
+  return [320, top + height - CHASE_SWITCH_ABOVE_BOTTOM]
+}
+
+/** Wheel to the end of the settings dialog, wherever that is. */
+const scrollSettingsToTheEnd = async () => {
+  await page.mouse.move(210, 500)
+  await page.mouse.wheel(0, 600)
+  await page.waitForTimeout(600)
+}
+
+// Found rather than measured, now that the dialog is tall enough to be capped: its buttons sit a
+// fixed distance above its *bottom*, and the bottom is wherever the window puts it.
+const settingsSave = async () => {
+  const button = await dialogConfirm()
+  if (button === null) throw new Error('the settings dialog has no Save button on screen')
+  return button
+}
 const TRIP_ADD_NAME = [177, 340]
 const TRIP_ADD_BUTTON = [317, 336]
 const TRIP_ROLE_BOOK = [106, 298]
@@ -1979,7 +2010,7 @@ await at(...SETTING_BUZZ); await page.waitForTimeout(300)
 await at(...SETTING_HOT_CORNERS); await page.waitForTimeout(300)
 await at(...SETTING_TWO_FINGER); await page.waitForTimeout(300)
 await page.screenshot({ path: join(shotDir, 'field-surveying-settings.png') })
-await at(...SETTINGS_SAVE); await page.waitForTimeout(700)
+await at(...(await settingsSave())); await page.waitForTimeout(700)
 
 const savedPreferences = await page.evaluate(() => {
   const key = Object.keys(localStorage).find((k) => k.endsWith('preferences.txt'))
@@ -2030,7 +2061,45 @@ if (leftCorners.length === 2) {
 await at(...overflowButton()); await page.waitForTimeout(500)
 await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
 await at(...SETTING_HOT_CORNERS); await page.waitForTimeout(300)
-await at(...SETTINGS_SAVE); await page.waitForTimeout(700)
+await at(...(await settingsSave())); await page.waitForTimeout(700)
+
+// ---- chasing a lost instrument -------------------------------------------------------------
+// `pref_auto_reconnect`. A cave breaks Bluetooth constantly — the surveyor walks round a corner
+// with the phone, the instrument sleeps, a cold battery sags — and every one of those costs a trip
+// to the connection screen with cold hands unless the app chases it. Off by default, as on
+// Android, which is why it has to be reachable: a setting nobody can find is a setting nobody has.
+//
+// `ReconnectionPolicy` decides *whether* to chase and `ReconnectionTest` drives a fake radio
+// through a drop and a recovery. What neither can do is show that the switch on the screen is
+// wired to them, which is this.
+//
+// The row is below the fold now that the dialog is taller than an eight-hundred-pixel window, so
+// it has to be scrolled to — which is itself worth checking, because a setting that exists only
+// off the bottom of a dialog that does not scroll is a setting nobody can reach.
+await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
+await scrollSettingsToTheEnd()
+await page.screenshot({ path: join(shotDir, 'field-settings-reconnect.png') })
+
+await at(...(await chaseSwitch())); await page.waitForTimeout(400)
+await page.screenshot({ path: join(shotDir, 'field-settings-reconnect-on.png') })
+await at(...(await settingsSave())); await page.waitForTimeout(800)
+
+const savedReconnect = await page.evaluate(() =>
+  localStorage.getItem('sexytopo:f:preferences.txt'),
+)
+if (!savedReconnect || !savedReconnect.includes('autoReconnect=true')) {
+  fail(`chasing a lost instrument was not turned on (${JSON.stringify(savedReconnect)})`)
+} else {
+  pass('a lost instrument can be told to be chased, and the setting is written down')
+}
+
+// Back off, because the rest of this file is written for the app's own defaults.
+await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
+await scrollSettingsToTheEnd()
+await at(...(await chaseSwitch())); await page.waitForTimeout(400)
+await at(...(await settingsSave())); await page.waitForTimeout(700)
 
 for (const [d, a, i] of sloppy) await reading(d, a, i)
 if ((await connectingLegs()) !== beforeSloppy + 1) {

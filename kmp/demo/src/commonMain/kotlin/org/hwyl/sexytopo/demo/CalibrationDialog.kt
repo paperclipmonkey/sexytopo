@@ -23,7 +23,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 import org.hwyl.sexytopo.shared.calibration.CalibrationPositions
 import org.hwyl.sexytopo.shared.calibration.CalibrationQuality
 import org.hwyl.sexytopo.shared.calibration.CalibrationResult
@@ -60,14 +59,6 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
     // default". The non-linear variant fits three extra accelerometer coefficients.
     var nonLinear by remember { mutableStateOf(false) }
 
-    // The same ticker the connection screen runs, and for the same reason: it is what drives the
-    // transports that have no callbacks of their own.
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(TICK_MILLIS)
-            session.tick()
-        }
-    }
 
     // Read so this recomposes as readings arrive.
     val revision = session.calibrationRevision

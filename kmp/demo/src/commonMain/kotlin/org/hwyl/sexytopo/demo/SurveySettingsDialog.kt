@@ -59,6 +59,9 @@ fun SurveySettingsDialog(
     var buzz by remember { mutableStateOf(preferences.buzzOnNewStation) }
     var hotCorners by remember { mutableStateOf(preferences.hotCorners) }
     var twoFingerMove by remember { mutableStateOf(preferences.twoFingerMove) }
+    var autoReconnect by remember { mutableStateOf(preferences.autoReconnect) }
+    var reconnectWindow by
+        remember { mutableStateOf(preferences.autoReconnectWindowMinutes.toString()) }
 
     val edited =
         settingsFrom(algorithm, distance, angle, endpoint, pairwise, repeats, settings)
@@ -162,6 +165,37 @@ fun SurveySettingsDialog(
                     checked = twoFingerMove,
                     onCheckedChange = { twoFingerMove = it },
                 )
+
+                HorizontalDivider()
+
+                // `pref_auto_reconnect` and `pref_auto_reconnect_window`, which the Android app
+                // keeps on this same preference screen — `preferences_instruments.xml`, below the
+                // tolerances — so this is where they belong here too.
+                Toggle(
+                    title = "Chase a lost instrument",
+                    detail =
+                        "A cave breaks Bluetooth constantly: you walk round a corner with the " +
+                            "phone, the instrument sleeps, a cold battery sags. Off by default, " +
+                            "as on Android.",
+                    checked = autoReconnect,
+                    onCheckedChange = { autoReconnect = it },
+                )
+
+                // Only while it is on, which is what `android:dependency` does on the Android
+                // screen: a number with nothing reading it is a setting that looks broken.
+                if (autoReconnect) {
+                    NumberField(
+                        reconnectWindow,
+                        { reconnectWindow = it },
+                        "Give up after (minutes)",
+                    )
+                    Text(
+                        "Counted from the first failure, not the last — so an instrument left " +
+                            "behind at the last station stops costing battery on the way out.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         },
         confirmButton = {
@@ -169,7 +203,17 @@ fun SurveySettingsDialog(
                 enabled = edited != null,
                 onClick = {
                     edited?.let {
-                        onSave(it, preferencesFrom(preferences, buzz, hotCorners, twoFingerMove))
+                        onSave(
+                            it,
+                            preferencesFrom(
+                                preferences,
+                                buzz,
+                                hotCorners,
+                                twoFingerMove,
+                                autoReconnect,
+                                reconnectWindow,
+                            ),
+                        )
                     }
                 },
             ) { Text("Save") }
@@ -192,11 +236,22 @@ internal fun preferencesFrom(
     buzzOnNewStation: Boolean,
     hotCorners: Boolean,
     twoFingerMove: Boolean,
+    autoReconnect: Boolean,
+    /**
+     * As typed. Rubbish keeps the value that was there rather than resetting it to the default —
+     * a half-typed number should not be able to change a setting the surveyor was not editing,
+     * and the field is only on screen at all while the toggle above it is on.
+     */
+    autoReconnectWindow: String,
 ): AppPreferences =
     current.copy(
         buzzOnNewStation = buzzOnNewStation,
         hotCorners = hotCorners,
         twoFingerMove = twoFingerMove,
+        autoReconnect = autoReconnect,
+        autoReconnectWindowMinutes =
+            autoReconnectWindow.trim().toIntOrNull()?.coerceIn(0, AppPreferencesStore.MAX_WINDOW_MINUTES)
+                ?: current.autoReconnectWindowMinutes,
     )
 
 /** A labelled switch with a line of explanation, as the settings rows above it already are. */
