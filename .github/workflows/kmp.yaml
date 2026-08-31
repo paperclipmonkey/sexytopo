@@ -238,7 +238,19 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          reports=$(ls "$HOME/Library/Logs/DiagnosticReports"/*.ips 2>/dev/null || true)
+          # Say what was actually looked at. A scan that finds nothing and a scan that could not
+          # see anything read the same in a green log, and an absent DiagnosticReports directory
+          # is exactly the second dressed as the first — so the log has to distinguish them or
+          # this step is a claim rather than a check.
+          dir="$HOME/Library/Logs/DiagnosticReports"
+          if [ -d "$dir" ]; then
+            echo "Scanned $(ls -1 "$dir" 2>/dev/null | wc -l | tr -d ' ') file(s) in $dir"
+          else
+            echo "::notice::$dir does not exist, so nothing has crashed on this runner at all."
+            echo "This step can only report what it can see; the screenshot checks above are the"
+            echo "ones that assert a live app."
+          fi
+          reports=$(ls "$dir"/*.ips 2>/dev/null || true)
           found=""
           for report in $reports; do
             if grep -qi "sexytopo" "$report" 2>/dev/null; then
