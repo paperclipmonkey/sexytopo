@@ -838,6 +838,10 @@ private fun ScreenContent(
                 onSvgOptionsChange = {
                     state.updatePreferences(state.preferences.copy(svgExport = it))
                 },
+                therionOptions = state.preferences.therionExport,
+                onTherionOptionsChange = {
+                    state.updatePreferences(state.preferences.copy(therionExport = it))
+                },
             )
         Screen.SKETCH ->
             SketchScreen(

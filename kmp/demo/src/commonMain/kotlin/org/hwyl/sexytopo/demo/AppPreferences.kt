@@ -2,6 +2,7 @@ package org.hwyl.sexytopo.demo
 
 import org.hwyl.sexytopo.shared.comms.AutoReconnect
 import org.hwyl.sexytopo.shared.io.export.SvgExporter
+import org.hwyl.sexytopo.shared.io.export.TherionExport
 import org.hwyl.sexytopo.shared.io.store.FileStore
 import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
@@ -134,6 +135,17 @@ data class AppPreferences(
      * person receiving the file can do with it, and it is decided once, at export.
      */
     val svgExport: SvgExporter.Options = SvgExporter.Options.DEFAULT,
+    /**
+     * What a Therion export is called and what goes in it: `preferences_export_therion.xml`.
+     *
+     * The same story as [svgExport] and the reason both were found in one sweep -
+     * [org.hwyl.sexytopo.shared.io.export.Th2Exporter.Options] has carried seven of these ten
+     * since the scrap exporter was ported, and every caller passed the defaults. The three that
+     * were not represented at all are the ones that decide what the files are *called*, which for
+     * a format whose files refer to each other by name is the difference between a project that
+     * builds and a pile of files.
+     */
+    val therionExport: TherionExport = TherionExport.DEFAULT,
 ) {
     /** The two above as the value [LocalAngleEntry] carries. */
     val angleEntry: AngleEntry
@@ -372,6 +384,17 @@ object AppPreferencesStore {
             appendLine("svgSketchStrokeWidth=${svg.sketchStrokeWidth}")
             appendLine("svgLegStrokeWidth=${svg.legStrokeWidth}")
             appendLine("svgSplayStrokeWidth=${svg.splayStrokeWidth}")
+            val therion = preferences.therionExport
+            appendLine("therionPlanSuffix=${therion.planSuffix}")
+            appendLine("therionElevationSuffix=${therion.elevationSuffix}")
+            appendLine("therionXviFolder=${therion.xviFolder}")
+            appendLine("therionPlanScrapSuffix=${therion.planScrapSuffix}")
+            appendLine("therionElevationScrapSuffix=${therion.elevationScrapSuffix}")
+            appendLine("therionPlanCrossSectionSuffix=${therion.planCrossSectionSuffix}")
+            appendLine("therionElevationCrossSectionSuffix=${therion.elevationCrossSectionSuffix}")
+            appendLine("therionCrossSections=${therion.crossSections}")
+            appendLine("therionSymbols=${therion.symbols}")
+            appendLine("therionLabels=${therion.labels}")
         }
 
     fun parse(text: String): AppPreferences {
@@ -492,6 +515,38 @@ object AppPreferencesStore {
             azimuthInDms = values["azimuthInDms"]?.toBooleanStrictOrNull() ?: false,
             inclinationInDms = values["inclinationInDms"]?.toBooleanStrictOrNull() ?: false,
             svgExport = svgExportFrom(values),
+            therionExport = therionExportFrom(values),
+        )
+    }
+
+    /**
+     * The ten Therion export settings, each falling back to the exporter's own default.
+     *
+     * The suffixes are read *without* trimming and without rejecting anything, on purpose. An
+     * empty suffix is a real choice - it means "no suffix" and the Android app takes it - and a
+     * value this version does not expect is still a filename the surveyor typed. The one thing a
+     * bad value here can do is name a file oddly, which is visible on the export screen before
+     * anything is saved; refusing it would instead silently give them the default and a project
+     * that does not match their other trips.
+     */
+    private fun therionExportFrom(values: Map<String, String>): TherionExport {
+        val default = TherionExport.DEFAULT
+        fun text(key: String, fallback: String) = values[key] ?: fallback
+        fun flag(key: String, fallback: Boolean) = values[key]?.toBooleanStrictOrNull() ?: fallback
+        return TherionExport(
+            planSuffix = text("therionPlanSuffix", default.planSuffix),
+            elevationSuffix = text("therionElevationSuffix", default.elevationSuffix),
+            xviFolder = text("therionXviFolder", default.xviFolder),
+            planScrapSuffix = text("therionPlanScrapSuffix", default.planScrapSuffix),
+            elevationScrapSuffix =
+                text("therionElevationScrapSuffix", default.elevationScrapSuffix),
+            planCrossSectionSuffix =
+                text("therionPlanCrossSectionSuffix", default.planCrossSectionSuffix),
+            elevationCrossSectionSuffix =
+                text("therionElevationCrossSectionSuffix", default.elevationCrossSectionSuffix),
+            crossSections = flag("therionCrossSections", default.crossSections),
+            symbols = flag("therionSymbols", default.symbols),
+            labels = flag("therionLabels", default.labels),
         )
     }
 

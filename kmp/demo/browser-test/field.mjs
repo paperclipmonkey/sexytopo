@@ -2759,6 +2759,47 @@ await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
 await at(...(await settingsSwitch(0))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
+// ---- and the Therion project is laid out the way the surveyor's other trips are ---------------
+// The same shape as the SVG options and found in the same sweep: Th2Exporter.Options has carried
+// seven of the ten `pref_therion_*` settings since the scrap exporter was ported, and every caller
+// passed the defaults. These decide what a Therion project's files are called and what goes in
+// them, which for a format whose files refer to each other by name is whether the project builds.
+await at(...(await exportChip('th2'))); await page.waitForTimeout(700)
+
+const th2WithSections = await savedExport()
+if (th2WithSections === null) {
+  fail('the scrap file does not save at all')
+} else if (!th2WithSections.includes('scrap ')) {
+  fail('the exported .th2 has no scrap in it, so the check below cannot fail')
+} else {
+  pass('the drawing exports as a Therion scrap file')
+}
+
+await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
+await page.screenshot({ path: join(shotDir, 'field-export-therion-options.png') })
+// The dialog's three switches are its last three rows: cross-sections, symbols, text. Wheeled to
+// the end first, because ten settings do not fit on a phone.
+await scrollSettingsToTheEnd()
+await at(...(await settingsSwitch(-3))); await page.waitForTimeout(300)
+await at(...(await settingsSave())); await page.waitForTimeout(900)
+
+const th2WithoutSections = await savedExport()
+if (th2WithoutSections === null) {
+  fail('the scrap file would not save after its options were changed')
+} else if (th2WithoutSections.length >= th2WithSections.length) {
+  fail('turning the cross-sections off left the scrap file the same size — the switch does nothing')
+} else if (!th2WithoutSections.includes('scrap ')) {
+  fail('turning the cross-sections off took the passage scrap with it, which is a different file')
+} else {
+  pass('a Therion export option reaches the scrap file, and takes out only what it names')
+}
+
+// Put it back, for the same reason as above.
+await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
+await scrollSettingsToTheEnd()
+await at(...(await settingsSwitch(-3))); await page.waitForTimeout(300)
+await at(...(await settingsSave())); await page.waitForTimeout(900)
+
 await at(...PLAN_TAB); await page.waitForTimeout(600)
 
 // ---- a leg shot from the far end goes in the right way round -------------------------------

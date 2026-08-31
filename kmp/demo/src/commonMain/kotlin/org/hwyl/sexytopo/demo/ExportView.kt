@@ -33,6 +33,7 @@ import org.hwyl.sexytopo.shared.io.export.SurvexExporter
 import org.hwyl.sexytopo.shared.io.export.SvgExporter
 import org.hwyl.sexytopo.shared.io.export.Th2Exporter
 import org.hwyl.sexytopo.shared.io.export.ThconfigExporter
+import org.hwyl.sexytopo.shared.io.export.TherionExport
 import org.hwyl.sexytopo.shared.io.export.TherionExporter
 import org.hwyl.sexytopo.shared.io.export.XviExporter
 import org.hwyl.sexytopo.shared.io.store.SurveyFileType
@@ -60,13 +61,20 @@ enum class ExportFormat(
      * of the same cave.
      */
     val perProjection: Boolean = false,
+    /**
+     * Whether this is one of the files a Therion project is made of.
+     *
+     * Which matters for two reasons: these are the formats the `pref_therion_*` preferences name,
+     * and they are the ones whose *Options* button offers them.
+     */
+    val isTherion: Boolean = false,
 ) {
     SURVEX("Survex .svx", "svx"),
-    THERION("Therion .th", "th"),
-    THCONFIG("Therion .thconfig", "thconfig"),
+    THERION("Therion .th", "th", isTherion = true),
+    THCONFIG("Therion .thconfig", "thconfig", isTherion = true),
     SVG("Drawing .svg", "svg", perProjection = true),
-    XVI("Tracing .xvi", "xvi", perProjection = true),
-    TH2("Therion .th2", "th2", perProjection = true),
+    XVI("Tracing .xvi", "xvi", perProjection = true, isTherion = true),
+    TH2("Therion .th2", "th2", perProjection = true, isTherion = true),
     COMPASS("Compass .dat", "dat"),
     POCKET_TOPO("PocketTopo .txt", "txt"),
     NATIVE("SexyTopo JSON", "data.json"),
@@ -92,12 +100,15 @@ fun ExportView(
     projection: Projection2D = Projection2D.PLAN,
     svgOptions: SvgExporter.Options = SvgExporter.Options.DEFAULT,
     onSvgOptionsChange: (SvgExporter.Options) -> Unit = {},
+    therionOptions: TherionExport = TherionExport.DEFAULT,
+    onTherionOptionsChange: (TherionExport) -> Unit = {},
 ) {
     var format by remember { mutableStateOf(ExportFormat.SURVEX) }
     var copied by remember(format) { mutableStateOf(false) }
     var savedTo by remember(format) { mutableStateOf<String?>(null) }
     var saveFailed by remember(format) { mutableStateOf(false) }
     var choosingSvgOptions by remember { mutableStateOf(false) }
+    var choosingTherionOptions by remember { mutableStateOf(false) }
 
     // Today, from the device's own clock, because these files date the trip. The shared exporters
     // take the date as a parameter rather than reading a clock - that is what makes their golden
@@ -105,9 +116,21 @@ fun ExportView(
     val today = remember(survey, revision) { todayIso() }
 
     val text =
-        remember(survey, revision, format, today, projection, svgOptions) {
-            exportText(survey, format, projection, today, svgOptions)
+        remember(survey, revision, format, today, projection, svgOptions, therionOptions) {
+            exportText(survey, format, projection, today, svgOptions, therionOptions)
         }
+
+    if (choosingTherionOptions) {
+        TherionExportDialog(
+            survey = survey.name,
+            options = therionOptions,
+            onDismiss = { choosingTherionOptions = false },
+            onSave = {
+                onTherionOptionsChange(it)
+                choosingTherionOptions = false
+            },
+        )
+    }
 
     if (choosingSvgOptions) {
         SvgExportDialog(
@@ -151,7 +174,11 @@ fun ExportView(
             }
             TextButton(
                 onClick = {
-                    val where = saveTextFile(fileNameFor(survey, format, projection), text)
+                    val where =
+                        saveTextFile(
+                            fileNameFor(survey, format, projection, therionOptions),
+                            text,
+                        )
                     // The companions go too, or the export is the same data loss the *importer*
                     // had until recently: a survey is four files and its own format cannot be
                     // written as one of them.
@@ -170,13 +197,20 @@ fun ExportView(
             if (format == ExportFormat.SVG) {
                 TextButton(onClick = { choosingSvgOptions = true }) { Text("Options") }
             }
+            // Offered on all four Therion formats, because the names these set are shared between
+            // them: a `.th2` names its `.xvi` and a `.thconfig` names both, so a surveyor who has
+            // just changed the plan suffix while looking at the `.th2` needs the `.thconfig` to
+            // follow — and would otherwise have to guess which screen owned the setting.
+            if (format.isTherion) {
+                TextButton(onClick = { choosingTherionOptions = true }) { Text("Options") }
+            }
             Spacer(Modifier.weight(1f))
             Text(
                 when {
                     saveFailed -> "Could not save a file here"
                     savedTo != null -> "Saved to $savedTo"
                     else ->
-                        (listOf(fileNameFor(survey, format, projection)) +
+                        (listOf(fileNameFor(survey, format, projection, therionOptions)) +
                             companionFiles(survey, format).map { it.first })
                             .joinToString(", ")
                 },
@@ -244,6 +278,7 @@ internal fun exportText(
     projection: Projection2D,
     today: String,
     svgOptions: SvgExporter.Options = SvgExporter.Options.DEFAULT,
+    therion: TherionExport = TherionExport.DEFAULT,
 ): String =
         when (format) {
             ExportFormat.SURVEX -> SurvexExporter.export(survey, createdOn = today)
@@ -257,7 +292,7 @@ internal fun exportText(
                     th2Files =
                         Projection2D.entries
                             .filter { it.isDrawable }
-                            .map { fileNameFor(survey, ExportFormat.TH2, it) },
+                            .map { fileNameFor(survey, ExportFormat.TH2, it, therion) },
                 )
             ExportFormat.THCONFIG -> ThconfigExporter.export(survey)
             // The only export that is a picture. It follows the view the surveyor is looking
@@ -292,10 +327,10 @@ internal fun exportText(
                         SvgExporter.addBorder(SvgExporter.exportFrame(survey, projection))
                             .scale(SvgExporter.SCALE.toFloat()),
                     scale = SvgExporter.SCALE.toFloat(),
-                    options =
-                        Th2Exporter.Options(
-                            xviFileName = fileNameFor(survey, ExportFormat.XVI, projection),
-                        ),
+                    // The image reference carries the surveyor's xvi folder, because that is
+                    // the half xtherion resolves: a scrap naming an image that is not where it
+                    // says opens with a missing-file complaint and no background at all.
+                    options = therion.th2Options(therion.xviReference(survey.name, projection)),
                 )
 
             ExportFormat.POCKET_TOPO -> PocketTopoExporter.export(survey)
@@ -327,13 +362,24 @@ internal fun companionFiles(survey: Survey, format: ExportFormat): List<Pair<Str
         emptyList()
     }
 
+/**
+ * What the file is called.
+ *
+ * The three Therion formats take their suffix from the surveyor's own preference rather than from
+ * [Projection2D.fileSuffix], because Therion's files refer to each other *by name*: a `.th2` names
+ * its `.xvi`, and a `.thconfig` names both. A surveyor whose other trips are laid out as `NameP`
+ * and `NameE` has to be able to say so here, or this app's files will not join a project they
+ * already have. The SVG keeps the app's own naming, because nothing refers to it.
+ */
 internal fun fileNameFor(
     survey: Survey,
     format: ExportFormat,
     projection: Projection2D = Projection2D.PLAN,
+    therion: TherionExport = TherionExport.DEFAULT,
 ): String =
-    if (format.perProjection) {
-        "${survey.name}.${projection.fileSuffix}.${format.extension}"
-    } else {
-        "${survey.name}.${format.extension}"
+    when {
+        format.perProjection && format.isTherion ->
+            therion.fileNameFor(survey.name, projection, format.extension)
+        format.perProjection -> "${survey.name}.${projection.fileSuffix}.${format.extension}"
+        else -> "${survey.name}.${format.extension}"
     }

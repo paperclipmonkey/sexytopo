@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 744 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 750 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
@@ -1974,6 +1974,42 @@ These are the things that would actually shape a real port.
    the failure surfaced two hundred lines later as *"the reading dialog is not open"*. The check
    had a silent dependency on a label not moving. It is written down beside it now.
 
+62. **The same hole again, in the format where a name is load-bearing.** Found by sweeping every
+   `android:key` in `res/xml/preferences_*.xml` against the port rather than by using the app —
+   which is what turned up finding 59 as well, and is worth recording as a method: a list of
+   upstream's own keys is a list of promises, and the ones nothing in this port mentions are the
+   ones it has quietly not kept.
+
+   `preferences_export_therion.xml` has ten. Seven of them — the scrap suffixes, the cross-section
+   suffixes and the three content toggles — were already parameters of `Th2Exporter.Options` with
+   upstream's own defaults, and every caller passed the defaults. The other three were not
+   represented anywhere: `pref_therion_plan_suffix`, `pref_therion_ee_suffix` and
+   `pref_therion_xvi_folder`.
+
+   Those three are the ones that matter most, because of what a Therion export *is*. It is not one
+   file: a `.th` of centreline, a `.thconfig` that builds it, and per drawing a `.th2` scrap and
+   the `.xvi` background image the scrap is traced over — and every one of them names the others.
+   A surveyor joining these files to a project that already holds twenty trips, laid out the way
+   that project lays things out, needs the names to match; a surveyor who keeps images in an
+   `xvi/` folder needs the scrap to say so, because a scrap naming an image that is not where it
+   says opens in xtherion with a missing-file complaint and no background at all — which, for a
+   file whose whole purpose is to be traced over, is the same as not exporting it.
+
+   The naming rule was the interesting part to port. Upstream writes it across two files —
+   `TherionExporter.buildExtension` composes an extension string and `SurveyFile.withExtension`
+   consumes it — and carries the awkward case between them by prepending a `"|"` marker that is
+   stripped three files away. There is nothing to port about the marker; what has to be preserved
+   is that the rule has three answers about one dot, because a surveyor might reasonably type any
+   of `.plan`, `P.` or `P` and the first gives `Name.plan.th2` while the other two both give
+   `NameP.th2`. It is one tested function now, and the dialog shows the resulting filenames live
+   above the boxes that decide them, because a three-branch rule is much easier to check by
+   looking than by reading.
+
+   One check worth its own line: `aChosenSuffixNamesEveryTherionFileTheSameWay` asserts the `.th`'s
+   own `input` lines, not just the filename. A suffix that reached the `.th2` and the `.xvi` but
+   not the `.th` would produce a project whose files point at names nothing wrote — which compiles
+   to a centreline and no drawing, and is invisible until Therion runs on somebody's laptop.
+
 ---
 
 ## A defect worth reporting upstream
@@ -2094,8 +2130,8 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 744
-shared tests on three targets, 340 over the UI's own logic, 18 running the iOS half in a simulator,
-98 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
+shared tests on three targets, 349 over the UI's own logic, 18 running the iOS half in a simulator,
+100 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.
