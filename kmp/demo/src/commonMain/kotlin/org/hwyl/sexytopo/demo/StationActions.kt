@@ -162,9 +162,41 @@ internal fun renameProblem(survey: Survey, station: Station, typed: String): Str
         wanted.isEmpty() -> "A station needs a name"
         wanted == station.name -> null
         survey.getStationByName(wanted) != null -> "There is already a station called $wanted"
-        else -> null
+        else -> exportProblem(wanted)
     }
 }
+
+/**
+ * Characters that would make the survey files this app writes unreadable.
+ *
+ * `Station` strips only newlines, faithfully to the Java, and the Android app's rename form checks
+ * only that a name is not blank, not `-`, and unique. So *sump 2* is accepted there — and the
+ * Survex exporter writes station names into whitespace-separated columns, so that leg comes out as
+ *
+ * ```
+ * 1	sump 2	5.000	10.00	0.00
+ * ```
+ *
+ * which is six fields where `*data normal from to tape compass clino` wants five. Survex will not
+ * read it. A semicolon is worse than a space: it begins a comment in Survex, so everything after it
+ * — the whole reading — is thrown away silently. Therion separates its columns the same way.
+ *
+ * This is the one place the divergence is worth it. The *model* still keeps whatever it is given,
+ * so a survey imported from Android with a name like that is unchanged and still exports as
+ * badly — this app cannot fix somebody else's file by refusing to open it. What it can do is stop
+ * making the problem, and say why rather than silently substituting a character, because a station
+ * quietly renamed on export is a station nobody can match back to their notes.
+ */
+private fun exportProblem(wanted: String): String? =
+    when {
+        wanted.any { it.isWhitespace() } ->
+            "A station name cannot contain a space: Survex and Therion use spaces to separate " +
+                "the columns, so the export would not read"
+        ';' in wanted ->
+            "A station name cannot contain a semicolon: it starts a comment in Survex, so the " +
+                "readings on that line would be thrown away"
+        else -> null
+    }
 
 /** What [Station] will keep of a typed name. */
 internal fun sanitiseStationName(typed: String): String =

@@ -1454,6 +1454,33 @@ These are the things that would actually shape a real port.
    to parse, is counted. Found by asking what the new warning would say about ordinary use rather
    than about the case it was written for.
 
+47. **A station called "sump 2" makes a Survex file that will not read, and nothing says so.**
+   Upstream. `Station.FORBIDDEN_CHARS` is `\n` and `\r` and nothing else — this port matches it
+   exactly — and `RenameStationForm.validate` checks three things: not blank, not `-`, unique.
+   A space is accepted.
+
+   `SurvexExporter` then writes station names into whitespace-separated columns, so that leg comes
+   out as
+
+   ```
+   1	sump 2	5.000	10.00	0.00
+   ```
+
+   which is six fields where `*data normal from to tape compass clino` wants five. Survex will not
+   read it. A **semicolon** is worse than a space: it begins a comment in Survex, so `sump;2` throws
+   the whole reading away and the file still parses — a leg quietly gone rather than an error. A tab
+   inside a name shifts the columns of a tab-separated file. Therion separates its columns the same
+   way.
+
+   Nothing warns, at either end. The export screen shows a file that looks plausible; the failure
+   happens on somebody's laptop, hours later, after the trip.
+
+   This port refuses those names when a station is renamed, and says which character and why —
+   the one place a divergence is worth it, because the alternative is losing a trip's numbers in
+   silence. It does *not* rewrite an imported name: this app cannot repair somebody else's file by
+   refusing to open it, and a station silently renamed on export is a station nobody can match back
+   to their notes. So it stops the problem being made rather than pretending it cannot exist.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1558,7 +1585,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 713
-shared tests on three targets, 284 over the UI's own logic, 18 running the iOS half in a simulator,
+shared tests on three targets, 286 over the UI's own logic, 18 running the iOS half in a simulator,
 88 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
