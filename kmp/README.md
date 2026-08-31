@@ -58,6 +58,7 @@ Being precise about this matters more than the demo looking good.
 | **A real-sized cave works, not just a demo one** | **Verified** | `BigSurveyTest` builds a four-thousand-station passage — past where every tree walk in this port used to overflow the stack — and projects it to a plan and an extended elevation, builds its wireframe, counts its statistics, exports it to Survex and Therion and reads it back, on all three targets, along with SVG, `.xvi`, `.th2`, Compass and PocketTopo — and rubs out and undoes on a drawing of eight thousand strokes |
 | **A real-sized cave draws, and draws linearly** | **Verified** | `CanvasSpeedTest` renders the plan of a four-thousand-station survey through the same headless Skia the demo PNGs use, and checks that eight times the cave costs about eight times the frame rather than sixty-four — the failure mode finding 18 was, in the drawing rather than in the export. The absolute times are a CPU rasteriser's and not a phone's, and the test says so |
 | **The cave is the same size on a phone as on a desktop** | **Verified** | `DrawingDensityTest` renders the same plan twice through headless Skia — once at 1x, once at three times the size *and* three times the density, which is what a phone shows — and compares what fraction of each picture is centreline. Dp sizes give one picture at two resolutions and the same fraction; raw pixels give a cave drawn a third as thick. Measured both ways: **1.11 as it stands, 0.44 with finding 28 put back**. It counts only the red centreline, because the text on that canvas is in `sp` and scaled correctly even when the bug was live — counting all the ink made the first version of this test pass with the bug in |
+| **Every character the app types is one the bundled font can draw** | **Verified** | `FontCoverageTest` asks Skia — the same `FontMgr` that does the drawing — for the glyph of every character the UI types, in both bundled weights, and fails on glyph 0. It asserts the other direction too: the two marks the app draws by hand, "✓" and "⋮", must stay absent, so a drawn mark that could be typed shows up as a failing test. The app bundles its own font because Skia ships none on the web, which is what makes one check answer for every platform |
 | Surveys save and load through a platform-free storage layer | **Verified** | a full round trip - naming, directories, autosave, listing - over an in-memory `FileStore`, on all three targets. The Android app's equivalent test is `@Ignore`d because `DocumentFile` cannot be mocked |
 | The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
 | The BLE connection logic is platform-free | **Verified** | `GattLinkTest` and `GattSessionTest` — the profile matrix *and* the connection lifecycle; only callback plumbing is left in `iosMain` |
@@ -1154,6 +1155,32 @@ These are the things that would actually shape a real port.
    something was run against the bug it names before it was pushed — this one twice, because the
    first version of it was a lie I told myself in good faith.
 
+38. **The lesson I drew from a real bug was wrong, and it cost the app its typography.** Early on
+   this port shipped "✓" beside every checked menu item and every one came out an empty box: the
+   app bundles Liberation Sans, because Skia ships no system fonts on the web and text otherwise
+   does not draw at all, and Liberation Sans has no Dingbats. That much was true, and the tick is
+   drawn by hand to this day for a good reason.
+
+   The rule I wrote down from it was *distrust any glyph outside Latin-1*, and I put it in three
+   code comments, in a test, and in every decision after it. So the About box got "-" for its
+   bullets, the submenu rows got ">" for their chevrons, and each carried a comment stating as
+   fact that the bundled font had no bullet and no chevron.
+
+   It has both. Asked directly — `FontMgr.default.makeFromFile(...).getUTF32Glyphs(...)`, which is
+   the same Skia that does the drawing — Liberation Sans resolves "•" to glyph 2030, "›" to 2043
+   and "→" to 2118 in *both* weights, and 57 of the 112 characters of General Punctuation
+   besides. Only "✓" and "⋮" come back as glyph 0, which is exactly the two the app draws.
+
+   What made this stick was that the test I wrote to enforce it asserted `code > 0xFF`, which is
+   wrong in both directions at once: it passes the control characters, which no font has a glyph
+   for, and fails "•", which this one does. It never disagreed with the code because it was the
+   same guess written twice. It now asks the font, and so does `FontCoverageTest`, which asserts
+   both halves — every character the app types resolves, and every mark the app draws does not —
+   so the next person to wonder gets an answer instead of an anecdote.
+
+   The bullets and chevrons are back. Seventy-six browser checks still pass, and the menu and the
+   About box were photographed to be sure the glyphs *render* and not merely resolve.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1258,7 +1285,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 697
-shared tests on three targets, 257 over the UI's own logic, 17 running the iOS half in a simulator,
+shared tests on three targets, 260 over the UI's own logic, 17 running the iOS half in a simulator,
 76 browser checks driving the real page on a 420-pixel screen and finishing at 375x667. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

@@ -628,8 +628,9 @@ private fun MenuGroup(label: String, opens: MenuPage, onOpen: (MenuPage) -> Unit
     DropdownMenuItem(
         text = { Text(label) },
         leadingIcon = { CheckDot(false) },
-        // "›" is outside Latin-1 and the bundled font would draw a box, so the plain one.
-        trailingIcon = { Text(">", style = MaterialTheme.typography.bodyMedium) },
+        // "›" and not ">": the bundled font does have it, which `FontCoverageTest` checks. The
+        // ">" here was a precaution taken against a font limit that turned out not to exist.
+        trailingIcon = { Text("\u203A", style = MaterialTheme.typography.bodyMedium) },
         onClick = { onOpen(opens) },
     )
 }
@@ -640,8 +641,8 @@ private fun MenuGroup(label: String, opens: MenuPage, onOpen: (MenuPage) -> Unit
  * Something has to stay. Hiding the app bar hides the only route to the overflow menu, and a
  * surveyor who turned this on and could not turn it off would have to delete the app — so this is
  * eighteen pixels of the same green with a bar drawn across it, and a tap anywhere on it brings
- * the app bar back. Drawn rather than typed, for the reason every mark in this app is: the bundled
- * font has no glyph for a chevron and would show an empty box.
+ * the app bar back. A drawn bar rather than a typed chevron because a grab handle is a bar — the
+ * font would in fact draw "›" perfectly well, which `FontCoverageTest` now settles.
  */
 @Composable
 private fun FullScreenHandle(onExit: () -> Unit) {

@@ -58,16 +58,23 @@ class AboutTest {
     }
 
     /**
-     * The bundled Liberation Sans has no General Punctuation block, so a bullet or a smart quote
-     * renders as an empty box on every platform — which this port shipped once already, as a tick
-     * beside every checked menu item. Latin-1 only, everywhere in this text.
+     * A character the bundled font has no glyph for is an empty box on every platform, which this
+     * port shipped once already as a tick beside every checked menu item.
+     *
+     * This used to assert Latin-1, which was the wrong test twice over: it passes text the font
+     * cannot draw (the control characters are Latin-1 and are not glyphs) and it fails text the
+     * font draws perfectly (the bullets below). It now asks the font, which is the only thing that
+     * actually decides.
      */
     @Test
     fun everyCharacterIsOneTheBundledFontHas() {
-        val outside = text.filter { it.code > 0xFF }
-        assertEquals("", outside, "characters the bundled font cannot draw")
+        assertEquals(
+            "",
+            FontCoverage.missingFrom(text),
+            "characters in the About text the bundled font cannot draw",
+        )
 
         val headings = ABOUT.joinToString("") { it.heading }
-        assertEquals("", headings.filter { it.code > 0xFF })
+        assertEquals("", FontCoverage.missingFrom(headings))
     }
 }

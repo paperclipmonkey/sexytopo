@@ -19,8 +19,13 @@ import androidx.compose.ui.unit.dp
  * item in every menu showed the same small empty square whether it was on or off, which is a
  * strange way to build a menu of toggles.
  *
- * A drawn dot cannot have that problem on any platform or in any font. It is also the reason to
- * distrust a glyph outside Latin-1 anywhere in this app.
+ * A drawn dot cannot have that problem on any platform or in any font.
+ *
+ * The rule this incident produced — distrust any glyph outside Latin-1 — was the wrong lesson, and
+ * it cost the About box its bullets and the submenu rows their chevrons before anyone checked it.
+ * Liberation Sans has 2388 characters and most of the punctuation a UI wants. `FontCoverageTest`
+ * asks Skia which, so the marks that are drawn and the marks that are typed are each justified by
+ * a test rather than by this anecdote.
  */
 @Composable
 fun CheckDot(checked: Boolean) {

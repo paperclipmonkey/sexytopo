@@ -68,35 +68,38 @@ class AboutSection(val heading: String, val lines: List<String>)
 /**
  * `values/about_text.xml`, verbatim except for the bullet characters and the last section.
  *
- * The bullets are "-" rather than "•" for the reason the tick beside a checked menu item is drawn
- * rather than typed: the bundled Liberation Sans has no General Punctuation bullet, and this port
- * has already shipped one glyph that rendered as an empty box on every platform.
+ * The bullets were "-" for a while, on the theory that the bundled Liberation Sans had no
+ * General Punctuation and would draw a box — the theory this port arrived at after shipping "✓"
+ * and watching it come out empty everywhere. Asking Skia rather than remembering says otherwise:
+ * the font has 57 of the 112 General Punctuation characters and "•" is one of them. It is
+ * Dingbats it has not got, which is where "✓" lives. `FontCoverageTest` holds both halves of
+ * that, so this is now a checked claim rather than a cautious one.
  */
 val ABOUT =
     listOf(
         AboutSection(
             "Authors",
             listOf(
-                "- SexyTopo is written and maintained by Rich Smith (rls@hwyl.org), " +
+                "• SexyTopo is written and maintained by Rich Smith (rls@hwyl.org), " +
                     "copyright 2025",
-                "- Additional code by: Dan Workman, Phil Underwood, Siwei Tian, Olly Legg, " +
+                "• Additional code by: Dan Workman, Phil Underwood, Siwei Tian, Olly Legg, " +
                     "Michael Glazer, Thomas Holder, Damian Ivereigh, Andrew Atkinson",
-                "- Translations by: Christian Luthi (German); Meg Gorry, Romain Reignier " +
+                "• Translations by: Christian Luthi (German); Meg Gorry, Romain Reignier " +
                     "(French), Claude",
             ),
         ),
         AboutSection(
             "Thanks to",
             listOf(
-                "- Long-suffering Ruth \"Rufus\" Allan for love and support",
-                "- Andrew Atkinson for the initial idea and extensive input",
-                "- Beat Heeb for the inspirational PocketTopo and contributing the " +
+                "• Long-suffering Ruth \"Rufus\" Allan for love and support",
+                "• Andrew Atkinson for the initial idea and extensive input",
+                "• Beat Heeb for the inspirational PocketTopo and contributing the " +
                     "calibration code",
-                "- Madphil for testing and ideas",
-                "- \"CaverBruce\" for testing and ideas",
-                "- Tom Foord for testing and ideas",
-                "- Hellie Brooke / David Powlesland / Andrew Atkinson for loan of equipment",
-                "- Kris Fausnight for providing a BRIC4",
+                "• Madphil for testing and ideas",
+                "• \"CaverBruce\" for testing and ideas",
+                "• Tom Foord for testing and ideas",
+                "• Hellie Brooke / David Powlesland / Andrew Atkinson for loan of equipment",
+                "• Kris Fausnight for providing a BRIC4",
             ),
         ),
         AboutSection(
