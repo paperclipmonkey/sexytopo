@@ -22,6 +22,7 @@ import org.hwyl.sexytopo.shared.comms.InstrumentTransportListener
 import org.hwyl.sexytopo.shared.comms.ReconnectionPolicy
 import org.hwyl.sexytopo.shared.comms.TransportSubscription
 import org.hwyl.sexytopo.shared.comms.ShotTrouble
+import org.hwyl.sexytopo.shared.comms.toHex
 import org.hwyl.sexytopo.shared.io.export.formatFixed
 import org.hwyl.sexytopo.shared.comms.measurements
 import org.hwyl.sexytopo.shared.comms.sim.SimulatedInstrument
@@ -137,6 +138,24 @@ class SurveySession(
 
     /** Latest value per error code, in the order the codes were first seen. */
     private val troubleNumbers = LinkedHashMap<Int, String>()
+
+    /**
+     * Write every frame to the log as it arrives, decoded or not. `pref_developer_mode`.
+     *
+     * Upstream has that key, a preference screen of its own to set it on, and a getter nothing
+     * calls — a checkbox that does nothing at all (finding 64). This is what it does here, and it
+     * exists for one situation that is otherwise undiagnosable in a cave: **the instrument is
+     * shooting and the app is recording nothing.**
+     *
+     * Without it that looks the same from the outside as a radio that never connected, because a
+     * frame which decodes to no packets is logged nowhere — there is no line for "something
+     * arrived and meant nothing". Which of those two it is decides everything about what to try
+     * next, and it cannot be worked out afterwards from a survey with no legs in it.
+     *
+     * Off by default, because the log is a hundred lines and a surveyor reading it wants the
+     * sentences rather than the hex.
+     */
+    var traceFrames by mutableStateOf(false)
 
     /**
      * Everything the instrument has done, oldest first, bounded at a hundred lines.
@@ -324,6 +343,15 @@ class SurveySession(
 
             private fun readFrame(channel: FrameChannel, bytes: ByteArray) {
                 val packets = decoder.decode(channel, bytes)
+
+                // The raw trace, before anything is made of the bytes — so a frame that goes on
+                // to throw is still in the log, which is the case where it is worth most.
+                if (traceFrames) {
+                    note("frame on $channel, ${bytes.size} bytes ${bytes.toHex()}")
+                    if (packets.isEmpty()) {
+                        note("  ...decoded to nothing")
+                    }
+                }
 
                 // Before anything else. Four of these instruments will not send the next shot
                 // until the last one is acknowledged, and a reply withheld because this port did

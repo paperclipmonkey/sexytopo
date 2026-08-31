@@ -166,6 +166,15 @@ data class AppPreferences(
      */
     val calibrationAlgorithm: CalibrationChoice = CalibrationChoice.DEFAULT,
     /**
+     * Write every instrument frame to the log, decoded or not. `pref_developer_mode`.
+     *
+     * Upstream declares this key, gives it a preference screen of its own, and reads it nowhere -
+     * `isDeveloperModeOn` has no callers at all. This is what it does here: the trace that tells a
+     * surveyor whether an instrument that seems to be shooting is reaching the app, which is
+     * otherwise indistinguishable from a radio that never connected.
+     */
+    val developerMode: Boolean = false,
+    /**
      * Which bearing left and right are taken square to. `pref_lrud_direction`.
      *
      * Upstream reads this key and has no settings entry for it at all - see the note in the
@@ -395,6 +404,7 @@ object AppPreferencesStore {
             appendLine("lrudFields=${preferences.lrudFields}")
             appendLine("calibrationAlgorithm=${preferences.calibrationAlgorithm.key}")
             appendLine("lrudMode=${preferences.lrudMode.name}")
+            appendLine("developerMode=${preferences.developerMode}")
             appendLine("azimuthInDms=${preferences.azimuthInDms}")
             appendLine("inclinationInDms=${preferences.inclinationInDms}")
             val svg = preferences.svgExport
@@ -551,6 +561,7 @@ object AppPreferencesStore {
                 CalibrationChoice.of(values["calibrationAlgorithm"]) ?: CalibrationChoice.DEFAULT,
             lrudMode =
                 LrudMode.entries.firstOrNull { it.name == values["lrudMode"] } ?: LrudMode.DEFAULT,
+            developerMode = values["developerMode"]?.toBooleanStrictOrNull() ?: false,
             azimuthInDms = values["azimuthInDms"]?.toBooleanStrictOrNull() ?: false,
             inclinationInDms = values["inclinationInDms"]?.toBooleanStrictOrNull() ?: false,
             svgExport = svgExportFrom(values),

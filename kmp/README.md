@@ -2129,6 +2129,27 @@ These are the things that would actually shape a real port.
    the three characteristics apart at all and cycles blindly through the roles, so a dropped
    indication desynchronises the cycle instead. Its own comment admits the risk.
 
+66. **The one thing a cave cannot tell you, and the dead preference that now tells it.** Written
+   for a situation that has not happened yet and would be undiagnosable if it did: the instrument
+   is shooting, and the survey stays empty.
+
+   From the surveyor's side that looks exactly like a radio that never connected — and the two need
+   opposite things done about them. Nothing in the app distinguished them, because a frame that
+   decodes to *no packets* was logged nowhere. There is a line for a shot, a line for a refusal and
+   a line for a decoder that threw, and no line anywhere for "something arrived and meant nothing".
+   That last case is the interesting one: it is what a firmware revision with an extra field looks
+   like, or a device whose advertised name matched a profile it does not really speak.
+
+   `traceFrames` writes every frame as it arrives — the characteristic, the length and the bytes —
+   and says so when one yields nothing. It is behind `pref_developer_mode`, which is a joke worth
+   making explicit: upstream declares that key, gives it a preference screen of its own, and reads
+   it in exactly no places (see the note on preferences nobody can reach). Here it does one thing,
+   and it is the thing you cannot work out afterwards from a survey with no legs in it.
+
+   Off by default, because the log holds a hundred lines and a surveyor reading it in a cave wants
+   the sentences rather than the hex. It reaches the *live* session as well as the next one, since
+   the only moment anybody turns it on is with a misbehaving instrument already connected.
+
 ---
 
 ## A defect worth reporting upstream
@@ -2261,7 +2282,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 744
-shared tests on three targets, 357 over the UI's own logic, 18 running the iOS half in a simulator,
+shared tests on three targets, 359 over the UI's own logic, 18 running the iOS half in a simulator,
 101 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the

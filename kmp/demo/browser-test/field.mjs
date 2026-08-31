@@ -476,8 +476,9 @@ const settingsSwitch = async (index) => {
   return [320, rows[nth]]
 }
 
-// *Surveying* ends with one switch, so it is the only one counted from that end.
-const SWITCH_CHASE_LOST_INSTRUMENT = -1
+// *Surveying*'s last two switches, counted from that end.
+const SWITCH_LOG_EVERY_FRAME = -1
+const SWITCH_CHASE_LOST_INSTRUMENT = -2
 
 // *Manual entry*'s five switches, counted from the **top** and in the order the dialog lays them
 // out. From the top because that dialog opens at the top and its rows are added at the bottom;

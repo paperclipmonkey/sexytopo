@@ -206,4 +206,45 @@ class ShotTroubleSessionTest {
             "InstrumentFamily.BRIC4 has an empty command set, as Bric4Manager does",
         )
     }
+
+    /**
+     * The frame trace says whether anything arrived at all.
+     *
+     * The situation it is for cannot be diagnosed any other way: an instrument that appears to be
+     * shooting while the survey stays empty looks, from the surveyor's side, exactly like a radio
+     * that never connected. A frame which decodes to no packets is otherwise logged nowhere —
+     * there is no line anywhere for "something arrived and meant nothing" — and which of those two
+     * it is decides what to try next. It cannot be worked out afterwards from a survey with no
+     * legs in it.
+     */
+    @Test
+    fun theFrameTraceSaysWhatArrivedAndWhetherItMeantAnything() {
+        val (session, instrument) = connectedToABric()
+        session.traceFrames = true
+
+        // A metadata frame on its own: real bytes, correctly routed, and no packet out of it.
+        instrument.arrive(ByteArray(BRIC_FRAME), FrameChannel.EXTENDED)
+
+        assertTrue(
+            session.log.any { "EXTENDED" in it && "20 bytes" in it },
+            "the trace should say which characteristic and how much: ${session.log}",
+        )
+        assertTrue(
+            session.log.any { "decoded to nothing" in it },
+            "and that this one meant nothing, which is the whole point",
+        )
+    }
+
+    /** Off, it says nothing at all — the log is a hundred lines and a surveyor wants sentences. */
+    @Test
+    fun theTraceIsSilentUntilItIsAskedFor() {
+        val (session, instrument) = connectedToABric()
+
+        instrument.arrive(ByteArray(BRIC_FRAME), FrameChannel.EXTENDED)
+
+        assertTrue(
+            session.log.none { "bytes" in it },
+            "nothing should be traced by default: ${session.log}",
+        )
+    }
 }

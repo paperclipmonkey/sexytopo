@@ -99,6 +99,7 @@ class AppPreferencesTest {
                 twoFingerMove = true,
                 autoReconnect = false,
                 autoReconnectWindow = "15",
+                developerMode = false,
             )
 
         assertTrue(saved.autoRecentre, "the drawing menu's preference is not this screen's to reset")
@@ -125,6 +126,7 @@ class AppPreferencesTest {
                 twoFingerMove = false,
                 autoReconnect = true,
                 autoReconnectWindow = "",
+                developerMode = false,
             )
 
         assertEquals(40, saved.autoReconnectWindowMinutes)

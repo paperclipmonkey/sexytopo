@@ -225,6 +225,11 @@ class DemoState(
     fun updatePreferences(updated: AppPreferences) {
         preferences = updated
         session.autoReconnect = updated.reconnection
+        // Both of these have to reach the *live* session and not only the next one. Turning the
+        // frame trace on is something a surveyor does with an instrument already connected and
+        // misbehaving, which is the only moment it is any use — a setting that took effect on the
+        // next survey would be a setting that never took effect at all.
+        session.traceFrames = updated.developerMode
         if (!library.savePreferences(updated)) {
             storageProblem = library.lastError ?: "could not save preferences"
         }
@@ -444,6 +449,7 @@ class DemoState(
         // A new session starts on the class default, which is off — so opening a second survey
         // would quietly turn auto-reconnect off for the rest of the trip.
         session.autoReconnect = preferences.reconnection
+        session.traceFrames = preferences.developerMode
         session.onStationCreated = ::noteStationCreated
         mode = SurveyMode.LIVE
         storageProblem = null

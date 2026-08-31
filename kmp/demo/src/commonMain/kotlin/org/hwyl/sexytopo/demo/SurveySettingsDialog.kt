@@ -61,6 +61,7 @@ fun SurveySettingsDialog(
     var hotCorners by remember { mutableStateOf(preferences.hotCorners) }
     var twoFingerMove by remember { mutableStateOf(preferences.twoFingerMove) }
     var autoReconnect by remember { mutableStateOf(preferences.autoReconnect) }
+    var developerMode by remember { mutableStateOf(preferences.developerMode) }
     var reconnectWindow by
         remember { mutableStateOf(preferences.autoReconnectWindowMinutes.toString()) }
 
@@ -201,6 +202,22 @@ fun SurveySettingsDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+
+                HorizontalDivider()
+
+                // `pref_developer_mode`, which upstream declares, gives a screen of its own, and
+                // reads nowhere. Here it is one diagnostic, for the one situation that is
+                // otherwise undiagnosable underground — see `SurveySession.traceFrames`.
+                Toggle(
+                    title = "Log every frame from the instrument",
+                    detail =
+                        "For when the instrument seems to be shooting and nothing reaches the " +
+                            "survey: this says whether the bytes are arriving at all, which is " +
+                            "the one thing you cannot work out afterwards. Off by default — the " +
+                            "log holds a hundred lines and this fills it.",
+                    checked = developerMode,
+                    onCheckedChange = { developerMode = it },
+                )
             }
         },
         confirmButton = {
@@ -217,6 +234,7 @@ fun SurveySettingsDialog(
                                 twoFingerMove,
                                 autoReconnect,
                                 reconnectWindow,
+                                developerMode,
                             ),
                         )
                     }
@@ -248,6 +266,7 @@ internal fun preferencesFrom(
      * and the field is only on screen at all while the toggle above it is on.
      */
     autoReconnectWindow: String,
+    developerMode: Boolean,
 ): AppPreferences =
     current.copy(
         buzzOnNewStation = buzzOnNewStation,
@@ -257,6 +276,7 @@ internal fun preferencesFrom(
         autoReconnectWindowMinutes =
             autoReconnectWindow.trim().toIntOrNull()?.coerceIn(0, AppPreferencesStore.MAX_WINDOW_MINUTES)
                 ?: current.autoReconnectWindowMinutes,
+        developerMode = developerMode,
     )
 
 /**
