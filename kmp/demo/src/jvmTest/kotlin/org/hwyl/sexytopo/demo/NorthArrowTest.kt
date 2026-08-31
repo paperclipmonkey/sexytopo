@@ -38,14 +38,17 @@ class NorthArrowTest {
         Survey("T").also { SurveyBuilder.updateWithNewStation(it, Leg(10f, 0f, 0f)) }
 
     @OptIn(ExperimentalComposeUiApi::class)
-    private fun inkInTheLegendCorner(projection: Projection2D): Int {
+    private fun inkInTheLegendCorner(
+        projection: Projection2D,
+        options: DisplayOptions = DisplayOptions(showGrid = false),
+    ): Int {
         val survey = oneLegNorth()
         val scene =
             ImageComposeScene(width = width, height = height, density = Density(1f)) {
                 SurveyCanvas(
                     survey = survey,
                     projection = projection,
-                    options = DisplayOptions(showGrid = false),
+                    options = options,
                     editor = SketchEditor(survey.getSketch(projection)),
                     canvas = CanvasController(),
                     modifier = Modifier.fillMaxSize(),
@@ -80,6 +83,19 @@ class NorthArrowTest {
         val ink = inkInTheLegendCorner(Projection2D.PLAN)
 
         assertTrue(ink > 20, "no north arrow was drawn above the scale bar ($ink dark pixels)")
+    }
+
+    @Test
+    fun itCanBeTakenOffAgain() {
+        // `buttonShowCompass`, which is on by default in the app and here. The corner of a small
+        // screen is worth something to a surveyor who has already decided which way is north.
+        val ink =
+            inkInTheLegendCorner(
+                Projection2D.PLAN,
+                DisplayOptions(showGrid = false, showCompass = false),
+            )
+
+        assertEquals(0, ink, "the north arrow was still drawn with the toggle off")
     }
 
     @Test

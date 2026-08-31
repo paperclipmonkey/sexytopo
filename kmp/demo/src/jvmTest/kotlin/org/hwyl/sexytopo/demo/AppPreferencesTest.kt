@@ -53,6 +53,17 @@ class AppPreferencesTest {
                 hotCorners = false,
                 twoFingerMove = true,
                 autoRecentre = true,
+                fadeNonActive = true,
+                highlightLatestLeg = false,
+                blueWater = false,
+                showCrossSections = false,
+                pinchToZoom = false,
+                showSplays = false,
+                showSketch = false,
+                showStationLabels = false,
+                showGrid = false,
+                snapToLines = true,
+                showCompass = false,
             )
         AppPreferencesStore.save(store, flipped)
 
@@ -138,5 +149,61 @@ class AppPreferencesTest {
         assertTrue(DisplayOptions().crossSectionsAreTouchable, "both on by default")
         assertFalse(DisplayOptions(showCrossSections = false).crossSectionsAreTouchable)
         assertFalse(DisplayOptions(showSketch = false).crossSectionsAreTouchable)
+    }
+
+    // -------------------------------------------------------------------------------------
+    // The six that used not to be preferences at all
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * Five of these were `mutableStateOf` on [DemoState] until the drawing menu was split, so a
+     * surveyor who turned the splays off got them back on the next run. All five are persisted
+     * `SketchPreferences.Toggle`s in the Android app, and the values here are that enum's.
+     */
+    @Test
+    fun theSketchToggleDefaultsAreTheAndroidApps() {
+        val defaults = AppPreferences.DEFAULT
+
+        assertTrue(defaults.showSplays, "SHOW_SPLAYS is on")
+        assertTrue(defaults.showSketch, "SHOW_SKETCH is on")
+        assertTrue(defaults.showStationLabels, "SHOW_STATION_LABELS is on")
+        assertTrue(defaults.showGrid, "SHOW_GRID is on")
+        assertFalse(defaults.snapToLines, "SNAP_TO_LINES is off")
+        assertTrue(defaults.showCompass, "SHOW_COMPASS is on")
+    }
+
+    /**
+     * The point of the move, asserted rather than assumed: turning one off writes a file.
+     *
+     * A round trip through the store rather than a check that the field changed, because the field
+     * always changed — what did not happen was the save, and only the store can tell them apart.
+     */
+    @Test
+    fun aSketchToggleReachesTheFile() {
+        val store = InMemoryFileStore()
+        AppPreferencesStore.save(store, AppPreferences(showGrid = false, snapToLines = true))
+
+        val reopened = AppPreferencesStore.load(store)
+        assertFalse(reopened.showGrid, "the grid came back on when the app reopened")
+        assertTrue(reopened.snapToLines, "snapping went off again when the app reopened")
+    }
+
+    /**
+     * The two menu groups are `drawing.xml`'s own, and between them they are every toggle.
+     *
+     * Worth a test because the menu is now assembled from two lists in a different file from the
+     * one that draws it: an item added to neither would simply not appear, and nothing else here
+     * would notice.
+     */
+    @Test
+    fun theDrawingMenuOffersEveryToggleOnce() {
+        val labels = (DISPLAY_TOGGLES + BEHAVIOUR_TOGGLES).map { it.label }
+
+        assertEquals(labels.size, labels.toSet().size, "a toggle is listed twice")
+        assertEquals(4, BEHAVIOUR_TOGGLES.size, "drawing.xml's behaviour group has four items")
+        // Seven of drawing.xml's display group — all but `buttonShowConnections`, which has no
+        // cross-survey links behind it here — plus the latest-leg mark, which the Android app
+        // keeps on its general settings screen rather than this menu.
+        assertEquals(8, DISPLAY_TOGGLES.size)
     }
 }

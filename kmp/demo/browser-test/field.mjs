@@ -261,17 +261,23 @@ const DRAWING_MENU = [
   'move',
   'find',
   'delete-last-leg',
-  'auto-recentre',
-  'blue-water',
+  'display',
+]
+// The twelve toggles behind that last row, in the order the dialog lists them: `drawing.xml`'s
+// display group first, then its behaviour group.
+const DRAWING_OPTIONS = [
   'fade',
-  'latest-leg',
-  'pinch',
-  'show-xsections',
   'splays',
+  'show-xsections',
   'sketch',
-  'labels',
   'grid',
+  'labels',
+  'north',
+  'latest-leg',
+  'auto-recentre',
   'snap',
+  'blue-water',
+  'pinch',
 ]
 // Material 3's `surfaceContainer` in the light theme, which is the dropdown's own ground and is
 // not used by anything behind it.
@@ -282,9 +288,11 @@ const DRAWING_MENU_SURFACE = [243, 237, 247]
  *
  * It used to be computed upwards from a fixed bottom row, on the reasoning that a menu opening
  * from a toolbar cell keeps its bottom edge. That held until the menu grew past the room above the
- * toolbar: at eighteen rows it is taller than the gap, so Compose repositions the whole thing to
- * fit the screen and *every* row moves — which broke ten checks at once and none of them anywhere
- * near a menu. Same lesson as the dialogs (finding 27), learnt twice.
+ * toolbar: at eighteen rows it was taller than the gap, so Compose repositioned the whole thing to
+ * fit the screen and *every* row moved — which broke ten checks at once and none of them anywhere
+ * near a menu. Same lesson as the dialogs (finding 27), learnt twice. The menu is eight rows now,
+ * which fits, but the arithmetic stays found rather than assumed: that is what made it survive the
+ * twelve toggles moving out of it without a single number in this file changing.
  *
  * So: find the menu's own surface, and divide it by the number of rows it is known to have. That
  * survives the menu being repositioned, and it fails loudly rather than quietly if the menu ever
@@ -328,6 +336,102 @@ async function drawingMenuRow(name) {
   if (menu === null) throw new Error('the drawing menu is not open')
   const rowHeight = (menu.bottom - menu.top) / DRAWING_MENU.length
   return [186, Math.round(menu.top + (index + 0.5) * rowHeight)]
+}
+
+/**
+ * The switches in the drawing-options dialog, found by looking for them.
+ *
+ * The rows are not evenly spaced — two headings and a divider sit among them — so dividing the
+ * card by a row count would land between rows. What every row does have is a switch at its right
+ * edge, and a switch is the one thing in that margin wide enough to leave a long horizontal run of
+ * something that is not the dialog's own surface. So: find the card, look down its right-hand
+ * margin for runs of at least thirty such pixels, and each band of them is one row.
+ *
+ * Which also means the test asserts the dialog has twelve rows without being told where they are.
+ */
+const drawingOptionSwitches = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, card]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    const isCard = (x, y) => {
+      const i = (y * c.width + x) * 4
+      return px[i] === card[0] && px[i + 1] === card[1] && px[i + 2] === card[2]
+    }
+    let left = c.width
+    let right = -1
+    let top = -1
+    let bottom = -1
+    for (let y = 0; y < c.height; y++) {
+      for (let x = 0; x < c.width; x++) {
+        if (!isCard(x, y)) continue
+        if (x < left) left = x
+        if (x > right) right = x
+        if (top < 0) top = y
+        bottom = y
+      }
+    }
+    if (right < 0) return null
+    // Only the right-hand margin: the labels run across the rest of the row, and a word is a
+    // scattering of short runs rather than one long one.
+    const marginLeft = right - 70
+    const bands = []
+    let start = -1
+    const close = (end) => {
+      // Tall enough to be a switch. The divider between the two groups is a hairline that spans
+      // the whole card, so it clears the width test and would otherwise count as a thirteenth
+      // row — which is exactly how this was found.
+      if (end - start >= 8) bands.push(Math.round((start + end) / 2))
+      start = -1
+    }
+    for (let y = top; y <= bottom; y++) {
+      let longest = 0
+      let run = 0
+      for (let x = marginLeft; x <= right; x++) {
+        run = isCard(x, y) ? 0 : run + 1
+        if (run > longest) longest = run
+      }
+      const onASwitch = longest >= 30
+      if (onASwitch && start < 0) start = y
+      if (!onASwitch && start >= 0) close(y - 1)
+    }
+    if (start >= 0) close(bottom)
+    return { x: Math.round((left + right) / 2), bands }
+  }, [b64, DIALOG_CARD])
+}
+
+/** Where to tap for a named drawing option, with the dialog already open. */
+async function drawingOptionRow(name) {
+  const index = DRAWING_OPTIONS.indexOf(name)
+  if (index < 0) throw new Error(`no drawing option called ${name}`)
+  const found = await drawingOptionSwitches()
+  if (found === null) throw new Error('the drawing-options dialog is not open')
+  if (found.bands.length !== DRAWING_OPTIONS.length) {
+    throw new Error(
+      `the drawing-options dialog has ${found.bands.length} rows, not ` +
+        `${DRAWING_OPTIONS.length} (at ${found.bands.join(', ')})`)
+  }
+  return [found.x, found.bands[index]]
+}
+
+/**
+ * Flip one drawing option: open the menu, open the dialog, tap the row, close the dialog.
+ *
+ * Four taps where it used to be two, which is the price of the split and is paid by the test far
+ * more often than by a surveyor: these are settings somebody changes once a trip, and the two taps
+ * they lost bought them a menu that fits on the screen.
+ */
+async function toggleOption(name) {
+  await at(...toolCell(5)); await page.waitForTimeout(500)
+  await at(...(await drawingMenuRow('display'))); await page.waitForTimeout(700)
+  await at(...(await drawingOptionRow(name))); await page.waitForTimeout(500)
+  await page.keyboard.press('Escape'); await page.waitForTimeout(600)
 }
 
 /** A finger drag on the canvas, in canvas coordinates. */
@@ -666,9 +770,7 @@ const SECTION_PATCH = [194, 652, 214, 676]
 const FIELD_BAR_PILL = [40, 790]
 
 const withSection = await inkAround(SECTION_PATCH)
-await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...(await drawingMenuRow('show-xsections'))); await page.waitForTimeout(400)
-await page.keyboard.press('Escape'); await page.waitForTimeout(600)
+await toggleOption('show-xsections')
 await page.screenshot({ path: join(shotDir, 'field-cross-section-hidden.png') })
 
 const withoutSection = await inkAround(SECTION_PATCH)
@@ -705,9 +807,7 @@ if (!(await fieldBarIsShowing())) {
 }
 
 // Back on, because everything after this expects the app's own default.
-await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...(await drawingMenuRow('show-xsections'))); await page.waitForTimeout(400)
-await page.keyboard.press('Escape'); await page.waitForTimeout(600)
+await toggleOption('show-xsections')
 
 // ---- and drawn into --------------------------------------------------------------------
 // A star of splays is not a passage; the outline drawn round it is what makes it one. Tapping a
@@ -764,11 +864,7 @@ await at(...toolCell(1)); await page.waitForTimeout(400)
 // tool downstream can close. Snapping is off by default, as it is in the Android app, so this
 // turns it on, draws two strokes that nearly meet, and checks the second starts exactly where the
 // first ended rather than near it.
-await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...(await drawingMenuRow('snap'))); await page.waitForTimeout(600)
-// A toggle deliberately leaves the menu open, so several can be flipped in one visit — which
-// means it has to be dismissed before the canvas can be drawn on again.
-await page.keyboard.press('Escape'); await page.waitForTimeout(500)
+await toggleOption('snap')
 
 await drag([80, 250], [180, 250]); await page.waitForTimeout(500)
 await drag([186, 256], [186, 340]); await page.waitForTimeout(700)
@@ -793,9 +889,7 @@ if (strokeEnds === null || strokeEnds.length < 2) {
 }
 
 // Off again, so nothing later in this file is silently snapped.
-await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...(await drawingMenuRow('snap'))); await page.waitForTimeout(600)
-await page.keyboard.press('Escape'); await page.waitForTimeout(500)
+await toggleOption('snap')
 
 // ---- the drawing can be moved without putting the pencil down ----------------------------
 // The single most frequent thing a surveyor does to a sketch is move it, and until the hot corners
@@ -1488,9 +1582,7 @@ if ((await connectingLegs()) !== beforeSloppy) {
 // built its saved value from the three switches it does show, quietly resetting this one. Doing it
 // in this order means that comes back as a failure here rather than as a surveyor wondering why the
 // view stopped following them after they adjusted a tolerance.
-await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...(await drawingMenuRow('auto-recentre'))); await page.waitForTimeout(600)
-await page.keyboard.press('Escape'); await page.waitForTimeout(400)
+await toggleOption('auto-recentre')
 
 await at(...OVERFLOW); await page.waitForTimeout(500)
 await at(...menuRow('surveying', 1)); await page.waitForTimeout(800)
@@ -1586,9 +1678,7 @@ if (activeSpot === null) {
 }
 
 // Off again, so the rest of this file sees the Android app's own default.
-await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...(await drawingMenuRow('auto-recentre'))); await page.waitForTimeout(600)
-await page.keyboard.press('Escape'); await page.waitForTimeout(400)
+await toggleOption('auto-recentre')
 
 // ---- which end of the survey you are working at ----------------------------------------------
 // Three of the app's display behaviours, and one question: on a plan that has grown past a
@@ -1651,23 +1741,17 @@ if (magentaBefore < 20) {
   pass('the leg just taken is drawn in the app\'s magenta, so the working end is findable')
 }
 
-await at(...toolCell(5)); await page.waitForTimeout(600)
-await at(...(await drawingMenuRow('latest-leg'))); await page.waitForTimeout(700)
-await page.keyboard.press('Escape'); await page.waitForTimeout(500)
+await toggleOption('latest-leg')
 const magentaOff = await magentaPixels()
 if (magentaOff !== 0) {
   fail(`turning the mark off left ${magentaOff} magenta pixels on the plan`)
 } else {
   pass('and it can be turned off, for a surveyor who would rather it were not there')
 }
-await at(...toolCell(5)); await page.waitForTimeout(600)
-await at(...(await drawingMenuRow('latest-leg'))); await page.waitForTimeout(700)
-await page.keyboard.press('Escape'); await page.waitForTimeout(500)
+await toggleOption('latest-leg')
 
 const litBeforeFade = await centrelinePixels()
-await at(...toolCell(5)); await page.waitForTimeout(600)
-await at(...(await drawingMenuRow('fade'))); await page.waitForTimeout(700)
-await page.keyboard.press('Escape'); await page.waitForTimeout(600)
+await toggleOption('fade')
 await page.screenshot({ path: join(shotDir, 'field-faded.png') })
 const litFaded = await centrelinePixels()
 if (!(litFaded < litBeforeFade * 0.5)) {
@@ -1677,15 +1761,58 @@ if (!(litFaded < litBeforeFade * 0.5)) {
 }
 
 // Off again: every check after this reads the plan, and a faded plan would be a different one.
-await at(...toolCell(5)); await page.waitForTimeout(600)
-await at(...(await drawingMenuRow('fade'))); await page.waitForTimeout(700)
-await page.keyboard.press('Escape'); await page.waitForTimeout(600)
+await toggleOption('fade')
 const litRestored = await centrelinePixels()
 if (!(litRestored > litFaded)) {
   fail(`turning the fade off did not bring the cave back (${litFaded} then ${litRestored})`)
 } else {
   pass('and turning it off brings the rest of the cave back')
 }
+
+// ---- north is on the plan, and can be taken off it ---------------------------------------
+// A plan with no north on it is a picture rather than a survey. The arrow does not swing with the
+// phone — there is no magnetometer behind it — but `Projection2D.PLAN` maps the northing to minus
+// the screen y, so north on a plan really is up and a fixed arrow is correct rather than
+// approximate. The check is that it is drawn at all, and that `buttonShowCompass` reaches it.
+//
+// The window is the bottom-left corner above the scale bar's own label, measured off a rendered
+// frame rather than guessed: the arrow occupies roughly forty pixels by fifty there, and the
+// label starts five pixels below it.
+//
+// The drop is asserted rather than the emptiness, because the arrow is drawn in screen
+// coordinates over whatever the plan happens to show, and a passage wall in that corner would
+// leave ink behind with the arrow off. A drop of eight thousand cannot be anything but the arrow:
+// it is nineteen thousand on its own.
+const NORTH_PATCH = [16, box.height - 250, 52, box.height - 200]
+
+const northDrawn = await inkAround(NORTH_PATCH)
+await toggleOption('north')
+const northHidden = await inkAround(NORTH_PATCH)
+if (!(northDrawn - northHidden > 8000 && northHidden < northDrawn / 2)) {
+  fail(`the north arrow is not where it should be (${northDrawn} then ${northHidden})`)
+} else {
+  pass('the plan is drawn with north on it, and north can be taken off it')
+}
+await toggleOption('north')
+
+// ---- the sketch toggles are remembered ---------------------------------------------------
+// Five of the twelve were session-only until the menu was split: a surveyor who turned the splays
+// off got them back on the next run, which for a preference is the same as not having it. Every
+// one is a persisted `SketchPreferences.Toggle` in the Android app. So: turn the grid off and look
+// in storage for it, the same way the tolerances are checked below. What is being tested is that
+// the value reached a file, which is the half that was missing and the half no amount of reading
+// the code proves.
+await toggleOption('grid')
+
+const savedToggles = await page.evaluate(() =>
+  localStorage.getItem('sexytopo:f:preferences.txt'),
+)
+if (!savedToggles || !savedToggles.includes('showGrid=false')) {
+  fail(`the sketch toggles were not written to storage (${JSON.stringify(savedToggles)})`)
+} else {
+  pass('a sketch toggle is remembered, so it is still set the next time the app opens')
+}
+await toggleOption('grid')
 
 
 // Saved, because a surveyor sets these once at the entrance and the phone may not last the trip.

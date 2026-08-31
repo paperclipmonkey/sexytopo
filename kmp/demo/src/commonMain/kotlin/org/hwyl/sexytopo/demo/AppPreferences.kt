@@ -1,6 +1,7 @@
 package org.hwyl.sexytopo.demo
 
 import org.hwyl.sexytopo.shared.io.store.FileStore
+import org.hwyl.sexytopo.shared.sketch.SketchDefaults
 
 /**
  * The settings that are about the app rather than about surveying.
@@ -28,6 +29,18 @@ data class AppPreferences(
     val showCrossSections: Boolean = DEFAULT_SHOW_CROSS_SECTIONS,
     /** Let two fingers zoom the drawing and the 3D view. `PINCH_TO_ZOOM`. */
     val pinchToZoom: Boolean = DEFAULT_PINCH_TO_ZOOM,
+    /** Draw the splay shots. `SHOW_SPLAYS`. */
+    val showSplays: Boolean = DEFAULT_SHOW_SPLAYS,
+    /** Draw the sketch over the centreline. `SHOW_SKETCH`. */
+    val showSketch: Boolean = DEFAULT_SHOW_SKETCH,
+    /** Write each station's name beside it. `SHOW_STATION_LABELS`. */
+    val showStationLabels: Boolean = DEFAULT_SHOW_STATION_LABELS,
+    /** Draw the metre grid behind everything. `SHOW_GRID`. */
+    val showGrid: Boolean = DEFAULT_SHOW_GRID,
+    /** Jump a new stroke to the end of a nearby one. `SNAP_TO_LINES`. */
+    val snapToLines: Boolean = DEFAULT_SNAP_TO_LINES,
+    /** Draw the north arrow on the plan. `SHOW_COMPASS`. */
+    val showCompass: Boolean = DEFAULT_SHOW_COMPASS,
 ) {
     companion object {
         /**
@@ -100,6 +113,46 @@ data class AppPreferences(
          */
         const val DEFAULT_PINCH_TO_ZOOM = true
 
+        /**
+         * The five below were session-only in this port until the drawing menu was split, which
+         * is to say a surveyor who turned the splays off got them back on the next run. All five
+         * are `SketchPreferences.Toggle`s in the Android app — persisted, with these defaults —
+         * and there was never a reason for them to behave differently here. The reason they were
+         * missed is worth writing down: they were reached through [DemoState] rather than through
+         * this class, so nothing about the code drew attention to the fact that they went nowhere.
+         */
+        const val DEFAULT_SHOW_SPLAYS = true
+
+        /** On, as `SketchPreferences.Toggle.SHOW_SKETCH` is. */
+        const val DEFAULT_SHOW_SKETCH = true
+
+        /** On, as `SketchPreferences.Toggle.SHOW_STATION_LABELS` is. */
+        const val DEFAULT_SHOW_STATION_LABELS = true
+
+        /** On, as `SketchPreferences.Toggle.SHOW_GRID` is. */
+        const val DEFAULT_SHOW_GRID = true
+
+        /**
+         * Off, as `SketchPreferences.Toggle.SNAP_TO_LINES` is — the shared model's own default,
+         * so the drawing code and the preference cannot say different things.
+         *
+         * A passage wall is drawn as a series of strokes and the joins between them are where a
+         * drawing looks amateur; worse, a wall with a gap in it is one no tracing tool can fill.
+         * The app still ships it off, because snapping when you did not mean to is its own
+         * annoyance.
+         */
+        const val DEFAULT_SNAP_TO_LINES = SketchDefaults.SNAP_TO_LINES_DEFAULT
+
+        /**
+         * On, as `SketchPreferences.Toggle.SHOW_COMPASS` is.
+         *
+         * The arrow this draws does not swing with the phone — that needs a magnetometer this port
+         * does not have — but a plan does not need one to be true: `Projection2D.PLAN` maps the
+         * northing to minus the screen y, so north really is up. What the toggle is for is the
+         * surveyor who wants the corner of the screen back.
+         */
+        const val DEFAULT_SHOW_COMPASS = true
+
         val DEFAULT = AppPreferences()
     }
 }
@@ -131,6 +184,12 @@ object AppPreferencesStore {
             appendLine("blueWater=${preferences.blueWater}")
             appendLine("showCrossSections=${preferences.showCrossSections}")
             appendLine("pinchToZoom=${preferences.pinchToZoom}")
+            appendLine("showSplays=${preferences.showSplays}")
+            appendLine("showSketch=${preferences.showSketch}")
+            appendLine("showStationLabels=${preferences.showStationLabels}")
+            appendLine("showGrid=${preferences.showGrid}")
+            appendLine("snapToLines=${preferences.snapToLines}")
+            appendLine("showCompass=${preferences.showCompass}")
         }
 
     fun parse(text: String): AppPreferences {
@@ -170,6 +229,21 @@ object AppPreferencesStore {
             pinchToZoom =
                 values["pinchToZoom"]?.toBooleanStrictOrNull()
                     ?: AppPreferences.DEFAULT_PINCH_TO_ZOOM,
+            showSplays =
+                values["showSplays"]?.toBooleanStrictOrNull() ?: AppPreferences.DEFAULT_SHOW_SPLAYS,
+            showSketch =
+                values["showSketch"]?.toBooleanStrictOrNull() ?: AppPreferences.DEFAULT_SHOW_SKETCH,
+            showStationLabels =
+                values["showStationLabels"]?.toBooleanStrictOrNull()
+                    ?: AppPreferences.DEFAULT_SHOW_STATION_LABELS,
+            showGrid =
+                values["showGrid"]?.toBooleanStrictOrNull() ?: AppPreferences.DEFAULT_SHOW_GRID,
+            snapToLines =
+                values["snapToLines"]?.toBooleanStrictOrNull()
+                    ?: AppPreferences.DEFAULT_SNAP_TO_LINES,
+            showCompass =
+                values["showCompass"]?.toBooleanStrictOrNull()
+                    ?: AppPreferences.DEFAULT_SHOW_COMPASS,
         )
     }
 

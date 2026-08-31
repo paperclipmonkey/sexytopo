@@ -793,6 +793,8 @@ class DisplayOptions(
     val showCrossSections: Boolean = AppPreferences.DEFAULT_SHOW_CROSS_SECTIONS,
     /** Whether two fingers zoom. `PINCH_TO_ZOOM`; the two-fingered *pan* is [twoFingerMove]. */
     val pinchToZoom: Boolean = AppPreferences.DEFAULT_PINCH_TO_ZOOM,
+    /** Whether the north arrow is drawn on the plan. `SHOW_COMPASS`. */
+    val showCompass: Boolean = AppPreferences.DEFAULT_SHOW_COMPASS,
 ) {
     /**
      * Whether a cross-section on the plan is there to be found by a finger.
@@ -1200,7 +1202,11 @@ private fun DrawScope.drawSurvey(
     }
 
     drawScaleBar(viewport.pixelsPerMetre, palette, textMeasurer, fontFamily)
-    if (isPlan) drawNorthArrow(palette, textMeasurer, fontFamily)
+    // `drawCompass` is guarded on both the toggle and the projection, in that order. There is
+    // no arrow on an elevation because there is no bearing to draw one for.
+    if (options.showCompass && isPlan) {
+        drawNorthArrow(palette, textMeasurer, fontFamily)
+    }
 }
 
 /**

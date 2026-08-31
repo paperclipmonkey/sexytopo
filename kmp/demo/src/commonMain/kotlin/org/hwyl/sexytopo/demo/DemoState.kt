@@ -15,7 +15,6 @@ import org.hwyl.sexytopo.shared.model.sketch.Symbol
 import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.BrushColour
-import org.hwyl.sexytopo.shared.sketch.SketchDefaults
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.survey.InputMode
@@ -198,19 +197,40 @@ class DemoState(
     var viewing3D by mutableStateOf(false)
 
     /**
-     * Whether a new stroke jumps to the end of a nearby one.
+     * The six sketch toggles, as views onto [preferences] rather than as state of their own.
      *
-     * A passage wall is drawn as a series of strokes and the joins between them are where a
-     * drawing looks amateur — worse, a wall with gaps in it is one no tracing tool can fill. The
-     * Android app defaults this off (`SketchPreferences.Toggle.SNAP_TO_LINES`), and so does this,
-     * because snapping when you did not mean to is its own annoyance.
+     * They were `mutableStateOf` until the drawing menu was split, which meant a surveyor who
+     * turned the splays off — or turned snapping on — got the opposite back on the next run. Every
+     * one of them is a persisted `SketchPreferences.Toggle` in the Android app, so the fix is to
+     * store them where the other six sketch toggles already live and reach them through the same
+     * `updatePreferences`, which writes the file.
+     *
+     * They stay as properties here because that is what the whole app already reads, and because a
+     * `var` whose setter persists reads at the call site exactly like the `var` that did not.
      */
-    var snapToLines by mutableStateOf(SketchDefaults.SNAP_TO_LINES_DEFAULT)
+    var snapToLines: Boolean
+        get() = preferences.snapToLines
+        set(value) = updatePreferences(preferences.copy(snapToLines = value))
 
-    var showSplays by mutableStateOf(true)
-    var showSketch by mutableStateOf(true)
-    var showLabels by mutableStateOf(true)
-    var showGrid by mutableStateOf(true)
+    var showSplays: Boolean
+        get() = preferences.showSplays
+        set(value) = updatePreferences(preferences.copy(showSplays = value))
+
+    var showSketch: Boolean
+        get() = preferences.showSketch
+        set(value) = updatePreferences(preferences.copy(showSketch = value))
+
+    var showLabels: Boolean
+        get() = preferences.showStationLabels
+        set(value) = updatePreferences(preferences.copy(showStationLabels = value))
+
+    var showGrid: Boolean
+        get() = preferences.showGrid
+        set(value) = updatePreferences(preferences.copy(showGrid = value))
+
+    var showCompass: Boolean
+        get() = preferences.showCompass
+        set(value) = updatePreferences(preferences.copy(showCompass = value))
 
     /**
      * Where surveys are kept between runs: `localStorage` in the browser, the app's own files
@@ -416,6 +436,7 @@ class DemoState(
                 showGrid = showGrid,
                 darkMode = darkMode,
                 snapToLines = snapToLines,
+                showCompass = showCompass,
                 hotCorners = preferences.hotCorners,
                 twoFingerMove = preferences.twoFingerMove,
                 fadeNonActive = preferences.fadeNonActive,
@@ -472,16 +493,93 @@ class ViewToggle(
     val toggle: (DemoState) -> Unit,
 )
 
-/** The checkable display items from `res/menu/drawing.xml` that this port can honour. */
-val VIEW_TOGGLES =
+/**
+ * `drawingMenuBehaviourToggles`: the four in `drawing.xml` that change what the app *does*.
+ *
+ * The grouping is the Android app's own, not one invented here, and it is a real distinction
+ * rather than a tidy one: none of these four changes what is on the screen right now. Turning
+ * snapping on does nothing until the next stroke; turning the blue water on does nothing until the
+ * next symbol is stamped. Everything in [DISPLAY_TOGGLES] redraws the moment it is tapped.
+ */
+val BEHAVIOUR_TOGGLES =
     listOf(
-        ViewToggle("Show splays", { it.showSplays }, { it.showSplays = !it.showSplays }),
-        ViewToggle("Show sketch", { it.showSketch }, { it.showSketch = !it.showSketch }),
-        ViewToggle("Show station labels", { it.showLabels }, { it.showLabels = !it.showLabels }),
-        ViewToggle("Show grid", { it.showGrid }, { it.showGrid = !it.showGrid }),
-        // Not a display option at all - it changes what gets drawn, not what is shown - but the
-        // Android app puts it in this same menu, so it is here.
+        // `buttonAutoRecentre`, off by its default. Worth turning on halfway down a long passage,
+        // which is exactly why it has to still be on after a battery change.
+        ViewToggle(
+            "Follow the survey",
+            { it.preferences.autoRecentre },
+            { it.updatePreferences(it.preferences.copy(autoRecentre = !it.preferences.autoRecentre)) },
+        ),
         ViewToggle("Snap to lines", { it.snapToLines }, { it.snapToLines = !it.snapToLines }),
+        // `buttonBlueWater`, on by its default. Water is blue on every published cave survey there
+        // has ever been, and a surveyor with the brush set to black for wall outlines should not
+        // have to change it and change it back to stamp a stream.
+        ViewToggle(
+            "Water is blue",
+            { it.preferences.blueWater },
+            { it.updatePreferences(it.preferences.copy(blueWater = !it.preferences.blueWater)) },
+        ),
+        // `buttonPinchToZoom`, on by its default, and one preference over both the drawing and the
+        // 3D view as it is in the app. Worth having off for anyone drawing with a stylus, where a
+        // second contact is usually the side of a hand rather than a pinch.
+        ViewToggle(
+            "Pinch to zoom",
+            { it.preferences.pinchToZoom },
+            { it.updatePreferences(it.preferences.copy(pinchToZoom = !it.preferences.pinchToZoom)) },
+        ),
+    )
+
+/**
+ * `drawingMenuDisplayToggles`: the ones that change what is drawn, in the app's own order.
+ *
+ * `buttonShowConnections` is the one member of that group with nothing behind it here — a
+ * neighbouring survey is reached by an absolute `content://` URI, which is a format decision for
+ * upstream rather than a porting one — so it is absent rather than present and dead.
+ */
+val DISPLAY_TOGGLES =
+    listOf(
+        // `buttonFadeNonActive`, off by its default. The question a surveyor keeps asking of a
+        // plan is "where am I on this", and in a cave of any size a page of red lines does not
+        // answer it. Fading everything that does not hang off the working station does, without
+        // moving the view — which matters, because the part of the sketch they are drawing is the
+        // part they are standing in.
+        ViewToggle(
+            "Fade all but the working end",
+            { it.preferences.fadeNonActive },
+            { it.updatePreferences(it.preferences.copy(fadeNonActive = !it.preferences.fadeNonActive)) },
+        ),
+        ViewToggle("Show splays", { it.showSplays }, { it.showSplays = !it.showSplays }),
+        // `buttonShowXSections`. Turning it off hides the sections *and* stops them being tapped —
+        // the app's own "special case: can't tap on invisible X-sections" — because a tap that
+        // opens an editor from apparently blank paper is worse than one that does nothing.
+        ViewToggle(
+            "Show cross-sections",
+            { it.preferences.showCrossSections },
+            {
+                it.updatePreferences(
+                    it.preferences.copy(showCrossSections = !it.preferences.showCrossSections),
+                )
+            },
+        ),
+        ViewToggle("Show sketch", { it.showSketch }, { it.showSketch = !it.showSketch }),
+        ViewToggle("Show grid", { it.showGrid }, { it.showGrid = !it.showGrid }),
+        ViewToggle("Show station labels", { it.showLabels }, { it.showLabels = !it.showLabels }),
+        // `buttonShowCompass`. The arrow does not swing with the phone here, but on a plan north
+        // genuinely is up, so a fixed one is correct rather than approximate.
+        ViewToggle("Show north", { it.showCompass }, { it.showCompass = !it.showCompass }),
+        // `pref_highlight_latest_leg`, on by its default. In the Android app it lives in the
+        // general settings screen rather than this menu; it is here because this is where this
+        // port keeps display choices, and a preference reachable from nowhere is
+        // indistinguishable from one that does not exist.
+        ViewToggle(
+            "Mark the last leg taken",
+            { it.preferences.highlightLatestLeg },
+            {
+                it.updatePreferences(
+                    it.preferences.copy(highlightLatestLeg = !it.preferences.highlightLatestLeg),
+                )
+            },
+        ),
     )
 
 /**

@@ -13,10 +13,16 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -160,9 +166,21 @@ fun SketchToolbar(
 /**
  * The menu behind the settings button, from `res/menu/drawing.xml`.
  *
- * Only the display toggles this port can honour are here. The rest of that menu — snap to lines,
- * fade non-active, blue water, show connections and the compass — is listed in the shared model or
- * not yet ported, and offering a switch that does nothing would be worse than not offering it.
+ * ## Why it is two things and not one
+ *
+ * `drawing.xml` is three groups: actions, behaviour toggles, display toggles. This port carries all
+ * three *and* the items it reaches from here rather than from a nine-column toolbar with no room
+ * left — the symbol palette, the three cross-section gestures, finding a station — which took the
+ * single list to eighteen rows. Eighteen rows is a popup the height of a phone: it scrolls on a
+ * small one, and a menu you have to scroll to find "show grid" in is one you stop opening.
+ *
+ * So the twelve toggles moved into a dialog of their own, under the app's own two group names, and
+ * what is left here is the seven things that *do* something when tapped. That is the split
+ * `drawing.xml` already draws; this port only had to stop ignoring it.
+ *
+ * `buttonShowConnections` is the one item of that menu still absent, because a neighbouring survey
+ * is reached by an absolute `content://` URI — a format decision for upstream rather than a porting
+ * one — and a switch that does nothing is worse than no switch.
  */
 @Composable
 private fun DrawingMenu(
@@ -174,6 +192,11 @@ private fun DrawingMenu(
     var choosingSymbol by remember { mutableStateOf(false) }
     var finding by remember { mutableStateOf(false) }
     var deletingLastLeg by remember { mutableStateOf(false) }
+    var adjustingDisplay by remember { mutableStateOf(false) }
+
+    if (adjustingDisplay) {
+        DrawingOptionsDialog(state) { adjustingDisplay = false }
+    }
 
     if (finding) {
         FindStationDialog(
@@ -280,92 +303,70 @@ private fun DrawingMenu(
                 onDismiss()
             },
         )
-        // `buttonAutoRecentre`, in the Android app's own behaviour group in this same menu, and
-        // off by its default. It is a *preference* rather than a view toggle because it should
-        // still be on next time: somebody who turned it on did so halfway down a long passage, and
-        // having to find it again after a battery change is the opposite of the point.
+        // The twelve toggles, one row instead of twelve. Last in the menu because it is the one
+        // row here that opens something rather than doing something, and because everything above
+        // it is what a surveyor with cold hands is actually reaching for.
         DropdownMenuItem(
-            text = { Text("Follow the survey") },
-            leadingIcon = { CheckDot(state.preferences.autoRecentre) },
+            text = { Text("What the drawing shows\u2026") },
             onClick = {
-                state.updatePreferences(
-                    state.preferences.copy(autoRecentre = !state.preferences.autoRecentre),
-                )
+                adjustingDisplay = true
+                onDismiss()
             },
         )
-        // `sketch_menu_blue_water`, on by its own default. Water is drawn blue on every published
-        // cave survey there has ever been, and a surveyor with the brush set to black for wall
-        // outlines should not have to change it and change it back to stamp a stream.
-        DropdownMenuItem(
-            text = { Text("Water is blue") },
-            leadingIcon = { CheckDot(state.preferences.blueWater) },
-            onClick = {
-                state.updatePreferences(
-                    state.preferences.copy(blueWater = !state.preferences.blueWater),
-                )
-            },
-        )
-        // `sketch_menu_fade_non_active`, off by its default. The question a surveyor keeps asking
-        // of a plan is "where am I on this", and in a cave of any size a page of red lines does
-        // not answer it. Fading everything that does not hang off the working station does,
-        // without moving the view — which matters, because the part of the sketch they are drawing
-        // is the part they are standing in.
-        DropdownMenuItem(
-            text = { Text("Fade all but the working end") },
-            leadingIcon = { CheckDot(state.preferences.fadeNonActive) },
-            onClick = {
-                state.updatePreferences(
-                    state.preferences.copy(fadeNonActive = !state.preferences.fadeNonActive),
-                )
-            },
-        )
-        // `pref_highlight_latest_leg`, on by its default. In the Android app it lives in the
-        // general settings screen rather than here; it is on this menu because this is where this
-        // port keeps display choices, and because a preference reachable from nowhere is
-        // indistinguishable from one that does not exist.
-        DropdownMenuItem(
-            text = { Text("Mark the last leg taken") },
-            leadingIcon = { CheckDot(state.preferences.highlightLatestLeg) },
-            onClick = {
-                state.updatePreferences(
-                    state.preferences.copy(
-                        highlightLatestLeg = !state.preferences.highlightLatestLeg,
-                    ),
-                )
-            },
-        )
-        // `sketch_menu_pinch_to_zoom`, on by its default, and one preference over both the
-        // drawing and the 3D view as it is in the app. Worth having off for anyone drawing with a
-        // stylus, where a second contact is usually the side of a hand rather than a pinch.
-        DropdownMenuItem(
-            text = { Text("Pinch to zoom") },
-            leadingIcon = { CheckDot(state.preferences.pinchToZoom) },
-            onClick = {
-                state.updatePreferences(
-                    state.preferences.copy(pinchToZoom = !state.preferences.pinchToZoom),
-                )
-            },
-        )
-        // `sketch_menu_show_xsections`. Turning it off hides the sections *and* stops them being
-        // tapped - the app's own "special case: can't tap on invisible X-sections" - because a tap
-        // that opens an editor from apparently blank paper is worse than one that does nothing.
-        DropdownMenuItem(
-            text = { Text("Show cross-sections") },
-            leadingIcon = { CheckDot(state.preferences.showCrossSections) },
-            onClick = {
-                state.updatePreferences(
-                    state.preferences.copy(
-                        showCrossSections = !state.preferences.showCrossSections,
-                    ),
-                )
-            },
-        )
-        for (toggle in VIEW_TOGGLES) {
-            DropdownMenuItem(
-                text = { Text(toggle.label) },
-                leadingIcon = { CheckDot(toggle.get(state)) },
-                onClick = { toggle.toggle(state) },
-            )
+    }
+}
+
+/**
+ * The twelve sketch toggles, in the app's own two groups.
+ *
+ * A dialog rather than a submenu because a submenu of eight rows has the same problem the parent
+ * had, and because these are the settings somebody changes once and leaves: opening them, ticking
+ * three, and closing once beats a popup that shuts on every tap.
+ *
+ * It applies as it goes rather than on a Save button — [ViewToggle.toggle] writes the preferences
+ * file — so the drawing behind the dialog changes under the surveyor's finger. That is the point:
+ * "show grid" is a question you answer by looking, and a dialog that made you close it first to
+ * find out would be asking you to guess.
+ */
+@Composable
+private fun DrawingOptionsDialog(state: DemoState, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("What the drawing shows") },
+        text = {
+            // Scrolling, because twelve rows and two headings do not fit the height Material gives
+            // a dialog on a small phone, and a dialog that cannot scroll silently clips instead.
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                ToggleSection("Shown", DISPLAY_TOGGLES, state)
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                ToggleSection("Behaviour", BEHAVIOUR_TOGGLES, state)
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+    )
+}
+
+/** One of the two groups: a heading, then its rows. */
+@Composable
+private fun ToggleSection(heading: String, toggles: List<ViewToggle>, state: DemoState) {
+    Text(
+        heading,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(bottom = 4.dp),
+    )
+    for (toggle in toggles) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                // The whole row, not just the switch: a checkbox-sized target is a poor one in a
+                // cave, and the label is the part being aimed at anyway.
+                .clickable { toggle.toggle(state) }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(toggle.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            Switch(checked = toggle.get(state), onCheckedChange = { toggle.toggle(state) })
         }
     }
 }

@@ -418,10 +418,17 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   measurements, left, right, up and down, which become ordinary splays. That is how a survey is
   booked when there is no instrument in the party, and it is what lets a cross-section be drawn
   from a hand-booked survey.
-- **Know which way is north.** The plan carries the app's own north arrow, above the scale bar. It
-  had one in the exported SVG and not on the screen, which is the kind of gap no test finds because
-  nothing is *wrong* — something is simply absent. It does not yet swing with the phone; on a plan
-  north is up, so it is right rather than approximate, and what is missing is the sensor.
+- **Know which way is north.** The plan carries the app's own north arrow, above the scale bar, and
+  *Show north* takes it off again for anyone who wants the corner of the screen back. It had one in
+  the exported SVG and not on the screen, which is the kind of gap no test finds because nothing is
+  *wrong* — something is simply absent. It does not yet swing with the phone; on a plan north is
+  up, so it is right rather than approximate, and what is missing is the sensor.
+- **Find the switch you are after.** The drawing menu is the app's own, and this port reaches more
+  from it than the app does — a nine-column toolbar has no room left — so at eighteen rows it was
+  taller than an iPhone SE. It is now what `drawing.xml` always said it was: seven things that
+  *do* something on the menu, and the twelve toggles in a dialog under that file's own two group
+  names, *Shown* and *Behaviour*. The dialog applies as you tick, because "show grid" is a question
+  you answer by looking, and it stays open, because nobody changes only one.
 - **Take the clutter off.** *Show cross-sections* hides them when the plan is busy — and stops
   them being tapped while hidden, which is the app's own rule and the half a port forgets. *Pinch
   to zoom* turns the two-fingered zoom off for anyone drawing with a stylus, where a second contact
@@ -532,7 +539,9 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
 #### On a smaller phone
 
 The screenshots in this README are from a 420x900 screen. An iPhone SE is 375x667, and two things
-in this app are near that limit: the drawing menu is sixteen rows, which is 768 pixels of menu, and
+in this app went past that limit. The drawing menu reached eighteen rows — 864 pixels of popup, on
+a 667-pixel screen — and has been split: the seven items that *do* something stay on the menu, and
+the twelve toggles moved into a dialog of their own under `drawing.xml`'s own two group names. And
 the station dialog — a name, a comment, four passage measurements and the elevation direction — is
 most of a screen before a keyboard takes a third of what is left. Material 3 scrolls a dropdown
 that does not fit and *clips* a dialog that does not, so the three dialogs with several fields in
@@ -608,7 +617,8 @@ Honest limits, so nothing is a surprise in a cave:
 | `res/layout/activity_graph.xml` | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied |
 | `res/values/colors.xml` (+ `values-night`) | `demo/.../SexyTopoTheme.kt` | The app's own palette |
 | `res/drawable-hdpi/*.png` | `demo/src/commonMain/composeResources/drawable/` | The app's own icons |
-| `res/menu/drawing.xml` | `demo/.../SketchToolbar.kt` | Every checkable item on it except the compass's own toggle and the neighbouring-survey one; hiding cross-sections stops them being tapped as well as drawn |
+| `res/menu/drawing.xml` | `demo/.../SketchToolbar.kt`, `DemoState.BEHAVIOUR_TOGGLES`/`DISPLAY_TOGGLES` | Every checkable item on it except the neighbouring-survey one, in the menu's own three groups: the actions stay on the popup, the twelve toggles are a dialog. Hiding cross-sections stops them being tapped as well as drawn |
+| `SketchPreferences.Toggle` | `demo/.../AppPreferences.kt` | All twelve persisted, which five of them were not until the menu was split |
 | `GraphView.drawCompass` | `demo/.../SurveyCanvas.kt` (`drawNorthArrow`) | The arrow, plan-only, at a heading of zero — which is *correct* on a plan; the magnetometer that would turn it is not ported |
 | `model/sketch/Sketch`'s twin history stacks | `shared/sketch/SketchEditor.kt` | `DeletedDetail` becomes a sealed type |
 | `control/io/thirdparty/{survex,therion,survextherion}` | `shared/io/export/` | Golden-tested, metadata block included |
@@ -949,6 +959,21 @@ These are the things that would actually shape a real port.
    the failure looked exactly like the feature being missing, and the cheapest way to tell the two
    apart was to take the screenshot and look at it.
 
+32. **A preference that is not stored anywhere is not a preference.** Five of the drawing menu's
+   toggles — the splays, the sketch, the labels, the grid and the snapping — were `mutableStateOf`
+   on the app's state object rather than fields of `AppPreferences`, so a surveyor who turned the
+   splays off got them back on the next run. Every one of them is a persisted
+   `SketchPreferences.Toggle` in the Android app.
+
+   What hid it is worth more than the bug. They *worked*: the menu ticked, the drawing changed, and
+   every check that exercised one passed, because each turned it on and off again within the run.
+   Nothing about reading `state.showSplays = !state.showSplays` suggests a missing file write; the
+   line looks exactly like the six toggles beside it that do persist, which reach the same value
+   through `state.preferences`. It was only found by going through `drawing.xml` group by group to
+   split the menu — which is to say, by comparing against the original rather than by testing what
+   was here. The check that would have caught it is now in `field.mjs`: turn the grid off and look
+   in storage for it.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1075,16 +1100,11 @@ things that are missing are missing on purpose and are listed below.
 
 **Not done, and nothing is stopping it.**
 
-- **The compass *swinging*.** The arrow is drawn now, and on a plan north genuinely is up —
-  `Projection2D.PLAN` maps the northing to minus the screen y — so a fixed one is correct rather
-  than approximate. What is missing is the magnetometer that turns it as the phone turns: an
-  `expect`/`actual` on three platforms and, on iOS, a usage-description key that crashes the app on
-  launch if it is wrong. Its toggle is not exposed either, because the drawing menu is already
-  eighteen rows and fills a phone screen — which is the other thing sitting in front of this.
-- **Splitting the drawing menu.** Eighteen rows is a popup the height of a phone, and it scrolls on
-  a small one. It carries the app's own drawing menu *plus* the items this port reaches from there
-  rather than from a toolbar with no room left, so it has outgrown a single list. The display
-  toggles are the natural half to move.
+- **The compass *swinging*.** The arrow is drawn, it has its own toggle, and on a plan north
+  genuinely is up — `Projection2D.PLAN` maps the northing to minus the screen y — so a fixed one is
+  correct rather than approximate. What is missing is the magnetometer that turns it as the phone
+  turns: an `expect`/`actual` on three platforms and, on iOS, a usage-description key that crashes
+  the app on launch if it is wrong.
 - **The manual.** `GuideActivity` ships an HTML user guide; bundling it is mechanical.
 - **Drawing less of a heavily traced drawing.** With a fully traced cave *all on screen*, eight
   thousand strokes are 120 ms a frame in the headless renderer. Culling does not touch it — they
