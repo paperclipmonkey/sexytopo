@@ -2,7 +2,6 @@ package org.hwyl.sexytopo.demo
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,12 +10,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -45,10 +47,10 @@ import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
-import org.hwyl.sexytopo.shared.survey.SurveyBuilder
-import org.hwyl.sexytopo.shared.survey.InputMode
-import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 import org.hwyl.sexytopo.shared.sketch.SketchTool
+import org.hwyl.sexytopo.shared.survey.InputMode
+import org.hwyl.sexytopo.shared.survey.SurveyBuilder
+import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 import org.jetbrains.compose.resources.painterResource
 
 /**
@@ -160,7 +162,18 @@ fun App(
                             pinchToZoom = state.preferences.pinchToZoom,
                         )
                     } else {
-                        SexyTopoAppBar(state)
+                        // `action_fullscreen`. The app bar is the one piece of chrome a surveyor
+                        // mid-stroke has no use for, and in landscape — which is how a wide
+                        // passage gets drawn — it is a sixth of the paper.
+                        if (state.preferences.fullScreen) {
+                            FullScreenHandle {
+                                state.updatePreferences(
+                                    state.preferences.copy(fullScreen = false),
+                                )
+                            }
+                        } else {
+                            SexyTopoAppBar(state)
+                        }
 
                         ScreenContent(
                             state,
@@ -564,6 +577,17 @@ private fun SexyTopoAppBar(state: DemoState) {
 
                 if (page == MenuPage.SETTINGS) {
                     DropdownMenuItem(
+                        text = { Text("Full screen") },
+                        leadingIcon = { CheckDot(state.preferences.fullScreen) },
+                        onClick = {
+                            state.updatePreferences(
+                                state.preferences.copy(fullScreen = !state.preferences.fullScreen),
+                            )
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
+                    )
+                    DropdownMenuItem(
                         text = { Text("Surveying…") },
                         leadingIcon = { CheckDot(false) },
                         onClick = {
@@ -608,6 +632,34 @@ private fun MenuGroup(label: String, opens: MenuPage, onOpen: (MenuPage) -> Unit
         trailingIcon = { Text(">", style = MaterialTheme.typography.bodyMedium) },
         onClick = { onOpen(opens) },
     )
+}
+
+/**
+ * What is left of the app bar in full screen: a grab handle, and a way back.
+ *
+ * Something has to stay. Hiding the app bar hides the only route to the overflow menu, and a
+ * surveyor who turned this on and could not turn it off would have to delete the app — so this is
+ * eighteen pixels of the same green with a bar drawn across it, and a tap anywhere on it brings
+ * the app bar back. Drawn rather than typed, for the reason every mark in this app is: the bundled
+ * font has no glyph for a chevron and would show an empty box.
+ */
+@Composable
+private fun FullScreenHandle(onExit: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .background(SexyTopoColours.panelBackground)
+            .clickable(onClick = onExit)
+            .padding(vertical = 7.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .width(36.dp)
+                .height(4.dp)
+                .background(SexyTopoColours.onPanel, RoundedCornerShape(2.dp)),
+        )
+    }
 }
 
 /** Action icons in the app bar: the toolbar button height, and about as wide. */

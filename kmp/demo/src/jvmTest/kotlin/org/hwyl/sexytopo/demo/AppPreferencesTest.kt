@@ -64,6 +64,7 @@ class AppPreferencesTest {
                 showGrid = false,
                 snapToLines = true,
                 showCompass = false,
+                fullScreen = true,
             )
         AppPreferencesStore.save(store, flipped)
 
@@ -160,6 +161,15 @@ class AppPreferencesTest {
      * surveyor who turned the splays off got them back on the next run. All five are persisted
      * `SketchPreferences.Toggle`s in the Android app, and the values here are that enum's.
      */
+    /**
+     * Off, because a first run that hides its own menu is a first run nobody gets out of — and
+     * because that is what `GeneralPreferences.isImmersiveModeOn` defaults to.
+     */
+    @Test
+    fun fullScreenIsOffUntilSomebodyAsksForIt() {
+        assertFalse(AppPreferences.DEFAULT.fullScreen)
+    }
+
     @Test
     fun theSketchToggleDefaultsAreTheAndroidApps() {
         val defaults = AppPreferences.DEFAULT

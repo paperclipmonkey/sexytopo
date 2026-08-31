@@ -41,6 +41,8 @@ data class AppPreferences(
     val snapToLines: Boolean = DEFAULT_SNAP_TO_LINES,
     /** Draw the north arrow on the plan. `SHOW_COMPASS`. */
     val showCompass: Boolean = DEFAULT_SHOW_COMPASS,
+    /** Give the drawing the app bar's height as well. `action_fullscreen`. */
+    val fullScreen: Boolean = DEFAULT_FULL_SCREEN,
 ) {
     companion object {
         /**
@@ -153,6 +155,16 @@ data class AppPreferences(
          */
         const val DEFAULT_SHOW_COMPASS = true
 
+        /**
+         * Off, as `GeneralPreferences.isImmersiveModeOn` is.
+         *
+         * Worth more than it sounds in landscape, which is how a wide passage gets drawn: the
+         * app's own chrome is about half a phone screen turned sideways, and the app bar is the
+         * part a surveyor mid-stroke has no use for. It is off by default because a first run
+         * that hides its own menu is a first run nobody gets out of.
+         */
+        const val DEFAULT_FULL_SCREEN = false
+
         val DEFAULT = AppPreferences()
     }
 }
@@ -190,6 +202,7 @@ object AppPreferencesStore {
             appendLine("showGrid=${preferences.showGrid}")
             appendLine("snapToLines=${preferences.snapToLines}")
             appendLine("showCompass=${preferences.showCompass}")
+            appendLine("fullScreen=${preferences.fullScreen}")
         }
 
     fun parse(text: String): AppPreferences {
@@ -244,6 +257,9 @@ object AppPreferencesStore {
             showCompass =
                 values["showCompass"]?.toBooleanStrictOrNull()
                     ?: AppPreferences.DEFAULT_SHOW_COMPASS,
+            fullScreen =
+                values["fullScreen"]?.toBooleanStrictOrNull()
+                    ?: AppPreferences.DEFAULT_FULL_SCREEN,
         )
     }
 

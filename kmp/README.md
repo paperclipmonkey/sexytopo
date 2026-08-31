@@ -69,7 +69,8 @@ Being precise about this matters more than the demo looking good.
 | **The shared Compose UI links as an iOS framework** | **Verified** | `:demo:linkDebugFrameworkIosSimulatorArm64` — Compose's own Native klibs, the bundled font and the toolbar PNGs, resolved into the static framework `iosApp/` links against |
 | **The same code compiles for a real iPhone** | **Verified** | `:shared:compileKotlinIosArm64` and `:demo:linkDebugFrameworkIosArm64` — a separate Kotlin/Native target from the simulator, with its own platform libraries, so a green simulator build does not imply it |
 | **The iOS half of the app runs, not just compiles** | **Verified** | `:demo:iosSimulatorArm64Test` on a macOS runner: the Documents file store round-trips text, non-ASCII, nested directories and a whole survey; a file's exact bytes come back through the hand-written `NSData` copy the PocketTopo reader needs; the log's timestamps come out in the Android app's own format; the clipboard and the new-station haptic do not bring the app down |
-| The iOS app runs on a device | **Not verified** | needs Xcode, an Apple developer account and a physical phone |
+| **The iOS *app* builds, not only the framework it links** | **Verified** | `xcodegen` then `xcodebuild` for the simulator on the macOS runner, so `project.yml`, `Info.plist`, `Assets.xcassets` and the two Swift files are *compiled* rather than merely written — all four were authored on Linux and none had been near a compiler. It is also the only thing that runs `actool`, which is the only real answer to whether an app icon drawn here with PIL is one iOS accepts: an alpha channel or a wrong size is rejected outright, and nothing on Linux says so |
+| The iOS app runs on a device | **Not verified** | needs Xcode, an Apple developer account and a physical phone. The app *bundle* is now built by CI, so what is left is signing and installing it |
 | **The app can ask to connect to an instrument** | **Verified** | `instrument.mjs` in CI stands a stub where `navigator.bluetooth` would be and makes it behave like a DistoX-BLE: the profile's name prefix and UUIDs reach the browser API, the notification arrives as a frame, the decoder reads it, the acknowledgement goes back, and three readings make a station in a saved survey |
 | **A calibration can be taken, solved and written back** | **Verified** | `instrument.mjs` puts the fake DistoX-BLE into calibration mode, feeds it the Android app's own 56-shot dataset over Web Bluetooth, and checks the twelve coefficient blocks reach the device |
 | `CoreBluetoothTransport` works | **Not verified** | it compiles, it now has a caller, and it has still never talked to a radio; the simulator has no Bluetooth stack, so this needs a real instrument |
@@ -365,15 +366,20 @@ Three things go wrong, in roughly this order of likelihood:
 
 One cosmetic thing, and one honest caveat about it:
 
-- **The icon and the launch screen have never been seen.** `iosApp/Assets.xcassets` holds a
-  1024×1024 icon — a cave centreline drawn on a pale panel, in the app's own colours — and a colour
-  called `LaunchBackground` that `UILaunchScreen` names, so the first moment shows the panel green
-  rather than white. Both were written on Linux, where there is no Xcode to compile an asset
-  catalogue, so neither has ever been rendered. The catalogue is deliberately in the stock
-  single-size form Xcode 14 and later accept (one `1024x1024` universal entry, opaque RGB, no alpha
-  — iOS rounds the corners itself), so the worst plausible outcome is a build warning and the white
-  tile you would have had anyway. If it does complain, delete `iosApp/Assets.xcassets` and rebuild:
-  nothing else refers to it.
+- **The icon and the launch screen compile, and have still never been *looked at*.**
+  `iosApp/Assets.xcassets` holds a 1024×1024 icon — a cave centreline drawn on a pale panel, in the
+  app's own colours — and a colour called `LaunchBackground` that `UILaunchScreen` names, so the
+  first moment shows the panel green rather than white. Both were written on Linux, where there is
+  no Xcode to compile an asset catalogue.
+
+  CI now builds the whole Xcode project on a macOS runner, so `actool` has compiled the catalogue
+  and accepted it: the icon is not rejected for an alpha channel or a wrong size, and the colour
+  set parses. `IosAssetsTest` checks the same rules here in a second, so a later edit that breaks
+  one fails on any machine rather than six minutes into somebody else's build.
+
+  What nobody has done is *look* at either. A build that succeeds says the icon is well-formed, not
+  that it is any good at 60 pixels on a home screen. If you dislike it, delete
+  `iosApp/Assets.xcassets` and rebuild: nothing else refers to it.
 
 #### Before you demo it: what has and has not been run
 
@@ -436,6 +442,12 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   rows plus one per saved survey, and on an SE the last of them was drawn half off the bottom edge.
   It is `action_bar.xml`'s own five now — File, View, Instrument, Settings, About — with the saved
   surveys inside File where the app's own *Open* is.
+- **Give the drawing the whole screen.** *Full screen*, in Settings, takes the app bar away and
+  leaves a slim handle in its place. It matters most turned sideways, which is how a wide passage
+  gets drawn: on a phone in landscape the app's own chrome is about half the height, and the app
+  bar is the part somebody mid-stroke has no use for. The handle is there because hiding the app
+  bar hides the only route back to the menu that turned it on — `action_fullscreen`, off by
+  default as `isImmersiveModeOn` is.
 - **Take the clutter off.** *Show cross-sections* hides them when the plan is busy — and stops
   them being tapped while hidden, which is the app's own rule and the half a port forgets. *Pinch
   to zoom* turns the two-fingered zoom off for anyone drawing with a stylus, where a second contact
@@ -653,6 +665,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `res/menu/action_bar.xml`'s submenus | `demo/.../App.kt` (`MenuPage`) | File, View, Instrument, Settings and About, one page at a time — Material 3 has no nested `DropdownMenu`, so the one menu swaps its contents |
 | `res/menu/drawing.xml` | `demo/.../SketchToolbar.kt`, `DemoState.BEHAVIOUR_TOGGLES`/`DISPLAY_TOGGLES` | Every checkable item on it except the neighbouring-survey one, in the menu's own three groups: the actions stay on the popup, the twelve toggles are a dialog. Hiding cross-sections stops them being tapped as well as drawn |
 | `SketchPreferences.Toggle` | `demo/.../AppPreferences.kt` | All twelve persisted, which five of them were not until the menu was split |
+| `action_fullscreen`, `GeneralPreferences.isImmersiveModeOn` | `demo/.../App.kt` (`FullScreenHandle`) | Hides the app's own bar rather than the system's, which is not this port's to hide; a drawn handle brings it back |
 | `GraphView.drawCompass` | `demo/.../SurveyCanvas.kt` (`drawNorthArrow`) | The arrow, plan-only, at a heading of zero — which is *correct* on a plan; the magnetometer that would turn it is not ported |
 | `model/sketch/Sketch`'s twin history stacks | `shared/sketch/SketchEditor.kt` | `DeletedDetail` becomes a sealed type |
 | `control/io/thirdparty/{survex,therion,survextherion}` | `shared/io/export/` | Golden-tested, metadata block included |
@@ -1060,6 +1073,22 @@ These are the things that would actually shape a real port.
    View, Instrument, Settings, About — with the saved surveys inside File where the app's own Open
    is. Twice in one sitting the answer to "this menu is too tall" was in the file being ported
    from, and twice I had flattened it away first.
+
+35. **The Xcode project was the half nothing had ever compiled.** CI built Kotlin five ways —
+   simulator, Kotlin/Native tests, the Compose framework, the device target, the platform code in a
+   simulator — and never once opened the Xcode project. But `project.yml`, `Info.plist`,
+   `Assets.xcassets` and the two Swift files were all written on Linux by somebody who could not
+   run Xcode, and every one of them is a way to produce an app that builds and is wrong: a
+   catalogue that ships no icon, a `UIColorName` matching no colour set, a plist key misspelt.
+   `xcodegen` plus `xcodebuild` is one CI step and it compiles all of it, `actool` included.
+
+   It passed first time, which is the boring outcome and the right one. It also surfaced the only
+   thing in that build worth repeating: `libicu.icudtl_dat.o` inside Compose's own framework is
+   built for iOS-simulator 17.2 while this project declares a minimum of 15.0, so the linker warns.
+   The name is the reassuring part — `icudtl_dat` is ICU's *data* table compiled to an object file,
+   so it references no API and the warning is about provenance rather than behaviour. Worth saying
+   out loud anyway: **nobody has run this on anything older than the runner's simulator**, so 15.0
+   is a declared minimum rather than a tested one.
 
 ---
 

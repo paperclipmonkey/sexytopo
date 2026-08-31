@@ -216,7 +216,7 @@ const MENU_PAGES = {
   file: { before: ['new', 'rename'], after: ['import', 'export'], holdsSurveys: true },
   view: { before: ['demo', 'trip', '3d', 'stats'], after: [], holdsSurveys: false },
   instrument: { before: ['connect', 'calibrate', 'log'], after: [], holdsSurveys: false },
-  settings: { before: ['surveying', 'dark'], after: [], holdsSurveys: false },
+  settings: { before: ['fullscreen', 'surveying', 'dark'], after: [], holdsSurveys: false },
 }
 
 /** Which page a named item is on, and where in it. Back is row zero of every group page. */
@@ -2661,6 +2661,69 @@ if (!((await middleInk()) > smallInkBefore)) {
   fail('on a 375x667 screen the toolbar or the canvas was not where it should be — no stroke')
 } else {
   pass('on an iPhone SE-sized screen the toolbar still works and the sketch still takes a stroke')
+}
+
+// ---- the drawing can have the app bar's share of the screen ---------------------------------
+// `action_fullscreen`. It matters most exactly here, on the smallest screen: the app's own chrome
+// is a quarter of a portrait phone and about half of a landscape one, and the app bar is the piece
+// a surveyor mid-stroke has no use for.
+//
+// What has to be true is both halves. The sketch gets taller — measured by where the toolbar's
+// green starts, which is the bottom of everything above it — and there is still a way back, since
+// hiding the app bar hides the only route to the menu that turned it on.
+const appBarGreen = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, panel]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    // How many rows at the very top are mostly the panel green: the app bar's height, or the
+    // handle's when the app bar is gone.
+    let rows = 0
+    for (let y = 0; y < c.height; y++) {
+      let green = 0
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        if (px[i] === panel[0] && px[i + 1] === panel[1] && px[i + 2] === panel[2]) green++
+      }
+      if (green < c.width * 0.5) break
+      rows++
+    }
+    return rows
+  }, [b64, SKETCH_PANEL])
+}
+
+const chromeBefore = await appBarGreen()
+await at(small.width - 16, 26); await page.waitForTimeout(700)
+const fullScreenSaved = await page.evaluate(() => {
+  const prefix = 'sexytopo:f:surveys/'
+  const names = Object.keys(localStorage)
+    .filter((k) => k.startsWith(prefix))
+    .map((k) => k.slice(prefix.length).split('/')[0])
+  return new Set(names).size
+})
+await at(...(await menuRow('fullscreen', fullScreenSaved))); await page.waitForTimeout(900)
+await page.screenshot({ path: join(shotDir, 'field-full-screen.png') })
+
+const chromeAfter = await appBarGreen()
+if (!(chromeAfter < chromeBefore / 2)) {
+  fail(`full screen left ${chromeAfter} pixels of app bar where there were ${chromeBefore}`)
+} else {
+  pass(`full screen gives the drawing the app bar back (${chromeBefore} to ${chromeAfter} pixels)`)
+}
+
+// And out again, which is the half that matters: the app bar is the only way to the menu that
+// turned this on, so the handle left in its place has to work.
+await at(Math.round(small.width / 2), Math.round(chromeAfter / 2)); await page.waitForTimeout(900)
+if ((await appBarGreen()) < chromeBefore) {
+  fail('the handle left in place of the app bar did not bring it back — the menu is unreachable')
+} else {
+  pass('and the handle brings it back, so nobody is stranded in it')
 }
 
 // ---- and a dialog too tall for that screen scrolls rather than being cut off -----------------
