@@ -421,6 +421,8 @@ class DemoState(
                 fadeNonActive = preferences.fadeNonActive,
                 highlightLatestLeg = preferences.highlightLatestLeg,
                 blueWater = preferences.blueWater,
+                showCrossSections = preferences.showCrossSections,
+                pinchToZoom = preferences.pinchToZoom,
             )
 }
 

@@ -24,6 +24,10 @@ data class AppPreferences(
     val highlightLatestLeg: Boolean = DEFAULT_HIGHLIGHT_LATEST_LEG,
     /** Stamp the water symbol in blue whatever colour the brush is. `BLUE_WATER`. */
     val blueWater: Boolean = DEFAULT_BLUE_WATER,
+    /** Draw cross-sections on the plan, and let them be tapped. `SHOW_X_SECTIONS`. */
+    val showCrossSections: Boolean = DEFAULT_SHOW_CROSS_SECTIONS,
+    /** Let two fingers zoom the drawing and the 3D view. `PINCH_TO_ZOOM`. */
+    val pinchToZoom: Boolean = DEFAULT_PINCH_TO_ZOOM,
 ) {
     companion object {
         /**
@@ -77,6 +81,25 @@ data class AppPreferences(
          */
         const val DEFAULT_BLUE_WATER = true
 
+        /**
+         * On, as `SketchPreferences.Toggle.SHOW_X_SECTIONS` is.
+         *
+         * Turning it off does two things in the Android app, not one: the sections stop being
+         * drawn *and* stop being touchable — "special case: can't tap on invisible X-sections",
+         * as `handleCrossSectionBodyTap` puts it. A port that hid them and left the hit test live
+         * would open an editor from a tap on apparently blank paper.
+         */
+        const val DEFAULT_SHOW_CROSS_SECTIONS = true
+
+        /**
+         * On, as `SketchPreferences.Toggle.PINCH_TO_ZOOM` is.
+         *
+         * Worth having off for anyone drawing with a stylus and a resting hand, which is what a
+         * second contact usually is then. It gates the *zoom* and not the two-fingered pan, which
+         * is its own preference — see [DEFAULT_TWO_FINGER_MOVE].
+         */
+        const val DEFAULT_PINCH_TO_ZOOM = true
+
         val DEFAULT = AppPreferences()
     }
 }
@@ -106,6 +129,8 @@ object AppPreferencesStore {
             appendLine("fadeNonActive=${preferences.fadeNonActive}")
             appendLine("highlightLatestLeg=${preferences.highlightLatestLeg}")
             appendLine("blueWater=${preferences.blueWater}")
+            appendLine("showCrossSections=${preferences.showCrossSections}")
+            appendLine("pinchToZoom=${preferences.pinchToZoom}")
         }
 
     fun parse(text: String): AppPreferences {
@@ -139,6 +164,12 @@ object AppPreferencesStore {
                     ?: AppPreferences.DEFAULT_HIGHLIGHT_LATEST_LEG,
             blueWater =
                 values["blueWater"]?.toBooleanStrictOrNull() ?: AppPreferences.DEFAULT_BLUE_WATER,
+            showCrossSections =
+                values["showCrossSections"]?.toBooleanStrictOrNull()
+                    ?: AppPreferences.DEFAULT_SHOW_CROSS_SECTIONS,
+            pinchToZoom =
+                values["pinchToZoom"]?.toBooleanStrictOrNull()
+                    ?: AppPreferences.DEFAULT_PINCH_TO_ZOOM,
         )
     }
 

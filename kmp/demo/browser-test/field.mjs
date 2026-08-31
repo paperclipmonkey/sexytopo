@@ -111,6 +111,34 @@ if (!(await ready())) {
   process.exit(1)
 }
 const box = await (await page.$('canvas')).boundingBox()
+
+// A guard against a mistake this file has made four times, each costing a six-minute run to find.
+//
+// Every pixel helper hands `page.evaluate` a screenshot and some values, in an array written after
+// the callback. The callback destructures them under its *own* names, so nothing checks the two
+// against each other, and a name that is not in scope out here is only found when the helper is
+// first called — which
+// on this file's slowest path is several minutes in, and reports itself as whatever check happened
+// to be running. Reading this file's own source and checking each of those names is declared
+// somewhere turns that into an error before the browser is even launched.
+{
+  const source = readFileSync(new URL(import.meta.url), 'utf8')
+  const passed = [...source.matchAll(/\}, \[b64,\s*([A-Za-z_$][\w$]*)\]\)/g)].map((m) => m[1])
+  const declared = new RegExp(
+    `(?:const|let|var)\\s+(?:${passed.join('|')})\\b|\\((?:${passed.join('|')})\\)\\s*=>`,
+  )
+  for (const name of new Set(passed)) {
+    const isDeclared = new RegExp(`(?:const|let|var)\\s+${name}\\b|\\(\\s*${name}\\s*[,)]`)
+    if (!isDeclared.test(source)) {
+      throw new Error(
+        `field.mjs passes "${name}" into page.evaluate but nothing out here declares it — ` +
+          'the callback\'s own parameter names are not what has to match',
+      )
+    }
+  }
+  void declared
+}
+
 const at = (x, y) => page.mouse.click(box.x + x, box.y + y)
 
 // Replaces whatever is in a text field. Backspace and Delete rather than select-all: Compose
@@ -237,20 +265,69 @@ const DRAWING_MENU = [
   'blue-water',
   'fade',
   'latest-leg',
+  'pinch',
+  'show-xsections',
   'splays',
   'sketch',
   'labels',
   'grid',
   'snap',
 ]
-const DRAWING_MENU_LAST_ROW_Y = 820
-const DRAWING_MENU_ROW_HEIGHT = 48
+// Material 3's `surfaceContainer` in the light theme, which is the dropdown's own ground and is
+// not used by anything behind it.
+const DRAWING_MENU_SURFACE = [243, 237, 247]
 
-function drawingMenuRow(name) {
+/**
+ * Where the drawing menu actually is, found rather than assumed.
+ *
+ * It used to be computed upwards from a fixed bottom row, on the reasoning that a menu opening
+ * from a toolbar cell keeps its bottom edge. That held until the menu grew past the room above the
+ * toolbar: at eighteen rows it is taller than the gap, so Compose repositions the whole thing to
+ * fit the screen and *every* row moves — which broke ten checks at once and none of them anywhere
+ * near a menu. Same lesson as the dialogs (finding 27), learnt twice.
+ *
+ * So: find the menu's own surface, and divide it by the number of rows it is known to have. That
+ * survives the menu being repositioned, and it fails loudly rather than quietly if the menu ever
+ * has to scroll, because then the arithmetic stops matching what is on screen.
+ */
+const drawingMenuBox = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, surface]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    const is = (x, y) => {
+      const i = (y * c.width + x) * 4
+      return px[i] === surface[0] && px[i + 1] === surface[1] && px[i + 2] === surface[2]
+    }
+    let top = -1
+    let bottom = -1
+    for (let y = 0; y < c.height; y++) {
+      let run = 0
+      for (let x = 0; x < c.width; x++) if (is(x, y)) run++
+      // A wide run of it: narrower things on screen share the colour here and there.
+      if (run > 120) {
+        if (top < 0) top = y
+        bottom = y
+      }
+    }
+    return top < 0 ? null : { top, bottom }
+  }, [b64, DRAWING_MENU_SURFACE])
+}
+
+/** The row for a named drawing-menu item, in the menu as it is currently drawn. */
+async function drawingMenuRow(name) {
   const index = DRAWING_MENU.indexOf(name)
   if (index < 0) throw new Error(`no drawing-menu item called ${name}`)
-  const fromBottom = DRAWING_MENU.length - 1 - index
-  return [186, DRAWING_MENU_LAST_ROW_Y - DRAWING_MENU_ROW_HEIGHT * fromBottom]
+  const menu = await drawingMenuBox()
+  if (menu === null) throw new Error('the drawing menu is not open')
+  const rowHeight = (menu.bottom - menu.top) / DRAWING_MENU.length
+  return [186, Math.round(menu.top + (index + 0.5) * rowHeight)]
 }
 
 /** A finger drag on the canvas, in canvas coordinates. */
@@ -475,7 +552,7 @@ await page.screenshot({ path: join(shotDir, 'field-readings.png') })
 // The whole model, the projection and the bearing heuristic were ported and tested long ago; what
 // this checks is that the tool reaches them and that the result is saved with the sketch.
 await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...drawingMenuRow('cross-section')); await page.waitForTimeout(500)
+await at(...(await drawingMenuRow('cross-section'))); await page.waitForTimeout(500)
 await at(140, 712); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-cross-section.png') })
 
@@ -507,7 +584,7 @@ const firstSection = () => page.evaluate(() => {
 const placedSection = await firstSection()
 
 await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...drawingMenuRow('move')); await page.waitForTimeout(500)
+await at(...(await drawingMenuRow('move'))); await page.waitForTimeout(500)
 await drag([140, 712], [210, 660]); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-cross-section-moved.png') })
 
@@ -526,7 +603,7 @@ if (!placedSection || !movedSection) {
 }
 
 await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...drawingMenuRow('re-aim')); await page.waitForTimeout(500)
+await at(...(await drawingMenuRow('re-aim'))); await page.waitForTimeout(500)
 // Grab the section where it now is and swing it round its station.
 await drag([210, 660], [330, 760]); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-cross-section-aimed.png') })
@@ -544,6 +621,93 @@ if (!aimedSection) {
 } else {
   pass('a cross-section can be re-aimed when the bearing the app guessed is wrong')
 }
+
+// ---- and taken off the drawing altogether ------------------------------------------------
+// `sketch_menu_show_xsections`. The half worth checking is not that they stop being drawn but that
+// they stop being *tapped*: the Android app's own "special case: can't tap on invisible
+// X-sections". A port that hid them and left the hit test live would open an editor from a tap on
+// what looks like blank paper, which is the kind of thing nobody reports because nobody believes
+// it happened.
+//
+// Nothing here changes the survey or the drawing. An earlier version of this check proved the tap
+// by drawing a stroke and seeing which sketch it landed in, and left that stroke behind for the
+// four checks that follow to trip over.
+const inkAround = async (span) => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, span]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    let ink = 0
+    for (let y = span[1]; y < span[3]; y++) {
+      for (let x = span[0]; x < span[2]; x++) {
+        const i = (y * c.width + x) * 4
+        // Anything darker than the paper. The window is small enough to hold nothing else.
+        const lightest = Math.max(px[i], px[i + 1], px[i + 2])
+        if (lightest < 215) ink += 215 - lightest
+      }
+    }
+    return ink
+  }, [b64, span])
+}
+
+// A tight box round where the section now sits, clear of station 1, of the leg and of the metre
+// grid. Tight because at this point in the run the section is only its centre dot: it was dropped
+// at a station whose wall shots are not booked until much later, so it has no arms to draw yet,
+// and the whole of it is twenty pixels across.
+const SECTION_PATCH = [194, 652, 214, 676]
+// The purple of the "Add reading" pill, sampled off the pill rather than off the white lettering
+// across the middle of it.
+const FIELD_BAR_PILL = [40, 790]
+
+const withSection = await inkAround(SECTION_PATCH)
+await at(...toolCell(5)); await page.waitForTimeout(500)
+await at(...(await drawingMenuRow('show-xsections'))); await page.waitForTimeout(400)
+await page.keyboard.press('Escape'); await page.waitForTimeout(600)
+await page.screenshot({ path: join(shotDir, 'field-cross-section-hidden.png') })
+
+const withoutSection = await inkAround(SECTION_PATCH)
+if (!(withSection > 100 && withoutSection === 0)) {
+  fail(`hiding cross-sections left the drawing much as it was (${withSection} then ${withoutSection})`)
+} else {
+  pass('a cross-section can be taken off the drawing when it is in the way')
+}
+
+// A tap where it is must do nothing at all. The editor takes the whole screen, so the plan's own
+// field bar still being there is what says it did not open.
+const fieldBarIsShowing = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, at]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const i = (at[1] * c.width + at[0]) * 4
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    // The "Add reading" pill: Material's primary, which nothing in the editor puts here.
+    return px[i + 2] > px[i] && px[i] > px[i + 1] && px[i + 2] - px[i + 1] > 30
+  }, [b64, FIELD_BAR_PILL])
+}
+
+await at(210, 660); await page.waitForTimeout(900)
+if (!(await fieldBarIsShowing())) {
+  fail('a tap on a hidden cross-section opened its editor anyway')
+} else {
+  pass('and while it is hidden a tap goes straight through it')
+}
+
+// Back on, because everything after this expects the app's own default.
+await at(...toolCell(5)); await page.waitForTimeout(500)
+await at(...(await drawingMenuRow('show-xsections'))); await page.waitForTimeout(400)
+await page.keyboard.press('Escape'); await page.waitForTimeout(600)
 
 // ---- and drawn into --------------------------------------------------------------------
 // A star of splays is not a passage; the outline drawn round it is what makes it one. Tapping a
@@ -601,7 +765,7 @@ await at(...toolCell(1)); await page.waitForTimeout(400)
 // turns it on, draws two strokes that nearly meet, and checks the second starts exactly where the
 // first ended rather than near it.
 await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...drawingMenuRow('snap')); await page.waitForTimeout(600)
+await at(...(await drawingMenuRow('snap'))); await page.waitForTimeout(600)
 // A toggle deliberately leaves the menu open, so several can be flipped in one visit — which
 // means it has to be dismissed before the canvas can be drawn on again.
 await page.keyboard.press('Escape'); await page.waitForTimeout(500)
@@ -630,7 +794,7 @@ if (strokeEnds === null || strokeEnds.length < 2) {
 
 // Off again, so nothing later in this file is silently snapped.
 await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...drawingMenuRow('snap')); await page.waitForTimeout(600)
+await at(...(await drawingMenuRow('snap'))); await page.waitForTimeout(600)
 await page.keyboard.press('Escape'); await page.waitForTimeout(500)
 
 // ---- the drawing can be moved without putting the pencil down ----------------------------
@@ -731,7 +895,7 @@ if (leftCorners.length !== 2 || rightCorners.length !== 2) {
 
 // Put the view back where it was, so nothing after this depends on where the corner pan left it.
 await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...drawingMenuRow('centre')); await page.waitForTimeout(700)
+await at(...(await drawingMenuRow('centre'))); await page.waitForTimeout(700)
 
 // ---- any station can be got at, not just the active one -----------------------------------
 // Until the long-press menu existed, the only station a surveyor could name, comment or measure
@@ -866,7 +1030,7 @@ const savedLegCount = () => page.evaluate(() => {
 
 const beforeFinding = await page.screenshot({ clip: box })
 await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...drawingMenuRow('find')); await page.waitForTimeout(900)
+await at(...(await drawingMenuRow('find'))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-find-station.png') })
 
 if ((await dialogTop()) === null) {
@@ -896,7 +1060,7 @@ if ((await savedLegCount()) !== legsBeforeSplay + 1) {
   fail('the splay that the delete was going to take back was not added')
 } else {
   await at(...toolCell(5)); await page.waitForTimeout(500)
-  await at(...drawingMenuRow('delete-last-leg')); await page.waitForTimeout(900)
+  await at(...(await drawingMenuRow('delete-last-leg'))); await page.waitForTimeout(900)
   await page.screenshot({ path: join(shotDir, 'field-delete-last-leg.png') })
   const confirm = await dialogConfirm()
   if ((await dialogTop()) === null || confirm === null) {
@@ -1247,7 +1411,7 @@ await at(...toolCell(1)); await page.waitForTimeout(400)
 // parser in commonMain. A stamped symbol has to carry the Therion name the canvas looks its
 // artwork up by; if those two ever disagreed every symbol would silently draw as a fallback dot.
 await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...drawingMenuRow('symbol')); await page.waitForTimeout(800)
+await at(...(await drawingMenuRow('symbol'))); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-symbol-palette.png') })
 await at(...PALETTE_BLOCKS); await page.waitForTimeout(700)
 await at(200, 300); await page.waitForTimeout(900)
@@ -1271,7 +1435,7 @@ if (symbols === null) {
 // every published cave survey there has ever been. The brush here is black — nothing in this run
 // has changed it — so a stamp that comes out black would mean the rule never fired.
 await at(...toolCell(5)); await page.waitForTimeout(600)
-await at(...drawingMenuRow('symbol')); await page.waitForTimeout(800)
+await at(...(await drawingMenuRow('symbol'))); await page.waitForTimeout(800)
 await at(...PALETTE_WATER); await page.waitForTimeout(700)
 await at(250, 300); await page.waitForTimeout(900)
 
@@ -1325,7 +1489,7 @@ if ((await connectingLegs()) !== beforeSloppy) {
 // in this order means that comes back as a failure here rather than as a surveyor wondering why the
 // view stopped following them after they adjusted a tolerance.
 await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...drawingMenuRow('auto-recentre')); await page.waitForTimeout(600)
+await at(...(await drawingMenuRow('auto-recentre'))); await page.waitForTimeout(600)
 await page.keyboard.press('Escape'); await page.waitForTimeout(400)
 
 await at(...OVERFLOW); await page.waitForTimeout(500)
@@ -1423,7 +1587,7 @@ if (activeSpot === null) {
 
 // Off again, so the rest of this file sees the Android app's own default.
 await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...drawingMenuRow('auto-recentre')); await page.waitForTimeout(600)
+await at(...(await drawingMenuRow('auto-recentre'))); await page.waitForTimeout(600)
 await page.keyboard.press('Escape'); await page.waitForTimeout(400)
 
 // ---- which end of the survey you are working at ----------------------------------------------
@@ -1488,7 +1652,7 @@ if (magentaBefore < 20) {
 }
 
 await at(...toolCell(5)); await page.waitForTimeout(600)
-await at(...drawingMenuRow('latest-leg')); await page.waitForTimeout(700)
+await at(...(await drawingMenuRow('latest-leg'))); await page.waitForTimeout(700)
 await page.keyboard.press('Escape'); await page.waitForTimeout(500)
 const magentaOff = await magentaPixels()
 if (magentaOff !== 0) {
@@ -1497,12 +1661,12 @@ if (magentaOff !== 0) {
   pass('and it can be turned off, for a surveyor who would rather it were not there')
 }
 await at(...toolCell(5)); await page.waitForTimeout(600)
-await at(...drawingMenuRow('latest-leg')); await page.waitForTimeout(700)
+await at(...(await drawingMenuRow('latest-leg'))); await page.waitForTimeout(700)
 await page.keyboard.press('Escape'); await page.waitForTimeout(500)
 
 const litBeforeFade = await centrelinePixels()
 await at(...toolCell(5)); await page.waitForTimeout(600)
-await at(...drawingMenuRow('fade')); await page.waitForTimeout(700)
+await at(...(await drawingMenuRow('fade'))); await page.waitForTimeout(700)
 await page.keyboard.press('Escape'); await page.waitForTimeout(600)
 await page.screenshot({ path: join(shotDir, 'field-faded.png') })
 const litFaded = await centrelinePixels()
@@ -1514,7 +1678,7 @@ if (!(litFaded < litBeforeFade * 0.5)) {
 
 // Off again: every check after this reads the plan, and a faded plan would be a different one.
 await at(...toolCell(5)); await page.waitForTimeout(600)
-await at(...drawingMenuRow('fade')); await page.waitForTimeout(700)
+await at(...(await drawingMenuRow('fade'))); await page.waitForTimeout(700)
 await page.keyboard.press('Escape'); await page.waitForTimeout(600)
 const litRestored = await centrelinePixels()
 if (!(litRestored > litFaded)) {

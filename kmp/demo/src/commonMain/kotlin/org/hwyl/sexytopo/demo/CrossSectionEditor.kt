@@ -127,6 +127,9 @@ fun CrossSectionEditor(
                     // the same pencil and moved just as often.
                     hotCorners = preferences.hotCorners,
                     twoFingerMove = preferences.twoFingerMove,
+                    // The same preference the plan honours: a surveyor who turned the pinch off
+                    // should not meet it again inside a section.
+                    pinchToZoom = preferences.pinchToZoom,
                 ),
             editor = editor,
             canvas = canvas,

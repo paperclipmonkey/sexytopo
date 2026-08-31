@@ -334,6 +334,32 @@ private fun DrawingMenu(
                 )
             },
         )
+        // `sketch_menu_pinch_to_zoom`, on by its default, and one preference over both the
+        // drawing and the 3D view as it is in the app. Worth having off for anyone drawing with a
+        // stylus, where a second contact is usually the side of a hand rather than a pinch.
+        DropdownMenuItem(
+            text = { Text("Pinch to zoom") },
+            leadingIcon = { CheckDot(state.preferences.pinchToZoom) },
+            onClick = {
+                state.updatePreferences(
+                    state.preferences.copy(pinchToZoom = !state.preferences.pinchToZoom),
+                )
+            },
+        )
+        // `sketch_menu_show_xsections`. Turning it off hides the sections *and* stops them being
+        // tapped - the app's own "special case: can't tap on invisible X-sections" - because a tap
+        // that opens an editor from apparently blank paper is worse than one that does nothing.
+        DropdownMenuItem(
+            text = { Text("Show cross-sections") },
+            leadingIcon = { CheckDot(state.preferences.showCrossSections) },
+            onClick = {
+                state.updatePreferences(
+                    state.preferences.copy(
+                        showCrossSections = !state.preferences.showCrossSections,
+                    ),
+                )
+            },
+        )
         for (toggle in VIEW_TOGGLES) {
             DropdownMenuItem(
                 text = { Text(toggle.label) },

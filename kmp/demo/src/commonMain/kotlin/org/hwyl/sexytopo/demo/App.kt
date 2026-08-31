@@ -157,6 +157,7 @@ fun App(
                             revision = state.revision,
                             darkMode = state.darkMode,
                             onClose = { state.viewing3D = false },
+                            pinchToZoom = state.preferences.pinchToZoom,
                         )
                     } else {
                         SexyTopoAppBar(state)

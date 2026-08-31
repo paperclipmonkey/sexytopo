@@ -159,6 +159,7 @@ fun SurveyCanvas(
 
     /** Grab whatever cross-section is under the finger, for a [mode] drag. */
     fun grab(mode: SectionDragMode, at: Coord2D): SectionDrag? {
+        if (!options.crossSectionsAreTouchable) return null
         val detail = findCrossSectionBodyAt(scene.sketch, at) ?: return null
         return SectionDrag(
             mode = mode,
@@ -327,7 +328,7 @@ fun SurveyCanvas(
                         // space beside the passage, so it is rarely near enough to a station for
                         // this to steal a selection.
                         val section =
-                            if (options.showSketch) {
+                            if (options.crossSectionsAreTouchable) {
                                 findCrossSectionBodyAt(scene.sketch, where)
                             } else {
                                 // Invisible sections cannot be tapped: the original's own first
@@ -368,7 +369,7 @@ fun SurveyCanvas(
                                             SketchDefaults.DELETE_DETAILS_WITHIN_DP.dp.toPx(),
                                         ),
                                     pixelsPerMetre = viewport.pixelsPerMetre,
-                                    showCrossSections = options.showSketch,
+                                    showCrossSections = options.crossSectionsAreTouchable,
                                 )
                             if (erased) onSketchEdit()
                         },
@@ -383,7 +384,7 @@ fun SurveyCanvas(
                     // compete for the same gesture.
                     .pointerInput(scene, tool) {
                         detectTapGestures { offset ->
-                            if (!options.showSketch) return@detectTapGestures
+                            if (!options.crossSectionsAreTouchable) return@detectTapGestures
                             findCrossSectionBodyAt(scene.sketch, viewport.toSurvey(offset))
                                 ?.let(onOpenCrossSection)
                         }
@@ -482,6 +483,7 @@ fun SurveyCanvas(
                 detectModalMove(
                     hotCorners = options.hotCorners,
                     twoFingerPan = options.twoFingerMove,
+                    pinchZoom = options.pinchToZoom,
                     onStart = {
                         // A second finger arriving mid-stroke abandons it rather than committing
                         // half a line the surveyor never meant to draw.
@@ -770,7 +772,23 @@ class DisplayOptions(
      * app puts it on this same menu, so it arrives by the same route.
      */
     val blueWater: Boolean = AppPreferences.DEFAULT_BLUE_WATER,
-)
+    /**
+     * Whether cross-sections are drawn on the plan — and, because of that, whether they can be
+     * tapped. `SHOW_X_SECTIONS`.
+     */
+    val showCrossSections: Boolean = AppPreferences.DEFAULT_SHOW_CROSS_SECTIONS,
+    /** Whether two fingers zoom. `PINCH_TO_ZOOM`; the two-fingered *pan* is [twoFingerMove]. */
+    val pinchToZoom: Boolean = AppPreferences.DEFAULT_PINCH_TO_ZOOM,
+) {
+    /**
+     * Whether a cross-section on the plan is there to be found by a finger.
+     *
+     * One property rather than the same pair of conditions at four hit-test sites, because the
+     * Java's rule is a single sentence — an invisible cross-section cannot be tapped — and it is
+     * invisible either because the whole sketch is hidden or because sections are.
+     */
+    val crossSectionsAreTouchable: Boolean get() = showSketch && showCrossSections
+}
 
 /** `GraphView.FADED_ALPHA`, which is `0xff / 5` of full. */
 const val FADED_ALPHA = 0.2f
@@ -1103,7 +1121,7 @@ private fun DrawScope.drawSurvey(
         // preview comes from SectionDrag, which is also what commits the edit - so what is drawn
         // during the drag cannot disagree with what the drag leaves behind.
         val sectionScale = scene.sketch.crossSectionScale
-        for (detail in scene.sketch.crossSectionDetails) {
+        for (detail in if (options.showCrossSections) scene.sketch.crossSectionDetails else emptyList()) {
             val dragged = sectionDrag != null && sectionDrag.detail === detail
             val shown = if (dragged) sectionDrag.preview() else detail
             val colour = if (dragged) palette.symbol else palette.crossSection
@@ -1304,6 +1322,7 @@ internal fun bearingOf(dx: Float, dy: Float): Float {
  *
  *  - a touch that *starts* in one of the four corners pans instead of drawing ([hotCorners]);
  *  - a second finger pans ([twoFingerPan], off by default, exactly as in the original);
+ *  - two fingers zoom ([pinchZoom], on by default, and its own preference in the original too);
  *  - a second finger always zooms, under every tool, gated on neither preference.
  *
  * The third is the one that was most obviously missing: pinch-to-zoom worked only under the pan
@@ -1325,6 +1344,7 @@ internal fun bearingOf(dx: Float, dy: Float): Float {
 internal suspend fun PointerInputScope.detectModalMove(
     hotCorners: Boolean,
     twoFingerPan: Boolean,
+    pinchZoom: Boolean,
     onStart: () -> Unit,
     onTransform: (centroid: Offset, pan: Offset, zoom: Float) -> Unit,
     onEnd: () -> Unit,
@@ -1376,14 +1396,15 @@ internal suspend fun PointerInputScope.detectModalMove(
                 // centroid to the one that remains — and applying that jump throws the drawing
                 // across the screen at exactly the moment somebody is finishing a gesture.
                 val sameFingers = previous.size == current.size
-                val zoom = if (sameFingers) zoomBetween(previous, current) else 1f
+                val zoom =
+                    if (sameFingers && pinchZoom) zoomBetween(previous, current) else 1f
                 val pan =
                     if (!sameFingers) {
                         Coord2D.ORIGIN
                     } else if (pressed.size < 2 || twoFingerPan) {
-                        // Pinch always zooms; only a two-finger *drag* is behind the preference,
-                        // as in the original. A hot-corner pan is one finger, so the preference
-                        // has no say over it.
+                        // Two separate preferences, as in the original: [pinchZoom] gates the
+                        // zoom and [twoFingerPan] the drag. A hot-corner pan is one finger, so
+                        // neither has any say over it.
                         centroidOf(current) - centroidOf(previous)
                     } else {
                         Coord2D.ORIGIN

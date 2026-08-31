@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 691 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 694 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
@@ -418,6 +418,11 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   measurements, left, right, up and down, which become ordinary splays. That is how a survey is
   booked when there is no instrument in the party, and it is what lets a cross-section be drawn
   from a hand-booked survey.
+- **Take the clutter off.** *Show cross-sections* hides them when the plan is busy — and stops
+  them being tapped while hidden, which is the app's own rule and the half a port forgets. *Pinch
+  to zoom* turns the two-fingered zoom off for anyone drawing with a stylus, where a second contact
+  is usually the side of a hand; one preference over the drawing, a cross-section and the 3D view,
+  as it is in the app.
 - **Sketch it**, in plan and extended elevation, each with its own strokes and its own undo
   history — write on it (*sump*, *boulder choke*, *continues*), stamp any of the nineteen UIS
   symbols, and drop a cross-section at a station, drawn from that station's own splays.

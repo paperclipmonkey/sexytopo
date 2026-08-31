@@ -118,4 +118,25 @@ class AppPreferencesTest {
         assertEquals(1, buzzes, "expected one buzz for one station, not one per reading")
         assertEquals(2, survey.getAllStations().size)
     }
+
+    // -------------------------------------------------------------------------------------
+    // The last two toggles on the drawing menu
+    // -------------------------------------------------------------------------------------
+
+    @Test
+    fun theTwoRemainingDrawingMenuDefaultsAreTheAndroidApps() {
+        val defaults = AppPreferences.DEFAULT
+
+        assertTrue(defaults.showCrossSections, "SketchPreferences.Toggle.SHOW_X_SECTIONS is on")
+        assertTrue(defaults.pinchToZoom, "SketchPreferences.Toggle.PINCH_TO_ZOOM is on")
+    }
+
+    @Test
+    fun hidingCrossSectionsAlsoStopsThemBeingTapped() {
+        // The Java's own "special case: can't tap on invisible X-sections". Both ways of making
+        // them invisible count: hiding the whole sketch, and hiding the sections.
+        assertTrue(DisplayOptions().crossSectionsAreTouchable, "both on by default")
+        assertFalse(DisplayOptions(showCrossSections = false).crossSectionsAreTouchable)
+        assertFalse(DisplayOptions(showSketch = false).crossSectionsAreTouchable)
+    }
 }

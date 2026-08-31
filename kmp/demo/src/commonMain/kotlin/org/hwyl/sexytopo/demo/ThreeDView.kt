@@ -72,6 +72,12 @@ fun ThreeDView(
     darkMode: Boolean,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * `SketchPreferences.Toggle.PINCH_TO_ZOOM`, which `SurveyView3D` reads as well as the sketch
+     * does — one preference over both views, so a surveyor who turned the pinch off on the drawing
+     * does not meet it again here.
+     */
+    pinchToZoom: Boolean = AppPreferences.DEFAULT_PINCH_TO_ZOOM,
 ) {
     // Rebuilt only when the survey changes, as the Java's `geometryDirty` flag arranges: moving the
     // camera changes the transform, not the geometry.
@@ -192,7 +198,8 @@ fun ThreeDView(
                                             // more likely one finger being reported twice than a
                                             // pinch, and the ratio would be wild.
                                             val zoomed =
-                                                if (previousSpacing > MINIMUM_PINCH &&
+                                                if (pinchToZoom &&
+                                                    previousSpacing > MINIMUM_PINCH &&
                                                     spacing > MINIMUM_PINCH
                                                 ) {
                                                     camera.zoomedBy(previousSpacing / spacing)
