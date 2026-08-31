@@ -59,6 +59,7 @@ Being precise about this matters more than the demo looking good.
 | **A real-sized cave draws, and draws linearly** | **Verified** | `CanvasSpeedTest` renders the plan of a four-thousand-station survey through the same headless Skia the demo PNGs use, and checks that eight times the cave costs about eight times the frame rather than sixty-four — the failure mode finding 18 was, in the drawing rather than in the export. The absolute times are a CPU rasteriser's and not a phone's, and the test says so |
 | **The cave is the same size on a phone as on a desktop** | **Verified** | `DrawingDensityTest` renders the same plan twice through headless Skia — once at 1x, once at three times the size *and* three times the density, which is what a phone shows — and compares what fraction of each picture is centreline. Dp sizes give one picture at two resolutions and the same fraction; raw pixels give a cave drawn a third as thick. Measured both ways: **1.11 as it stands, 0.44 with finding 28 put back**. It counts only the red centreline, because the text on that canvas is in `sp` and scaled correctly even when the bug was live — counting all the ink made the first version of this test pass with the bug in |
 | **The manual is in the app** | **Verified** | the guide is bundled byte-for-byte from `app/src/main/assets/guide/index.html` and read into Compose by `parseManual`, with no web view on any platform. `ManualContentTest` asserts the bundled copy is identical to the Android app's, parses it, and counts the headings, paragraphs and list items **against the file's own tags** — the check that caught a nested list silently costing eleven items — plus every link pointing at a section that exists and every character being one the bundled font can draw. `field.mjs` opens it from Help, reads it, scrolls it, taps a contents row and closes it |
+| **All four of the app's input modes are offered** | **Verified** | `SurveyUpdaterTest` has the engine half. `field.mjs` has the half only a running app can show: it switches to *Splays Only* and enters three readings agreeing within tolerance — the exact recipe for a station in every other mode — then checks that no station appeared and all three are still splays. Run first against a chip deliberately wired to `FORWARD`, where it fails |
 | **Every character the app types is one the bundled font can draw** | **Verified** | `FontCoverageTest` asks Skia — the same `FontMgr` that does the drawing — for the glyph of every character the UI types, in both bundled weights, and fails on glyph 0. It asserts the other direction too: the two marks the app draws by hand, "✓" and "⋮", must stay absent, so a drawn mark that could be typed shows up as a failing test. The app bundles its own font because Skia ships none on the web, which is what makes one check answer for every platform |
 | Surveys save and load through a platform-free storage layer | **Verified** | a full round trip - naming, directories, autosave, listing - over an in-memory `FileStore`, on all three targets. The Android app's equivalent test is `@Ignore`d because `DocumentFile` cannot be mocked |
 | The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
@@ -437,8 +438,10 @@ Everything in this list is walked end to end by `field.mjs` on a 420-pixel scree
 and the iOS file handling underneath it runs in a simulator on the macOS runner:
 
 - **Record a trip.** Name a survey, type readings off the instrument's display, and watch three
-  that agree promote to a station under the app's own tolerance rules. *Forward*, *Backsight* and
-  *Fore + back* all mean what they mean in the app, and the field bar says which is on.
+  that agree promote to a station under the app's own tolerance rules. All four of
+  `action_bar.xml`'s modes are here — *Forward*, *Backsight*, *Fore + back* and *Splays Only*, the
+  last of which stops anything promoting at all, for a run of splays round a chamber — and they
+  mean what they mean in the app, with the field bar saying which is on.
 - **Fix a mistake.** Tap a table row to correct a reading, delete it, or promote a splay to a
   station. A correction keeps the destination station, so it cannot silently take the rest of the
   cave with it.
@@ -1214,6 +1217,31 @@ These are the things that would actually shape a real port.
    pages: 164 pixels on the top page, 112 on Help, so a submenu shrank under the finger that had
    just opened it. One width, and it stopped.
 
+40. **A feature withheld on a misreading of its own name.** `action_bar.xml` offers four input
+   modes and this port offered three. The fourth, `CALIBRATION_CHECK`, was ported into the engine
+   and tested there, then deliberately kept out of the UI with a comment explaining that it holds
+   readings taken against a known baseline and so is useless on a build that cannot talk to a
+   DistoX.
+
+   `strings.xml` calls it **Splays Only**. What it does is stop readings promoting to stations at
+   all — and wanting that has nothing to do with instruments. A surveyor taking a run of splays
+   round a chamber does not want three that happen to agree planting a station in the middle of the
+   floor. I had read the enum's name, not the string the user sees, and written a paragraph of
+   confident reasoning on top of it.
+
+   Adding it back turned up the same structural fault a third time. Three chips filled the reading
+   dialog's width exactly and they sat in a `Row`, which clips rather than wraps — so the fourth
+   would have been off the edge of the card with nothing to say it was there. Findings 30 and 34
+   again, and the fix is the same shape: `FlowRow`.
+
+   It also broke five coordinates in `field.mjs` at once, which is the more useful half. Four chips
+   wrap onto two rows, so the card grew fifty pixels — and a *centred* card that grows moves both
+   its edges, so every field shifted up while every button shifted down. `FIELD_DISTANCE` landed on
+   the bottom edge of its own box. They are offsets now: from the card's top edge for everything
+   above the chips, from its bottom edge for the buttons. Both survive the card changing height,
+   which is what a dialog does whenever anything is added to it — and something is added to a
+   dialog rather often.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1319,7 +1347,7 @@ this up again is which of the remaining items are *blocked* and which are merely
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 709
 shared tests on three targets, 266 over the UI's own logic, 17 running the iOS half in a simulator,
-81 browser checks driving the real page on a 420-pixel screen and finishing at 375x667. The
+82 browser checks driving the real page on a 420-pixel screen and finishing at 375x667. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.
 

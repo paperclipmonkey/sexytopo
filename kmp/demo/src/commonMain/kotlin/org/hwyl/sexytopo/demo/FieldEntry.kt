@@ -2,6 +2,7 @@ package org.hwyl.sexytopo.demo
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -75,7 +76,14 @@ fun ManualReadingDialog(
                     onInclination = { inclination = it },
                     lastImeAction = ImeAction.Done,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // FlowRow and not Row. Three chips filled a phone-width dialog exactly, and a
+                // Row clips what does not fit rather than wrapping it — so the fourth mode would
+                // have been off the edge of the card with nothing to say it was there. That is
+                // findings 30 and 34 a third time: a container that cannot grow, given another row.
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     for (mode in OFFERED_MODES) {
                         FilterChip(
                             selected = inputMode == mode,
@@ -187,20 +195,24 @@ private fun ReadingField(
 }
 
 /**
- * The modes worth offering without an instrument attached.
+ * All four of `action_bar.xml`'s input modes.
  *
- * `CALIBRATION_CHECK` is left out: it exists to hold readings taken to check a DistoX against a
- * known baseline, and it never promotes anything, so on a build that cannot talk to a DistoX it is
- * a mode whose only effect would be to stop the app working.
+ * `CALIBRATION_CHECK` was left out of this port for a while, on the reading that it exists to hold
+ * readings taken against a known baseline and so is useless on a build that cannot talk to a
+ * DistoX. The app's own label says otherwise: `strings.xml` calls it **Splays Only**, and what it
+ * does is stop readings promoting to stations at all. That is an ordinary thing to want with no
+ * instrument in sight — a run of splays round a chamber, where three that happen to agree would
+ * otherwise plant a station in the middle of the floor.
  */
-val OFFERED_MODES = listOf(InputMode.FORWARD, InputMode.BACKWARD, InputMode.COMBO)
+val OFFERED_MODES =
+    listOf(InputMode.FORWARD, InputMode.BACKWARD, InputMode.COMBO, InputMode.CALIBRATION_CHECK)
 
 fun labelFor(mode: InputMode): String =
     when (mode) {
         InputMode.FORWARD -> "Forward"
         InputMode.BACKWARD -> "Backsight"
         InputMode.COMBO -> "Fore + back"
-        InputMode.CALIBRATION_CHECK -> "Calibration"
+        InputMode.CALIBRATION_CHECK -> "Splays only"
     }
 
 /** What it takes to make a station in this mode, which is the thing a surveyor needs to know. */
@@ -212,7 +224,8 @@ fun promotionRuleFor(mode: InputMode): String =
             "Shots taken from the far station, looking back. Three agreeing ones make a station."
         InputMode.COMBO ->
             "A foresight then a backsight down the same leg makes a station; so do three repeats."
-        InputMode.CALIBRATION_CHECK -> "Readings are kept as splays and never promoted."
+        InputMode.CALIBRATION_CHECK ->
+            "Every reading is kept as a splay. Nothing promotes to a station in this mode."
     }
 
 /** A reading, or the reason it is not one yet. */

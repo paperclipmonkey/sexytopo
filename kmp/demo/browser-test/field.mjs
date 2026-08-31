@@ -165,15 +165,26 @@ const NAME_CONFIRM = [312, 518]
 const ADD_READING = [74, 790]
 // Same place as "Add reading", because it is the button that becomes it.
 const START_SURVEYING = [83, 790]
-const FIELD_DISTANCE = [144, 355]
-const FIELD_AZIMUTH = [284, 355]
-const FIELD_INCLINATION = [144, 429]
-const SIGN_TOGGLE = [255, 425]
-const MODE_FORWARD = [116, 491]
-const MODE_BACKSIGHT = [214, 491]
-const CANCEL_READING = [139, 605]
-const ADD_SPLAY = [225, 605]
-const ADD_LEG = [309, 605]
+// The reading dialog, as offsets rather than screen positions.
+//
+// These were nine absolute coordinates, and adding the fourth input mode broke five of them at
+// once: four chips wrap onto two rows, the card grew fifty pixels taller, and a centred card that
+// grows moves *both* its edges — so every field shifted up and every button shifted down while the
+// numbers stayed still. `FIELD_DISTANCE` landed on the bottom edge of its box.
+//
+// Everything above the chips is a fixed distance below the card's top edge; the buttons are a
+// fixed distance above its bottom edge. Both survive the card changing height, which is what a
+// dialog does whenever anything is added to it.
+const CARD_DISTANCE = [144, 107]
+const CARD_AZIMUTH = [284, 107]
+const CARD_INCLINATION = [144, 181]
+const CARD_SIGN_TOGGLE = [255, 177]
+// Two chips a row, in `OFFERED_MODES` order: Forward, Backsight, then Fore + back, Splays only.
+const CARD_MODES = [[116, 243], [214, 243], [128, 295], [242, 295]]
+const CARD_BUTTONS_ABOVE_BOTTOM = 44
+const CARD_CANCEL_X = 139
+const CARD_ADD_SPLAY_X = 225
+const CARD_ADD_LEG_X = 309
 // `SexyTopoColours.panelBackground`, the green the sketch toolbar is drawn on and nothing else at
 // the bottom of the screen is.
 const SKETCH_PANEL = [127, 175, 127]
@@ -827,7 +838,7 @@ await at(...START_SURVEYING); await page.waitForTimeout(700)
 // That the button leads somewhere usable: the reading dialog is drawn to the canvas, so what is
 // checked is that focusing its first field produces the hidden DOM input Compose types through.
 await at(...ADD_READING); await page.waitForTimeout(700)
-await at(...FIELD_DISTANCE); await page.waitForTimeout(300)
+await at(...(await onCard(CARD_DISTANCE))); await page.waitForTimeout(300)
 await page.screenshot({ path: join(shotDir, 'field-started.png') })
 if ((await page.$$('input')).length === 0) {
   fail('the demo cave has no working way through to a survey you can record into')
@@ -860,18 +871,39 @@ await page.screenshot({ path: join(shotDir, 'field-new-survey.png') })
 // ---- three agreeing readings promote to a station -------------------------------------
 // The minus sign is typed with the +/- button rather than the keyboard, because that is the only
 // way it can be entered on a phone: no iOS or Android numeric keypad has a minus key.
+/** A point inside the open reading dialog, from its card's top edge. */
+async function onCard([x, downFromTop]) {
+  const top = await dialogTop()
+  if (top === null) throw new Error('the reading dialog is not open')
+  return [x, top + downFromTop]
+}
+
+/** One of the dialog's bottom buttons, from the card's bottom edge. */
+async function cardButton(x) {
+  const top = await dialogTop()
+  const height = await dialogHeight()
+  if (top === null || height === null) throw new Error('the reading dialog is not open')
+  return [x, top + height - CARD_BUTTONS_ABOVE_BOTTOM]
+}
+
+/** The nth input-mode chip, in `OFFERED_MODES` order. */
+async function modeChip(index) {
+  return onCard(CARD_MODES[index])
+}
+
 async function reading(d, a, i, { splay = false, mode = null } = {}) {
   await at(...ADD_READING); await page.waitForTimeout(700)
-  if (mode) { await at(...mode); await page.waitForTimeout(250) }
-  await at(...FIELD_DISTANCE); await page.waitForTimeout(200)
+  if (mode !== null) { await at(...(await modeChip(mode))); await page.waitForTimeout(250) }
+  await at(...(await onCard(CARD_DISTANCE))); await page.waitForTimeout(200)
   await page.keyboard.type(String(d), { delay: 20 })
-  await at(...FIELD_AZIMUTH); await page.waitForTimeout(200)
+  await at(...(await onCard(CARD_AZIMUTH))); await page.waitForTimeout(200)
   await page.keyboard.type(String(a), { delay: 20 })
-  await at(...FIELD_INCLINATION); await page.waitForTimeout(200)
+  await at(...(await onCard(CARD_INCLINATION))); await page.waitForTimeout(200)
   await page.keyboard.type(String(Math.abs(i)), { delay: 20 })
-  if (i < 0) { await at(...SIGN_TOGGLE); await page.waitForTimeout(200) }
+  if (i < 0) { await at(...(await onCard(CARD_SIGN_TOGGLE))); await page.waitForTimeout(200) }
   await page.waitForTimeout(250)
-  await at(...(splay ? ADD_SPLAY : ADD_LEG)); await page.waitForTimeout(700)
+  await at(...(await cardButton(splay ? CARD_ADD_SPLAY_X : CARD_ADD_LEG_X)))
+  await page.waitForTimeout(700)
 }
 await reading(5.42, 12.5, -3.0)
 await reading(5.43, 12.7, -2.9)
@@ -2269,7 +2301,7 @@ await at(...PLAN_TAB); await page.waitForTimeout(600)
 // that can be wrong without the numbers showing it: the readings look perfectly ordinary and the
 // cave comes out pointing the other way. The stored leg has to carry the flag, and the table has
 // to show the reading the way the surveyor took it.
-await reading(4.0, 300, 5, { mode: MODE_BACKSIGHT })
+await reading(4.0, 300, 5, { mode: 1 })
 await reading(4.01, 300.2, 5.1)
 await reading(3.99, 299.8, 4.9)
 // The field bar has to say so while it is on: this is the one setting whose effect is invisible.
@@ -2285,11 +2317,38 @@ if (backsights.length !== 1) {
   pass('a leg shot from the far end is stored the right way round, and flagged as a backsight')
 }
 
+// ---- Splays Only keeps a run of splays a run of splays -------------------------------------
+// `action_input_mode_cal_check`, which `strings.xml` calls **Splays Only**. This port left it out
+// for a long time on the reading that it exists to check an instrument against a baseline and is
+// therefore useless without one. What it actually does is stop *anything* promoting to a station,
+// which is what a surveyor wants taking a run of splays round a chamber: three that happen to
+// agree would otherwise plant a station in the middle of the floor.
+//
+// So the check is the one that would catch the mode doing nothing: three readings that agree
+// within tolerance — which in any other mode is exactly the recipe for a station — and no new
+// station at the end of it.
+const stationsBefore = new Set((await savedLegs()).filter(isConnecting).map((l) => l.destination))
+await reading(7.5, 210, 0, { mode: 3 })
+await reading(7.51, 210.2, 0.1)
+await reading(7.49, 209.8, -0.1)
+await page.screenshot({ path: join(shotDir, 'field-splays-only.png') })
+
+const afterSplaysOnly = (await savedLegs()).filter(isConnecting).map((l) => l.destination)
+const grew = afterSplaysOnly.filter((d) => !stationsBefore.has(d))
+const splaysNow = (await savedLegs()).filter(isSplay).length
+if (grew.length > 0) {
+  fail(`Splays Only promoted three agreeing readings to station ${grew.join(', ')}`)
+} else if (splaysNow < 3) {
+  fail(`Splays Only kept only ${splaysNow} splays, so the readings went nowhere at all`)
+} else {
+  pass(`Splays Only keeps three agreeing readings as splays (${splaysNow} splays, no new station)`)
+}
+
 // Back to forward, so nothing after this inherits it.
 await at(...ADD_READING); await page.waitForTimeout(600)
-await at(...MODE_FORWARD); await page.waitForTimeout(300)
+await at(...(await modeChip(0))); await page.waitForTimeout(300)
 await page.screenshot({ path: join(shotDir, 'field-input-mode.png') })
-await at(...CANCEL_READING); await page.waitForTimeout(500)
+await at(...(await cardButton(CARD_CANCEL_X))); await page.waitForTimeout(500)
 
 // ---- and the demo cave stays a demo --------------------------------------------------------
 // The app opens on an example survey, which is where a new surveyor is most likely to press
