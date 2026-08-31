@@ -904,6 +904,16 @@ These are the things that would actually shape a real port.
    allow for the name, which is drawn up and to the right of the dot: cull on the dot alone and
    labels flicker at the edge as the drawing is dragged.
 
+   And a third measurement, which said *don't*. The drawing itself is not culled, and it looks
+   exactly like it should be: thousands of strokes, each mapped into screen coordinates and built
+   into a path every frame whether or not any of it is showing. Eight thousand of them cost **67 ms
+   a frame** with all of them on screen and **0.4 ms** with almost none — inside the noise.
+   Preparing a stroke is cheap; what cost the time was rasterising it, and rasterising is what Skia
+   already skips. Two of the three guesses about where the time went were wrong, which is the whole
+   argument for the test existing. The 67 ms is left as it is on purpose: it is rasterising strokes
+   that are genuinely on screen, so no cull touches it, and drawing less of the drawing is a
+   decision about what a surveyor sees rather than a performance fix.
+
 30. **A pixel threshold tuned on one glyph reports a working feature as broken.** The check that
    the table gains a dagger against a commented leg counted pixels darker than 120 and found the
    cell unchanged — 66 before, 65 after — so the check failed while a screenshot of the same moment
@@ -1048,9 +1058,10 @@ things that are missing are missing on purpose and are listed below.
 - **The `show_xsections` and `pinch_to_zoom` toggles**, the last two checkable items on
   `res/menu/drawing.xml` that this port does not carry. Both are an afternoon.
 - **The manual.** `GuideActivity` ships an HTML user guide; bundling it is mechanical.
-- **Culling the sketch as well as the survey.** The legs and stations are culled and measured; the
-  drawn strokes are not, and a heavily traced sketch is the case that would want it. Measure before
-  building it — the last two attempts at guessing where the time went were one right and one wrong.
+- **Drawing less of a heavily traced drawing.** With a fully traced cave *all on screen*, eight
+  thousand strokes are 120 ms a frame in the headless renderer. Culling does not touch it — they
+  are genuinely visible — so it would want level of detail, which changes what a surveyor sees and
+  is a decision rather than a fix. Measured, not guessed: see finding 29.
 
 **The one that matters most, and it is not iOS.** Pointing the Android app at this shared core makes
 the work pay for itself whether or not an iPhone ever runs it, and brings the stack-overflow and

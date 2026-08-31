@@ -6,6 +6,9 @@ import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Density
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
+import org.hwyl.sexytopo.shared.model.graph.Coord2D
+import org.hwyl.sexytopo.shared.model.sketch.Colour
+import org.hwyl.sexytopo.shared.model.sketch.PathDetail
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -54,6 +57,21 @@ class CanvasSpeedTest {
             previous = station
         }
         return survey
+    }
+
+    /**
+     * A drawing to match a cave that size: strokes of a dozen points each, spread over the same
+     * ground the passage covers. Same shape as `BigSurveyTest`'s.
+     */
+    private fun Survey.drawOn(strokes: Int) {
+        val sketch = getSketch(Projection2D.PLAN)
+        for (i in 0 until strokes) {
+            val x = (i % 100) * 2f
+            val y = (i / 100) * 2f
+            sketch.pathDetails.add(
+                PathDetail(List(12) { Coord2D(x + it * 0.1f, y + (it % 3) * 0.1f) }, Colour.BLACK),
+            )
+        }
     }
 
     @OptIn(ExperimentalComposeUiApi::class)
@@ -110,6 +128,48 @@ class CanvasSpeedTest {
             big < small * 24,
             "eight times the cave took ${big / small} times as long a frame ($small then $big " +
                 "ms) — something in the draw path is worse than linear in the survey",
+        )
+    }
+
+    /**
+     * A drawing that is off the screen costs almost nothing, so it is not culled.
+     *
+     * The question the centreline cull does not answer. A cave surveyed over many trips carries
+     * thousands of strokes, and each is mapped into screen coordinates and built into a `Path`
+     * every frame whether or not any of it is showing — which looks exactly like the legs did
+     * before they were culled.
+     *
+     * Measured, it is not the same at all. Eight thousand strokes cost **67 ms a frame** with all
+     * of them on screen and **0.4 ms** with almost none of them — a third of one per cent of the
+     * frame, inside the noise. Mapping the points and building the path is cheap; what cost the
+     * time was rasterising them, and rasterising is what Skia already skips. So there is no cull
+     * here, and this test is what says so: if a stroke ever becomes expensive to *prepare* rather
+     * than to draw, the second number moves and this fails.
+     *
+     * The first number is worth its own note, because nothing here fixes it: a fully traced cave
+     * with the whole of it on screen is 120 ms a frame in this renderer. That is rasterisation of
+     * eight thousand visible strokes, so no amount of culling touches it — it would want drawing
+     * less of the drawing, which changes what the surveyor sees and is a decision, not a fix.
+     */
+    @Test
+    fun aDrawingThatIsOffTheScreenCostsAlmostNothing() {
+        val plain = aLongPassage(1000)
+        val drawn = aLongPassage(1000).also { it.drawOn(8000) }
+
+        val plainOut = timeFrames(plain, zoomSteps = 0)
+        val drawnOut = timeFrames(drawn, zoomSteps = 0)
+        val plainIn = timeFrames(plain, zoomSteps = 40)
+        val drawnIn = timeFrames(drawn, zoomSteps = 40)
+
+        println(
+            "1000 stations, 8000 strokes: zoomed out ${plainOut} without / ${drawnOut} with; " +
+                "zoomed in ${plainIn} without / ${drawnIn} with",
+        )
+        assertTrue(
+            drawnIn < plainIn + (drawnOut - plainOut) * 0.2,
+            "with almost none of the drawing on screen it still cost ${drawnIn - plainIn} ms a " +
+                "frame, against ${drawnOut - plainOut} with all of it — preparing the strokes has " +
+                "become expensive enough to be worth culling, which it was not when this was written",
         )
     }
 
