@@ -140,6 +140,76 @@ class InstrumentDecoderTest {
         assertEquals(1, emitted.count { it is InstrumentPacket.Measurement })
     }
 
+    /**
+     * An all-clear with nothing to clear invents nothing.
+     *
+     * BRIC's errors characteristic is what *completes* a shot: an all-zero frame means "that one
+     * was fine". Answering it with whatever was last in the measurement slot has two failure modes
+     * on a real link, and this is the first — a stray all-clear before any measurement has
+     * arrived, which happens if the subscriptions complete out of order or the first measurement
+     * indication is dropped.
+     *
+     * What it would produce is not an error but a *record*: a zero distance is a legal [Leg], so
+     * the survey gets a 0.00 m splay at the surveyor's feet, indistinguishable afterwards from a
+     * wall they really measured.
+     */
+    @Test
+    fun bricInventsNoShotFromAnAllClearAlone() {
+        val decoder = InstrumentDecoder.forProfile(InstrumentProfile.BRIC4)
+
+        val emitted = decoder.decode(FrameChannel.TERTIARY, ByteArray(32))
+
+        assertEquals(emptyList(), emitted, "an all-clear before any measurement is not a shot")
+    }
+
+    /**
+     * And it does not report the same shot twice.
+     *
+     * The second failure mode, and the worse one. A repeated all-clear used to re-emit the
+     * previous measurement — so one real shot plus two repeats of itself would *agree perfectly*
+     * and promote to a station under the triple-shot rule. The point of shooting three times is
+     * that three independent readings have to agree; a station built from one reading counted
+     * three times has been cross-checked against nothing, and nothing in the survey afterwards
+     * says which station it was.
+     */
+    @Test
+    fun bricDoesNotReportOneShotThreeTimes() {
+        val decoder = InstrumentDecoder.forProfile(InstrumentProfile.BRIC4)
+
+        val emitted =
+            listOf(
+                FrameChannel.PRIMARY to ByteArray(32),
+                FrameChannel.EXTENDED to ByteArray(32),
+                FrameChannel.TERTIARY to ByteArray(32),
+                // Two more all-clears with no new measurement behind them.
+                FrameChannel.TERTIARY to ByteArray(32),
+                FrameChannel.TERTIARY to ByteArray(32),
+            ).flatMap { (channel, bytes) -> decoder.decode(channel, bytes) }
+
+        assertEquals(
+            1,
+            emitted.count { it is InstrumentPacket.Measurement },
+            "three all-clears over one measurement are one shot, not three",
+        )
+    }
+
+    /** And the next real shot still gets through, which is what makes the guard a guard. */
+    @Test
+    fun bricStillReportsTheNextShot() {
+        val decoder = InstrumentDecoder.forProfile(InstrumentProfile.BRIC4)
+
+        val emitted =
+            listOf(
+                FrameChannel.PRIMARY to ByteArray(32),
+                FrameChannel.TERTIARY to ByteArray(32),
+                FrameChannel.TERTIARY to ByteArray(32),
+                FrameChannel.PRIMARY to ByteArray(32),
+                FrameChannel.TERTIARY to ByteArray(32),
+            ).flatMap { (channel, bytes) -> decoder.decode(channel, bytes) }
+
+        assertEquals(2, emitted.count { it is InstrumentPacket.Measurement })
+    }
+
     @Test
     fun sap6SurvivesAFrameItCannotParse() {
         val decoder = InstrumentDecoder.forProfile(InstrumentProfile.SAP6)

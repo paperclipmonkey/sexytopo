@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 750 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 759 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
@@ -2097,6 +2097,38 @@ These are the things that would actually shape a real port.
    degrees-and-minutes switches — are their own dialog now, as *Sketching* already was. The port
    had merged them, and the merge is what outgrew the phone.
 
+65. **A shot the instrument never took.** Found by asking one question of the BRIC decoder while
+   somebody was pointing a real BRIC4 at a wall: *what completes a shot?*
+
+   The answer is the errors characteristic. A BRIC sends measurement, then metadata, then errors,
+   and an all-zero errors frame means "that one was fine" — so that is the frame this decoder
+   turned into an `InstrumentPacket.Measurement`, built from whatever was last in its measurement
+   slot. Which is right when the three frames arrive in order, and wrong in two ways that are
+   ordinary events on a real Bluetooth link rather than hypotheticals:
+
+   - **An all-clear with nothing to clear.** If the subscriptions complete out of order, or the
+     first measurement indication is dropped, the measurement slot still holds `NO_MEASUREMENT` —
+     a leg of all zeros. A zero distance is a *legal* `Leg`, so what reaches the survey is not an
+     error but a **record**: a 0.00 m splay at the surveyor's feet, indistinguishable ever
+     afterwards from a wall they really measured.
+   - **The same shot three times.** A repeated all-clear re-emitted the previous measurement. This
+     is the worse one, because of what the app does with three readings: one real shot plus two
+     fabricated repeats of itself *agree perfectly*, so they promote to a station under the
+     triple-shot rule. The entire point of shooting three times is that three independent readings
+     have to agree, and a station built from one reading counted three times has been cross-checked
+     against nothing. Nothing in the survey afterwards says which station it was.
+
+   The fix is four lines — a measurement is emitted only when one is waiting — and the value is
+   all in having asked. It is also the third bug on this branch of the same species: a wrong number
+   that is *plausible*, recorded silently, in a file somebody will trust. The other two are the
+   LRUD landing on the station the reading created (finding 63) and the backsight stored the wrong
+   way round. None of them throws, none of them logs, and all three come back from the cave as a
+   drawing that is quietly the wrong shape.
+
+   The Android app has the same hole and reaches it by a different road: `Bric4Manager` cannot tell
+   the three characteristics apart at all and cycles blindly through the roles, so a dropped
+   indication desynchronises the cycle instead. Its own comment admits the risk.
+
 ---
 
 ## A defect worth reporting upstream
@@ -2229,7 +2261,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 744
-shared tests on three targets, 352 over the UI's own logic, 18 running the iOS half in a simulator,
+shared tests on three targets, 357 over the UI's own logic, 18 running the iOS half in a simulator,
 101 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the

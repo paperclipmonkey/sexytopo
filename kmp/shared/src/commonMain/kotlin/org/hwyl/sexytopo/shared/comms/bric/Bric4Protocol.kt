@@ -282,6 +282,7 @@ class Bric4Decoder {
         return when (state) {
                 State.MEASUREMENT -> {
                     currentMeasurement = Bric4Protocol.parsePrimary(bytes)
+                    measurementPending = true
                     emptyList()
                 }
 
@@ -306,7 +307,12 @@ class Bric4Decoder {
                                 showToUser = report.slot == 0,
                             )
                         }
+                    } else if (!measurementPending) {
+                        // An all-clear with nothing to clear. See [measurementPending]: this is
+                        // the frame that would otherwise invent a leg.
+                        emptyList()
                     } else {
+                        measurementPending = false
                         listOf(
                             InstrumentPacket.Measurement(
                                 currentMeasurement.leg,
@@ -321,11 +327,35 @@ class Bric4Decoder {
         }
     }
 
+    /**
+     * Whether a measurement frame has arrived that no measurement packet has been emitted for yet.
+     *
+     * Without this the errors characteristic alone decides whether a shot happened: an all-zero
+     * errors frame means "that one was fine", and this decoder answered it by emitting whatever
+     * was last in [currentMeasurement]. Two ways that goes wrong, and both are ordinary events on
+     * a real link rather than hypotheticals:
+     *
+     *  - **Nothing measured yet.** [NO_MEASUREMENT] is a leg of all zeros, and a zero distance is
+     *    a *legal* [Leg] — so a stray all-clear before the first shot records a 0.00 m splay at
+     *    the surveyor's feet. It is a wall measurement that was never taken, in a real survey,
+     *    indistinguishable afterwards from one that was.
+     *  - **The same shot twice.** A repeated all-clear re-emitted the previous measurement. With
+     *    the triple-shot promotion rule that is worse than a stray splay: one real shot plus two
+     *    fabricated repeats of itself *agree perfectly*, so they promote to a station that nothing
+     *    ever cross-checked. The whole point of shooting three times is defeated by the app.
+     *
+     * So an all-clear only produces a measurement when there is one waiting. The Android app has
+     * the same hole and reaches it differently — it cannot tell the three characteristics apart at
+     * all and cycles blindly, so a dropped indication desynchronises the cycle instead.
+     */
+    private var measurementPending = false
+
     /** Puts the cycle back to the start; use after reconnecting. */
     fun reset() {
         state = State.MEASUREMENT
         currentMeasurement = NO_MEASUREMENT
         currentReference = UNKNOWN_REFERENCE
+        measurementPending = false
     }
 
     companion object {
