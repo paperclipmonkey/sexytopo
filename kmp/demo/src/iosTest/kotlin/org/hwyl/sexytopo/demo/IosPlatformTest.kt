@@ -1,6 +1,10 @@
 package org.hwyl.sexytopo.demo
 
+import kotlinx.coroutines.runBlocking
+import org.hwyl.sexytopo.demo.resources.Res
 import org.hwyl.sexytopo.shared.io.store.SurveyStorage
+import org.hwyl.sexytopo.shared.manual.contentsOf
+import org.hwyl.sexytopo.shared.manual.parseManual
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
@@ -267,6 +271,39 @@ class IosPlatformTest {
         assertTrue(canBuzz())
         assertTrue(buzz())
         assertTrue(buzz(NEW_STATION_BUZZ_MS))
+    }
+
+    // -------------------------------------------------------------------------------------
+    // The manual, which is the first thing this app ships as a Compose *file* resource
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * The guide is bundled as `composeResources/files/manual.html` and read at runtime with
+     * `Res.readBytes`. The fonts prove that mechanism works on iOS — the app draws text in the
+     * simulator screenshot, and it could not without them — but `files/` is a different directory
+     * from `font/`, and "the same mechanism, one folder along" is inference rather than evidence.
+     *
+     * It is also the failure that would be invisible until somebody in a cave taps *Manual*: the
+     * resource is looked up in the framework's bundle at runtime, so a packaging mistake compiles,
+     * links, launches and draws a cave perfectly well before failing on the one screen that needs
+     * it. Reading it here is the cheapest possible answer.
+     */
+    @Test
+    fun theManualIsInTheAppsOwnBundle() = runBlocking {
+        val bytes = Res.readBytes("files/manual.html")
+        assertTrue(
+            bytes.size > 20_000,
+            "the bundled manual is ${bytes.size} bytes, not the 23 KB guide",
+        )
+        val blocks = parseManual(bytes.decodeToString())
+        // Parsed rather than merely read: a resource that comes back as the wrong bytes — a
+        // truncation, or a text file mangled by an encoding step — reads fine and parses to
+        // nothing much.
+        assertEquals(
+            13,
+            contentsOf(blocks).size,
+            "the manual on iOS has ${contentsOf(blocks).size} sections rather than thirteen",
+        )
     }
 
     @Test
