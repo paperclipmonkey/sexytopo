@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 694 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 697 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
@@ -57,6 +57,7 @@ Being precise about this matters more than the demo looking good.
 | The desktop build keeps its surveys too | **Verified** | a survey written by one `SurveyLibrary` and read by a second over the same directory, in SexyTopo's own file layout, plus the three platform conventions for where that directory goes |
 | **A real-sized cave works, not just a demo one** | **Verified** | `BigSurveyTest` builds a four-thousand-station passage — past where every tree walk in this port used to overflow the stack — and projects it to a plan and an extended elevation, builds its wireframe, counts its statistics, exports it to Survex and Therion and reads it back, on all three targets, along with SVG, `.xvi`, `.th2`, Compass and PocketTopo — and rubs out and undoes on a drawing of eight thousand strokes |
 | **A real-sized cave draws, and draws linearly** | **Verified** | `CanvasSpeedTest` renders the plan of a four-thousand-station survey through the same headless Skia the demo PNGs use, and checks that eight times the cave costs about eight times the frame rather than sixty-four — the failure mode finding 18 was, in the drawing rather than in the export. The absolute times are a CPU rasteriser's and not a phone's, and the test says so |
+| **The cave is the same size on a phone as on a desktop** | **Verified** | `DrawingDensityTest` renders the same plan twice through headless Skia — once at 1x, once at three times the size *and* three times the density, which is what a phone shows — and compares what fraction of each picture is centreline. Dp sizes give one picture at two resolutions and the same fraction; raw pixels give a cave drawn a third as thick. Measured both ways: **1.11 as it stands, 0.44 with finding 28 put back**. It counts only the red centreline, because the text on that canvas is in `sp` and scaled correctly even when the bug was live — counting all the ink made the first version of this test pass with the bug in |
 | Surveys save and load through a platform-free storage layer | **Verified** | a full round trip - naming, directories, autosave, listing - over an in-memory `FileStore`, on all three targets. The Android app's equivalent test is `@Ignore`d because `DocumentFile` cannot be mocked |
 | The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
 | The BLE connection logic is platform-free | **Verified** | `GattLinkTest` and `GattSessionTest` — the profile matrix *and* the connection lifecycle; only callback plumbing is left in `iosMain` |
@@ -966,8 +967,9 @@ These are the things that would actually shape a real port.
    The touch tolerances were all converted properly, which is what kept it hidden — the app would
    have felt right and looked wrong. And nothing here could have caught it: the browser the checks
    run in is at one device pixel to the dp, where every one of these numbers is its own conversion,
-   so the fix changes not a single pixel of any evidence in this repository. It is the one change
-   on this branch verified by reading rather than by running.
+   so the fix changes not a single pixel of any evidence in this repository. It was the one change
+   on this branch verified by reading rather than by running — until finding 37, where it turned
+   out `ImageComposeScene` takes a `Density` and a phone is only a number. It has a test now.
 
 29. **The thing that looked like the bottleneck was not, and the measurement said so.** With the
    whole of a four-thousand-station survey on screen — the view the app opens on — a frame took
@@ -1125,6 +1127,33 @@ These are the things that would actually shape a real port.
    and a launch screen is two. Measured, both ways, against a real frame and a synthetic launch
    screen, before it was ever pushed.
 
+37. **"Only a phone can check this" was wrong, and the first test I wrote for it was vacuous.**
+   Finding 28 — every drawn size on the canvas a raw pixel rather than a dp, so at three device
+   pixels to the dp the cave came out a third of its size — was found by reading and fixed by
+   reading, and I recorded that only a phone could confirm it, because the browser CI runs at one
+   device pixel to the dp and cannot see the difference. That was a failure of imagination.
+   `ImageComposeScene` takes a `Density`, and a phone is only a number: render the same survey at
+   1x and at three times the size *and* three times the density, and the second is what a 3x
+   screen shows. If the sizes are dp the two are one picture at two resolutions and the same
+   *proportion* of each is ink; if they are raw pixels the second is drawn a third as thick.
+
+   Then the interesting part. The test passed — and passed just as happily with finding 28 put
+   back, which is the only reason I found out it was worthless. It counted every dark pixel, and
+   most of what is on that canvas is *text*: station names, the scale bar, the compass. Text is in
+   `sp`, which scaled correctly the whole time finding 28 was live. So the measurement was
+   dominated by the half that was never broken, and the ratio fell only from 0.98 to 0.77 —
+   inside any threshold loose enough to tolerate antialiasing.
+
+   Counting only the red centreline, the thing actually drawn from a dp, separates them properly:
+   1.11 as the code stands, 0.44 with the bug reintroduced. The 1.11 is antialiasing and it errs
+   honestly — a 2.5px line spends much of its width in half-covered edge pixels too pale to count,
+   while at 7.5px the line is mostly solid core, so the fraction rises slightly with density.
+
+   Two lessons, and the second is the one I keep relearning: a test that has never been seen to
+   fail is not evidence, it is decoration. Every check on this branch that claims to catch
+   something was run against the bug it names before it was pushed — this one twice, because the
+   first version of it was a lie I told myself in good faith.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1228,9 +1257,9 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 691
-shared tests on three targets, 226 over the UI's own logic, 17 running the iOS half in a simulator,
-64 browser checks driving the real page on a 420-pixel screen and finishing at 375x667. The
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 697
+shared tests on three targets, 257 over the UI's own logic, 17 running the iOS half in a simulator,
+76 browser checks driving the real page on a 420-pixel screen and finishing at 375x667. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.
 
@@ -1240,10 +1269,12 @@ things that are missing are missing on purpose and are listed below.
    one; neither has met a radio, and the iOS simulator has no Bluetooth stack, so no amount of work
    here changes that. Longest lead time of anything: worth starting to borrow one now.
 2. **A Mac with a phone plugged into it.** The build is written out step by step above and CI
-   compiles for `iosArm64`, but nobody has pressed Run. Three changes on this branch are verified by
-   reading rather than by running, and all three would be settled in the first thirty seconds of a
-   device build: the dp conversion (finding 28), the scrolling of the dialogs with several fields in
-   them, and the app icon and launch colour, whose asset catalogue has never been near an `actool`.
+   compiles for `iosArm64` and a simulator has now photographed the app, but nobody has pressed Run
+   on real hardware. What that still leaves is one thing rather than the three it was: a dialog
+   with the *keyboard up*, which takes a third of an iPhone SE's screen and which no headless
+   browser and no simulator screenshot has. The dp conversion (finding 28) was on this list and is
+   not any more — `DrawingDensityTest` renders the canvas at a phone's density and would catch it —
+   and the app icon has been through a real `actool`.
 3. **A decision from upstream.** Cross-survey links are absolute `content://` URIs; replacing them
    is a format question, not a porting one. And GPL-3.0 on the App Store needs a Section 7 exception
    from every copyright holder, which gates release rather than development and takes as long as it
