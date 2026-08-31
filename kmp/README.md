@@ -88,7 +88,7 @@ Being precise about this matters more than the demo looking good.
 | **The manual is packaged, not just written** | **Verified** | `Res.readBytes("files/manual.html")` — the call the running app makes — in a JVM test **and** in the iOS simulator test, because packaging is per-target and neither answers for the other. This is the app's first `composeResources/files/` resource; the fonts prove the mechanism on iOS but `files/` is a different directory from `font/`, and a packaging mistake compiles, links, launches and draws a cave perfectly before failing on the one screen that needs it. Both tests parse what comes back and count the thirteen sections, so a truncated or re-encoded resource fails too |
 | **The iOS half of the app runs, not just compiles** | **Verified** | `:demo:iosSimulatorArm64Test` on a macOS runner: the Documents file store round-trips text, non-ASCII, nested directories and a whole survey; a file's exact bytes come back through the hand-written `NSData` copy the PocketTopo reader needs; the log's timestamps come out in the Android app's own format; the clipboard and the new-station haptic do not bring the app down |
 | **The iOS *app* builds, not only the framework it links** | **Verified** | `xcodegen` then `xcodebuild` for the simulator on the macOS runner, so `project.yml`, `Info.plist`, `Assets.xcassets` and the two Swift files are *compiled* rather than merely written — all four were authored on Linux and none had been near a compiler. It is also the only thing that runs `actool`, which is the only real answer to whether an app icon drawn here with PIL is one iOS accepts: an alpha channel or a wrong size is rejected outright, and nothing on Linux says so |
-| **Compose actually draws the survey on iOS** | **Verified** | CI boots a simulator, installs the app, launches it and photographs it. The picture has to contain the app's own panel green — an app that crashed shows Springboard, one with no UI shows white — *and* enough distinct colours to rule out the launch screen, which is that same green on purpose. Measured on the runner: **2340 green pixels and 609 distinct colours** against thresholds of 500 and 40. The screenshot is uploaded as the `ios-simulator-screenshot` artifact on every run |
+| **Compose actually draws the survey on iOS, and is still alive afterwards** | **Verified** | CI boots a simulator, installs the app, launches it and photographs it — then **looks again twenty seconds later**, and scans the host's crash reports for this bundle. The second look and the scan are new, and they exist because a phone found a crash this job could not: an app that launches, draws, passes the photograph and *then* dies is what an uncaught throw dispatched to a background queue looks like, and a check that looks once cannot see anything that happens afterwards. See finding 54. The picture has to contain the app's own panel green — an app that crashed shows Springboard, one with no UI shows white — *and* enough distinct colours to rule out the launch screen, which is that same green on purpose. Measured on the runner: **2340 green pixels and 609 distinct colours** against thresholds of 500 and 40. The screenshot is uploaded as the `ios-simulator-screenshot` artifact on every run |
 | The iOS app runs on a device | **Not verified** | needs Xcode, an Apple developer account and a physical phone. The app *bundle* is now built by CI, so what is left is signing and installing it |
 | **The app can ask to connect to an instrument** | **Verified** | `instrument.mjs` in CI stands a stub where `navigator.bluetooth` would be and makes it behave like a DistoX-BLE: the profile's name prefix and UUIDs reach the browser API, the notification arrives as a frame, the decoder reads it, the acknowledgement goes back, and three readings make a station in a saved survey |
 | **A calibration can be taken, solved and written back** | **Verified** | `instrument.mjs` puts the fake DistoX-BLE into calibration mode, feeds it the Android app's own 56-shot dataset over Web Bluetooth, and checks the twelve coefficient blocks reach the device |
@@ -1696,14 +1696,27 @@ These are the things that would actually shape a real port.
      framework**, and the framework's requirements are not discoverable from the platform's
      documentation. The fix for the class, not the instance, is that a plist check should be
      derived from what the app's dependencies demand and not only from what iOS demands.
-   - **It is the first thing real hardware found, and it was invisible to everything here.** CI
-     compiles this app for `iosArm64`, builds it for the simulator with `xcodebuild`, and runs the
-     shared core on an Apple runtime; a simulator has even photographed the screen. None of that
-     could see it — the simulator's display link has no minimum frame duration to disable, so the
-     check that fires on a phone does not fire there. Written down because this README has spent
-     its whole life saying that a device is the one thing it cannot substitute for, and this is
-     what that was worth: **one key, found in ten minutes on a phone, that six thousand lines of
-     checks could not reach.**
+   - **It is the first thing real hardware found, and CI did not see it — and I do not know why.**
+     This bullet said, until it was checked, that the check is gated to devices and so cannot fire
+     on a simulator. That was invented. `ComposeHostingViewController.viewDidLoad` calls
+     `PlistSanityCheck.performIfNeeded()` unconditionally whenever
+     `enforceStrictPlistSanityCheck` is set, which it is by default, and nothing in either that
+     call site or the check itself mentions a simulator. So CI's simulator run *should* have died
+     the same way, and it did not.
+
+     The honest state of it: I have a mechanism for the symptom on the phone — the throw is
+     `dispatch_async`'d to `DISPATCH_QUEUE_PRIORITY_LOW`, so it lands whenever that queue next gets
+     CPU — and no verified explanation for why the same build survived twenty-five seconds on a
+     CI simulator. The most likely candidate is that the low-priority block was simply starved on
+     a runner that was busy booting, installing and launching, and that the screenshot was taken
+     of an app that had not died *yet*; **CI never looks at it again.** That is a hole in the check
+     whatever the answer, and it is now closed — the run takes a second look later, and scans the
+     host's crash reports for this bundle.
+
+     Which leaves the lesson pointing somewhere better than where I first put it. It is not
+     *"only a phone can find this"*: it is **a check that looks once cannot see anything that
+     happens afterwards**, and tonight's bug happens afterwards by construction. The device found
+     it first because a person kept using the app; CI stopped watching after one photograph.
 
    The key is also correct on merit, which is the smaller half: without it iOS caps the display
    link at 60 Hz, so the sketch would pan at half the rate a 120 Hz iPhone can manage.

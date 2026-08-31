@@ -218,12 +218,46 @@ jobs:
           sips -Z 240 ios-simulator.png --out ios-small.png > /dev/null
           python3 check-screenshot.py ios-small.png
 
+          # And again, later. This is the half that was missing when a phone found a crash this
+          # job could not: the app launches, draws, passes the photograph, and *then* dies —
+          # which is what an uncaught throw dispatched to a background queue does. A check that
+          # looks once cannot see anything that happens afterwards.
+          #
+          # Not a substitute for the crash scan below; it is the cheaper of the two and it fails
+          # with a picture of what the screen looked like, which is worth having.
+          sleep 20
+          xcrun simctl io "$device" screenshot ios-simulator-later.png
+          sips -Z 240 ios-simulator-later.png --out ios-small-later.png > /dev/null
+          python3 check-screenshot.py ios-small-later.png
+
+      # A simulator app that dies leaves a report on the *host*, whatever killed it and whenever.
+      # That is the check with real teeth: it does not depend on catching the app mid-fall, and it
+      # prints the reason, so the next one of these arrives as a stack rather than as a
+      # disassembly somebody had to paste by hand.
+      - name: Check the app did not crash while it was running
+        if: always()
+        run: |
+          set -uo pipefail
+          reports=$(ls "$HOME/Library/Logs/DiagnosticReports"/*.ips 2>/dev/null || true)
+          found=""
+          for report in $reports; do
+            if grep -qi "sexytopo" "$report" 2>/dev/null; then
+              found="yes"
+              echo "::error::the app crashed in the simulator: $(basename "$report")"
+              cat "$report"
+            fi
+          done
+          if [ -n "$found" ]; then
+            exit 1
+          fi
+          echo "No crash reports for this app."
+
       - name: Upload the iOS screenshot
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ios-simulator-screenshot
-          path: kmp/iosApp/ios-simulator.png
+          path: kmp/iosApp/ios-simulator*.png
 
       - name: Upload test report
         if: always()
