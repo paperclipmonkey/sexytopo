@@ -99,7 +99,7 @@ class IosAssetsTest {
     }
 
     /**
-     * The two `Info.plist` keys that are the difference between a working app and a crash.
+     * The `Info.plist` keys that are the difference between a working app and a crash.
      *
      * `NSBluetoothAlwaysUsageDescription` is required from iOS 13: without it, *constructing* a
      * `CBCentralManager` raises and the app dies the first time somebody taps connect. And the
@@ -113,5 +113,33 @@ class IosAssetsTest {
         assertTrue(plist.contains("NSBluetoothAlwaysUsageDescription"), "connect would crash")
         assertTrue(plist.contains("UIFileSharingEnabled"), "surveys would be unreachable")
         assertTrue(plist.contains("LSSupportsOpeningDocumentsInPlace"))
+    }
+
+    /**
+     * And the key Compose Multiplatform itself demands, whose absence crashed the app on a phone.
+     *
+     * `androidx.compose.ui.uikit.PlistSanityCheck` reads `CADisableMinimumFrameDurationOnPhone`
+     * and calls `error()` when it is missing or false. Two things made it hard to place. It runs
+     * on a **low-priority background queue**, so the throw lands whenever that queue next gets
+     * CPU rather than at launch — on a real phone that was the first time the app went idle
+     * enough to schedule it, which was after a tap, so it read as "the overflow menu is broken".
+     * And nothing in this repository mentions the key, because the requirement belongs to a
+     * dependency: an `Info.plist` that satisfies Apple can still fail Compose.
+     *
+     * Checked as a string, and checked for `<true/>` rather than merely for the key, because the
+     * check the framework does is `boolValue != true` — a key present and false fails exactly the
+     * same way as a key absent.
+     */
+    @Test
+    fun thePlistCarriesTheKeyComposeItselfInsistsOn() {
+        val plist = File(iosApp, "iosApp/Info.plist").readText()
+
+        val key = "<key>CADisableMinimumFrameDurationOnPhone</key>"
+        assertTrue(plist.contains(key), "Compose's own plist check will crash the app on a phone")
+        val after = plist.substringAfter(key).trimStart()
+        assertTrue(
+            after.startsWith("<true/>"),
+            "the key is present but not true, which fails Compose's check the same way",
+        )
     }
 }

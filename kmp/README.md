@@ -378,8 +378,16 @@ Then carry on from step 3 above. This path has not been run here either — ther
 machine this was written on — but every value in it is copied from the spec XcodeGen would have
 used, and the whole point of listing them is that you can compare the two.
 
-Three things go wrong, in roughly this order of likelihood:
+Four things go wrong, in roughly this order of likelihood:
 
+- **The app builds, runs, and then dies a moment later — often on the first thing you tap, which
+  makes it look as though a button is broken.** Compose Multiplatform's own
+  `androidx.compose.ui.uikit.PlistSanityCheck` calls `error()` unless `Info.plist` has
+  `CADisableMinimumFrameDurationOnPhone` set to `<true/>`. The committed plist has it; a
+  hand-built project with *Generate Info.plist File* left on will not, and the key is not one
+  Apple's templates add. It is checked on a low-priority background queue, so the throw lands
+  whenever that queue next gets CPU rather than at launch — which is why it reads as a crash in
+  whatever you happened to be doing. See finding 54.
 - **"Unable to locate a Java Runtime"** in the build log. Xcode runs script phases with a stripped
   environment and no login shell, so a JDK installed by Homebrew or SDKMAN is not on `PATH`. The
   pre-build script already asks `/usr/libexec/java_home` for one; if you installed a JDK somewhere
@@ -1663,6 +1671,44 @@ These are the things that would actually shape a real port.
    that looked like a passed one — and the same question finds all three: *what would a surveyor
    have to do to change this, and can they?*
 
+54. **The first time this ran on a real phone, it crashed on something no test here could have
+   caught.** Reported from a device: *"On iOS I get an error when clicking on the menu in the top
+   right"*, with a disassembly whose only readable frames were `kotlin#error` inlined at
+   `Preconditions.kt:145` and `PlistSanityCheck.uikit.kt`.
+
+   `PlistSanityCheck` is Compose Multiplatform's, not this port's. It reads
+   `CADisableMinimumFrameDurationOnPhone` out of `Info.plist` and calls `error()` when the key is
+   missing or false — the message says so, and the key was simply absent here.
+
+   Three things about it are worth keeping:
+
+   - **The symptom named the wrong thing.** The check runs inside
+     `dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, ...))`. A low-priority
+     global queue does not get CPU while the main thread is busy drawing a first frame, so the
+     throw lands later — at the next quiet moment, which is *after* a tap. The overflow menu had
+     nothing to do with it, and a whole afternoon could have gone into the menu code.
+   - **Nothing in this repository mentioned the key.** `IosAssetsTest` already checked the plist,
+     and checked the right things — the Bluetooth usage description, the file-sharing pair — all
+     of them requirements of *Apple's*. This is a requirement of a **dependency**, and the general
+     form is worth writing down: **a manifest can satisfy the platform and still fail the
+     framework**, and the framework's requirements are not discoverable from the platform's
+     documentation. The fix for the class, not the instance, is that a plist check should be
+     derived from what the app's dependencies demand and not only from what iOS demands.
+   - **It is the first thing real hardware found, and it was invisible to everything here.** CI
+     compiles this app for `iosArm64`, builds it for the simulator with `xcodebuild`, and runs the
+     shared core on an Apple runtime; a simulator has even photographed the screen. None of that
+     could see it — the simulator's display link has no minimum frame duration to disable, so the
+     check that fires on a phone does not fire there. Written down because this README has spent
+     its whole life saying that a device is the one thing it cannot substitute for, and this is
+     what that was worth: **one key, found in ten minutes on a phone, that six thousand lines of
+     checks could not reach.**
+
+   The key is also correct on merit, which is the smaller half: without it iOS caps the display
+   link at 60 Hz, so the sketch would pan at half the rate a 120 Hz iPhone can manage.
+   `IosAssetsTest` now asserts the key is present **and true** — a key set to `false` fails
+   Compose's `boolValue != true` in exactly the same way as a missing one — and both failure modes
+   were run against the test before it was written down.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1787,11 +1833,12 @@ things that are missing are missing on purpose and are listed below.
 1. **An instrument.** Both transports are written and both are driven end to end against a fake
    one; neither has met a radio, and the iOS simulator has no Bluetooth stack, so no amount of work
    here changes that. Longest lead time of anything: worth starting to borrow one now.
-2. **A Mac with a phone plugged into it.** The build is written out step by step above and CI
-   compiles for `iosArm64` and a simulator has now photographed the app, but nobody has pressed Run
-   on real hardware. What that still leaves is one thing rather than the three it was: a dialog
-   with the *keyboard up*, which takes a third of an iPhone SE's screen and which no headless
-   browser and no simulator screenshot has. The dp conversion (finding 28) was on this list and is
+2. **A Mac with a phone plugged into it.** Somebody has now pressed Run on real hardware, and the
+   first thing it found was a crash nothing here could reach — see finding 54. That is the honest
+   summary of this whole line item: the build instructions were right, the app launched, and one
+   `Info.plist` key belonging to Compose rather than to Apple took it down on a phone and on no
+   simulator. What is still unmet is a dialog with the *keyboard up*, which takes a third of an
+   iPhone SE's screen and which no headless browser and no simulator screenshot has. The dp conversion (finding 28) was on this list and is
    not any more — `DrawingDensityTest` renders the canvas at a phone's density and would catch it —
    and the app icon has been through a real `actool`.
 3. **A decision from upstream.** Cross-survey links are absolute `content://` URIs; replacing them

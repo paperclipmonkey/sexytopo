@@ -21,6 +21,18 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<!--
+	    Required by Compose Multiplatform itself, and its absence is a *crash*, not a slow app.
+	    `androidx.compose.ui.uikit.PlistSanityCheck` reads this key and calls `error()` if it is
+	    missing or false — from a low-priority background queue, so the throw lands whenever that
+	    queue next gets CPU rather than at launch, which is why it looked like the overflow menu
+	    was at fault.
+
+	    It is also worth having on merit: without it iOS caps the display link at 60 Hz, so on a
+	    120 Hz iPhone the sketch would pan and draw at half the rate the screen can manage.
+	-->
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<!--
 	    Required from iOS 13. Without it, simply constructing a CBCentralManager raises
 	    NSInternalInconsistencyException and the app dies on the spot - so an iOS build that
 	    forgets this does not merely fail to find instruments, it crashes the first time a
