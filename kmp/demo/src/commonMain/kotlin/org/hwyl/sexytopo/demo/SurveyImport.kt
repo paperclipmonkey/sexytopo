@@ -8,6 +8,7 @@ import org.hwyl.sexytopo.shared.io.imports.PocketTopoTxtImporter
 import org.hwyl.sexytopo.shared.io.imports.SurveyImporter
 import org.hwyl.sexytopo.shared.io.store.FileStore
 import org.hwyl.sexytopo.shared.io.store.SurveyFileType
+import org.hwyl.sexytopo.shared.io.store.SurveyStorage
 import org.hwyl.sexytopo.shared.model.survey.Survey
 
 /**
@@ -103,12 +104,33 @@ object SurveyImport {
     fun candidates(store: FileStore): List<String> =
         runCatching {
             store.list(emptyList()).filter {
-                isNative(it) ||
+                isSurveyFolder(store, it) ||
+                    isNative(it) ||
                     formatOf(it) != null ||
                     isPocketTopoBinary(it) ||
                     (isPocketTopo(it) && looksLikePocketTopo(store, it))
             }
         }.getOrDefault(emptyList())
+
+    /**
+     * A whole survey *directory* somebody has put at the root, which is `action_file_import_directory`.
+     *
+     * A survey does not usually arrive as a loose file. It arrives as a zip, and unzipping it in
+     * the Files app — or on a desktop, or in a browser's download folder — leaves a folder called
+     * after the cave with the survey's four files inside. Listing only files made that folder
+     * invisible: the app would show an empty import list beside a survey sitting right there.
+     *
+     * [SurveyStorage.isSurveyDirectory] decides, by looking for the `.data.json` named after the
+     * folder — the same test the library itself uses, so a folder this app wrote and a folder the
+     * Android app wrote are the same thing.
+     *
+     * The app's own `surveys/` directory is excluded because everything in it is already in the
+     * library; offering it would invite the surveyor to import what they already have.
+     */
+    private fun isSurveyFolder(store: FileStore, name: String): Boolean =
+        name != SURVEYS_ROOT.single() &&
+            store.isDirectory(listOf(name)) &&
+            SurveyStorage.isSurveyDirectory(store, listOf(name))
 
     /**
      * Reads one, names it something not already taken, and saves it into the library.
@@ -121,7 +143,14 @@ object SurveyImport {
      */
     fun import(library: SurveyLibrary, store: FileStore, fileName: String): Survey? {
         val name = nameFor(fileName)
-        val survey = runCatching { parse(store, fileName, name) }.getOrNull() ?: return null
+        val survey =
+            if (isSurveyFolder(store, fileName)) {
+                // A folder goes through the loader the library itself uses, which has read all
+                // four files since the day it was written. Nothing here needs to know how.
+                runCatching { SurveyStorage.load(store, listOf(fileName)) }.getOrNull()
+            } else {
+                runCatching { parse(store, fileName, name) }.getOrNull()
+            } ?: return null
         // An empty survey means the file parsed but held nothing this app understands — a Therion
         // file that is all `scrap`, say. Importing it would put a survey with no legs in the
         // library and look like success.

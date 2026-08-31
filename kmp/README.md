@@ -39,6 +39,7 @@ Being precise about this matters more than the demo looking good.
 | Survex and Therion export byte-identically | **Verified** | golden tests asserting the full file, metadata block included |
 | **PocketTopo's own binary `.top` imports** | **Verified** | the format's primitives against the Android app's own `PocketTopoFileTest`, the shot-ordering and repeat-averaging rules against its `PocketTopoImporterTest` fixtures byte for byte, and its real `CeiledUp.top` — 12 stations, 68 legs, 203 strokes — read identically on the JVM, Kotlin/Wasm and Kotlin/Native, and through the file chooser in a browser |
 | A PocketTopo text export imports, drawing included | **Verified** | the Android app's own `FAKE_TEXT` fixture and its three assertions, on three targets, plus the four files that crash the Java |
+| **A survey folder imports, not only a loose file** | **Verified** | `action_file_import_directory`. A survey arrives as a zip far more often than as a file, and unzipping one leaves a *folder* named after the cave — which the import list, looking only at files, could not see. Root directories that pass `SurveyStorage.isSurveyDirectory` are offered and loaded through the same loader the library uses, so all four files come in. The app's own `surveys/` is left out, being the library already |
 | **A survey brought in keeps its drawing** | **Verified** | a SexyTopo survey is four files and this importer takes one at a time, so it read the centreline and dropped both sketches in silence. It now looks for `Name.plan.json` and `Name.ext-elevation.json` beside the file that was picked — where they land when somebody AirDrops a survey or unzips one into the Files app. Three unit tests and a browser check, and the browser fixture had to be **given a drawing**, because the one it had could not express the loss |
 | A Survex or Therion file from other software imports | **Verified** | round-trip tests through the ported exporters, plus a `.svx` written by hand — team, date, backsights, splays, station comments and leg comments — and `field.mjs` brings one into the browser build end to end |
 | The `.th2` and `.xvi` a Therion user actually needs come out of the app | **Verified** | golden tests on the scrap file and the tracing image, and `field.mjs` picks the `.th2` chip on a 420-pixel screen, saves the file and checks it has an encoding line, a named plan scrap and the `##XTHERION##` block that points it at the `.xvi` |
@@ -1294,6 +1295,13 @@ These are the things that would actually shape a real port.
    file rather than as a *set* of files, which is finding 33 in another costume: a Therion export
    of five individually perfect files that together could not be built.
 
+   Following that thought one step further found a third: a survey almost never arrives as a loose
+   file. It arrives as a **zip**, and unzipping one in the Files app leaves a folder named after
+   the cave with the four files inside — which the import list, looking only at files, could not
+   see at all. The app would show an empty list beside a survey sitting right there. Root
+   directories that pass `SurveyStorage.isSurveyDirectory` are offered now, and loaded through the
+   library's own loader, which has read all four files since the day it was written.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1398,7 +1406,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 709
-shared tests on three targets, 270 over the UI's own logic, 18 running the iOS half in a simulator,
+shared tests on three targets, 272 over the UI's own logic, 18 running the iOS half in a simulator,
 87 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the

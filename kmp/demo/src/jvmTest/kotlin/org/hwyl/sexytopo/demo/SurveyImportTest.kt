@@ -5,6 +5,7 @@ import org.hwyl.sexytopo.shared.io.SurveyJson
 import org.hwyl.sexytopo.shared.io.export.SurvexExporter
 import org.hwyl.sexytopo.shared.io.export.TherionExporter
 import org.hwyl.sexytopo.shared.io.store.InMemoryFileStore
+import org.hwyl.sexytopo.shared.io.store.SurveyStorage
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.sketch.PathDetail
@@ -102,6 +103,39 @@ class SurveyImportTest {
         store.writeText(listOf("Eastwater.metadata.json"), "{}")
 
         assertEquals(listOf("Eastwater.data.json"), SurveyImport.candidates(store))
+    }
+
+    /**
+     * A survey does not usually arrive as a loose file. It arrives as a zip.
+     *
+     * Unzipping one in the Files app leaves a *folder* named after the cave with the survey's four
+     * files inside, and the import list only looked at files — so the app showed an empty list
+     * beside a survey sitting right there. `action_file_import_directory` is the Android app's
+     * name for this.
+     */
+    @Test
+    fun aWholeSurveyFolderCanBeImported() {
+        val store = store()
+        val survey = aSurvey("Swildons")
+        survey.planSketch.pathDetails.add(
+            PathDetail(listOf(Coord2D(0f, 0f), Coord2D(1f, 1f)), Colour.BLACK),
+        )
+        SurveyStorage.save(store, survey, listOf("Swildons"))
+
+        assertEquals(listOf("Swildons"), SurveyImport.candidates(store))
+
+        val imported = assertNotNull(SurveyImport.import(SurveyLibrary(store), store, "Swildons"))
+        assertTrue(imported.origin.onwardLegs.isNotEmpty(), "the centreline came in")
+        assertEquals(1, imported.planSketch.pathDetails.size, "the drawing came in")
+    }
+
+    /** A folder that is not a survey is not offered as one. */
+    @Test
+    fun aFolderThatIsNotASurveyIsNotOffered() {
+        val store = store()
+        store.writeText(listOf("Photos", "cave.jpg.txt"), "not a survey")
+
+        assertEquals(emptyList(), SurveyImport.candidates(store))
     }
 
     @Test
