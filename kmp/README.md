@@ -418,6 +418,10 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   measurements, left, right, up and down, which become ordinary splays. That is how a survey is
   booked when there is no instrument in the party, and it is what lets a cross-section be drawn
   from a hand-booked survey.
+- **Know which way is north.** The plan carries the app's own north arrow, above the scale bar. It
+  had one in the exported SVG and not on the screen, which is the kind of gap no test finds because
+  nothing is *wrong* — something is simply absent. It does not yet swing with the phone; on a plan
+  north is up, so it is right rather than approximate, and what is missing is the sensor.
 - **Take the clutter off.** *Show cross-sections* hides them when the plan is busy — and stops
   them being tapped while hidden, which is the app's own rule and the half a port forgets. *Pinch
   to zoom* turns the two-fingered zoom off for anyone drawing with a stylus, where a second contact
@@ -604,7 +608,8 @@ Honest limits, so nothing is a surprise in a cave:
 | `res/layout/activity_graph.xml` | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied |
 | `res/values/colors.xml` (+ `values-night`) | `demo/.../SexyTopoTheme.kt` | The app's own palette |
 | `res/drawable-hdpi/*.png` | `demo/src/commonMain/composeResources/drawable/` | The app's own icons |
-| `res/menu/drawing.xml` | `demo/.../SketchToolbar.kt` | The display toggles behind the gear |
+| `res/menu/drawing.xml` | `demo/.../SketchToolbar.kt` | Every checkable item on it except the compass's own toggle and the neighbouring-survey one; hiding cross-sections stops them being tapped as well as drawn |
+| `GraphView.drawCompass` | `demo/.../SurveyCanvas.kt` (`drawNorthArrow`) | The arrow, plan-only, at a heading of zero — which is *correct* on a plan; the magnetometer that would turn it is not ported |
 | `model/sketch/Sketch`'s twin history stacks | `shared/sketch/SketchEditor.kt` | `DeletedDetail` becomes a sealed type |
 | `control/io/thirdparty/{survex,therion,survextherion}` | `shared/io/export/` | Golden-tested, metadata block included |
 | `PocketTopoFile`, `PocketTopoImporter` | `shared/io/imports/PocketTopoFile.kt`, `PocketTopoImport.kt` | A cursor over a byte array rather than an `InputStream`; the calendar arithmetic `new Date()` used to do, written out |
@@ -919,7 +924,22 @@ These are the things that would actually shape a real port.
    that are genuinely on screen, so no cull touches it, and drawing less of the drawing is a
    decision about what a surveyor sees rather than a performance fix.
 
-30. **A pixel threshold tuned on one glyph reports a working feature as broken.** The check that
+30. **The same lesson, twice more, and then a guard for it.** Finding 27 was a dialog laid out
+   from the data that could not be clicked by coordinate. The drawing menu then did it again in a
+   worse way: at eighteen rows it grew taller than the room above the toolbar, so Compose
+   repositioned the whole popup to fit the screen, *every* row moved, and ten checks failed with
+   messages about cross-sections and hot corners and none about menus. The fix is the same one —
+   find the menu's own surface and divide it by the rows it is known to have.
+
+   The other repeat was cheaper to fix and had cost more: four separate times, a pixel helper has
+   passed `page.evaluate` a name that is not in scope out here. The callback destructures the
+   arguments under its own names, so nothing checks the two against each other, and the error
+   arrives when the helper is first *called* — which on the slow path is minutes in and reports
+   itself as whatever check happened to be running. `field.mjs` now reads its own source before it
+   launches a browser and refuses to start if any of those names is undeclared. Written after the
+   fourth time, which is three times later than it should have been.
+
+31. **A pixel threshold tuned on one glyph reports a working feature as broken.** The check that
    the table gains a dagger against a commented leg counted pixels darker than 120 and found the
    cell unchanged — 66 before, 65 after — so the check failed while a screenshot of the same moment
    showed "† 5.420" perfectly legibly. A dagger at 12sp is one hairline stem and a crossbar, and at
@@ -1055,13 +1075,16 @@ things that are missing are missing on purpose and are listed below.
 
 **Not done, and nothing is stopping it.**
 
-- **The live compass.** `SHOW_COMPASS` swings a north arrow with the phone's heading. The drawing is
-  twenty lines and fully specified in `GraphView.drawCompass`; the heading needs a magnetometer
-  behind an `expect`/`actual` on three platforms, and on iOS a usage-description key that crashes
-  the app on launch if it is wrong. Left out rather than half-done, deliberately, because a crash on
-  launch is the worst thing that can happen to a demo.
-- **The `show_xsections` and `pinch_to_zoom` toggles**, the last two checkable items on
-  `res/menu/drawing.xml` that this port does not carry. Both are an afternoon.
+- **The compass *swinging*.** The arrow is drawn now, and on a plan north genuinely is up —
+  `Projection2D.PLAN` maps the northing to minus the screen y — so a fixed one is correct rather
+  than approximate. What is missing is the magnetometer that turns it as the phone turns: an
+  `expect`/`actual` on three platforms and, on iOS, a usage-description key that crashes the app on
+  launch if it is wrong. Its toggle is not exposed either, because the drawing menu is already
+  eighteen rows and fills a phone screen — which is the other thing sitting in front of this.
+- **Splitting the drawing menu.** Eighteen rows is a popup the height of a phone, and it scrolls on
+  a small one. It carries the app's own drawing menu *plus* the items this port reaches from there
+  rather than from a toolbar with no room left, so it has outgrown a single list. The display
+  toggles are the natural half to move.
 - **The manual.** `GuideActivity` ships an HTML user guide; bundling it is mechanical.
 - **Drawing less of a heavily traced drawing.** With a fully traced cave *all on screen*, eight
   thousand strokes are 120 ms a frame in the headless renderer. Culling does not touch it — they

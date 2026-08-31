@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
 import androidx.compose.ui.input.pointer.PointerInputScope
@@ -534,7 +535,20 @@ fun SurveyCanvas(
                 fit.noteFitted(scene.surveyBounds)
             }
 
-            drawSurvey(scene, options, viewport, textMeasurer, fontFamily, tool, sectionDrag, modalMoving)
+            drawSurvey(
+                scene,
+                options,
+                viewport,
+                textMeasurer,
+                fontFamily,
+                tool,
+                sectionDrag,
+                modalMoving,
+                // North is meaningless anywhere else: the extended elevation is unrolled onto a
+                // line and a cross-section is drawn across the passage. `GraphView.drawCompass`
+                // returns immediately unless the projection is the plan, and so does this.
+                isPlan = sceneOverride == null && projection == Projection2D.PLAN,
+            )
         }
     }
 }
@@ -845,6 +859,12 @@ private const val SCALE_BAR_STROKE_DP = 2f
 private const val SCALE_BAR_TICK_DP = 5f
 private const val SCALE_BAR_LABEL_UP_DP = 24f
 
+/** `GeneralPreferences.getLegendFontSizeSp`, which the compass sizes itself off. */
+private const val LEGEND_TEXT_SP = 10f
+
+/** Clear air between the arrow's tail and the scale bar's label. */
+private const val COMPASS_GAP_DP = 6f
+
 /**
  * The four amber corner brackets the app puts round the station the next leg will start from.
  *
@@ -937,6 +957,7 @@ private fun DrawScope.drawSurvey(
     tool: SketchTool,
     sectionDrag: SectionDrag? = null,
     modalMoving: Boolean = false,
+    isPlan: Boolean = false,
 ) {
     val palette = if (options.darkMode) DarkPalette else LightPalette
 
@@ -1179,6 +1200,60 @@ private fun DrawScope.drawSurvey(
     }
 
     drawScaleBar(viewport.pixelsPerMetre, palette, textMeasurer, fontFamily)
+    if (isPlan) drawNorthArrow(palette, textMeasurer, fontFamily)
+}
+
+/**
+ * The north arrow, above the scale bar and to the left, as `GraphView.drawCompass` draws it.
+ *
+ * A plan with no north on it is a picture rather than a survey — the exported SVG has carried one
+ * since the legend was ported, and the drawing on screen has not. The geometry is the Java's, sized
+ * off the legend's own text size: an arrow two and a half text-heights long, a head six tenths of
+ * one, and the letter N above the tip.
+ *
+ * **It does not swing with the phone yet.** The original rotates it by the device's heading, and on
+ * a plan north is genuinely up — `Projection2D.PLAN` maps the northing to *minus* the screen y — so
+ * an arrow that always points up is correct rather than approximate; what is missing is the
+ * *magnetometer*, which needs an `expect`/`actual` on three platforms and, on iOS, a
+ * usage-description key that crashes the app on launch if it is wrong. Left for when somebody can
+ * run it on a phone, which is also the only place it could be checked.
+ */
+@OptIn(ExperimentalTextApi::class)
+private fun DrawScope.drawNorthArrow(
+    palette: Palette,
+    textMeasurer: TextMeasurer,
+    fontFamily: FontFamily,
+    headingDegrees: Float = 0f,
+) {
+    val textSize = LEGEND_TEXT_SP.sp.toPx()
+    val layout =
+        textMeasurer.measure(
+            "N",
+            TextStyle(color = palette.scaleBar, fontSize = LEGEND_TEXT_SP.sp, fontFamily = fontFamily),
+        )
+    val textHeight = layout.size.height.toFloat()
+    val arrowLength = textSize * 2.5f
+    val head = textSize * 0.6f
+    val centreX = textSize * 1.25f + arrowLength / 2f + textSize
+    // Above the scale bar *and its label*. The Java measures from its bar alone, but its label
+    // hangs below the bar and this port's sits above it, so copying the formula put the arrow's
+    // tail straight through the words "10 m".
+    val labelTop = size.height - 2f * SCALE_BAR_LABEL_UP_DP.dp.toPx() - textHeight
+    val centreY = labelTop - COMPASS_GAP_DP.dp.toPx() - arrowLength / 2f
+    val stroke = SCALE_BAR_STROKE_DP.dp.toPx()
+
+    rotate(-headingDegrees, pivot = Offset(centreX, centreY)) {
+        val tip = centreY - arrowLength / 2f
+        val tail = centreY + arrowLength / 2f
+        drawLine(palette.scaleBar, Offset(centreX - head, tip + head), Offset(centreX, tip), stroke)
+        drawLine(palette.scaleBar, Offset(centreX, tip), Offset(centreX + head, tip + head), stroke)
+        drawLine(palette.scaleBar, Offset(centreX, tip), Offset(centreX, tail), stroke)
+        // The Java positions the letter by its baseline; Compose positions it by its top.
+        drawText(
+            layout,
+            topLeft = Offset(centreX - textSize * 0.35f, tip - textSize * 0.2f - textHeight),
+        )
+    }
 }
 
 private fun DrawScope.drawPolyline(points: List<Offset>, colour: Color, width: Float) {
