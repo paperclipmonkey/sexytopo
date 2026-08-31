@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.hwyl.sexytopo.shared.io.SketchJson
 import org.hwyl.sexytopo.shared.io.SurveyJson
 import org.hwyl.sexytopo.shared.io.export.CompassExporter
 import org.hwyl.sexytopo.shared.io.export.PocketTopoExporter
@@ -34,6 +35,7 @@ import org.hwyl.sexytopo.shared.io.export.Th2Exporter
 import org.hwyl.sexytopo.shared.io.export.ThconfigExporter
 import org.hwyl.sexytopo.shared.io.export.TherionExporter
 import org.hwyl.sexytopo.shared.io.export.XviExporter
+import org.hwyl.sexytopo.shared.io.store.SurveyFileType
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.survey.SurveyDate
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -191,16 +193,25 @@ fun ExportView(
             TextButton(
                 onClick = {
                     val where = saveTextFile(fileNameFor(survey, format, projection), text)
-                    savedTo = where
-                    saveFailed = where == null
+                    // The companions go too, or the export is the same data loss the *importer*
+                    // had until recently: a survey is four files and its own format cannot be
+                    // written as one of them.
+                    val companions = companionFiles(survey, format)
+                    val companionsSaved =
+                        companions.all { (name, body) -> saveTextFile(name, body) != null }
+                    savedTo = if (where != null && companionsSaved) where else null
+                    saveFailed = where == null || !companionsSaved
                 },
-            ) { Text("Save file") }
+            ) { Text(if (companionFiles(survey, format).isEmpty()) "Save file" else "Save files") }
             Spacer(Modifier.weight(1f))
             Text(
                 when {
                     saveFailed -> "Could not save a file here"
                     savedTo != null -> "Saved to $savedTo"
-                    else -> fileNameFor(survey, format, projection)
+                    else ->
+                        (listOf(fileNameFor(survey, format, projection)) +
+                            companionFiles(survey, format).map { it.first })
+                            .joinToString(", ")
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color =
@@ -249,6 +260,31 @@ fun ExportView(
  * escape the directory it is written into however the survey was named — plus, for the three
  * formats that are one file per drawing, which drawing it is.
  */
+/**
+ * The other files a format writes, besides the one shown on screen.
+ *
+ * Only this app's own format has any, and it is the one that most needed them: a SexyTopo survey
+ * is `Name.data.json` **and** its two sketches, so exporting the data file alone hands somebody a
+ * centreline and keeps the drawing. That is exactly the loss the *importer* had — it read the data
+ * file and ignored the sketches beside it — and fixing one end while leaving the other would mean
+ * this app could read a complete survey and not write one.
+ *
+ * The preview stays the data file. The sketches are thousands of coordinates and there is nothing
+ * to learn from looking at them; what matters is that they are written, and the row under the
+ * button names all three.
+ */
+internal fun companionFiles(survey: Survey, format: ExportFormat): List<Pair<String, String>> =
+    if (format == ExportFormat.NATIVE) {
+        listOf(
+            SurveyFileType.PLAN_SKETCH.filenameFor(survey.name) to
+                SketchJson.write(survey.planSketch, survey.name),
+            SurveyFileType.EXTENDED_ELEVATION_SKETCH.filenameFor(survey.name) to
+                SketchJson.write(survey.elevationSketch, survey.name),
+        )
+    } else {
+        emptyList()
+    }
+
 internal fun fileNameFor(
     survey: Survey,
     format: ExportFormat,

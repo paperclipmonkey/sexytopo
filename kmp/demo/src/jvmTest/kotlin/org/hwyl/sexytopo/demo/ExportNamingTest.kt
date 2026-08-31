@@ -26,6 +26,38 @@ class ExportNamingTest {
     }
 
     /**
+     * A survey exported in this app's own format has to be the whole survey.
+     *
+     * `NATIVE` wrote `Swildons.data.json` and nothing else, which hands somebody a centreline and
+     * keeps the drawing — the same loss the *importer* had at the other end, where it read the
+     * data file and never looked for the sketches beside it. Fixing one end and not the other
+     * would have left this app able to read a complete survey and unable to write one.
+     */
+    @Test
+    fun theNativeExportIsTheWholeSurvey() {
+        val written =
+            listOf(fileNameFor(survey, ExportFormat.NATIVE)) +
+                companionFiles(survey, ExportFormat.NATIVE).map { it.first }
+        assertEquals(
+            listOf("Swildons.data.json", "Swildons.plan.json", "Swildons.ext-elevation.json"),
+            written,
+            "the native export is not the four-file survey the importer expects",
+        )
+    }
+
+    /** And no other format grows files it never had. */
+    @Test
+    fun everyOtherFormatIsStillOneFile() {
+        for (format in ExportFormat.entries.filterNot { it == ExportFormat.NATIVE }) {
+            assertEquals(
+                emptyList(),
+                companionFiles(survey, format).map { it.first },
+                "$format grew companion files",
+            )
+        }
+    }
+
+    /**
      * The bug this was written for: the plan and the elevation were both `Swildons.th2`, so
      * exporting one after the other left a surveyor with a single file and no way to tell which
      * drawing was in it. `DoubleSketchFileExporter` puts `PLAN_SUFFIX` or `EE_SUFFIX` in the name.

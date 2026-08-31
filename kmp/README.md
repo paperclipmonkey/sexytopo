@@ -39,6 +39,7 @@ Being precise about this matters more than the demo looking good.
 | Survex and Therion export byte-identically | **Verified** | golden tests asserting the full file, metadata block included |
 | **PocketTopo's own binary `.top` imports** | **Verified** | the format's primitives against the Android app's own `PocketTopoFileTest`, the shot-ordering and repeat-averaging rules against its `PocketTopoImporterTest` fixtures byte for byte, and its real `CeiledUp.top` — 12 stations, 68 legs, 203 strokes — read identically on the JVM, Kotlin/Wasm and Kotlin/Native, and through the file chooser in a browser |
 | A PocketTopo text export imports, drawing included | **Verified** | the Android app's own `FAKE_TEXT` fixture and its three assertions, on three targets, plus the four files that crash the Java |
+| **And this app's own format exports the whole survey** | **Verified** | `NATIVE` wrote `Name.data.json` and nothing else, so exporting handed somebody a centreline and kept the drawing — the importer's loss at the other end, and the worse half of it: a reader's failure loses somebody else's work, a writer's loses your own. One press of *Save files* now writes the data file and both sketches, which is exactly what the folder import reads back. `ExportNamingTest` names all three; `field.mjs` presses the button once and counts what comes out of the browser |
 | **A survey folder imports, not only a loose file** | **Verified** | `action_file_import_directory`. A survey arrives as a zip far more often than as a file, and unzipping one leaves a *folder* named after the cave — which the import list, looking only at files, could not see. Root directories that pass `SurveyStorage.isSurveyDirectory` are offered and loaded through the same loader the library uses, so all four files come in. The app's own `surveys/` is left out, being the library already |
 | **A survey brought in keeps its drawing** | **Verified** | a SexyTopo survey is four files and this importer takes one at a time, so it read the centreline and dropped both sketches in silence. It now looks for `Name.plan.json` and `Name.ext-elevation.json` beside the file that was picked — where they land when somebody AirDrops a survey or unzips one into the Files app. Three unit tests and a browser check, and the browser fixture had to be **given a drawing**, because the one it had could not express the loss |
 | A Survex or Therion file from other software imports | **Verified** | round-trip tests through the ported exporters, plus a `.svx` written by hand — team, date, backsights, splays, station comments and leg comments — and `field.mjs` brings one into the browser build end to end |
@@ -576,7 +577,9 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   On iOS that is CoreBluetooth; in Chrome, including on Android, it is Web Bluetooth. Neither has
   met real hardware — see the table above — but the acknowledgement handshake four of these
   instruments need is implemented and tested, which is the part that fails silently.
-- **Take it home.** Survex, Compass, PocketTopo, the native JSON — or a Therion *project* rather
+- **Take it home.** Survex, Compass, PocketTopo, or the native format — which is the *whole*
+  survey, data file and both sketches, so what comes out is what the import at the other end
+  reads back — or a Therion *project* rather
   than a pile of files: the `.thconfig` Therion actually compiles, the `.th` centreline naming both
   scraps, and a `.th2` and an `.xvi` for each drawing, each named after the drawing it holds so the
   plan and the elevation are not the same file. Nothing to write by hand between saving them and
@@ -1302,6 +1305,15 @@ These are the things that would actually shape a real port.
    directories that pass `SurveyStorage.isSurveyDirectory` are offered now, and loaded through the
    library's own loader, which has read all four files since the day it was written.
 
+   And then the mirror of the first one, which is the worst of the four: `NATIVE` **export** wrote
+   `Name.data.json` and nothing else. Having taught the app to read a complete survey, it could
+   still only write an incomplete one — and that half is worse, because a reader's failure loses
+   somebody else's work while a writer's loses your own. One press of *Save files* now writes the
+   data file and both sketches, which is precisely what the folder import reads back.
+
+   Four bugs, one missing idea, found in an hour by asking the same question in four places. None
+   of them was subtle once the question was asked; all four had passing tests over them.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1406,8 +1418,8 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 709
-shared tests on three targets, 272 over the UI's own logic, 18 running the iOS half in a simulator,
-87 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
+shared tests on three targets, 274 over the UI's own logic, 18 running the iOS half in a simulator,
+88 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

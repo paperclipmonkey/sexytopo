@@ -2332,6 +2332,35 @@ if (!thconfig || !th) {
   }
 }
 
+// ---- and this app's own format exports the whole survey ---------------------------------------
+// A SexyTopo survey is `Name.data.json` *and* its two sketches. Exporting the data file alone
+// hands somebody a centreline and keeps the drawing — which is precisely the loss the importer had
+// at the other end, where it read the data file and never looked for the sketches beside it.
+// Fixing one end and not the other would leave this app able to read a complete survey and unable
+// to write one, which is the worse half: the reader's failure loses somebody else's work, the
+// writer's loses your own.
+//
+// So: one press of Save, and count what comes out.
+await at(...(await exportChip('json'))); await page.waitForTimeout(700)
+
+const nativeFiles = []
+const collect = (download) => nativeFiles.push(download.suggestedFilename())
+page.on('download', collect)
+await at(...(await exportSaveFile()))
+await page.waitForTimeout(3000)
+page.off('download', collect)
+
+const wanted = ['Swildons.data.json', 'Swildons.plan.json', 'Swildons.ext-elevation.json']
+const missing = wanted.filter((name) => !nativeFiles.includes(name))
+if (missing.length > 0) {
+  fail(
+    `the native export wrote ${nativeFiles.length} file(s) — ${nativeFiles.join(', ') || 'none'}` +
+      ` — and is missing ${missing.join(', ')}, so the drawing does not leave the phone`,
+  )
+} else {
+  pass(`this app's own format exports the whole survey (${nativeFiles.length} files)`)
+}
+
 await at(...PLAN_TAB); await page.waitForTimeout(600)
 
 // ---- a leg shot from the far end goes in the right way round -------------------------------
