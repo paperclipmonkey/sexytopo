@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 697 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 709 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
@@ -58,6 +58,7 @@ Being precise about this matters more than the demo looking good.
 | **A real-sized cave works, not just a demo one** | **Verified** | `BigSurveyTest` builds a four-thousand-station passage — past where every tree walk in this port used to overflow the stack — and projects it to a plan and an extended elevation, builds its wireframe, counts its statistics, exports it to Survex and Therion and reads it back, on all three targets, along with SVG, `.xvi`, `.th2`, Compass and PocketTopo — and rubs out and undoes on a drawing of eight thousand strokes |
 | **A real-sized cave draws, and draws linearly** | **Verified** | `CanvasSpeedTest` renders the plan of a four-thousand-station survey through the same headless Skia the demo PNGs use, and checks that eight times the cave costs about eight times the frame rather than sixty-four — the failure mode finding 18 was, in the drawing rather than in the export. The absolute times are a CPU rasteriser's and not a phone's, and the test says so |
 | **The cave is the same size on a phone as on a desktop** | **Verified** | `DrawingDensityTest` renders the same plan twice through headless Skia — once at 1x, once at three times the size *and* three times the density, which is what a phone shows — and compares what fraction of each picture is centreline. Dp sizes give one picture at two resolutions and the same fraction; raw pixels give a cave drawn a third as thick. Measured both ways: **1.11 as it stands, 0.44 with finding 28 put back**. It counts only the red centreline, because the text on that canvas is in `sp` and scaled correctly even when the bug was live — counting all the ink made the first version of this test pass with the bug in |
+| **The manual is in the app** | **Verified** | the guide is bundled byte-for-byte from `app/src/main/assets/guide/index.html` and read into Compose by `parseManual`, with no web view on any platform. `ManualContentTest` asserts the bundled copy is identical to the Android app's, parses it, and counts the headings, paragraphs and list items **against the file's own tags** — the check that caught a nested list silently costing eleven items — plus every link pointing at a section that exists and every character being one the bundled font can draw. `field.mjs` opens it from Help, reads it, scrolls it, taps a contents row and closes it |
 | **Every character the app types is one the bundled font can draw** | **Verified** | `FontCoverageTest` asks Skia — the same `FontMgr` that does the drawing — for the glyph of every character the UI types, in both bundled weights, and fails on glyph 0. It asserts the other direction too: the two marks the app draws by hand, "✓" and "⋮", must stay absent, so a drawn mark that could be typed shows up as a failing test. The app bundles its own font because Skia ships none on the web, which is what makes one check answer for every platform |
 | Surveys save and load through a platform-free storage layer | **Verified** | a full round trip - naming, directories, autosave, listing - over an in-memory `FileStore`, on all three targets. The Android app's equivalent test is `@Ignore`d because `DocumentFile` cannot be mocked |
 | The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
@@ -679,6 +680,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `control/graph/GraphView` — drawing and touch plumbing | `demo/.../SurveyCanvas.kt` | **Rewritten**, not ported |
 | `control/threed/SurveyRenderer` — the camera | `shared/math/Camera3D.kt`, `Matrix4.kt` | Including `android.opengl.Matrix`, which exists nowhere else |
 | `control/threed/*`, `ThreeDViewActivity` | `demo/.../ThreeDView.kt` | The GL half **rewritten** as a 2D canvas: no shaders, no vertex buffers, and it runs on all four targets |
+| `GuideActivity`, `assets/guide/index.html` | `shared/manual/Manual.kt`, `demo/.../ManualView.kt`, `demo/src/commonMain/composeResources/files/manual.html` | The `WebView` **replaced** by a reader: the guide is bundled byte-for-byte and drawn as Compose, so there is no platform web view on any of the four targets. `parseManual` throws on a tag it does not draw, and the counts are checked against the file's own tags |
 | `res/layout/activity_graph.xml` | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied |
 | `res/values/colors.xml` (+ `values-night`) | `demo/.../SexyTopoTheme.kt` | The app's own palette |
 | `res/drawable-hdpi/*.png` | `demo/src/commonMain/composeResources/drawable/` | The app's own icons |
@@ -1178,8 +1180,39 @@ These are the things that would actually shape a real port.
    both halves — every character the app types resolves, and every mark the app draws does not —
    so the next person to wonder gets an answer instead of an anecdote.
 
-   The bullets and chevrons are back. Seventy-six browser checks still pass, and the menu and the
+   The bullets and chevrons are back. Every browser check still passes, and the menu and the
    About box were photographed to be sure the glyphs *render* and not merely resolve.
+
+39. **The manual, and why it is not a web view.** `GuideActivity` puts a 23 KB HTML guide in a
+   `WebView`. This README listed that as blocked on a decision — a web view is a *platform* view,
+   so it is a `WKWebView` behind a UIKit interop on iOS, an iframe positioned over the Compose
+   canvas on the web, and nothing at all on the desktop — against reading the HTML and drawing it
+   as Compose, which is one implementation but drifts the first time upstream edits the guide.
+
+   The guide is eight tags wide: `h1`–`h3`, `p`, `ul`, `ol`, `li`, `strong`, `em`, `code`, `a`.
+   Three platform views for that is the wrong trade, so it is parsed — and the drift is paid for
+   rather than hoped away. `parseManual` **throws** on any tag it was not written for, naming it,
+   and `ManualContentTest` parses the shipped file on every build. Upstream adding a table breaks
+   this build; it does not quietly lose a section.
+
+   Which is exactly the failure I then shipped anyway, in a form the throw could not catch. The
+   reader parsed the whole guide without complaint and produced **69 list items where the file has
+   79**: the guide nests one list inside another, under *Import*, and the inner `</ul>` was taken
+   for the end of the outer one, so the eleven items after it vanished. Every tag was a known tag.
+   The guard was for tags, and the loss was in an *arrangement* of tags.
+
+   What caught it was counting — and what makes the count worth anything is that it counts against
+   the file's own tags rather than against a number I wrote down: `<p` opens against paragraphs,
+   `<li` against items, the three heading tags against headings. All three are now exact. The same
+   pass had produced 109 blank paragraphs from the guide's own indentation, which the count also
+   named.
+
+   Two other things fell out of doing it. The manual is the app's first screen made of nothing but
+   text, and every character in it — the arrow among them — is checked against the bundled font by
+   the machinery from finding 38. And restoring `help_menu` put *Manual* and *About* where
+   `action_bar.xml` has always had them, which exposed that the overflow menu resized between
+   pages: 164 pixels on the top page, 112 on Help, so a submenu shrank under the finger that had
+   just opened it. One width, and it stopped.
 
 ---
 
@@ -1284,9 +1317,9 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 697
-shared tests on three targets, 260 over the UI's own logic, 17 running the iOS half in a simulator,
-76 browser checks driving the real page on a 420-pixel screen and finishing at 375x667. The
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 709
+shared tests on three targets, 266 over the UI's own logic, 17 running the iOS half in a simulator,
+81 browser checks driving the real page on a 420-pixel screen and finishing at 375x667. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.
 
@@ -1314,11 +1347,6 @@ things that are missing are missing on purpose and are listed below.
   correct rather than approximate. What is missing is the magnetometer that turns it as the phone
   turns: an `expect`/`actual` on three platforms and, on iOS, a usage-description key that crashes
   the app on launch if it is wrong.
-- **The manual.** `GuideActivity` ships a 23 KB HTML user guide and shows it in a `WebView`.
-  Bundling the file is trivial; showing it is not, because a web view is a *platform* view — a
-  `WKWebView` behind a UIKit interop on iOS, an iframe on the web, nothing at all on the desktop.
-  Rendering it as Compose text instead means parsing the HTML, and then it drifts the first time
-  upstream edits the guide. Neither is hard; both are a decision about which.
 - **Drawing less of a heavily traced drawing.** With a fully traced cave *all on screen*, eight
   thousand strokes are 120 ms a frame in the headless renderer. Culling does not touch it — they
   are genuinely visible — so it would want level of detail, which changes what a surveyor sees and
@@ -1348,7 +1376,6 @@ What it does **not** include:
 - **Cross-survey links.** They are stored as absolute `content://` URIs, which are meaningless off
   Android and already break when a folder moves, so replacing them is a format decision to take
   with upstream rather than a porting one. Nothing here draws a neighbouring survey.
-- **The rest of the Android UI**: the manual, which `GuideActivity` shows in a `WebView` — and a web view is a platform view rather than something Compose draws, so it is three actuals rather than the copy-a-file job it looks like.
 - **The Android app adopting this core.** That is the step that would make the work pay for itself
   regardless of the iOS outcome, and it is deliberately not attempted yet.
 

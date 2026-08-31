@@ -197,6 +197,15 @@ class DemoState(
     var viewing3D by mutableStateOf(false)
 
     /**
+     * Whether the manual has the screen.
+     *
+     * `GuideActivity`, and an activity for the same reason the 3D view is one: a thousand words of
+     * reading is not a dialog. Not persisted — a surveyor who closes the app in the manual wants
+     * the cave back, not the manual.
+     */
+    var viewingManual by mutableStateOf(false)
+
+    /**
      * The six sketch toggles, as views onto [preferences] rather than as state of their own.
      *
      * They were `mutableStateOf` until the drawing menu was split, which meant a surveyor who

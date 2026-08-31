@@ -205,10 +205,9 @@ const STATION_SAVE = [317, 700]
 // checks that clicked a hard-coded y went on passing while testing the wrong thing or failed
 // somewhere unrelated. Computing the row from the menu's own order means one list to update.
 // `action_bar.xml`'s submenus, which this port went back to when the flat list grew past the
-// height of an iPhone SE. The top page opens one of the four groups or the About box; a group
-// page is a Back row, then the group's items, with the saved surveys inside File where the app's
-// own Open is.
-const MENU_TOP = ['file', 'view', 'instrument', 'settings', 'about']
+// height of an iPhone SE. The top page opens one of the five groups; a group page is a Back row,
+// then the group's items, with the saved surveys inside File where the app's own Open is.
+const MENU_TOP = ['file', 'view', 'instrument', 'settings', 'help']
 // `holdsSurveys` matters: only File grows with the library, and counting the surveys into the
 // other three pages put every row of them out by one per saved survey — which lands a tap outside
 // the menu, dismisses it, and reports itself several checks later as "no menu is open".
@@ -217,6 +216,10 @@ const MENU_PAGES = {
   view: { before: ['demo', 'trip', '3d', 'stats'], after: [], holdsSurveys: false },
   instrument: { before: ['connect', 'calibrate', 'log'], after: [], holdsSurveys: false },
   settings: { before: ['fullscreen', 'surveying', 'dark'], after: [], holdsSurveys: false },
+  // `help_menu`: Manual then About, which is the order action_bar.xml puts them in. About was a
+  // row on the top page while the manual was missing, so moving it here is what the app's own
+  // menu always said - and the only change any check needed is this line.
+  help: { before: ['manual', 'about'], after: [], holdsSurveys: false },
 }
 
 /** Which page a named item is on, and where in it. Back is row zero of every group page. */
@@ -2529,7 +2532,8 @@ const savedCount = await page.evaluate(() => {
 // ---- the app says who wrote it and under what licence ---------------------------------------
 // This build carries several thousand lines of somebody else's GPL-3.0 code and had neither their
 // names nor the licence anywhere a user could see them. What is *in* the text has its own test —
-// the names, the licence, the Latin-1 rule the bundled font imposes. What can only be checked here
+// the names, the licence, and every character being one the bundled font can draw. What is only
+// checkable here
 // is that the box opens and that Material has not clipped it to nothing: it is a screenful and a
 // half of text, and a Compose dialog that does not fit is cut off from the bottom, which is where
 // the licence is.
@@ -2546,6 +2550,222 @@ if (aboutHeight === null) {
   pass('the app says who wrote it and under what licence')
 }
 await page.keyboard.press('Escape'); await page.waitForTimeout(600)
+
+// ---- the manual ------------------------------------------------------------------------------
+// `GuideActivity` shows a 23 KB HTML guide in a WebView. There is no WebView here: the file is
+// bundled verbatim and read into Compose by `parseManual`, whose *content* is checked off the
+// shipped file by `ManualContentTest` — every tag drawn, every heading, paragraph and list item
+// counted against the file's own tags, every link pointing at a section that exists.
+//
+// What only a running app can say is that it is on the screen and behaves like a document: that a
+// page of text is drawn rather than a blank surface, that it scrolls, that tapping the contents
+// list moves you, and that Close gives the cave back. Each is measured off the pixels, because
+// "the view was composed" is not the same claim as "there is a manual to read".
+
+/** How many rows of the screen have text on them, and roughly how much on each. */
+const inkProfile = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    const rows = []
+    let inked = 0
+    for (let y = 0; y < c.height; y++) {
+      let count = 0
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        // Dark and grey: the manual's body text, and nothing the survey canvas draws in quantity.
+        if (px[i] < 120 && Math.abs(px[i] - px[i + 1]) < 30 && Math.abs(px[i] - px[i + 2]) < 30) {
+          count++
+        }
+      }
+      rows.push(count)
+      if (count > 2) inked++
+    }
+    return { inked, rows }
+  }, [b64])
+}
+
+/**
+ * How much of the screen is the app's own panel green.
+ *
+ * The discriminator between the manual and the survey, and the ink count is not: the manual inks
+ * 226 rows of a 900-pixel screen and the survey behind it inks 237, because a page of text with
+ * its line spacing and a cave drawing with a toolbar come to much the same thing. That near-miss
+ * is why this helper exists — the first version of these checks used the ink and could not tell
+ * the two screens apart. The green is not ambiguous: the app bar and the sketch panel are tens of
+ * thousands of pixels of it and a full-screen document has none. Measured: 41,195 against 0.
+ */
+const panelGreen = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, panel]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    let count = 0
+    for (let i = 0; i < px.length; i += 4) {
+      if (
+        Math.abs(px[i] - panel[0]) < 14 &&
+        Math.abs(px[i + 1] - panel[1]) < 14 &&
+        Math.abs(px[i + 2] - panel[2]) < 14
+      ) {
+        count++
+      }
+    }
+    return count
+  }, [b64, SKETCH_PANEL])
+}
+
+/** How different two of those are, as a fraction of the rows. */
+const profileChange = (before, after) => {
+  let moved = 0
+  for (let i = 0; i < before.rows.length; i++) {
+    if (Math.abs(before.rows[i] - after.rows[i]) > 3) moved++
+  }
+  return moved / before.rows.length
+}
+
+await at(...OVERFLOW); await page.waitForTimeout(600)
+await at(...(await menuRow('manual', savedCount)))
+
+// Waited for rather than slept through. The manual is a 23 KB resource read off the bundle and
+// parsed before anything is drawn, and a fixed delay long enough on this machine is a flake on a
+// slower one.
+let green = await panelGreen()
+for (let tries = 0; tries < 20 && green > 1000; tries++) {
+  await page.waitForTimeout(400)
+  green = await panelGreen()
+}
+await page.screenshot({ path: join(shotDir, 'field-manual.png') })
+
+const manualOpen = await inkProfile()
+if (green > 1000) {
+  fail(`the manual did not open: ${green} pixels of the app's panel green are still on screen`)
+} else if (manualOpen.inked < 150) {
+  fail(
+    `the manual is only ${manualOpen.inked} rows of text on a ${box.height}-pixel screen, which ` +
+      'is a blank page rather than a manual',
+  )
+} else {
+  pass(`the manual opens and is a page of text (${manualOpen.inked} rows have writing on them)`)
+}
+
+// Scrolling. A document that does not scroll is a screenful of a 23 KB guide.
+await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+await page.mouse.wheel(0, 900)
+await page.waitForTimeout(900)
+const scrolled = await inkProfile()
+if (profileChange(manualOpen, scrolled) < 0.3) {
+  fail('the manual did not move when scrolled, so only its first screenful can be read')
+} else {
+  pass('the manual scrolls, so the whole guide can be read')
+}
+
+/**
+ * The rows of the manual that are links, found by their colour rather than counted off a margin.
+ *
+ * Material draws every link on this screen in the primary colour and nothing else on it is that
+ * colour — the body text is black on a pale surface — so the same blue-over-green signature that
+ * finds a dialog's buttons finds the Close button and the thirteen contents rows here. Returned
+ * as bands so a row's centre is its own midpoint, which survives the manual being restyled.
+ */
+const manualLinkRows = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    const bands = []
+    let run = null
+    for (let y = 0; y < c.height; y++) {
+      let count = 0
+      let sumX = 0
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        const [r, g, b] = [px[i], px[i + 1], px[i + 2]]
+        if (b > r && r > g && b - g > 30 && b < 230) {
+          count++
+          sumX += x
+        }
+      }
+      if (count > 4) {
+        if (run === null) run = { top: y, bottom: y, pixels: count, sumX }
+        else { run.bottom = y; run.pixels += count; run.sumX += sumX }
+      } else if (run !== null) {
+        bands.push({ y: Math.round((run.top + run.bottom) / 2), x: Math.round(run.sumX / run.pixels) })
+        run = null
+      }
+    }
+    if (run !== null) {
+      bands.push({ y: Math.round((run.top + run.bottom) / 2), x: Math.round(run.sumX / run.pixels) })
+    }
+    // Merge bands a few pixels apart. A word whose middle scan line happens to hold four coloured
+    // pixels rather than five splits into two — "Overview" and "Trip" both do, at this size — and
+    // a raw band count then reports sixteen links on a screen with fourteen.
+    const merged = []
+    for (const band of bands) {
+      const last = merged[merged.length - 1]
+      if (last && band.y - last.y < 8) {
+        last.y = Math.round((last.y + band.y) / 2)
+      } else {
+        merged.push({ ...band })
+      }
+    }
+    return merged
+  }, [b64])
+}
+
+// The contents list. The guide builds its own in JavaScript, off the h2s; there is no JavaScript
+// here, so the app rebuilds it — and a contents list that does not take you anywhere is decoration.
+await page.mouse.wheel(0, -4000)
+await page.waitForTimeout(900)
+const atTop = await inkProfile()
+const links = await manualLinkRows()
+// Close, then the thirteen sections. Asserting the count rather than trusting it: a contents list
+// that lost a section would otherwise pass every check below by jumping somewhere else.
+if (links.length !== 14) {
+  fail(`the manual has ${links.length} links where it should have Close and thirteen sections`)
+} else {
+  pass('the manual lists all thirteen of the guide\'s sections')
+}
+// The last one, Troubleshooting, which is the far end of the guide: landing there cannot be
+// mistaken for having stayed where you were.
+const last = links[links.length - 1]
+await at(last.x, last.y)
+await page.waitForTimeout(1000)
+const afterContentsTap = await inkProfile()
+if (profileChange(atTop, afterContentsTap) < 0.3) {
+  fail('tapping the contents list did not move the manual, so it is a list of words')
+} else {
+  pass('the contents list takes you to the section you tap')
+}
+
+// And out again. Close is the first link on the screen, in the header above everything else.
+const close = (await manualLinkRows())[0]
+await at(close.x, close.y)
+await page.waitForTimeout(1200)
+const backToTheCave = await panelGreen()
+if (backToTheCave < 1000) {
+  fail('closing the manual left it on the screen, so there is no way back to the cave')
+} else {
+  pass(`closing the manual gives the survey back (${backToTheCave} pixels of app bar and toolbar)`)
+}
 
 await at(...OVERFLOW); await page.waitForTimeout(600)
 await at(...(await menuRow('demo', savedCount))); await page.waitForTimeout(900)

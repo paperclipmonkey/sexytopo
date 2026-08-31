@@ -153,6 +153,8 @@ fun App(
                                 state.noteSketchEdited()
                             },
                         )
+                    } else if (state.viewingManual) {
+                        ManualView(onClose = { state.viewingManual = false })
                     } else if (state.viewing3D) {
                         ThreeDView(
                             survey = state.survey,
@@ -384,6 +386,12 @@ private fun SexyTopoAppBar(state: DemoState) {
                     menuOpen = false
                     page = MenuPage.TOP
                 },
+                // One width for every page. Material sizes a menu to its longest label, so the
+                // popup was 164 pixels on the top page and 112 on Help — it shrank under the
+                // finger that had just opened it, and a submenu jumping about while you read it is
+                // the sort of thing that makes an app feel unfinished. 200dp fits "Instrument >"
+                // and leaves room for a saved survey's name beside its delete cross.
+                modifier = Modifier.width(200.dp),
             ) {
                 // `action_bar.xml`'s own five submenus, and for the same reason it has them: this
                 // list had grown to fourteen rows plus one per saved survey, which is 672 pixels
@@ -391,26 +399,14 @@ private fun SexyTopoAppBar(state: DemoState) {
                 // popup that does not fit, so nothing was unreachable, but *About* was drawn half
                 // off the bottom edge and nothing said the list continued.
                 //
-                // The words are the app's: File, View, Instrument, Settings, Help. Only the last
-                // is folded away, because it holds one item here.
+                // The words are the app's, and so is the order: File, View, Instrument,
+                // Settings, Help.
                 if (page == MenuPage.TOP) {
                     MenuGroup("File", MenuPage.FILE) { page = it }
                     MenuGroup("View", MenuPage.VIEW) { page = it }
                     MenuGroup("Instrument", MenuPage.INSTRUMENT) { page = it }
                     MenuGroup("Settings", MenuPage.SETTINGS) { page = it }
-                    // `action_about`, last as it is in `action_bar.xml`. Not decoration: this
-                    // build carries several thousand lines of somebody else's GPL-3.0 code, and
-                    // until it existed neither their names nor the licence appeared anywhere a
-                    // user could see them.
-                    DropdownMenuItem(
-                        text = { Text("About…") },
-                        leadingIcon = { CheckDot(false) },
-                        onClick = {
-                            showingAbout = true
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
+                    MenuGroup("Help", MenuPage.HELP) { page = it }
                 }
 
                 if (page != MenuPage.TOP) {
@@ -420,6 +416,33 @@ private fun SexyTopoAppBar(state: DemoState) {
                         text = { Text("< Back") },
                         leadingIcon = { CheckDot(false) },
                         onClick = { page = MenuPage.TOP },
+                    )
+                }
+
+                if (page == MenuPage.HELP) {
+                    // `help_menu`, which holds exactly these two in exactly this order. It was
+                    // flattened to a single *About…* row while the manual was missing; now that
+                    // the manual is here it is the submenu the app always had.
+                    DropdownMenuItem(
+                        text = { Text("Manual") },
+                        leadingIcon = { CheckDot(false) },
+                        onClick = {
+                            state.viewingManual = true
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
+                    )
+                    // `action_about`. Not decoration: this build carries several thousand lines of
+                    // somebody else's GPL-3.0 code, and until it existed neither their names nor
+                    // the licence appeared anywhere a user could see them.
+                    DropdownMenuItem(
+                        text = { Text("About") },
+                        leadingIcon = { CheckDot(false) },
+                        onClick = {
+                            showingAbout = true
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
                     )
                 }
 
@@ -620,6 +643,7 @@ enum class MenuPage {
     VIEW,
     INSTRUMENT,
     SETTINGS,
+    HELP,
 }
 
 /** A row that opens one of the submenus. */
