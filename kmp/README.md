@@ -65,6 +65,7 @@ Being precise about this matters more than the demo looking good.
 | **The instrument's clock runs where the surveyor is** | **Verified** | it used to tick only while the connection or calibration dialog was open, so an attempt abandoned by closing the dialog never timed out and left the radio scanning, and a reconnection could never have happened at all — a surveyor waiting for an instrument to come back is drawing. One loop in `App`, keyed on the attached instrument, so it costs nothing on the demo cave. Finding 51 |
 | **The drawing can be made big enough to read by head torch** | **Verified** | `preferences_sketching.xml`'s eight numbers — line widths, station size, the two font sizes, the symbol and text starting sizes — plus `pref_delete_path_fragments`, which decides whether the eraser takes the bit of a wall under your finger or the whole stroke. All nine were hard-coded here, and the eraser rule was worse than that: `SketchEditor.eraseAt` has taken the flag since the sketch was ported and nothing ever passed it. `SketchStyleTest` covers the file and the bounds; `DrawingSizeTest` renders the same survey at two leg widths through headless Skia and counts the red, because a number in a file is not a thicker line; `field.mjs` types 8 into the box on a phone screen and watches the plan go from 605 red pixels to 1852. Two upstream preferences that do nothing came out of reading this — finding 52 |
 | **A bearing can be typed the way a compass reads it** | **Verified** | `pref_deg_mins_secs` and `pref_inc_deg_mins_secs`. A DistoX reports a decimal and nobody needs this; a sighting compass is graduated in minutes and reads 123° 30′, and converting that in your head at every station is how a survey acquires arithmetic errors nobody can find afterwards — which matters here because this port already went out of its way to support a compass and tape and then asked for a decimal nobody's instrument shows. `DegreesMinutesSecondsTest` has the conversion both ways, the rounding carry, and the case upstream gets wrong; `field.mjs` turns both switches on, types 123 and 30 into the three boxes on a phone screen, flips the inclination's sign with the +/- button, and checks the survey stored 123.5 and **-5.5** — the direction as well as the size |
+| **A packet the app cannot read costs a shot, not the trip** | **Verified** | every byte from a radio reaches one method, on the main thread, and none of it is under anybody's control — a truncated notification, a firmware revision with a field more, a device whose advertised name matched a profile it does not really speak. On iOS a Kotlin exception raised inside a CoreBluetooth callback ends the process, and an app that dies takes the connection, the screen and the surveyor's confidence with it. `InstrumentSessionTest` attaches a decoder that throws and checks the link stays up, nothing becomes a reading, and the log says a packet was dropped — run against the unguarded version, where it fails. Finding 56 |
 | The instrument log is kept, persisted and readable on the phone | **Verified** | `ActivityLogTest` for the bounded queues and the file format; `instrument.mjs` connects a fake DistoX-BLE, takes a calibration, and then reads the log back off the clipboard — count, timestamps and all |
 | The desktop build keeps its surveys too | **Verified** | a survey written by one `SurveyLibrary` and read by a second over the same directory, in SexyTopo's own file layout, plus the three platform conventions for where that directory goes |
 | **A real-sized cave works, not just a demo one** | **Verified** | `BigSurveyTest` builds a four-thousand-station passage — past where every tree walk in this port used to overflow the stack — and projects it to a plan and an extended elevation, builds its wireframe, counts its statistics, exports it to Survex and Therion and reads it back, on all three targets, along with SVG, `.xvi`, `.th2`, Compass and PocketTopo — and rubs out and undoes on a drawing of eight thousand strokes |
@@ -1739,6 +1740,33 @@ These are the things that would actually shape a real port.
    `DegreesMinutesSeconds` does that, and its `Parts` keeps `negative` as its own flag rather than
    signing the degrees, so the same value survives being written back into the box.
 
+56. **The one place foreign data meets the main thread.** This port's own, and the reason for
+   looking was finding 54: a phone had just shown that an uncaught throw on a background queue
+   ends the app, so the question worth asking was where else one could come from.
+
+   Every byte from an instrument arrives at `SurveySession`'s `onFrame`, on the platform's
+   callback thread, and is handed straight to a decoder. Those decoders are careful — each one
+   checks the length before it reads, and `Sap6Protocol.decode`'s `require` is unreachable because
+   `Sap6Decoder` guards it — but *careful against the protocol as documented* is the most that can
+   be said, and the instruments this port has never met are precisely the ones likely to send
+   something the documentation does not cover.
+
+   The asymmetry is the point. **A packet that cannot be read costs one shot; a crash costs the
+   connection, the screen, and the surveyor's confidence in the thing holding their trip** — in a
+   cave, with cold hands, at the far end. The survey is written on every change, so nothing already
+   recorded is lost either way; what differs is everything after. So a throw here is now a line in
+   the log the surveyor can already read and copy off the phone, which is the whole reason that
+   log exists, and the tick that drives the connection state machine is wrapped for the same
+   reason.
+
+   The rest of the sweep found nothing to fix, which is worth saying rather than padding: the two
+   `!!` in the UI are both guarded by the condition that made them non-null; the loaders already
+   return null and report rather than throwing; `Survey`'s tree walk already carries a `seen` set,
+   so the cycle of finding 19 is a refusal rather than a hang; and the iOS actuals hold no forced
+   unwrap of an Objective-C nullable — which matters more than it sounds, because an Objective-C
+   exception on Kotlin/Native is not catchable at all, so the only defence against those is not
+   provoking them.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1859,7 +1887,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 733
-shared tests on three targets, 318 over the UI's own logic, 18 running the iOS half in a simulator,
+shared tests on three targets, 319 over the UI's own logic, 18 running the iOS half in a simulator,
 94 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the

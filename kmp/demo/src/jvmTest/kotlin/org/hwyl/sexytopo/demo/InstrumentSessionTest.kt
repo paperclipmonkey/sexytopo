@@ -3,6 +3,8 @@ package org.hwyl.sexytopo.demo
 import org.hwyl.sexytopo.shared.comms.BaseInstrumentTransport
 import org.hwyl.sexytopo.shared.comms.FrameChannel
 import org.hwyl.sexytopo.shared.comms.InstrumentDecoder
+import org.hwyl.sexytopo.shared.comms.InstrumentFamily
+import org.hwyl.sexytopo.shared.comms.InstrumentPacket
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
 import org.hwyl.sexytopo.shared.comms.distox.DistoXBlePackets
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -134,5 +136,46 @@ class InstrumentSessionTest {
 
         assertEquals(3, session.readingsTaken)
         assertEquals(2, survey.getAllStations().size)
+    }
+    /**
+     * A decoder that throws does not take the app with it.
+     *
+     * Every byte from a radio reaches `onFrame`, on the main thread, and none of it is under
+     * anybody's control. The decoders' guards are written against each protocol *as documented*,
+     * and the instruments this port has never met are exactly the ones likely to send something
+     * the documentation does not cover — a truncated notification, a firmware revision with a
+     * field more, a device whose advertised name matched a profile it does not really speak. On
+     * iOS a Kotlin exception raised inside a CoreBluetooth callback ends the process.
+     *
+     * Losing the app is not the same as losing a packet. The survey is written on every change,
+     * so a crash costs at most the shot in flight — and also the connection, the screen, and a
+     * surveyor's confidence in the thing holding their trip. A line in the log costs a re-shoot.
+     */
+    @Test
+    fun aPacketTheDecoderCannotReadIsLoggedRatherThanFatal() {
+        val survey = Survey("Bad packets")
+        val session = SurveySession(survey)
+        val radio = FakeInstrument()
+        session.attachForTest(radio, ThrowingDecoder())
+        session.connect()
+
+        radio.arrive(byteArrayOf(0x01, 0x02, 0x03))
+
+        assertTrue(session.connected, "one unreadable packet closed the link")
+        assertEquals(0, session.readingsTaken, "an unreadable packet became a reading")
+        assertTrue(
+            session.log.any { it.contains("could not read a packet") },
+            "nothing in the log says a packet was dropped: ${session.log}",
+        )
+    }
+
+    /** Stands in for an instrument speaking a dialect no decoder here knows. */
+    private class ThrowingDecoder : InstrumentDecoder() {
+        override val driverName = "throws"
+
+        override val family = InstrumentFamily.DISTOX_BLE
+
+        override fun decode(channel: FrameChannel, bytes: ByteArray): List<InstrumentPacket> =
+            error("a field this firmware revision added")
     }
 }

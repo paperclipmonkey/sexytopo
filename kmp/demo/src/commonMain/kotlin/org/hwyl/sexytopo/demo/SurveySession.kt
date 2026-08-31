@@ -243,7 +243,38 @@ class SurveySession(
                 considerReconnecting()
             }
 
+            /**
+             * Every byte from a radio arrives here, and none of it is under anybody's control.
+             *
+             * Wrapped, because this is the one place in the app where *foreign data on the main
+             * thread* meets code that can throw. A decoder's guards are written against the
+             * protocol as documented, and the instruments this port has never met are exactly the
+             * ones likely to send something the documentation does not cover — a truncated
+             * notification, a firmware revision with an extra field, a device whose advertised
+             * name matched a profile it does not really speak. Every one of those is a Kotlin
+             * exception raised inside a Bluetooth callback, which on iOS takes the app with it.
+             *
+             * Losing the app is not losing a packet. The survey is written on every change, so a
+             * crash costs at most the shot in flight — but it also costs the connection, the
+             * screen, and a surveyor's confidence in the thing holding their trip, in a cave,
+             * with cold hands. A line in the log costs a re-shoot.
+             *
+             * Deliberately not silent: it goes to the log the surveyor can already read and copy
+             * off the phone, which is the whole reason that log exists. See finding 56.
+             */
             override fun onFrame(channel: FrameChannel, bytes: ByteArray) {
+                runCatching { readFrame(channel, bytes) }
+                    .onFailure { thrown ->
+                        note(
+                            "could not read a packet from the instrument " +
+                                "(${thrown.message ?: thrown::class.simpleName}); the shot was " +
+                                "not recorded",
+                            isError = true,
+                        )
+                    }
+            }
+
+            private fun readFrame(channel: FrameChannel, bytes: ByteArray) {
                 val packets = decoder.decode(channel, bytes)
 
                 // Before anything else. Four of these instruments will not send the next shot
@@ -401,7 +432,10 @@ class SurveySession(
      * that only runs while a dialog is open is a clock that never runs when it is needed.
      */
     fun tick() {
-        tickTransport(transport)
+        // Wrapped for the same reason [InstrumentTransportListener.onFrame] is: this drives the
+        // platform's own connection state machine, from a Compose effect, on the main thread.
+        runCatching { tickTransport(transport) }
+            .onFailure { note("the instrument link failed: ${it.message}", isError = true) }
         if (reconnection.retryIsDue()) {
             note("reconnecting to ${profile?.name ?: "the instrument"}")
             transport.connect()
