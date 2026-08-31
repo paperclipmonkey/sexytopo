@@ -2433,11 +2433,40 @@ if (grew.length > 0) {
   pass(`Splays Only keeps three agreeing readings as splays (${splaysNow} splays, no new station)`)
 }
 
+// ---- and the mode the surveyor chose is written down ----------------------------------------
+// `SurveyManager.getInputMode` reads this out of `generalPrefs` on the Android app's way in. Here
+// it was a plain `var` that started at FORWARD every run, so a surveyor working back down a
+// passage on backsights, whose phone was killed in a pocket between stations, came back to
+// foresights — and the field bar only says anything when the mode is *not* FORWARD, so the state
+// it came back in is the one that looks normal. Every leg after that is turned end for end and
+// there is nothing in the numbers to show it happened.
+//
+// This half is the one no unit test can do: that a real tap on a real chip reaches the file. The
+// other half — that the file reaches the app on the way back in — is `AppPreferencesTest`, which
+// closes and reopens a `DemoState` over one store.
+const modeInStore = async () =>
+  ((await page.evaluate(() => localStorage.getItem('sexytopo:f:preferences.txt'))) || '')
+    .split('\n')
+    .find((line) => line.startsWith('inputMode=')) ?? '(nothing)'
+
+const modeSaved = await modeInStore()
+
 // Back to forward, so nothing after this inherits it.
 await at(...ADD_READING); await page.waitForTimeout(600)
 await at(...(await modeChip(0))); await page.waitForTimeout(300)
 await page.screenshot({ path: join(shotDir, 'field-input-mode.png') })
 await at(...(await cardButton(CARD_CANCEL_X))); await page.waitForTimeout(500)
+
+// Asserted both ways round: a file that said CALIBRATION_CHECK and went on saying it would be a
+// value written once and then stuck, which is its own bug and would pass a one-sided check.
+const modeBack = await modeInStore()
+if (modeSaved !== 'inputMode=CALIBRATION_CHECK') {
+  fail(`Splays Only did not reach the preferences file (${modeSaved})`)
+} else if (modeBack !== 'inputMode=FORWARD') {
+  fail(`going back to foresights did not reach the preferences file (${modeBack})`)
+} else {
+  pass('the input mode is written down, so a backsight run survives the app being killed')
+}
 
 // ---- and the demo cave stays a demo --------------------------------------------------------
 // The app opens on an example survey, which is where a new surveyor is most likely to press

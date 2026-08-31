@@ -45,15 +45,45 @@ class DemoState(
     val exampleSurvey: Survey,
     initialProjection: Projection2D,
     initialSystemDark: Boolean,
-    initialTool: SketchTool,
+    /** A tool to open on, or null to use whichever the surveyor last chose. */
+    initialTool: SketchTool?,
     initialMode: SurveyMode,
     initialScreen: Screen,
+    /**
+     * Where surveys are kept between runs: `localStorage` in the browser, the app's own files
+     * directory on Android, Documents on iOS, and the platform's application-data directory on the
+     * desktop. [SurveyLibrary] reports rather than throws when a platform will not have it.
+     *
+     * A parameter so a test can hand it an in-memory store and close and reopen the app in one
+     * method — which is the only way to check that a setting really came back, as against checking
+     * that a file was written and trusting the reading half.
+     */
+    val library: SurveyLibrary = SurveyLibrary(),
 ) {
     var mode by mutableStateOf(initialMode)
     var screen by mutableStateOf(initialScreen)
     var projection by mutableStateOf(initialProjection)
-    var tool by mutableStateOf(initialTool)
+    /**
+     * The tool the toolbar has lit. Set through [chooseTool] so it reaches the preferences file.
+     *
+     * `private set` on purpose, on all four of these and on [darkMode]: what made finding 48 and
+     * finding 49 possible was that assigning to a `var` on this object looks exactly like
+     * assigning to one that is written down, at every call site. Take the assignment away and the
+     * two stop looking alike.
+     */
+    var tool by mutableStateOf(initialTool ?: SketchTool.DEFAULT)
+        private set
+
+    /**
+     * Whether the caller named a tool rather than leaving it to the saved one.
+     *
+     * The headless renderer asks for [SketchTool.DRAW] to photograph the drawing tool, and a test
+     * asks for what it is testing; neither wants the machine's own saved preference instead.
+     */
+    private val seededTool = initialTool != null
+
     var brushColour by mutableStateOf(Colour.BLACK)
+        private set
 
     /**
      * What the platform says about light and dark: `prefers-color-scheme` in a browser, the trait
@@ -85,6 +115,7 @@ class DemoState(
      * follows, and there is nothing in the numbers afterwards to show it happened.
      */
     var inputMode by mutableStateOf(InputMode.FORWARD)
+        private set
 
     /**
      * How close repeated readings must be before they make a station.
@@ -140,6 +171,22 @@ class DemoState(
         surveySettings = library.loadSettings()
         preferences = library.loadPreferences()
         session.onStationCreated = ::noteStationCreated
+        restoreSelections()
+    }
+
+    /**
+     * Put the surveyor back where they left off.
+     *
+     * Skipped for whichever of the four the caller seeded itself, which is the headless renderer
+     * asking for a particular tool and the tests asking for a particular anything. Without that,
+     * a screenshot of the drawing tool would show whatever tool the machine building it happened
+     * to have saved.
+     */
+    private fun restoreSelections() {
+        if (!seededTool) tool = preferences.tool
+        brushColour = preferences.brushColour
+        symbol = preferences.symbol
+        inputMode = preferences.inputMode
     }
 
     /** The app's own preferences: what it does, rather than what a reading means. */
@@ -195,6 +242,7 @@ class DemoState(
      * tool loaded — a surveyor stamps a dozen boulders in a row, not one.
      */
     var symbol by mutableStateOf(Symbol.ENTRANCE)
+        private set
 
     /**
      * The cross-section whose own drawing is open, if any.
@@ -259,13 +307,6 @@ class DemoState(
     var showCompass: Boolean
         get() = preferences.showCompass
         set(value) = updatePreferences(preferences.copy(showCompass = value))
-
-    /**
-     * Where surveys are kept between runs: `localStorage` in the browser, the app's own files
-     * directory on Android, Documents on iOS, and the platform's application-data directory on the
-     * desktop. [SurveyLibrary] reports rather than throws when a platform will not have it.
-     */
-    val library = SurveyLibrary()
 
     /**
      * The survey being built, kept even while the demo cave is showing.
@@ -471,6 +512,50 @@ class DemoState(
         brushColour = colour
         editor.activeColour = colour
         if (!tool.usesColour) tool = SketchTool.DRAW
+        rememberSelections()
+    }
+
+    /**
+     * Choose a tool. The four selections below all write themselves down; see finding 49.
+     *
+     * One-shot tools go through here too — the surveyor really has selected them — and are simply
+     * not restored on the way back in. That rule lives in [AppPreferencesStore.restorableTool],
+     * beside the file it guards, rather than here.
+     */
+    fun chooseTool(tool: SketchTool) {
+        this.tool = tool
+        rememberSelections()
+    }
+
+    /** Choose the symbol the stamp will place. */
+    fun chooseSymbol(symbol: Symbol) {
+        this.symbol = symbol
+        rememberSelections()
+    }
+
+    /**
+     * Choose how the instrument is being held.
+     *
+     * The one on this list that changes what the numbers *mean*: a surveyor working back down a
+     * passage on backsights, whose phone is killed in a pocket between stations, would otherwise
+     * come back to foresights with nothing on screen to say so, and every leg after that is turned
+     * end for end. `SurveyManager.getInputMode` reads this out of `generalPrefs` on the Android
+     * app's way in for exactly that reason.
+     */
+    fun chooseInputMode(mode: InputMode) {
+        inputMode = mode
+        rememberSelections()
+    }
+
+    private fun rememberSelections() {
+        updatePreferences(
+            preferences.copy(
+                tool = tool,
+                brushColour = brushColour,
+                symbol = symbol,
+                inputMode = inputMode,
+            ),
+        )
     }
 
     fun undo(editor: SketchEditor) {

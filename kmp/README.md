@@ -60,6 +60,7 @@ Being precise about this matters more than the demo looking good.
 | **The drawing can be moved without putting the pencil down** | **Verified** | `MultiTouchTest` for the pinch arithmetic and the corner geometry, and `field.mjs` finds the corner squares on the drawn page, drags one, and checks the plan moved, that no stroke was left behind, and that the next stroke still draws — with no toolbar round trip |
 | A station being made can be felt rather than looked at | **Verified** | the callback fires once per station and not once per reading, the preference round-trips, and `field.mjs` turns it off through the settings screen and checks it stayed off |
 | **The app can be told to stay dark, and remembers it** | **Verified** | `pref_theme` is a three-value list in the Android app — auto, light, dark — and this port had a session-only checkbox that started light on every run. In a cave that is the difference between a survey and fifteen minutes of no night vision. `AppPreferencesTest` covers the three values, the resolution against what the platform reports, and the round trip through the file; `field.mjs` sets Chromium to `prefers-color-scheme: dark` and watches *Automatic* follow it, then chooses **Dark** with the browser back on light, **reloads the page**, and checks the app comes back dark |
+| **The mode the instrument is being held in is remembered** | **Verified** | the Android app reads `inputMode` out of `generalPrefs` on its way in; this port held it in a `var` that started at foresights every run, and the field bar only says anything when the mode is *not* foresights — so the state it came back in is the one that looks normal, and every leg after it is turned end for end with nothing in the numbers to show it. Now written down, along with the tool, the brush and the symbol, which `SketchPreferences` also keeps. `AppPreferencesTest` closes and reopens a `DemoState` over one store — the reading half as well as the writing half — and checks that a tool armed for a single touch is *not* restored; `field.mjs` taps the chips on a phone screen and watches the file follow, both ways round |
 | The instrument log is kept, persisted and readable on the phone | **Verified** | `ActivityLogTest` for the bounded queues and the file format; `instrument.mjs` connects a fake DistoX-BLE, takes a calibration, and then reads the log back off the clipboard — count, timestamps and all |
 | The desktop build keeps its surveys too | **Verified** | a survey written by one `SurveyLibrary` and read by a second over the same directory, in SexyTopo's own file layout, plus the three platform conventions for where that directory goes |
 | **A real-sized cave works, not just a demo one** | **Verified** | `BigSurveyTest` builds a four-thousand-station passage — past where every tree walk in this port used to overflow the stack — and projects it to a plan and an extended elevation, builds its wireframe, counts its statistics, exports it to Survex and Therion and reads it back, on all three targets, along with SVG, `.xvi`, `.th2`, Compass and PocketTopo — and rubs out and undoes on a drawing of eight thousand strokes |
@@ -1513,6 +1514,48 @@ These are the things that would actually shape a real port.
    gives it teeth: choosing Dark and measuring the screen passes with the bug live. It has to
    close the page and come back.
 
+49. **Asking finding 48's question of every setting found four more, and one of them changes what
+   the numbers mean.** Finding 48 ended by saying that the only reliable way to find a lost
+   setting is to go through them one at a time and ask whether closing the app would lose it. Done
+   properly, that question found four: `inputMode`, and the three `SketchPreferences` string keys
+   `pref_sketch_sketch_tool`, `pref_sketch_brush_colour` and `pref_sketch_symbol`. All four are
+   persisted in the Android app. All four were plain `var`s here.
+
+   Three of them are conveniences — reopening on the eraser rather than the pan tool, or on black
+   rather than the blue you were drawing a stream in. **`inputMode` is not.** It decides whether a
+   shot is read from the current station towards the next one or standing at the next one looking
+   back, and `SurveyUpdater` reverses the leg before hanging it on the tree when it is
+   `BACKWARD`. A surveyor working back out of a passage on backsights, whose phone is killed in a
+   pocket between stations — which is the ordinary case, not the unlucky one — reopened the app on
+   foresights.
+
+   What makes it worse than a lost preference is the direction the failure points. This port's own
+   field bar shows the mode **only when it is not FORWARD**, which is the right design and exactly
+   the wrong thing here: the state the app wrongly came back in is the state that displays
+   nothing. The surveyor sees a normal screen, carries on, and every leg from there is a hundred
+   and eighty degrees out. Nothing in the readings can show it: a backsight and a foresight down
+   the same passage are both perfectly ordinary numbers.
+
+   Two smaller things fell out of doing it properly:
+
+   - **Not every tool is worth restoring.** Five of the eleven are armed for one gesture or one
+     tap — a pinch, a hot-corner pan, the three cross-section drags. An app that opened with *the
+     next touch drops a cross-section* still armed would drop one under the surveyor's first
+     touch. So only the toolbar's own six come back. The Android app has the same hole and does
+     not fall into it, because its `setSelectedSketchTool` is only reached from its toolbar
+     handler; this port sets the tool directly for the cross-section gestures, so the rule had to
+     be written down rather than assumed.
+   - **`SketchPreferences` reads its three through `valueOf`, which throws.** A file naming a tool
+     that a later version dropped would throw on the way into the sketch screen rather than fall
+     back. Small, and upstream, and not worth a report on its own — but nothing about a preference
+     should be able to stop the app opening a survey, so this port reads all four by name with a
+     fallback.
+
+   The test is the shape that matters more than the finding. Checking that a value reached the
+   file is the half that was never in doubt; `AppPreferencesTest` builds a second `DemoState` over
+   the same in-memory store, which is the reading half as well — the thing a surveyor actually
+   does when the OS kills the app in their pocket. Run against the `var` put back, it fails.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1617,7 +1660,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 713
-shared tests on three targets, 292 over the UI's own logic, 18 running the iOS half in a simulator,
+shared tests on three targets, 299 over the UI's own logic, 18 running the iOS half in a simulator,
 91 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the

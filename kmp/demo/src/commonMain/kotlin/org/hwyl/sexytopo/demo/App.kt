@@ -78,7 +78,8 @@ fun App(
     initialProjection: Projection2D = Projection2D.PLAN,
     /** What the platform reports; overridden by the theme preference unless it is Automatic. */
     systemDark: Boolean = isSystemInDarkTheme(),
-    initialTool: SketchTool = SketchTool.MOVE,
+    /** Open on a named tool; by default, whichever tool the surveyor last selected. */
+    initialTool: SketchTool? = null,
     initialMode: SurveyMode = SurveyMode.EXAMPLE,
     initialScreen: Screen = Screen.SKETCH,
     /** Opens straight into the 3D view. Only used by the headless renderer. */
@@ -948,7 +949,7 @@ private fun FieldBar(state: DemoState) {
     if (entering) {
         ManualReadingDialog(
             inputMode = state.inputMode,
-            onInputMode = { state.inputMode = it },
+            onInputMode = { state.chooseInputMode(it) },
             onDismiss = { entering = false },
             onAdd = { leg, asSplay ->
                 // liveSurvey, not state.survey: this composable only runs in LIVE mode, and being

@@ -1,7 +1,11 @@
 package org.hwyl.sexytopo.demo
 
 import org.hwyl.sexytopo.shared.io.store.FileStore
+import org.hwyl.sexytopo.shared.model.sketch.Colour
+import org.hwyl.sexytopo.shared.model.sketch.Symbol
 import org.hwyl.sexytopo.shared.sketch.SketchDefaults
+import org.hwyl.sexytopo.shared.sketch.SketchTool
+import org.hwyl.sexytopo.shared.survey.InputMode
 
 /**
  * Light, dark, or whatever the phone says. `pref_theme`'s three values, under their own names.
@@ -83,6 +87,14 @@ data class AppPreferences(
     val fullScreen: Boolean = DEFAULT_FULL_SCREEN,
     /** Light, dark, or what the phone says. `pref_theme`. */
     val theme: AppTheme = DEFAULT_THEME,
+    /** How the instrument is being held. The `inputMode` key in `generalPrefs`. */
+    val inputMode: InputMode = DEFAULT_INPUT_MODE,
+    /** The tool the toolbar has lit. `pref_sketch_sketch_tool`. */
+    val tool: SketchTool = DEFAULT_TOOL,
+    /** The brush. `pref_sketch_brush_colour`. */
+    val brushColour: Colour = DEFAULT_BRUSH_COLOUR,
+    /** Which symbol the stamp will place. `pref_sketch_symbol`. */
+    val symbol: Symbol = DEFAULT_SYMBOL,
 ) {
     companion object {
         /**
@@ -214,6 +226,29 @@ data class AppPreferences(
          */
         val DEFAULT_THEME = AppTheme.AUTO
 
+        /**
+         * Foresights, as `SurveyManager.getInputMode` defaults to.
+         *
+         * The one setting here that changes what a *number means* rather than how it looks, which
+         * is why losing it is the worst of the group — see finding 49.
+         */
+        val DEFAULT_INPUT_MODE = InputMode.DEFAULT
+
+        /** Pan, as `SketchTool.DEFAULT` is. */
+        val DEFAULT_TOOL = SketchTool.DEFAULT
+
+        /** Black, as `BrushColour.DEFAULT` is. */
+        val DEFAULT_BRUSH_COLOUR = Colour.BLACK
+
+        /**
+         * The first symbol on the palette.
+         *
+         * `Symbol.DEFAULT` is `TEXT` in the Android app, which is a value of *its* symbol enum;
+         * this port has no such value, because writing a label is a tool of its own here rather
+         * than a symbol you stamp. So the default is the first thing on the palette instead.
+         */
+        val DEFAULT_SYMBOL = Symbol.ENTRANCE
+
         val DEFAULT = AppPreferences()
     }
 }
@@ -253,6 +288,10 @@ object AppPreferencesStore {
             appendLine("showCompass=${preferences.showCompass}")
             appendLine("fullScreen=${preferences.fullScreen}")
             appendLine("theme=${preferences.theme.key}")
+            appendLine("inputMode=${preferences.inputMode.name}")
+            appendLine("tool=${preferences.tool.name}")
+            appendLine("brushColour=${preferences.brushColour.name}")
+            appendLine("symbol=${preferences.symbol.name}")
         }
 
     fun parse(text: String): AppPreferences {
@@ -314,8 +353,52 @@ object AppPreferencesStore {
             // last ran, and a value a later one invented should leave the surveyor on the default
             // rather than on a screen that will not open.
             theme = AppTheme.of(values["theme"]) ?: AppPreferences.DEFAULT_THEME,
+            // All four by name, and all four tolerant of a name this version does not know.
+            // `SketchPreferences` reads its three through `valueOf`, which throws — so an Android
+            // install that met a preferences file naming a tool it had dropped would crash on the
+            // way into the sketch screen rather than fall back. Nothing here should be able to
+            // stop the app opening a survey.
+            inputMode =
+                InputMode.entries.firstOrNull { it.name == values["inputMode"] }
+                    ?: AppPreferences.DEFAULT_INPUT_MODE,
+            tool = restorableTool(values["tool"]),
+            brushColour =
+                values["brushColour"]?.let(Colour::fromNameOrNull)
+                    ?: AppPreferences.DEFAULT_BRUSH_COLOUR,
+            symbol =
+                Symbol.entries.firstOrNull { it.name == values["symbol"] }
+                    ?: AppPreferences.DEFAULT_SYMBOL,
         )
     }
+
+    /**
+     * A tool worth reopening the app on — which is not every tool.
+     *
+     * Five of them are entered for the duration of a gesture or of one tap: a pinch, a hot-corner
+     * pan, the three cross-section drags. Saving those is meaningless, and restoring one is worse
+     * than meaningless — an app that opens with *the next touch drops a cross-section* armed is a
+     * cross-section dropped by the surveyor's first touch. So only the toolbar's own tools come
+     * back, and anything else reads as the default.
+     *
+     * The Android app has the same hole and does not notice it, because `setSelectedSketchTool` is
+     * only reached from its toolbar handler; this port's [DemoState] sets the tool directly for
+     * the cross-section gestures, so the rule has to be written down rather than assumed.
+     */
+    internal fun restorableTool(name: String?): SketchTool {
+        val tool = SketchTool.entries.firstOrNull { it.name == name } ?: return AppPreferences.DEFAULT_TOOL
+        return if (tool in RESTORABLE_TOOLS) tool else AppPreferences.DEFAULT_TOOL
+    }
+
+    /** The six the toolbar lights, plus the symbol stamp the palette arms. */
+    internal val RESTORABLE_TOOLS =
+        setOf(
+            SketchTool.MOVE,
+            SketchTool.DRAW,
+            SketchTool.ERASE,
+            SketchTool.TEXT,
+            SketchTool.SELECT,
+            SketchTool.SYMBOL,
+        )
 
     /** Never throws: browser storage can be disabled, and a missing file means the defaults. */
     fun load(store: FileStore): AppPreferences =

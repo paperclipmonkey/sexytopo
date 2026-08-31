@@ -226,8 +226,8 @@ private fun DrawingMenu(
         SymbolPaletteDialog(
             onDismiss = { choosingSymbol = false },
             onChosen = { chosen ->
-                state.symbol = chosen
-                state.tool = SketchTool.SYMBOL
+                state.chooseSymbol(chosen)
+                state.chooseTool(SketchTool.SYMBOL)
                 choosingSymbol = false
             },
         )
@@ -259,7 +259,7 @@ private fun DrawingMenu(
                 CheckDot(state.tool == SketchTool.POSITION_CROSS_SECTION)
             },
             onClick = {
-                state.tool = SketchTool.POSITION_CROSS_SECTION
+                state.chooseTool(SketchTool.POSITION_CROSS_SECTION)
                 onDismiss()
             },
         )
@@ -270,7 +270,7 @@ private fun DrawingMenu(
             text = { Text("Re-aim a cross-section") },
             leadingIcon = { CheckDot(state.tool == SketchTool.ROTATE_CROSS_SECTION) },
             onClick = {
-                state.tool = SketchTool.ROTATE_CROSS_SECTION
+                state.chooseTool(SketchTool.ROTATE_CROSS_SECTION)
                 onDismiss()
             },
         )
@@ -278,7 +278,7 @@ private fun DrawingMenu(
             text = { Text("Move a cross-section") },
             leadingIcon = { CheckDot(state.tool == SketchTool.MOVE_CROSS_SECTION) },
             onClick = {
-                state.tool = SketchTool.MOVE_CROSS_SECTION
+                state.chooseTool(SketchTool.MOVE_CROSS_SECTION)
                 onDismiss()
             },
         )
@@ -384,7 +384,7 @@ private fun RowScope.ToolButton(
         description = description,
         modifier = Modifier.weight(1f),
         selected = state.tool == tool,
-        onClick = { state.tool = tool },
+        onClick = { state.chooseTool(tool) },
     )
 }
 

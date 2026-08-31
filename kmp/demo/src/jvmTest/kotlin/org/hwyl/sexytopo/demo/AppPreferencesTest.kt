@@ -1,7 +1,14 @@
 package org.hwyl.sexytopo.demo
 
+import org.hwyl.sexytopo.shared.demo.ExampleSurvey
 import org.hwyl.sexytopo.shared.io.store.InMemoryFileStore
+import org.hwyl.sexytopo.shared.model.graph.Projection2D
+import org.hwyl.sexytopo.shared.model.sketch.Colour
+import org.hwyl.sexytopo.shared.model.sketch.Symbol
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.sketch.SketchEditor
+import org.hwyl.sexytopo.shared.sketch.SketchTool
+import org.hwyl.sexytopo.shared.survey.InputMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -266,6 +273,142 @@ class AppPreferencesTest {
 
         assertTrue(AppTheme.DARK.isDark(systemDark = false), "dark means dark in daylight too")
         assertFalse(AppTheme.LIGHT.isDark(systemDark = true), "light means light at night too")
+    }
+
+    // -------------------------------------------------------------------------------------
+    // The four selections, which were the same defect in four more places
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * Close the app and open it again, for real, over one in-memory store.
+     *
+     * Not a check that a file was written: that is the half that was never in doubt. A second
+     * [DemoState] over the same store is the reading half as well, which is what a surveyor
+     * actually does when the OS kills the app in their pocket.
+     */
+    private fun reopen(library: SurveyLibrary): DemoState =
+        DemoState(
+            exampleSurvey = ExampleSurvey.create(),
+            initialProjection = Projection2D.PLAN,
+            initialSystemDark = false,
+            initialTool = null,
+            initialMode = SurveyMode.EXAMPLE,
+            initialScreen = Screen.SKETCH,
+            library = library,
+        ).also { it.loadSettings() }
+
+    /**
+     * The serious one. `SurveyManager.getInputMode` reads `inputMode` out of `generalPrefs` on the
+     * Android app's way in; this port held it in a `var` that started at FORWARD every run.
+     *
+     * A surveyor working back down a passage on backsights, whose phone is killed in a pocket
+     * between stations, came back to foresights — and the field bar only says anything when the
+     * mode is *not* FORWARD, so the state it came back in is the one that looks normal. Every leg
+     * after that is turned end for end, and there is nothing in the numbers to show it happened.
+     */
+    @Test
+    fun theInputModeSurvivesTheAppBeingClosed() {
+        val library = SurveyLibrary(InMemoryFileStore())
+        reopen(library).chooseInputMode(InputMode.BACKWARD)
+
+        assertEquals(InputMode.BACKWARD, reopen(library).inputMode)
+    }
+
+    /** `pref_sketch_brush_colour` and `pref_sketch_symbol`, which `SketchPreferences` stores. */
+    @Test
+    fun theBrushAndTheSymbolSurviveTheAppBeingClosed() {
+        val library = SurveyLibrary(InMemoryFileStore())
+        val state = reopen(library)
+        state.pickColour(Colour.BLUE, SketchEditor())
+        state.chooseSymbol(Symbol.WATER_FLOW)
+
+        val reopened = reopen(library)
+        assertEquals(Colour.BLUE, reopened.brushColour)
+        assertEquals(Symbol.WATER_FLOW, reopened.symbol)
+    }
+
+    /** `pref_sketch_sketch_tool`: the app opens on the tool the surveyor was using. */
+    @Test
+    fun theToolSurvivesTheAppBeingClosed() {
+        val library = SurveyLibrary(InMemoryFileStore())
+        reopen(library).chooseTool(SketchTool.ERASE)
+
+        assertEquals(SketchTool.ERASE, reopen(library).tool)
+    }
+
+    /**
+     * But not a tool that was armed for one touch.
+     *
+     * Five of the eleven are entered for the duration of a gesture or of a single tap — a pinch, a
+     * hot-corner pan, the three cross-section drags. An app that opened with *the next touch drops
+     * a cross-section* still armed would drop one under the surveyor's first touch.
+     */
+    @Test
+    fun aToolArmedForOneTouchIsNotRestored() {
+        val library = SurveyLibrary(InMemoryFileStore())
+        reopen(library).chooseTool(SketchTool.POSITION_CROSS_SECTION)
+
+        assertEquals(SketchTool.MOVE, reopen(library).tool)
+    }
+
+    /** Every tool the toolbar lights comes back; nothing else does. */
+    @Test
+    fun theToolsThatComeBackAreTheOnesOnTheToolbar() {
+        for (tool in SketchTool.entries) {
+            val restored = AppPreferencesStore.restorableTool(tool.name)
+            if (tool in AppPreferencesStore.RESTORABLE_TOOLS) {
+                assertEquals(tool, restored, "$tool is on the toolbar and should come back")
+            } else {
+                assertEquals(SketchTool.MOVE, restored, "$tool is a one-shot and should not")
+            }
+        }
+    }
+
+    /**
+     * A name this version does not know reads as the default rather than throwing.
+     *
+     * `SketchPreferences` reads its three through `valueOf`, so an Android install meeting a file
+     * that names a tool it has dropped would throw on the way into the sketch screen. Nothing
+     * about a preference should be able to stop the app opening a survey.
+     */
+    @Test
+    fun aSelectionNameThisVersionDoesNotKnowReadsAsTheDefault() {
+        val parsed =
+            AppPreferencesStore.parse(
+                "inputMode=SIDEWAYS\ntool=TELEPORT\nbrushColour=CHARTREUSEISH\nsymbol=DRAGON\n",
+            )
+
+        assertEquals(InputMode.FORWARD, parsed.inputMode)
+        assertEquals(SketchTool.MOVE, parsed.tool)
+        assertEquals(Colour.BLACK, parsed.brushColour)
+        assertEquals(Symbol.ENTRANCE, parsed.symbol)
+    }
+
+    /**
+     * And a tool the caller named beats the saved one.
+     *
+     * The headless renderer photographs the drawing tool by asking for it. Without this, the
+     * screenshots in this repository would show whichever tool the machine that built them
+     * happened to have saved.
+     */
+    @Test
+    fun aToolTheCallerNamedIsNotOverwrittenByTheSavedOne() {
+        val library = SurveyLibrary(InMemoryFileStore())
+        reopen(library).chooseTool(SketchTool.ERASE)
+
+        val asked =
+            DemoState(
+                exampleSurvey = ExampleSurvey.create(),
+                initialProjection = Projection2D.PLAN,
+                initialSystemDark = false,
+                initialTool = SketchTool.DRAW,
+                initialMode = SurveyMode.EXAMPLE,
+                initialScreen = Screen.SKETCH,
+                library = library,
+            )
+        asked.loadSettings()
+
+        assertEquals(SketchTool.DRAW, asked.tool)
     }
 
     /** A theme a later version invented leaves the surveyor on the default, not on no screen. */
