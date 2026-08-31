@@ -104,11 +104,22 @@ class Line<T : Coord<T>>(val start: T, val end: T) {
  *
  * Station and Leg are used as keys with identity semantics (neither overrides equals), exactly as
  * in the Java original — two legs with identical readings are still different legs.
+ *
+ * `LinkedHashMap` and not `HashMap`, which is the one deliberate difference. Identity keys with no
+ * `hashCode` mean a `HashMap` iterates in identity-hash order: stable within one object's life and
+ * different the next time the same survey is built. That is precisely the defect this port
+ * reported in `PocketTopoTxtExporter` and `SvgExporter`, and both of those were repaired one
+ * exporter at a time — while the `.xvi` exporter, written later, walked these maps directly and
+ * inherited it. Two exports of the same survey came out with the shot lines in different orders.
+ *
+ * Fixing it here rather than in the exporter fixes it for every reader of a `Space`, including the
+ * ones nobody has written yet. Insertion order is the order the survey was walked in, which is the
+ * order it was surveyed in — a defined order, and the same one the repaired exporters chose.
  */
 class Space<T : Coord<T>> {
 
-    val stationMap: MutableMap<Station, T> = HashMap()
-    val legMap: MutableMap<Leg, Line<T>> = HashMap()
+    val stationMap: MutableMap<Station, T> = LinkedHashMap()
+    val legMap: MutableMap<Leg, Line<T>> = LinkedHashMap()
 
     fun addStation(station: Station, coord: T) {
         stationMap[station] = coord

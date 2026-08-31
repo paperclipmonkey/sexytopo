@@ -39,6 +39,7 @@ Being precise about this matters more than the demo looking good.
 | Survex and Therion export byte-identically | **Verified** | golden tests asserting the full file, metadata block included |
 | **PocketTopo's own binary `.top` imports** | **Verified** | the format's primitives against the Android app's own `PocketTopoFileTest`, the shot-ordering and repeat-averaging rules against its `PocketTopoImporterTest` fixtures byte for byte, and its real `CeiledUp.top` — 12 stations, 68 legs, 203 strokes — read identically on the JVM, Kotlin/Wasm and Kotlin/Native, and through the file chooser in a browser |
 | A PocketTopo text export imports, drawing included | **Verified** | the Android app's own `FAKE_TEXT` fixture and its three assertions, on three targets, plus the four files that crash the Java |
+| **Every export is reproducible** | **Verified** | the same survey **built twice** exports byte-identically in all twelve format-and-projection combinations. Built twice and not merely exported twice: one set of objects has one identity-hash order, so a hash-ordered exporter agrees with itself and the weaker test passes on everything. The stronger one failed on its first run and found finding 45 — the `.xvi` exporter had the very defect this port reports in the Android app's |
 | **No export throws on a survey that has barely started** | **Verified** | every format on five degenerate shapes — nothing in it, one station and no legs, one splay that never became a station, a leg with nothing drawn, a drawing with one station — asserting each produces a non-empty file. It matters because the export screen builds its file inside a `remember` block, so a throw there is a throw *inside a composition*, which on the web is finding 11: no error, no blank page, the last frame stays up and the app looks frozen. All twelve pass today; this is a guard, and it is cheap only because `exportText` was lifted out of the composable, where nothing could ask it anything |
 | **And this app's own format exports the whole survey** | **Verified** | `NATIVE` wrote `Name.data.json` and nothing else, so exporting handed somebody a centreline and kept the drawing — the importer's loss at the other end, and the worse half of it: a reader's failure loses somebody else's work, a writer's loses your own. One press of *Save files* now writes the data file and both sketches, which is exactly what the folder import reads back. `ExportNamingTest` names all three; `field.mjs` presses the button once and counts what comes out of the browser |
 | **A survey folder imports, not only a loose file** | **Verified** | `action_file_import_directory`. A survey arrives as a zip far more often than as a file, and unzipping one leaves a *folder* named after the cave — which the import list, looking only at files, could not see. Root directories that pass `SurveyStorage.isSurveyDirectory` are offered and loaded through the same loader the library uses, so all four files come in. The app's own `surveys/` is left out, being the library already |
@@ -1409,6 +1410,29 @@ These are the things that would actually shape a real port.
    version that only looked in `kmp/` would have been a check that failed on correct documents,
    which is worse than no check at all.
 
+45. **The port shipped the bug it reported.** `PocketTopoTxtExporter` and `SvgExporter` being
+   unreproducible is one of this branch's findings about the Android app: `Space` keys its station
+   and leg maps on `Station` and `Leg`, neither of which overrides `hashCode`, so iteration follows
+   identity hash codes and the same survey exports differently the next time it is built. Both were
+   repaired here, one exporter at a time, by choosing a defined order.
+
+   The `.xvi` exporter was written later and walks `space.legMap.values` directly, so it inherited
+   exactly the defect the README credits this port with fixing. Two exports of the same survey came
+   out with the shot lines in different orders.
+
+   What found it was writing the test badly first. Asserting that exporting *twice* gives the same
+   file passes trivially: one set of objects has one identity-hash order, so a hash-ordered
+   exporter agrees with itself all day. Rebuilding the survey between the two exports is the actual
+   property — fresh objects, fresh hashes — and it is how the original's unreproducibility was
+   found in the first place. The weak version passed on all twelve formats; the strong one failed
+   on its first run.
+
+   The fix is one word in the right place: `Space` holds `LinkedHashMap`s now, so insertion order —
+   the order the survey was walked, which is the order it was surveyed — is the order everything
+   reads. Repairing it at the source rather than in the exporter fixes it for every reader of a
+   `Space`, including the ones nobody has written yet, which is exactly what the two one-at-a-time
+   repairs did not do.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1513,7 +1537,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 709
-shared tests on three targets, 283 over the UI's own logic, 18 running the iOS half in a simulator,
+shared tests on three targets, 284 over the UI's own logic, 18 running the iOS half in a simulator,
 88 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the

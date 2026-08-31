@@ -77,6 +77,70 @@ class ExportRobustnessTest {
         }
     }
 
+    /**
+     * The same file twice, for every format.
+     *
+     * Reproducibility is one of this port's headline findings about the original —
+     * `PocketTopoTxtExporter` and `SvgExporter` iterate a `HashMap`, so two exports of an unchanged
+     * survey differ — and the ported exporters fix it by iterating in survey order. But that was
+     * asserted exporter by exporter, and only two of them were asked. It is a property of *every*
+     * file this screen writes, and the cheapest guard against the next exporter that reaches for a
+     * set: export twice, compare.
+     *
+     * A survey with everything in it, because the order that varies is the order of a collection
+     * and an empty one cannot vary. Stations with comments, a splay, and a drawing with strokes,
+     * a symbol and a label — the things exporters walk.
+     *
+     * And built **twice**, rather than exported twice. That distinction is the whole test: two
+     * exports of the same objects share one hash order within a run and would agree even if an
+     * exporter iterated a `HashSet`, which is exactly the bug being guarded against. Fresh objects
+     * get fresh identity hashes, which is how the original's unreproducibility was found in the
+     * first place — one JVM, two builds of the same survey, and the STATIONS lines came out in
+     * different orders.
+     */
+    @Test
+    fun everyExportGivesTheSameFileForTheSameSurvey() {
+        for (format in ExportFormat.entries) {
+            val projections =
+                if (format.perProjection) {
+                    Projection2D.entries.filter { it.isDrawable }
+                } else {
+                    listOf(Projection2D.PLAN)
+                }
+            for (projection in projections) {
+                val once = exportText(everything(), format, projection, today = "2026-01-01")
+                val twice = exportText(everything(), format, projection, today = "2026-01-01")
+                assertTrue(
+                    once == twice,
+                    "$format on $projection is not reproducible: the same survey built twice " +
+                        "exports differently, which is the bug this port reported in the original",
+                )
+            }
+        }
+    }
+
+    /** A survey with one of everything an exporter walks. */
+    private fun everything(): Survey {
+        val survey = Survey("Swildons")
+        val two = SurveyBuilder.updateWithNewStation(survey, Leg(5.4f, 12.5f, -3f))
+        two.comment = "junction"
+        SurveyBuilder.addSplay(survey, two, Leg(1.5f, 180f, -3f))
+        SurveyBuilder.updateWithNewStation(survey, Leg(7f, 100f, 2f))
+        survey.origin.comment = "entrance"
+        survey.planSketch.pathDetails.add(
+            PathDetail(listOf(Coord2D(0f, 0f), Coord2D(1f, 1f), Coord2D(2f, 0.5f)), Colour.BLACK),
+        )
+        survey.planSketch.pathDetails.add(
+            PathDetail(listOf(Coord2D(3f, 3f), Coord2D(4f, 4f)), Colour.RED),
+        )
+        survey.planSketch.addSymbolDetail(Coord2D(1f, 1f), "ENTRANCE", 1f, 0f, Colour.BLACK)
+        survey.planSketch.addTextDetail(Coord2D(2f, 2f), "sump", 1f, Colour.BLUE)
+        survey.elevationSketch.pathDetails.add(
+            PathDetail(listOf(Coord2D(0f, 0f), Coord2D(2f, -1f)), Colour.BROWN),
+        )
+        return survey
+    }
+
     /** And the sketch files the native export writes alongside are written for those shapes too. */
     @Test
     fun theNativeExportsCompanionsSurviveThemToo() {
