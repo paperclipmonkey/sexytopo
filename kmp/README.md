@@ -111,9 +111,13 @@ of the pair twice running.
 of `activity_graph.xml`, the green panels from `colors.xml`, and the app's own toolbar artwork
 carried across as Compose resources.
 
-| iPhone 15 Pro | Pixel 8 | The same, dark |
+| At an iPhone 15 Pro's size | At a Pixel 8's | The same, dark |
 | --- | --- | --- |
 | ![iphone](docs/images/iphone-draw.png) | ![android](docs/images/android-plan.png) | ![dark](docs/images/android-dark.png) |
+
+These are the shared composable rendered headlessly at each phone's dimensions, not photographs of
+either phone — see the note under the gallery below. A genuine iOS screenshot, taken by CI from an
+app running in a simulator, is attached to every run as `ios-simulator-screenshot`.
 
 That copying is the point. A demo restyled to somebody's taste would prove that Compose can draw a
 UI, which nobody doubts. A demo a SexyTopo user recognises on an iPhone — and can already use,
@@ -186,6 +190,14 @@ Every image above except the log is rendered headlessly by `./gradlew :demo:rend
 same composable the iPhone hosts, through the same Skia renderer, with no display attached. The log
 is a real screenshot from the browser test, taken after it has driven a whole calibration through a
 fake DistoX-BLE.
+
+None of them is a photograph of an iPhone, and the ones labelled with a phone's name are that
+phone's *dimensions* rather than that phone. There is a real one: CI installs the app on a booted
+simulator, launches it and photographs it on every push, and attaches the result as
+`ios-simulator-screenshot`. It is not checked in here because a screenshot committed by a build is
+a file that goes stale the moment anything changes and that nobody re-checks — but it is one click
+away on any green run, and a check on it (the app's own green, and enough distinct colours to prove
+it is past the launch screen) is what makes the run green in the first place.
 
 ---
 
