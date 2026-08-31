@@ -48,7 +48,7 @@ Being precise about this matters more than the demo looking good.
 | **A station can be found by name, and the last leg taken back** | **Verified** | `FindStationTest` — names and comments both searched, a station the survey no longer holds has no position rather than a crash, and the last leg is the last one *taken* rather than the last in any walk of the tree — and `field.mjs` finds a station on a phone screen and checks the view moved, then adds a splay, takes it back from the drawing menu and checks only it went |
 | **The plan says which end of the survey you are working at** | **Verified** | `CentrelineDisplayTest` and `DashedLineTest` — the mark follows the last reading *taken*, splay included, as the Java's own paint order does; a leg is matched by identity, because two shots down a straight passage read the same; a pitch is out of the plan's plane and in the extended elevation's; and a leg too short to dash draws nothing rather than one stub that would read as solid — plus `field.mjs` finds the app's magenta on the drawn plan, turns the mark off and checks every magenta pixel went, fades the rest of the cave and checks the drawing got lighter, then brings it back |
 | **It fits a small phone** | **Partly** | `field.mjs` ends by resizing to 375x667 — an iPhone SE — and checking the toolbar is still where it computes it to be and the canvas still takes a stroke, with a screenshot beside it. What is *not* checked there is the keyboard, which takes a third of that screen and which a headless browser does not have: the three dialogs that could not survive it were made scrollable by reading, not by running |
-| **The table and the drawing are joined up** | **Verified** | `StationMenuTest` for the two menus being different in exactly the two ways the Android app's are, and `SurveyTableTest` for which station a cell is about when the shot was booked backwards — and `field.mjs` taps both ends of one leg on a phone screen, checks they offer different menus, and follows *show it on the plan* to a station that lands within forty pixels of the middle |
+| **The table and the drawing are joined up, both ways** | **Verified** | `StationMenuTest` for each menu offering the views the other is not showing, `SurveyTableTest` for which row a station is found at and for which station a cell is about when the shot was booked backwards — and `field.mjs` taps both ends of one leg on a phone screen, checks they offer different menus, follows *show it on the plan* to a station that lands within forty pixels of the middle, then holds a station on the drawing and follows *show it in the table* back |
 | **A reading can be corrected, annotated, reversed or unmade** | **Verified** | `LegActionsTest` and `SurveyUpdaterTest` — which actions each row offers and what they do: a leg with splays hanging off its far end is not offered the downgrade `SurveyUpdater` would throw over, the first reading of a survey is not offered a promotion there is no leg above for, a leg the survey no longer holds answers "no" instead of throwing, and a comment marks the survey unsaved, which the Android app's own dialogs do not — and `field.mjs` counts what the menu offers a splay and a leg on a phone screen, writes a note against a leg, checks the table gains the app's dagger, and turns the shot end for end and back again |
 | **Any station can be reached from the sketch, not just the active one** | **Verified** | `StationMenuTest` for which actions a station offers — the origin has no incoming leg and no delete, cross-sections belong to the plan, a backsight is normalised the way the table normalises it — and `field.mjs` finds a station that is *not* the active one on the drawn plan, holds it, and checks that the menu moved the active station there without marking the paper |
 | **The drawing can be moved without putting the pencil down** | **Verified** | `MultiTouchTest` for the pinch arithmetic and the corner geometry, and `field.mjs` finds the corner squares on the drawn page, drags one, and checks the plan moved, that no stroke was left behind, and that the next stroke still draws — with no toolbar round trip |
@@ -467,14 +467,19 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   the plane being drawn — a pitch on a plan — is dashed rather than left as a stub indistinguishable
   from a short crawl. A stamped stream comes out blue whatever the brush is set to, which is the
   app's own rule and the convention of every published cave survey.
-- **Go from the table to the drawing.** A tap on a station's name in the table opens *that
-  station's* menu rather than the leg's — the Android app's `table_station_selected.xml`, which
-  differs from the sketch's in exactly two ways: it offers to take you to the station on the plan
-  or in the elevation, and it does not offer cross-sections, which are a thing you draw. The jump
-  is the link between the two halves of the app: scan the table, spot the reading that looks wrong,
-  tap the station, and look at where it actually is. Which end of a leg a cell is about depends on
-  whether the shot was booked backwards, and the port asks the same question of the column that
-  `TableActivity` does.
+- **Go between the table and the drawing, either way.** A tap on a station's name in the table
+  opens *that station's* menu rather than the leg's — the Android app's
+  `table_station_selected.xml`, which differs from the sketch's in exactly two ways: cross-sections
+  are a thing you draw, so only the sketch's menu offers them, and `menu_navigate` offers the two
+  views you are *not* looking at. From the table that is the plan and the elevation; from the
+  drawing it is the table, which lands on the leg that arrived at the station — the row with its
+  own reading on it and its splays underneath.
+
+  Both directions matter and they answer opposite questions. Scan the table, spot the reading that
+  looks wrong, tap the station, see where it actually is. Or look at the plan, see a passage
+  heading somewhere it should not, hold the station and read the numbers that put it there. Which
+  end of a leg a cell is about depends on whether the shot was booked backwards, and the port asks
+  the same question of the column that `TableActivity` does.
 - **Correct, annotate or unmake a reading.** Every row of the table, and the incoming leg on any
   station's menu, offers what the Android app's leg menu offers: edit the numbers, write a comment
   on it, reverse a shot booked the wrong way round, make a splay into a station or fold it into the
@@ -510,6 +515,13 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   origin and its splays around it. A star of splays is not a passage; the outline drawn round it,
   joining the wall shots and closing the gaps where nobody took one, is what makes it one. *Cancel*
   really does discard, because the editing happens in a copy.
+- **Read who wrote it.** *About* carries the Android app's own text: Rich Smith and the eight
+  named contributors, the people thanked — Beat Heeb among them, whose calibration solver is ported
+  line for line — where to get the real app, and the GPL-3.0 notice. This port had none of it,
+  which meant it was distributing several thousand lines of somebody else's GPL code with the
+  authors nowhere a user could see them, and the GPL asks an interactive program to show its legal
+  notices. A last paragraph is this port's own and says what this build is not: not the app from
+  the Play Store, not supported by its author, and never connected to an instrument.
 - **Say who was there.** Trip details records the date, the team and their roles, the instrument,
   and the copyright and licence terms, and every exporter writes them.
 - **Match the tolerances to the instrument.** The defaults assume a DistoX; a compass and tape
@@ -611,6 +623,8 @@ Honest limits, so nothing is a surprise in a cave:
 | `Sketch.addSymbolDetail`'s blue-water override | `shared/sketch/SymbolColour.kt` | A rule about a preference, kept out of the generated `Symbol` enum |
 | `res/menu/context_leg.xml`, `ContextMenuManager.configureMenuVisibility`, `SurveyEditorActivity`'s leg handlers | `demo/.../LegActions.kt`, `SurveyUpdater.can{Downgrade,PromoteToAbove}Leg` | An action that cannot work is left out rather than shown greyed out or answered with a toast |
 | `res/menu/table_station_selected.xml`, `TableActivity.onCellClicked` | `demo/.../SurveyTableView.kt`, `StationMenu.kt` (`fromTable`) | One dialog reached two ways; the jump is left as a request for the sketch to pick up, because the viewport belongs to a canvas that does not exist yet |
+| `menu_navigate` (`action_jump_to_station_in_table`) | `demo/.../SurveyTableView.kt` (`rowIndexFor`), `DemoState.showInTable` | The row a station is found at is the leg that arrived at it, which is also the row its splays sit under |
+| `values/about_text.xml`, `openAboutDialog` | `demo/.../AboutDialog.kt` | Verbatim but for the bullet character, plus a paragraph saying what this build is and is not |
 | `TableRowAdapter`'s `COMMENT_MARKER` | `demo/.../SurveyTableView.kt` | The dagger goes on the station the row *shows*, which for a backsight is not the one the leg starts at |
 | `res/menu/context_station.xml`, `ContextMenuManager`, `GraphView.LongPressListener` | `demo/.../StationMenu.kt`, `SurveyCanvas.detectLongPress` | A dialog rather than a menu anchored at the finger; the links submenu is out, since nothing here draws a neighbouring survey |
 | `GraphView.isModalMoveSelection`, `didEventHitHotCorner`, `ScaleListener` | `shared/sketch/MultiTouch.kt`, `SketchViewport.kt`, `demo/.../SurveyCanvas.kt` | Pan and zoom without leaving the tool; the fourth hot corner is drawn as well as tested |
@@ -1147,7 +1161,11 @@ things that are missing are missing on purpose and are listed below.
   correct rather than approximate. What is missing is the magnetometer that turns it as the phone
   turns: an `expect`/`actual` on three platforms and, on iOS, a usage-description key that crashes
   the app on launch if it is wrong.
-- **The manual.** `GuideActivity` ships an HTML user guide; bundling it is mechanical.
+- **The manual.** `GuideActivity` ships a 23 KB HTML user guide and shows it in a `WebView`.
+  Bundling the file is trivial; showing it is not, because a web view is a *platform* view — a
+  `WKWebView` behind a UIKit interop on iOS, an iframe on the web, nothing at all on the desktop.
+  Rendering it as Compose text instead means parsing the HTML, and then it drifts the first time
+  upstream edits the guide. Neither is hard; both are a decision about which.
 - **Drawing less of a heavily traced drawing.** With a fully traced cave *all on screen*, eight
   thousand strokes are 120 ms a frame in the headless renderer. Culling does not touch it — they
   are genuinely visible — so it would want level of detail, which changes what a surveyor sees and
@@ -1177,7 +1195,7 @@ What it does **not** include:
 - **Cross-survey links.** They are stored as absolute `content://` URIs, which are meaningless off
   Android and already break when a folder moves, so replacing them is a format decision to take
   with upstream rather than a porting one. Nothing here draws a neighbouring survey.
-- **The rest of the Android UI**: the manual.
+- **The rest of the Android UI**: the manual, which `GuideActivity` shows in a `WebView` — and a web view is a platform view rather than something Compose draws, so it is three actuals rather than the copy-a-file job it looks like.
 - **The Android app adopting this core.** That is the step that would make the work pay for itself
   regardless of the iOS outcome, and it is deliberately not attempted yet.
 
@@ -1190,7 +1208,9 @@ Roughly the order that keeps every intermediate state shippable:
 1. **Agree the direction first.** A restructure like this only works upstream; as a fork it dies.
 2. **Licensing, in parallel and early.** GPL-3.0 on the App Store needs a Section 7 "App Store
    exception" from every copyright holder — Rich, the eight named contributors, and Beat Heeb for
-   the calibration algorithm. It gates release, not development, so it should start first.
+   the calibration algorithm. It gates release, not development, so it should start first. The
+   *About* box now names all of them and carries the licence, which is the minimum the GPL asks of
+   an interactive program and which this port had gone without for its whole life.
 3. Gate the exporters — all of them are here now — on byte-identical output against the existing
    `exportTherionFixtures` / `exportSvgFixtures` golden bundles, which is a stronger check than the
    hand-written goldens in this branch.

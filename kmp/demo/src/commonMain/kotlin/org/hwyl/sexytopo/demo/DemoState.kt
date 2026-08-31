@@ -395,6 +395,26 @@ class DemoState(
         pendingJump = null
     }
 
+    /**
+     * The other direction: `action_jump_to_station_in_table`, from the sketch's own station menu.
+     *
+     * Simpler than [showOnDrawing] because the table does not have a viewport to move — it has a
+     * scroll position, and a `LazyColumn` can be told to put a row at the top without waiting for
+     * anything to be composed first. It is still a request rather than an action, for the same
+     * reason: the table is not on screen at the moment the menu item is tapped.
+     */
+    var pendingTableJump by mutableStateOf<String?>(null)
+        private set
+
+    fun showInTable(station: Station) {
+        screen = Screen.TABLE
+        pendingTableJump = station.name
+    }
+
+    fun tableJumpDone() {
+        pendingTableJump = null
+    }
+
     val revision: Int
         get() = sketchRevision + session.revision
 

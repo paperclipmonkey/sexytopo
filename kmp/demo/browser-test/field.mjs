@@ -172,6 +172,9 @@ const MODE_BACKSIGHT = [214, 491]
 const CANCEL_READING = [139, 605]
 const ADD_SPLAY = [225, 605]
 const ADD_LEG = [309, 605]
+// `SexyTopoColours.panelBackground`, the green the sketch toolbar is drawn on and nothing else at
+// the bottom of the screen is.
+const SKETCH_PANEL = [127, 175, 127]
 const TABLE_TAB = [281, 26]
 const PLAN_TAB = [325, 26]
 const TABLE_ROW = (n) => [210, 66 + 26 * n]
@@ -200,25 +203,36 @@ const STATION_SAVE = [317, 700]
 // checks that clicked a hard-coded y went on passing while testing the wrong thing or failed
 // somewhere unrelated. Computing the row from the menu's own order means one list to update.
 const MENU_BEFORE_SURVEYS = ['new', 'rename', 'trip']
-const MENU_AFTER_SURVEYS =
-  ['demo', 'export', 'instrument', '3d', 'stats', 'calibrate', 'log', 'import', 'surveying', 'dark']
-const MENU_FIRST_ROW_Y = 80
-const MENU_ROW_HEIGHT = 48
+const MENU_AFTER_SURVEYS = [
+  'demo',
+  'export',
+  'instrument',
+  '3d',
+  'stats',
+  'calibrate',
+  'log',
+  'import',
+  'surveying',
+  'dark',
+  'about',
+]
 
-const menuRowY = (index) => MENU_FIRST_ROW_Y + MENU_ROW_HEIGHT * index
+const menuRows = (savedSurveys) =>
+  MENU_BEFORE_SURVEYS.length + savedSurveys + MENU_AFTER_SURVEYS.length
 
 /** The row for a named item, given how many surveys the library is showing above it. */
-function menuRow(name, savedSurveys) {
+async function menuRow(name, savedSurveys) {
   const before = MENU_BEFORE_SURVEYS.indexOf(name)
   const after = MENU_AFTER_SURVEYS.indexOf(name)
   if (before < 0 && after < 0) throw new Error(`no menu item called ${name}`)
   const index =
     before >= 0 ? before : MENU_BEFORE_SURVEYS.length + savedSurveys + after
-  return [312, menuRowY(index)]
+  return menuRowAt(index, menuRows(savedSurveys), 312)
 }
 
 /** The delete cross on the nth saved survey's row, which sits at the right-hand edge. */
-const savedSurveyDelete = (nth) => [392, menuRowY(MENU_BEFORE_SURVEYS.length + nth)]
+const savedSurveyDelete = async (nth, savedSurveys) =>
+  menuRowAt(MENU_BEFORE_SURVEYS.length + nth, menuRows(savedSurveys), 392)
 const IMPORT_CHOOSE = [284, 494]
 const IMPORT_FIRST_ROW = [210, 446]
 // The Surveying dialog's rows, measured from the top of the dialog rather than from the top of the
@@ -284,7 +298,7 @@ const DRAWING_OPTIONS = [
 const DRAWING_MENU_SURFACE = [243, 237, 247]
 
 /**
- * Where the drawing menu actually is, found rather than assumed.
+ * Where a dropdown menu actually is, found rather than assumed. Used for both of them.
  *
  * It used to be computed upwards from a fixed bottom row, on the reasoning that a menu opening
  * from a toolbar cell keeps its bottom edge. That held until the menu grew past the room above the
@@ -297,8 +311,12 @@ const DRAWING_MENU_SURFACE = [243, 237, 247]
  * So: find the menu's own surface, and divide it by the number of rows it is known to have. That
  * survives the menu being repositioned, and it fails loudly rather than quietly if the menu ever
  * has to scroll, because then the arithmetic stops matching what is on screen.
+ *
+ * The overflow menu uses it too. That one is three rows plus the saved surveys plus eleven, so on
+ * a 900-pixel screen it is already within a survey or two of not fitting under a fixed first-row
+ * y — which is the same thing that happened to the drawing menu, waiting to happen again.
  */
-const drawingMenuBox = async () => {
+const menuBox = async () => {
   const b64 = (await page.screenshot({ clip: box })).toString('base64')
   return page.evaluate(async ([data, surface]) => {
     const img = new Image()
@@ -328,14 +346,19 @@ const drawingMenuBox = async () => {
   }, [b64, DRAWING_MENU_SURFACE])
 }
 
+/** The nth row of a menu with `rows` rows, wherever Compose has put it. */
+async function menuRowAt(index, rows, x) {
+  const menu = await menuBox()
+  if (menu === null) throw new Error('no menu is open')
+  const rowHeight = (menu.bottom - menu.top) / rows
+  return [x, Math.round(menu.top + (index + 0.5) * rowHeight)]
+}
+
 /** The row for a named drawing-menu item, in the menu as it is currently drawn. */
 async function drawingMenuRow(name) {
   const index = DRAWING_MENU.indexOf(name)
   if (index < 0) throw new Error(`no drawing-menu item called ${name}`)
-  const menu = await drawingMenuBox()
-  if (menu === null) throw new Error('the drawing menu is not open')
-  const rowHeight = (menu.bottom - menu.top) / DRAWING_MENU.length
-  return [186, Math.round(menu.top + (index + 0.5) * rowHeight)]
+  return menuRowAt(index, DRAWING_MENU.length, 186)
 }
 
 /**
@@ -680,6 +703,39 @@ const dialogTop = async () => {
       if (count > c.width * 0.5) return y
     }
     return null
+  }, [b64, DIALOG_CARD])
+}
+
+/** How tall the dialog card is, or null if there is none. */
+const dialogHeight = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, card]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    let top = -1
+    let bottom = -1
+    for (let y = 0; y < c.height; y++) {
+      let count = 0
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        if (
+          Math.abs(px[i] - card[0]) < 4 &&
+          Math.abs(px[i + 1] - card[1]) < 4 &&
+          Math.abs(px[i + 2] - card[2]) < 4
+        ) count++
+      }
+      if (count > c.width * 0.5) {
+        if (top < 0) top = y
+        bottom = y
+      }
+    }
+    return top < 0 ? null : bottom - top
   }, [b64, DIALOG_CARD])
 }
 
@@ -1158,6 +1214,35 @@ const stationSpots = async (fromY, toY) => {
   }, [b64, fromY, toY])
 }
 
+/**
+ * Whether the table is what is on screen, asked of the toolbar rather than of the table.
+ *
+ * The sketch toolbar is two rows of the app's own green and the table has none, so the bottom of
+ * the screen answers it in one colour. Looking for something the table *has* would mean matching
+ * its header against the app bar, which is the same Material role at the other end of the screen.
+ */
+const onTheTable = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, panel]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    let green = 0
+    for (let y = c.height - 120; y < c.height; y++) {
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        if (px[i] === panel[0] && px[i + 1] === panel[1] && px[i + 2] === panel[2]) green++
+      }
+    }
+    return green < 200
+  }, [b64, SKETCH_PANEL])
+}
+
 /** Press and hold, which is how the Android app reaches a station's menu. */
 async function longPress([x, y]) {
   await page.mouse.move(box.x + x, box.y + y)
@@ -1216,6 +1301,37 @@ if (!spots.other) {
       )
     }
   }
+}
+
+// ---- and the sketch can send you back to the table -----------------------------------------
+// The other half of `menu_navigate`: each station menu offers the two views you are *not* looking
+// at. The table's has offered "show it on the plan" for a while; the sketch's offered nothing, so
+// a surveyor who spotted a suspicious station on the drawing had to go to the table and find the
+// row themselves.
+//
+// What this checks is the half that is visible: choosing it puts you on the table. *Which* row it
+// scrolls to is `rowIndexFor`, which has its own tests — this survey is short enough that the
+// table does not scroll at all, and a check that cannot fail is worse than no check.
+await longPress(spots.other ?? spots.active)
+
+const jumpMenuTop = await dialogTop()
+if (jumpMenuTop === null) {
+  fail('holding a station a second time did not open its menu')
+} else {
+  // The first row. "Start the next leg here" is offered only for a station that is *not* the
+  // active one, and the check above has just made this one active — so it is gone and "Show it in
+  // the table" is at the top. If that reasoning were wrong this would tap the row below it and
+  // open the station's own dialog, which is not the table: the check fails rather than passes.
+  const rows = await dialogTextRows()
+  await at(210, rows[0]); await page.waitForTimeout(1000)
+  await page.screenshot({ path: join(shotDir, 'field-jumped-to-table.png') })
+
+  if (!(await onTheTable())) {
+    fail('"show it in the table" did not take the surveyor to the table')
+  } else {
+    pass('a station held on the drawing can send you to its row in the table')
+  }
+  await at(...PLAN_TAB); await page.waitForTimeout(700)
 }
 
 // ---- finding a station, and taking back the last leg ---------------------------------------
@@ -1693,7 +1809,7 @@ if ((await connectingLegs()) !== beforeSloppy) {
 await toggleOption('auto-recentre')
 
 await at(...OVERFLOW); await page.waitForTimeout(500)
-await at(...menuRow('surveying', 1)); await page.waitForTimeout(800)
+await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
 await retype(SETTING_DISTANCE, '0.5')
 await retype(SETTING_ANGLE, '12')
 // And the preferences on this screen, on the way past: a buzz when a station is made, which is how
@@ -1753,7 +1869,7 @@ if (leftCorners.length === 2) {
 
 // Back on, because the rest of this file is written for the app's own defaults.
 await at(...OVERFLOW); await page.waitForTimeout(500)
-await at(...menuRow('surveying', 1)); await page.waitForTimeout(800)
+await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
 await at(...SETTING_HOT_CORNERS); await page.waitForTimeout(300)
 await at(...SETTINGS_SAVE); await page.waitForTimeout(700)
 
@@ -1938,7 +2054,7 @@ if (!savedSettings || !savedSettings.includes('maxAngleDelta=12')) {
 // dialog, every file this app produced went out anonymous. A survey that does not say who made it
 // cannot be checked against anybody's notebook.
 await at(...OVERFLOW); await page.waitForTimeout(500)
-await at(...menuRow('trip', 1)); await page.waitForTimeout(800)
+await at(...(await menuRow('trip', 1))); await page.waitForTimeout(800)
 await at(...TRIP_ADD_NAME); await page.waitForTimeout(250)
 await page.keyboard.type('L. Waterworth', { delay: 15 })
 await at(...TRIP_ADD_BUTTON); await page.waitForTimeout(600)
@@ -1966,7 +2082,7 @@ if (!trip) {
 // again from a photograph of a screen.
 await at(...OVERFLOW); await page.waitForTimeout(500)
 await page.screenshot({ path: join(shotDir, 'field-menu.png') })
-await at(...menuRow('export', 1)); await page.waitForTimeout(900)
+await at(...(await menuRow('export', 1))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-export.png') })
 
 const download = await Promise.all([
@@ -2180,7 +2296,7 @@ await ctx.setOffline(false)
 // on a phone the delete control sits a few millimetres from the one that opens it — so it asks
 // first, and this checks that it asks.
 await at(...OVERFLOW); await page.waitForTimeout(600)
-await at(...savedSurveyDelete(0)); await page.waitForTimeout(700)
+await at(...(await savedSurveyDelete(0, 1))); await page.waitForTimeout(700)
 await page.screenshot({ path: join(shotDir, 'field-confirm-delete-survey.png') })
 
 // A Cancel that missed its button would leave the dialog up and also leave the survey intact, so
@@ -2195,7 +2311,7 @@ if ((await savedLegs()).length !== beforeCancel.length) {
 }
 
 await at(...OVERFLOW); await page.waitForTimeout(600)
-await at(...savedSurveyDelete(0)); await page.waitForTimeout(700)
+await at(...(await savedSurveyDelete(0, 1))); await page.waitForTimeout(700)
 await at(...CONFIRM_DELETE_SURVEY); await page.waitForTimeout(900)
 
 const left = await page.evaluate(() =>
@@ -2215,7 +2331,7 @@ if (left.length > 0) {
 // it exactly as iOS does with a file dropped into the Files app.
 await at(...OVERFLOW); await page.waitForTimeout(600)
 await page.screenshot({ path: join(shotDir, 'field-import-menu.png') })
-await at(...menuRow('import', 0)); await page.waitForTimeout(800)
+await at(...(await menuRow('import', 0))); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-import-dialog.png') })
 
 chosenFile = {
@@ -2256,7 +2372,7 @@ await page.evaluate((svx) => {
 }, EXAMPLE_SURVEX)
 await at(...OVERFLOW); await page.waitForTimeout(600)
 // One saved survey now: the Eastwater just imported.
-await at(...menuRow('import', 1)); await page.waitForTimeout(1000)
+await at(...(await menuRow('import', 1))); await page.waitForTimeout(1000)
 await page.screenshot({ path: join(shotDir, 'field-import-survex-dialog.png') })
 await at(...IMPORT_FIRST_ROW); await page.waitForTimeout(1400)
 await page.screenshot({ path: join(shotDir, 'field-import-survex.png') })
@@ -2296,7 +2412,7 @@ await page.evaluate(() => {
   }
 })
 await at(...OVERFLOW); await page.waitForTimeout(600)
-await at(...menuRow('import', 2)); await page.waitForTimeout(900)
+await at(...(await menuRow('import', 2))); await page.waitForTimeout(900)
 
 chosenFile = { name: 'CeiledUp.top', mimeType: 'application/octet-stream', buffer: topFile }
 const choosersBeforeTop = fileChoosersOpened
@@ -2346,10 +2462,31 @@ const savedCount = await page.evaluate(() => {
     .map((k) => k.slice(prefix.length).split('/')[0])
   return new Set(names).size
 })
+// ---- the app says who wrote it and under what licence ---------------------------------------
+// This build carries several thousand lines of somebody else's GPL-3.0 code and had neither their
+// names nor the licence anywhere a user could see them. What is *in* the text has its own test —
+// the names, the licence, the Latin-1 rule the bundled font imposes. What can only be checked here
+// is that the box opens and that Material has not clipped it to nothing: it is a screenful and a
+// half of text, and a Compose dialog that does not fit is cut off from the bottom, which is where
+// the licence is.
 await at(...OVERFLOW); await page.waitForTimeout(600)
-await at(...menuRow('demo', savedCount)); await page.waitForTimeout(900)
+await at(...(await menuRow('about', savedCount))); await page.waitForTimeout(900)
+await page.screenshot({ path: join(shotDir, 'field-about.png') })
+
+const aboutHeight = await dialogHeight()
+if (aboutHeight === null) {
+  fail('the About box did not open, so the licence is nowhere in the app')
+} else if (aboutHeight < box.height * 0.4) {
+  fail(`the About box is only ${aboutHeight}px tall, which is not the text it should hold`)
+} else {
+  pass('the app says who wrote it and under what licence')
+}
+await page.keyboard.press('Escape'); await page.waitForTimeout(600)
+
 await at(...OVERFLOW); await page.waitForTimeout(600)
-await at(...menuRow('3d', savedCount)); await page.waitForTimeout(1400)
+await at(...(await menuRow('demo', savedCount))); await page.waitForTimeout(900)
+await at(...OVERFLOW); await page.waitForTimeout(600)
+await at(...(await menuRow('3d', savedCount))); await page.waitForTimeout(1400)
 await page.screenshot({ path: join(shotDir, 'field-3d.png') })
 
 // The legs are drawn in the renderer's own red, which nothing else on this screen uses.

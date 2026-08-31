@@ -63,6 +63,9 @@ enum class StationAction(val label: String) {
 
     /** `action_jump_to_station_in_elevation`, likewise. */
     SHOW_IN_ELEVATION("Show it in the elevation"),
+
+    /** `action_jump_to_station_in_table`, offered from the sketch and not from the table. */
+    SHOW_IN_TABLE("Show it in the table"),
     ;
 }
 
@@ -85,9 +88,9 @@ fun stationActionsFor(
      * Whether this menu was opened from the table rather than from the drawing.
      *
      * The Android app has two station menus, not one: `context_station.xml` for the sketch and
-     * `table_station_selected.xml` for the table. What separates them is that only the table's
-     * offers to take you to the station on a drawing — because on the drawing you are already
-     * looking at it — and only the sketch's offers cross-sections, which are a thing you draw.
+     * `table_station_selected.xml` for the table. What separates them is the `menu_navigate`
+     * submenu — each offers the two views you are *not* looking at — and cross-sections, which are
+     * a thing you draw and so belong to the sketch's menu only.
      */
     fromTable: Boolean = false,
 ): List<StationAction> {
@@ -97,6 +100,8 @@ fun stationActionsFor(
     if (fromTable) {
         actions += StationAction.SHOW_IN_PLAN
         actions += StationAction.SHOW_IN_ELEVATION
+    } else {
+        actions += StationAction.SHOW_IN_TABLE
     }
     actions += StationAction.EDIT
 
@@ -154,6 +159,8 @@ fun StationMenuDialog(
     fromTable: Boolean = false,
     /** Take the surveyor to this station on a drawing. Only reached when [fromTable]. */
     onShowOn: (Station, Projection2D) -> Unit = { _, _ -> },
+    /** Take them to its row in the table instead. Only reached when not [fromTable]. */
+    onShowInTable: (Station) -> Unit = {},
 ) {
     var editing by remember(station) { mutableStateOf(false) }
     var editingLeg by remember(station) { mutableStateOf(false) }
@@ -249,6 +256,10 @@ fun StationMenuDialog(
                                         }
                                         StationAction.SHOW_IN_ELEVATION -> {
                                             onShowOn(station, Projection2D.EXTENDED_ELEVATION)
+                                            onDismiss()
+                                        }
+                                        StationAction.SHOW_IN_TABLE -> {
+                                            onShowInTable(station)
                                             onDismiss()
                                         }
                                     }

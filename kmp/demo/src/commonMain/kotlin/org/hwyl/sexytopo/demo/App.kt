@@ -204,6 +204,7 @@ private fun SexyTopoAppBar(state: DemoState) {
     var calibrating by remember { mutableStateOf(false) }
     var showingStats by remember { mutableStateOf(false) }
     var showingLog by remember { mutableStateOf(false) }
+    var showingAbout by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<String?>(null) }
 
     if (editingTrip) {
@@ -224,6 +225,10 @@ private fun SexyTopoAppBar(state: DemoState) {
 
     if (calibrating) {
         CalibrationDialog(state = state, onDismiss = { calibrating = false })
+    }
+
+    if (showingAbout) {
+        AboutDialog(onDismiss = { showingAbout = false })
     }
 
     if (showingStats) {
@@ -498,6 +503,17 @@ private fun SexyTopoAppBar(state: DemoState) {
                     leadingIcon = { CheckDot(state.darkMode) },
                     onClick = { state.darkMode = !state.darkMode },
                 )
+                // `action_about`, last as it is in `action_bar.xml`. Not decoration: this build
+                // carries several thousand lines of somebody else's GPL-3.0 code, and until now
+                // neither their names nor the licence appeared anywhere a user could see them.
+                DropdownMenuItem(
+                    text = { Text("About…") },
+                    leadingIcon = { CheckDot(false) },
+                    onClick = {
+                        showingAbout = true
+                        menuOpen = false
+                    },
+                )
             }
         }
     }
@@ -562,6 +578,8 @@ private fun ScreenContent(
                 // saved. The surveyor's own survey is the one that can be corrected.
                 editable = state.mode == SurveyMode.LIVE,
                 onStation = { menuFromTable = true; menuFor = it.name },
+                scrollTo = state.pendingTableJump,
+                onScrolled = { state.tableJumpDone() },
             )
         Screen.EXPORT -> ExportView(state.survey, state.revision, modifier, state.projection)
         Screen.SKETCH ->
@@ -697,6 +715,7 @@ private fun StationMenuFor(
         onDeleteCrossSection = { editor.delete(it) },
         fromTable = fromTable,
         onShowOn = { at, wanted -> state.showOnDrawing(at, wanted) },
+        onShowInTable = { state.showInTable(it) },
     )
 }
 

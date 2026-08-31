@@ -14,6 +14,44 @@ import kotlin.test.assertTrue
  */
 class SurveyTableTest {
 
+    // -------------------------------------------------------------------------------------
+    // Going to a station's row, from the sketch's own menu
+    // -------------------------------------------------------------------------------------
+
+    /** 1 -> 2 -> 3, with a splay off 2, which is where a surveyor books the passage size. */
+    private fun passageWithASplay(): Survey {
+        val survey = Survey("T")
+        SurveyBuilder.updateWithNewStation(survey, Leg(5f, 0f, 0f))
+        SurveyBuilder.addSplay(survey, survey.activeStation, Leg(1.5f, 90f, 0f))
+        SurveyBuilder.updateWithNewStation(survey, Leg(4f, 0f, 0f))
+        return survey
+    }
+
+    @Test
+    fun aStationIsFoundAtTheLegThatArrivedAtIt() {
+        val rows = asTakenRows(passageWithASplay())
+
+        val index = rowIndexFor(rows, "2")
+        assertEquals(0, index, "station 2 is reached by the first leg in the table")
+        assertEquals("2", rows[index!!].to, "the row found is the one arriving at it")
+    }
+
+    @Test
+    fun theOriginIsFoundAtTheFirstLegOutOfIt() {
+        // It has no arriving leg, so the first row mentioning it is the only kind it has.
+        val rows = asTakenRows(passageWithASplay())
+
+        assertEquals(0, rowIndexFor(rows, "1"))
+    }
+
+    @Test
+    fun aStationTheTableDoesNotHaveIsNotScrolledTo() {
+        // Renamed or deleted between the menu opening and the table composing. Returning row zero
+        // would scroll the surveyor to the top of the survey for no reason they could see.
+        assertEquals(null, rowIndexFor(asTakenRows(passageWithASplay()), "nowhere"))
+        assertEquals(null, rowIndexFor(emptyList(), "1"))
+    }
+
     @Test
     fun aForwardLegIsShownAsStored() {
         val survey = Survey("T")

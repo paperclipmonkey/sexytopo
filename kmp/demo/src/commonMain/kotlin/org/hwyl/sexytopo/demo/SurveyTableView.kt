@@ -11,11 +11,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,8 +52,27 @@ fun SurveyTableView(
      * behaving like the rest of the row.
      */
     onStation: ((Station) -> Unit)? = null,
+    /**
+     * A station to scroll to, from `action_jump_to_station_in_table` on the sketch's own menu.
+     *
+     * The *first* row that mentions it, which is the leg that arrives at it — a station appears
+     * twice in this table, once as a To and again as the From of everything leaving it, and the
+     * arriving leg is the one a surveyor who tapped it on the drawing is looking for.
+     */
+    scrollTo: String? = null,
+    /** Called once the scroll has happened, so the request is not repeated on every recomposition. */
+    onScrolled: () -> Unit = {},
 ) {
     val rows = remember(survey, revision) { asTakenRows(survey) }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(scrollTo, rows) {
+        val wanted = scrollTo ?: return@LaunchedEffect
+        // Not found is still done: a station can be renamed or deleted between the menu opening
+        // and this running, and a request left standing would scroll on the next unrelated edit.
+        rowIndexFor(rows, wanted)?.let { listState.scrollToItem(it) }
+        onScrolled()
+    }
     var chosen by remember(revision) { mutableStateOf<SurveyTableRow?>(null) }
 
     chosen?.let { row ->
@@ -82,7 +103,7 @@ fun SurveyTableView(
         }
         HorizontalDivider()
 
-        LazyColumn(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), state = listState) {
             items(rows) { row ->
                 Row(
                     Modifier
@@ -109,6 +130,21 @@ fun SurveyTableView(
         }
     }
 }
+
+/**
+ * Which row to scroll to for a named station, or null if the table has none.
+ *
+ * The *first* row mentioning it, which is the leg that arrives at it. A station appears in this
+ * table more than once — once as the To of the leg that reached it, then as the From of everything
+ * leaving it — and someone who tapped it on the drawing is looking for the reading that made it.
+ * Its own row is also the one with its splays under it, so landing there shows the passage
+ * measurements as well.
+ *
+ * The origin is the exception and is right by accident: it has no arriving leg, so the first row
+ * mentioning it is the first leg *out* of it, which is the only row it has.
+ */
+internal fun rowIndexFor(rows: List<SurveyTableRow>, station: String): Int? =
+    rows.indexOfFirst { it.to == station || it.from == station }.takeIf { it >= 0 }
 
 @Composable
 private fun HeaderCell(text: String, width: androidx.compose.ui.unit.Dp) {

@@ -55,18 +55,22 @@ class StationMenuTest {
     // The table's menu is not the sketch's
     // -------------------------------------------------------------------------------------
 
+    /**
+     * `menu_navigate` offers the two views you are *not* looking at, which is the same rule read
+     * from either end: never the one you are already in, and never nothing.
+     */
     @Test
-    fun theTableOffersToTakeYouToTheStationAndTheSketchDoesNot() {
-        // `table_station_selected.xml` has the jumps; `context_station.xml` has not, because on
-        // the drawing you are already looking at it.
+    fun eachMenuOffersTheViewsTheOtherOneIsNotShowing() {
         val survey = passage()
 
         val fromTable = actions(survey, "2", fromTable = true)
         assertContains(fromTable, StationAction.SHOW_IN_PLAN)
         assertContains(fromTable, StationAction.SHOW_IN_ELEVATION)
+        assertFalse(StationAction.SHOW_IN_TABLE in fromTable, "already in the table")
 
         val fromSketch = actions(survey, "2")
-        assertFalse(StationAction.SHOW_IN_PLAN in fromSketch)
+        assertContains(fromSketch, StationAction.SHOW_IN_TABLE)
+        assertFalse(StationAction.SHOW_IN_PLAN in fromSketch, "already on a drawing")
         assertFalse(StationAction.SHOW_IN_ELEVATION in fromSketch)
     }
 
