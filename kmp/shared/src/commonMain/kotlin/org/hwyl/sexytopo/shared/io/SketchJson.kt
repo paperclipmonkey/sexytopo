@@ -86,9 +86,21 @@ object SketchJson {
         var dropped = readDrawnDetails(root, sketch)
 
         for (element in root.arrayOrEmpty(CROSS_SECTIONS_TAG)) {
-            val detail =
-                runCatching { toCrossSectionDetail(element.jsonObject, survey) }.getOrNull()
-            if (detail == null) dropped++ else sketch.crossSectionDetails.add(detail)
+            val entry = runCatching { element.jsonObject }.getOrNull()
+            val detail = entry?.let { runCatching { toCrossSectionDetail(it, survey) }.getOrNull() }
+            when {
+                detail != null -> sketch.crossSectionDetails.add(detail)
+                // An *orphan* is not damage. A cross-section names the station it was cut at, and
+                // deleting a station does not delete the drawing at it — neither here nor in the
+                // Android app, and deliberately, because the drawing is the surveyor's work and
+                // not a view of the graph. So a sketch file can legitimately hold a cross-section
+                // whose station is gone, [toCrossSectionDetail] returns null for it by design, and
+                // counting that as a mark that "could not be read" would warn about damage on
+                // every single open of a perfectly good survey. A warning that cries wolf is worse
+                // than no warning.
+                entry != null && isOrphanedCrossSection(entry, survey) -> Unit
+                else -> dropped++
+            }
         }
 
         runCatching { root[SETTINGS_TAG]?.jsonObject?.floatOrNull(CROSS_SECTION_SCALE_TAG) }
@@ -144,6 +156,15 @@ object SketchJson {
      * the moment anything draws or re-saves it. Skipping is the safer equivalent, and the only
      * cost is that a dangling section is dropped on load rather than on crash.
      */
+    /**
+     * Whether this cross-section was skipped because its station is gone rather than because the
+     * entry is broken: it names a station, and the survey does not have one by that name.
+     */
+    private fun isOrphanedCrossSection(entry: JsonObject, survey: Survey?): Boolean {
+        val stationName = entry.stringOrNull(STATION_ID_TAG) ?: return false
+        return survey == null || survey.getStationByName(stationName) == null
+    }
+
     fun toCrossSectionDetail(entry: JsonObject, survey: Survey?): CrossSectionDetail? {
         val stationName = entry.stringOrNull(STATION_ID_TAG) ?: return null
         val station = survey?.getStationByName(stationName) ?: return null

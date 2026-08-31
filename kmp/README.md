@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 709 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 713 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
@@ -1433,6 +1433,27 @@ These are the things that would actually shape a real port.
    `Space`, including the ones nobody has written yet, which is exactly what the two one-at-a-time
    repairs did not do.
 
+   The rest of that sweep came back clean: all four file stores sort their listings, the SVG
+   legend's symbol set is a `LinkedHashSet`, and the remaining sets are membership checks that
+   never reach a file. `Space` was the only one.
+
+46. **A warning that cries wolf is worse than no warning, and I nearly shipped one.** Counting the
+   marks a damaged drawing loses (finding 42's tail) meant deciding what counts as lost — and the
+   cross-section is a trap. It names the station it was cut at, and deleting a station does *not*
+   delete the drawing at it, neither here nor in the Android app, deliberately: the drawing is the
+   surveyor's work and not a view of the graph.
+
+   So a perfectly good sketch file can hold a cross-section whose station is gone. The reader skips
+   it *by design* — `toCrossSectionDetail` returns null when the survey has no station by that name
+   — and my counter could not tell that from a mark that would not parse. The result would have
+   been "1 mark of the drawing could not be read" on **every open, forever**, of a survey whose
+   only sin was that somebody deleted a station after drawing at it.
+
+   An orphan is not damage, and the two are told apart now: a cross-section that names a station
+   the survey does not have is skipped in silence, and one that names no station at all, or fails
+   to parse, is counted. Found by asking what the new warning would say about ordinary use rather
+   than about the case it was written for.
+
 ---
 
 ## A defect worth reporting upstream
@@ -1536,7 +1557,7 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 709
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 713
 shared tests on three targets, 284 over the UI's own logic, 18 running the iOS half in a simulator,
 88 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
