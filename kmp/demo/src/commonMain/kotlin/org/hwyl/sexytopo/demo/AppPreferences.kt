@@ -5,6 +5,7 @@ import org.hwyl.sexytopo.shared.io.store.FileStore
 import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
 import org.hwyl.sexytopo.shared.sketch.SketchDefaults
+import org.hwyl.sexytopo.shared.sketch.SketchStyle
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.survey.InputMode
 
@@ -100,6 +101,17 @@ data class AppPreferences(
     val autoReconnect: Boolean = AutoReconnect.DEFAULT_ENABLED,
     /** For how long, from the first failure of a run. `pref_auto_reconnect_window`. */
     val autoReconnectWindowMinutes: Int = AutoReconnect.DEFAULT_WINDOW_MINUTES,
+    /**
+     * Whether the eraser rubs out part of a wall line or the whole of it.
+     * `pref_delete_path_fragments`, on by default.
+     *
+     * The engine has done this since the sketch was ported — `SketchEditor.eraseAt` takes the
+     * flag and splits the stroke — and nothing ever passed it anything but the default, so the
+     * app had the behaviour and not the choice. Finding 53.
+     */
+    val deletePathFragments: Boolean = SketchDefaults.DELETE_PATH_FRAGMENTS_DEFAULT,
+    /** How big everything on the drawing is. `preferences_sketching.xml`'s numeric group. */
+    val sketchStyle: SketchStyle = SketchStyle.DEFAULT,
 ) {
     /** The two above as the value [ReconnectionPolicy] reads. */
     val reconnection: AutoReconnect
@@ -303,6 +315,16 @@ object AppPreferencesStore {
             appendLine("symbol=${preferences.symbol.name}")
             appendLine("autoReconnect=${preferences.autoReconnect}")
             appendLine("autoReconnectWindowMinutes=${preferences.autoReconnectWindowMinutes}")
+            appendLine("deletePathFragments=${preferences.deletePathFragments}")
+            val style = preferences.sketchStyle
+            appendLine("sketchLineWidthDp=${style.sketchLineWidthDp}")
+            appendLine("legWidthDp=${style.legWidthDp}")
+            appendLine("splayWidthDp=${style.splayWidthDp}")
+            appendLine("stationDiameterDp=${style.stationDiameterDp}")
+            appendLine("stationLabelSizeSp=${style.stationLabelSizeSp}")
+            appendLine("legendSizeSp=${style.legendSizeSp}")
+            appendLine("symbolSizeDp=${style.symbolSizeDp}")
+            appendLine("textSizeSp=${style.textSizeSp}")
         }
 
     fun parse(text: String): AppPreferences {
@@ -388,6 +410,37 @@ object AppPreferencesStore {
             autoReconnectWindowMinutes =
                 values["autoReconnectWindowMinutes"]?.toIntOrNull()?.coerceIn(0, MAX_WINDOW_MINUTES)
                     ?: AutoReconnect.DEFAULT_WINDOW_MINUTES,
+            deletePathFragments =
+                values["deletePathFragments"]?.toBooleanStrictOrNull()
+                    ?: SketchDefaults.DELETE_PATH_FRAGMENTS_DEFAULT,
+            sketchStyle =
+                SketchStyle(
+                    sketchLineWidthDp =
+                        SketchStyle.size(
+                            values["sketchLineWidthDp"],
+                            SketchStyle.DEFAULT_SKETCH_LINE_WIDTH_DP,
+                        ),
+                    legWidthDp =
+                        SketchStyle.size(values["legWidthDp"], SketchStyle.DEFAULT_LEG_WIDTH_DP),
+                    splayWidthDp =
+                        SketchStyle.size(values["splayWidthDp"], SketchStyle.DEFAULT_SPLAY_WIDTH_DP),
+                    stationDiameterDp =
+                        SketchStyle.size(
+                            values["stationDiameterDp"],
+                            SketchStyle.DEFAULT_STATION_DIAMETER_DP,
+                        ),
+                    stationLabelSizeSp =
+                        SketchStyle.size(
+                            values["stationLabelSizeSp"],
+                            SketchStyle.DEFAULT_STATION_LABEL_SIZE_SP,
+                        ),
+                    legendSizeSp =
+                        SketchStyle.size(values["legendSizeSp"], SketchStyle.DEFAULT_LEGEND_SIZE_SP),
+                    symbolSizeDp =
+                        SketchStyle.size(values["symbolSizeDp"], SketchStyle.DEFAULT_SYMBOL_SIZE_DP),
+                    textSizeSp =
+                        SketchStyle.size(values["textSizeSp"], SketchStyle.DEFAULT_TEXT_SIZE_SP),
+                ),
         )
     }
 

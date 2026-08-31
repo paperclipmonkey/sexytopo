@@ -603,6 +603,8 @@ class DemoState(
                 blueWater = preferences.blueWater,
                 showCrossSections = preferences.showCrossSections,
                 pinchToZoom = preferences.pinchToZoom,
+                deletePathFragments = preferences.deletePathFragments,
+                style = preferences.sketchStyle,
             )
 }
 

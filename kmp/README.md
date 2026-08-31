@@ -63,11 +63,12 @@ Being precise about this matters more than the demo looking good.
 | **The mode the instrument is being held in is remembered** | **Verified** | the Android app reads `inputMode` out of `generalPrefs` on its way in; this port held it in a `var` that started at foresights every run, and the field bar only says anything when the mode is *not* foresights — so the state it came back in is the one that looks normal, and every leg after it is turned end for end with nothing in the numbers to show it. Now written down, along with the tool, the brush and the symbol, which `SketchPreferences` also keeps. `AppPreferencesTest` closes and reopens a `DemoState` over one store — the reading half as well as the writing half — and checks that a tool armed for a single touch is *not* restored; `field.mjs` taps the chips on a phone screen and watches the file follow, both ways round |
 | **A lost instrument can be chased, and given up on** | **Verified** | a cave breaks Bluetooth constantly — the surveyor walks round a corner with the phone, the instrument sleeps, a cold battery sags — and every one of those cost a trip to the connection screen with cold hands. `ReconnectionPolicy` is ported from the Java with its scheduling taken out, so it can be driven by a clock a test controls: `ReconnectionPolicyTest` has the decisions, including that the window is measured from the *first* failure of a run so an instrument left at the last station stops costing battery on the way out. `ReconnectionTest` drives a fake radio through a drop, a recovery, an instrument that never comes back, and a second bad patch four hours later. `field.mjs` scrolls the settings dialog to the end, turns it on and reads the file |
 | **The instrument's clock runs where the surveyor is** | **Verified** | it used to tick only while the connection or calibration dialog was open, so an attempt abandoned by closing the dialog never timed out and left the radio scanning, and a reconnection could never have happened at all — a surveyor waiting for an instrument to come back is drawing. One loop in `App`, keyed on the attached instrument, so it costs nothing on the demo cave. Finding 51 |
+| **The drawing can be made big enough to read by head torch** | **Verified** | `preferences_sketching.xml`'s eight numbers — line widths, station size, the two font sizes, the symbol and text starting sizes — plus `pref_delete_path_fragments`, which decides whether the eraser takes the bit of a wall under your finger or the whole stroke. All nine were hard-coded here, and the eraser rule was worse than that: `SketchEditor.eraseAt` has taken the flag since the sketch was ported and nothing ever passed it. `SketchStyleTest` covers the file and the bounds; `DrawingSizeTest` renders the same survey at two leg widths through headless Skia and counts the red, because a number in a file is not a thicker line; `field.mjs` types 8 into the box on a phone screen and watches the plan go from 605 red pixels to 1852. Two upstream preferences that do nothing came out of reading this — finding 52 |
 | The instrument log is kept, persisted and readable on the phone | **Verified** | `ActivityLogTest` for the bounded queues and the file format; `instrument.mjs` connects a fake DistoX-BLE, takes a calibration, and then reads the log back off the clipboard — count, timestamps and all |
 | The desktop build keeps its surveys too | **Verified** | a survey written by one `SurveyLibrary` and read by a second over the same directory, in SexyTopo's own file layout, plus the three platform conventions for where that directory goes |
 | **A real-sized cave works, not just a demo one** | **Verified** | `BigSurveyTest` builds a four-thousand-station passage — past where every tree walk in this port used to overflow the stack — and projects it to a plan and an extended elevation, builds its wireframe, counts its statistics, exports it to Survex and Therion and reads it back, on all three targets, along with SVG, `.xvi`, `.th2`, Compass and PocketTopo — and rubs out and undoes on a drawing of eight thousand strokes |
 | **A real-sized cave draws, and draws linearly** | **Verified** | `CanvasSpeedTest` renders the plan of a four-thousand-station survey through the same headless Skia the demo PNGs use, and checks that eight times the cave costs about eight times the frame rather than sixty-four — the failure mode finding 18 was, in the drawing rather than in the export. The absolute times are a CPU rasteriser's and not a phone's, and the test says so |
-| **The cave is the same size on a phone as on a desktop** | **Verified** | `DrawingDensityTest` renders the same plan twice through headless Skia — once at 1x, once at three times the size *and* three times the density, which is what a phone shows — and compares what fraction of each picture is centreline. Dp sizes give one picture at two resolutions and the same fraction; raw pixels give a cave drawn a third as thick. Measured both ways: **1.11 as it stands, 0.44 with finding 28 put back**. It counts only the red centreline, because the text on that canvas is in `sp` and scaled correctly even when the bug was live — counting all the ink made the first version of this test pass with the bug in |
+| **The cave is the same size on a phone as on a desktop** | **Verified** | `DrawingDensityTest` renders the same plan twice through headless Skia — once at 1x, once at three times the size *and* three times the density, which is what a phone shows — and compares what fraction of each picture is centreline. Dp sizes give one picture at two resolutions and the same fraction; raw pixels give a cave drawn a third as thick. Measured both ways: **1.09 as it stands, 0.44 with finding 28 put back**. It counts only the red centreline, because the text on that canvas is in `sp` and scaled correctly even when the bug was live — counting all the ink made the first version of this test pass with the bug in |
 | **The manual is in the app** | **Verified** | the guide is bundled byte-for-byte from `app/src/main/assets/guide/index.html` and read into Compose by `parseManual`, with no web view on any platform. `ManualContentTest` asserts the bundled copy is identical to the Android app's, parses it, and counts the headings, paragraphs and list items **against the file's own tags** — the check that caught a nested list silently costing eleven items — plus every link pointing at a section that exists and every character being one the bundled font can draw. `field.mjs` opens it from Help, reads it, scrolls it, taps a contents row and closes it |
 | **All four of the app's input modes are offered** | **Verified** | `SurveyUpdaterTest` has the engine half. `field.mjs` has the half only a running app can show: it switches to *Splays Only* and enters three readings agreeing within tolerance — the exact recipe for a station in every other mode — then checks that no station appeared and all three are still splays. Run first against a chip deliberately wired to `FORWARD`, where it fails |
 | **Every character the app types is one the bundled font can draw** | **Verified** | `FontCoverageTest` asks Skia — the same `FontMgr` that does the drawing — for the glyph of every character the UI types, in both bundled weights, and fails on glyph 0. It asserts the other direction too: the two marks the app draws by hand, "✓" and "⋮", must stay absent, so a drawn mark that could be typed shows up as a failing test. The app bundles its own font because Skia ships none on the web, which is what makes one check answer for every platform |
@@ -1611,6 +1612,57 @@ These are the things that would actually shape a real port.
    `App`, keyed on whether an instrument is attached, costs nothing when there is not one and runs
    everywhere when there is.
 
+52. **Two sketching preferences that do nothing, and four more that show one number and use
+   another.** Upstream, found by reading `preferences_sketching.xml` against
+   `GeneralPreferences` in order to port the group.
+
+   **`pref_survey_text_tool_font_size` is inert.** The settings screen writes that key.
+   `GeneralPreferences.getTextStartingSizeSp`, which is what `GraphView` asks for when the text
+   tool places a label, reads **`pref_survey_text_tool_font_size_sp`** — a different key, with an
+   `_sp` on the end. Nothing writes that one. So the preference can be set to anything and the app
+   goes on using 16, and the screen offers 50 as its default, which is more than three times the
+   number actually used. Grepped both spellings across `app/src`: the screen's appears once, in the
+   XML; the getter's appears once, in the Java. They never meet.
+
+   **`pref_label_font_size_sp` is unreachable**, in the other direction: `getLabelFontSizeSp` reads
+   it — it is the size of the text a surveyor writes on the sketch — and it is on no preference
+   screen at all, so it can never be anything but 12.
+
+   And four preferences show a default the code does not use, because nothing calls
+   `PreferenceManager.setDefaultValues` and the getter's own fallback wins on a fresh install:
+
+   | Preference | The screen says | The app uses |
+   | --- | --- | --- |
+   | `pref_station_label_font_size_sp` | 8 | 10 |
+   | `pref_legend_font_size_sp` | 8 | 10 |
+   | `pref_survey_symbol_size` | 35 | 25 |
+   | `pref_anti_alias` | unticked | **on** |
+
+   The last is the same defect as `pref_vibrate_on_new_station`, which this document already
+   records: the box shows unticked while the behaviour is on, and toggling it twice is what makes
+   the screen tell the truth. Which is the point worth making — this is not four coincidences, it
+   is one missing call, and every preference on that screen has it.
+
+   This port takes the values the app **draws with** in every case, because those are what a
+   surveyor is actually looking at, and `SketchStyleTest` asserts each of the four against the
+   getter rather than against the XML so the divergence is written down where somebody changing it
+   will meet it.
+
+53. **A rule the engine implemented and the app never offered.** This port's own, and the mildest
+   of the recent run, but the same shape as finding 40 and worth counting because of that.
+   `SketchEditor.eraseAt` has taken a `deletePathFragments` flag since the sketch was ported — it
+   is what decides whether rubbing out the middle of a passage wall leaves both ends or deletes the
+   whole stroke — and it is `pref_delete_path_fragments` on the Android sketching screen. The
+   canvas never passed it. So the port had the *behaviour*, correctly, and not the *choice*.
+
+   The general form: **a defaulted parameter is where a feature goes to hide.**
+   `eraseAt(..., deletePathFragments: Boolean = true, ...)` reads at the call site as though the
+   caller has considered it and chosen the default; nothing marks the difference between a default
+   that was decided and one that was never thought about. Which is findings 48 and 49 again in a
+   third disguise — those hid behind a `var` that looked like a stored one, this behind a parameter
+   that looked like a passed one — and the same question finds all three: *what would a surveyor
+   have to do to change this, and can they?*
+
 ---
 
 ## A defect worth reporting upstream
@@ -1650,6 +1702,15 @@ it. So a surveyor who stops at a junction, writes "sump; do not follow" against 
 changes nothing else, loses it. It is the quietest possible way to lose the one note that mattered.
 Both paths here set `isSaved` — `applyLegComment` and `applyStationEdit` — with a test each saying
 why.
+
+And a fourth, the cheapest of the lot to fix and the easiest to miss: **a preference on the
+sketching screen is wired to nothing.** The screen writes `pref_survey_text_tool_font_size`;
+`GeneralPreferences.getTextStartingSizeSp` reads `pref_survey_text_tool_font_size_sp`. One key has
+an `_sp` the other has not, each spelling appears exactly once in the whole app, and they never
+meet — so the text tool's size can be set to anything and the app goes on placing labels at 16.
+`pref_label_font_size_sp` is the same fault mirrored: read by `getLabelFontSizeSp` and on no screen
+at all. Both are a one-word change. Written up in full, with the four preferences whose screen
+default and code default disagree, as finding 52.
 
 ---
 
@@ -1715,8 +1776,8 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 722
-shared tests on three targets, 308 over the UI's own logic, 18 running the iOS half in a simulator,
-92 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
+shared tests on three targets, 316 over the UI's own logic, 18 running the iOS half in a simulator,
+93 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

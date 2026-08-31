@@ -121,15 +121,21 @@ class DrawingDensityTest {
         )
 
         // The same picture at three times the resolution: near enough the same fraction of it is
-        // centreline. Measured both ways before these thresholds were chosen: 1.11 as the code
-        // stands, 0.44 with finding 28 put back — 0.0049 of the picture at 1x against 0.0022 at
-        // 3x, because the cave is three times longer across the page and no thicker.
+        // centreline. Measured both ways before these thresholds were chosen: **1.09** as the code
+        // stands (0.0050 of the picture at 1x against 0.0054 at 3x), and **0.44** with finding 28
+        // put back — 0.0049 against 0.0022, because the cave is three times longer across the page
+        // and no thicker.
         //
-        // It is 1.11 rather than 1.00 because of antialiasing, and in the honest direction: a
-        // 2.5px line at 1x spends much of its width in half-covered edge pixels that are too pale
-        // to count as red, while the same line at 7.5px is mostly solid core. So the fraction
+        // The 0.44 was measured when the leg width was a constant 2.5 dp rather than a preference
+        // defaulting to the app's own 2. That does not weaken it: this ratio compares one width at
+        // two densities, so the width cancels out of it. The 1x figure moved by a thousandth when
+        // the width changed, which is the size of the effect.
+        //
+        // It is 1.09 rather than 1.00 because of antialiasing, and in the honest direction: a
+        // 2px line at 1x spends much of its width in half-covered edge pixels that are too pale
+        // to count as red, while the same line at 6px is mostly solid core. So the fraction
         // *rises* slightly with density. Hence a window rather than an equality, and hence the
-        // upper bound at 1.3 — far enough above 1.11 for the fringe, far below the 3.0 that a
+        // upper bound at 1.3 — far enough above 1.09 for the fringe, far below the 3.0 that a
         // size scaled twice would give.
         val ratio = atThree / atOne
         assertTrue(

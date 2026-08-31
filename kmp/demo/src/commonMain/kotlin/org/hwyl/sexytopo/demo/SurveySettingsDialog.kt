@@ -256,7 +256,7 @@ internal fun preferencesFrom(
 
 /** A labelled switch with a line of explanation, as the settings rows above it already are. */
 @Composable
-private fun Toggle(
+internal fun Toggle(
     title: String,
     detail: String,
     checked: Boolean,
@@ -276,7 +276,7 @@ private fun Toggle(
 }
 
 @Composable
-private fun NumberField(value: String, onValueChange: (String) -> Unit, label: String) {
+internal fun NumberField(value: String, onValueChange: (String) -> Unit, label: String) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,

@@ -251,7 +251,11 @@ const MENU_PAGES = {
   file: { before: ['new', 'rename'], after: ['import', 'export'], holdsSurveys: true },
   view: { before: ['demo', 'trip', '3d', 'stats'], after: [], holdsSurveys: false },
   instrument: { before: ['connect', 'calibrate', 'log'], after: [], holdsSurveys: false },
-  settings: { before: ['fullscreen', 'surveying', 'theme'], after: [], holdsSurveys: false },
+  settings: {
+    before: ['fullscreen', 'surveying', 'sketching', 'theme'],
+    after: [],
+    holdsSurveys: false,
+  },
   // `pref_theme` is a three-value list, so it is a page rather than a checkbox — and the only
   // page two levels down, which is why `menuRow` walks a chain of parents instead of assuming
   // every group hangs off the top.
@@ -363,6 +367,18 @@ const chaseSwitch = async () => {
   const height = await dialogHeight()
   if (top === null || height === null) throw new Error('the settings dialog is not open')
   return [320, top + height - CHASE_SWITCH_ABOVE_BOTTOM]
+}
+
+// The *Sketching* dialog's eight boxes, which are evenly spaced down it: leg width, splay width,
+// drawn line width, station size, station name size, legend size, symbol size, text size.
+// Anchored to the dialog's top and measured off a rendered frame, so adding a ninth means one more
+// index rather than eight re-measured numbers.
+const SKETCH_FIRST_FIELD_BELOW_TOP = 184
+const SKETCH_FIELD_SPACING = 76
+const sketchField = async (index) => {
+  const top = await dialogTop()
+  if (top === null) throw new Error('the sketching dialog is not open')
+  return [210, top + SKETCH_FIRST_FIELD_BELOW_TOP + SKETCH_FIELD_SPACING * index]
 }
 
 /** Wheel to the end of the settings dialog, wherever that is. */
@@ -2220,6 +2236,47 @@ if (!(litRestored > litFaded)) {
 } else {
   pass('and turning it off brings the rest of the cave back')
 }
+
+// ---- the drawing can be made bigger ---------------------------------------------------------
+// `preferences_sketching.xml`'s numeric group, which this port hard-coded. A plan read on a desk
+// and a plan read at arm's length under a helmet, through a scratched screen, by a light pointed
+// at the rock, are not the same picture — and the surveyor who needs a heavier line needs it at
+// the station rather than at home.
+//
+// `DrawingSizeTest` renders the same survey at two leg widths through headless Skia and counts the
+// red, which is the rendering half. This is the half only the running app can show: that the
+// number typed into the box on the screen is the number the canvas draws with. The two together
+// are the connection that findings 48, 49 and 50 were all about — a value that round-trips
+// perfectly and that nothing on the way to the screen ever reads.
+const thinCentreline = await centrelinePixels()
+
+await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...(await menuRow('sketching', 1))); await page.waitForTimeout(800)
+await page.screenshot({ path: join(shotDir, 'field-sketching-settings.png') })
+await retype(await sketchField(0), '8')
+await at(...(await settingsSave())); await page.waitForTimeout(800)
+await page.screenshot({ path: join(shotDir, 'field-fat-centreline.png') })
+
+const fatCentreline = await centrelinePixels()
+const savedStyle = await page.evaluate(() => localStorage.getItem('sexytopo:f:preferences.txt'))
+if (!(fatCentreline > thinCentreline * 1.8)) {
+  fail(
+    `asking for an 8dp centreline drew ${fatCentreline} red pixels against ${thinCentreline}, ` +
+      'so the setting reaches the file and not the page',
+  )
+} else if (!savedStyle || !savedStyle.includes('legWidthDp=8')) {
+  fail(`the drawing sizes were not written down (${JSON.stringify(savedStyle)})`)
+} else {
+  pass(
+    `the centreline can be made heavier for a head torch (${thinCentreline} to ${fatCentreline})`,
+  )
+}
+
+// Back to the app's own width, because every check below reads this plan.
+await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...(await menuRow('sketching', 1))); await page.waitForTimeout(800)
+await retype(await sketchField(0), '2')
+await at(...(await settingsSave())); await page.waitForTimeout(800)
 
 // ---- north is on the plan, and can be taken off it ---------------------------------------
 // A plan with no north on it is a picture rather than a survey. The arrow does not swing with the

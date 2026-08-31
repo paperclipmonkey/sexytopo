@@ -45,6 +45,7 @@ import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.SketchDefaults
+import org.hwyl.sexytopo.shared.sketch.SketchStyle
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.sketch.SketchViewport
@@ -126,7 +127,7 @@ fun SurveyCanvas(
     // Density is a composition-local, so it is read here rather than inside the gesture scope,
     // which is not a Density and cannot resolve dp.toPx().
     val symbolSizeInPixels =
-        with(LocalDensity.current) { SketchDefaults.SYMBOL_STARTING_SIZE_DP.dp.toPx() }
+        with(LocalDensity.current) { options.style.symbolSizeDp.dp.toPx() }
 
     // Reprojecting is pure and cheap; recompute when the survey, projection or sketch changes.
     //
@@ -312,7 +313,7 @@ fun SurveyCanvas(
                     detectTapGestures { offset ->
                         onPlaceLabel(
                             viewport.toSurvey(offset),
-                            viewport.toSurveyDistance(SketchDefaults.TEXT_STARTING_SIZE_SP.sp.toPx()),
+                            viewport.toSurveyDistance(options.style.textSizeSp.sp.toPx()),
                         )
                     }
                 }
@@ -370,6 +371,7 @@ fun SurveyCanvas(
                                             SketchDefaults.DELETE_DETAILS_WITHIN_DP.dp.toPx(),
                                         ),
                                     pixelsPerMetre = viewport.pixelsPerMetre,
+                                    deletePathFragments = options.deletePathFragments,
                                     showCrossSections = options.crossSectionsAreTouchable,
                                 )
                             if (erased) onSketchEdit()
@@ -795,6 +797,18 @@ class DisplayOptions(
     val pinchToZoom: Boolean = AppPreferences.DEFAULT_PINCH_TO_ZOOM,
     /** Whether the north arrow is drawn on the plan. `SHOW_COMPASS`. */
     val showCompass: Boolean = AppPreferences.DEFAULT_SHOW_COMPASS,
+    /**
+     * Whether the eraser rubs out part of a wall line or all of it. `pref_delete_path_fragments`.
+     */
+    val deletePathFragments: Boolean = SketchDefaults.DELETE_PATH_FRAGMENTS_DEFAULT,
+    /**
+     * How big everything is drawn. `preferences_sketching.xml`'s numeric group.
+     *
+     * On the display options rather than read from the preferences here, because this canvas is
+     * also driven by the headless renderer and by tests that hold no preferences file — and
+     * because every other thing that changes what the drawing looks like arrives by this route.
+     */
+    val style: SketchStyle = SketchStyle.DEFAULT,
 ) {
     /**
      * Whether a cross-section on the plan is there to be found by a finger.
@@ -1017,7 +1031,7 @@ private fun DrawScope.drawSurvey(
                 } else {
                     palette.splay
                 }
-            drawSegment(splay, base, CanvasSizes.SPLAY_STROKE_DP.dp.toPx())
+            drawSegment(splay, base, options.style.splayWidthDp.dp.toPx())
         }
     }
 
@@ -1029,7 +1043,7 @@ private fun DrawScope.drawSurvey(
             drawPolyline(
                 detail.path.map(::project),
                 Color(colour.intValue),
-                CanvasSizes.SKETCH_STROKE_DP.dp.toPx(),
+                options.style.sketchLineWidthDp.dp.toPx(),
             )
         }
     }
@@ -1038,7 +1052,7 @@ private fun DrawScope.drawSurvey(
     for (leg in scene.legs) {
         val base =
             if (options.highlightLatestLeg && leg.isLatest) palette.latestLeg else palette.centreline
-        drawSegment(leg, base, CanvasSizes.LEG_STROKE_DP.dp.toPx())
+        drawSegment(leg, base, options.style.legWidthDp.dp.toPx())
     }
 
     val stationMargin = STATION_CULL_MARGIN_DP.dp.toPx()
@@ -1062,7 +1076,7 @@ private fun DrawScope.drawSurvey(
             }
         drawCircle(
             stationColour,
-            radius = CanvasSizes.STATION_RADIUS_DP.dp.toPx(),
+            radius = options.style.stationRadiusDp.dp.toPx(),
             center = centre,
         )
         if (isActive) {
@@ -1074,7 +1088,11 @@ private fun DrawScope.drawSurvey(
             val layout =
                 textMeasurer.measure(
                     name,
-                    TextStyle(color = palette.stationLabel, fontSize = 9.sp, fontFamily = fontFamily),
+                    TextStyle(
+                        color = palette.stationLabel,
+                        fontSize = options.style.stationLabelSizeSp.sp,
+                        fontFamily = fontFamily,
+                    ),
                 )
             drawText(
                 layout,
@@ -1201,11 +1219,11 @@ private fun DrawScope.drawSurvey(
         drawHotCorners(modalMoving, palette)
     }
 
-    drawScaleBar(viewport.pixelsPerMetre, palette, textMeasurer, fontFamily)
+    drawScaleBar(viewport.pixelsPerMetre, palette, textMeasurer, fontFamily, options.style.legendSizeSp)
     // `drawCompass` is guarded on both the toggle and the projection, in that order. There is
     // no arrow on an elevation because there is no bearing to draw one for.
     if (options.showCompass && isPlan) {
-        drawNorthArrow(palette, textMeasurer, fontFamily)
+        drawNorthArrow(palette, textMeasurer, fontFamily, options.style.legendSizeSp)
     }
 }
 
@@ -1229,13 +1247,17 @@ private fun DrawScope.drawNorthArrow(
     palette: Palette,
     textMeasurer: TextMeasurer,
     fontFamily: FontFamily,
+    legendSizeSp: Float = LEGEND_TEXT_SP,
     headingDegrees: Float = 0f,
 ) {
-    val textSize = LEGEND_TEXT_SP.sp.toPx()
+    // The arrow is built out of its own letter: its length is two and a half times the cap height
+    // and its head six tenths of it, so making the legend bigger makes the whole thing bigger and
+    // it stays in proportion. That is why one number drives all of it.
+    val textSize = legendSizeSp.sp.toPx()
     val layout =
         textMeasurer.measure(
             "N",
-            TextStyle(color = palette.scaleBar, fontSize = LEGEND_TEXT_SP.sp, fontFamily = fontFamily),
+            TextStyle(color = palette.scaleBar, fontSize = legendSizeSp.sp, fontFamily = fontFamily),
         )
     val textHeight = layout.size.height.toFloat()
     val arrowLength = textSize * 2.5f
@@ -1276,6 +1298,7 @@ private fun DrawScope.drawScaleBar(
     palette: Palette,
     textMeasurer: TextMeasurer,
     fontFamily: FontFamily,
+    legendSizeSp: Float = LEGEND_TEXT_SP,
 ) {
     if (!pixelsPerMetre.isFinite() || pixelsPerMetre <= 0f) return
 
@@ -1305,7 +1328,10 @@ private fun DrawScope.drawScaleBar(
 
     val label = if (metres >= 1f) "${metres.roundToInt()} m" else "${(metres * 100).roundToInt()} cm"
     val layout =
-        textMeasurer.measure(label, TextStyle(color = palette.scaleBar, fontSize = 11.sp, fontFamily = fontFamily))
+        textMeasurer.measure(
+            label,
+            TextStyle(color = palette.scaleBar, fontSize = legendSizeSp.sp, fontFamily = fontFamily),
+        )
     drawText(layout, topLeft = Offset(left, bottom - SCALE_BAR_LABEL_UP_DP.dp.toPx()))
 }
 

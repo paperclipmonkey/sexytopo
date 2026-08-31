@@ -240,6 +240,7 @@ private fun SexyTopoAppBar(state: DemoState) {
     var naming by remember { mutableStateOf(NamingIntent.NONE) }
     var editingTrip by remember { mutableStateOf(false) }
     var editingSettings by remember { mutableStateOf(false) }
+    var editingSketchStyle by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
     var connecting by remember { mutableStateOf(false) }
     var calibrating by remember { mutableStateOf(false) }
@@ -310,6 +311,17 @@ private fun SexyTopoAppBar(state: DemoState) {
                 state.updateSettings(settings)
                 state.updatePreferences(preferences)
                 editingSettings = false
+            },
+        )
+    }
+
+    if (editingSketchStyle) {
+        SketchStyleDialog(
+            preferences = state.preferences,
+            onDismiss = { editingSketchStyle = false },
+            onSave = {
+                state.updatePreferences(it)
+                editingSketchStyle = false
             },
         )
     }
@@ -641,6 +653,18 @@ private fun SexyTopoAppBar(state: DemoState) {
                         leadingIcon = { CheckDot(false) },
                         onClick = {
                             editingSettings = true
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
+                    )
+                    // Its own screen, as `preferences_main.xml` gives it: the tolerances answer
+                    // "what counts as the same shot" and these answer "can I read this by head
+                    // torch", which are different questions asked at different moments.
+                    DropdownMenuItem(
+                        text = { Text("Sketching…") },
+                        leadingIcon = { CheckDot(false) },
+                        onClick = {
+                            editingSketchStyle = true
                             menuOpen = false
                             page = MenuPage.TOP
                         },
