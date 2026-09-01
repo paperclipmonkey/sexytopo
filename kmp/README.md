@@ -1896,6 +1896,16 @@ These are the things that would actually shape a real port.
    whatever the text box stored and hands it over, so typing `0` produces an SVG whose centreline
    is drawn invisibly — which looks, to the surveyor, exactly like an export that lost the survey.
 
+   And one addition, recorded here because a silent extra is the same problem as a silent
+   omission. The port's options carry a seventeenth field, `showSketch`, and the dialog offers it;
+   the Android app has sixteen `pref_export_svg_*` keys and none of them is that. Its exporter
+   walks `sketch.getPathDetails()` unconditionally, so an SVG from the Android app always carries
+   the passage walls. Both default to drawing them, so nothing differs unless the box is unticked
+   — and unticking it is the one thing somebody exporting a *centreline* for another package to
+   draw over actually wants, which is why it is here. Found by sweeping every `android:key` in
+   `preferences_*.xml` against this port rather than the other way round; sweeping one direction
+   only finds what is missing, never what has been added.
+
 60. **An instrument saying why, in a vocabulary nobody has.** Found the way the best ones here
    have been: somebody used the app. A BRIC4 connected, beeped high-low at every shot, and sent
    nothing but errors. Everything under that worked — the radio, the routing by characteristic,
