@@ -183,6 +183,14 @@ missing.
 - **Import** of a Survex `.svx`, Therion `.th`, PocketTopo `.txt` or PocketTopo's own binary
   `.top`, as well as the app's own files: the club's existing survey of the cave, opened here to be
   extended. Both PocketTopo readers bring the *drawing* in as well as the centreline.
+- **Handing a survey over as one file.** *Share survey* on the export screen writes a zip of the
+  four files a survey directory holds, which is what the Android app's share sheet sends and what
+  the importer at the other end already knows how to read.
+- **Writing a leg down rather than shooting it.** *Tools → Add a leg* takes a reading out of a
+  paper book and makes the station straight away, with the far end named — for joining onto a
+  station somebody else surveyed. Distinct from *Add reading* on the field bar, which stands in for
+  the instrument and is held to the instrument's rules; both are in the Android app and finding 76
+  is about having had only one of them.
 - **An instrument log you can read underground**, kept as it happens and copied off the phone with
   one tap — because a DistoX that will not pair does it in a cave, with no signal and no console.
 - **A buzz when a station is made**, so the surveyor can look at the rock instead of the phone.
@@ -294,10 +302,10 @@ compiles the Kotlin/Native framework and embeds it. `kmp/iosApp/project.yml` and
 below it describe a fully manual alternative if you would rather install nothing.
 
 The iOS-specific surface is small and every file in it is one screen long:
-`demo/src/iosMain/` holds twelve — `MainViewController.kt` is one function, and the rest are the
+`demo/src/iosMain/` holds thirteen — `MainViewController.kt` is one function, and the rest are the
 `actual` halves of things a phone has and a browser does not: the Documents file store, the
 clipboard, the file picker, keeping the screen awake, the date and the timestamp, the haptic, the
-export, the storage-durability answer and the instrument transports. `iosApp/` holds two Swift
+two exports (a text file and a zip), the storage-durability answer and the instrument transports. `iosApp/` holds two Swift
 files. `shared/src/iosMain/` holds one more, `CoreBluetoothTransport.kt`, for when you want real
 instruments. Everything else — the whole survey engine, every importer and exporter, the sketch
 editor, the calibration solver, the 3D camera and the entire user interface — is the same code the
