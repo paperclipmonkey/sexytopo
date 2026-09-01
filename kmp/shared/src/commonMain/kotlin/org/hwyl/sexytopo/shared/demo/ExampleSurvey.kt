@@ -1,19 +1,26 @@
 package org.hwyl.sexytopo.shared.demo
 
 import org.hwyl.sexytopo.shared.math.adjustAngle
+import org.hwyl.sexytopo.shared.math.getDistance
 import org.hwyl.sexytopo.shared.math.toCartesian
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Coord3D
+import org.hwyl.sexytopo.shared.model.graph.Line
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
+import org.hwyl.sexytopo.shared.model.sketch.CrossSection
 import org.hwyl.sexytopo.shared.model.sketch.PathDetail
+import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.model.survey.SurveyDate
 import org.hwyl.sexytopo.shared.model.survey.Trip
+import org.hwyl.sexytopo.shared.sketch.MIN_CROSS_SECTION_HALF_EXTENT
 import org.hwyl.sexytopo.shared.survey.CrossSectioner
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
+import kotlin.math.atan2
+import kotlin.math.max
 import kotlin.random.Random
 
 /**
@@ -36,16 +43,19 @@ object ExampleSurvey {
 
         createBranch(survey, numStations, random)
 
+        // Tracked so the demo can guarantee a cross-section on a side passage, not only the
+        // entrance series — see addCrossSections.
+        val branchStations = mutableSetOf<Station>()
         repeat(numBranches) {
             val candidates = survey.getAllStations().filter { !survey.isOrigin(it) }
             if (candidates.isEmpty()) return@repeat
             survey.activeStation = candidates[random.nextInt(candidates.size)]
-            createBranch(survey, 3, random)
+            branchStations += createBranch(survey, 3, random)
         }
 
         survey.activeStation = survey.origin
         addWallLines(survey, random)
-        addCrossSections(survey, random)
+        addCrossSections(survey, random, branchStations)
         addAnnotations(survey)
         survey.trip = exampleTrip()
         return survey
@@ -74,7 +84,8 @@ object ExampleSurvey {
     // Centreline
     // -----------------------------------------------------------------------------------------
 
-    private fun createBranch(survey: Survey, numStations: Int, random: Random) {
+    private fun createBranch(survey: Survey, numStations: Int, random: Random): List<Station> {
+        val created = mutableListOf<Station>()
         repeat(numStations) {
             val distance = 5f + random.nextInt(10)
             val azimuth = (40 + random.nextInt(100)).toFloat()
@@ -82,7 +93,9 @@ object ExampleSurvey {
             val newStation =
                 SurveyBuilder.updateWithNewStation(survey, Leg(distance, azimuth, inclination))
             addLruds(survey, newStation, azimuth, random)
+            created.add(newStation)
         }
+        return created
     }
 
     /**
@@ -99,12 +112,18 @@ object ExampleSurvey {
     }
 
     /**
-     * Places a slice through the passage at a few stations, the way a surveyor records passage
-     * shape. The section is offset clear of the centreline by the station's own splay reach.
+     * Places a slice through the passage at a handful of stations, the way a surveyor records
+     * passage shape, and traces a wall outline around each one's LRUD splays so it reads as a
+     * drawn passage rather than a mathematical star of measurement rays.
+     *
+     * Chosen generously rather than at the old one-in-five: this cave exists to sell the feature,
+     * so a first-time visitor should notice cross-sections without hunting for them, and at least
+     * one is guaranteed to fall on a side branch rather than only the entrance series.
      */
-    private fun addCrossSections(survey: Survey, random: Random) {
+    private fun addCrossSections(survey: Survey, random: Random, branchStations: Set<Station>) {
         val plan = survey.getSketch(Projection2D.PLAN)
-        val positions = Projection2D.PLAN.project(survey).stationMap
+        val space = Projection2D.PLAN.project(survey)
+        val positions = space.stationMap
         val candidates = survey.getAllStations().filter { !survey.isOrigin(it) }
         if (candidates.isEmpty()) return
 
@@ -112,14 +131,173 @@ object ExampleSurvey {
         // couple of metres wide is unreadable at the scale the centreline is drawn at.
         plan.crossSectionScale = 4f
 
-        val count = maxOf(1, candidates.size / 5)
-        val chosen = candidates.shuffled(random).take(count)
+        val count = maxOf(4, candidates.size / 3)
+        val chosen = chooseSectionStations(candidates, branchStations, count, random)
+
+        // Everything a new section has to clear: every station, both wall lines, and (as the loop
+        // below places each one) every section already put down — otherwise stations picked close
+        // together could park their sections on top of each other.
+        val centroid = centroidOf(positions.values)
+        val obstacles = collectObstacles(plan, positions.values, space.legMap.values)
+
         for (station in chosen) {
             val position = positions[station] ?: continue
-            val radius = CrossSectioner.horizontalRadius(station)
-            val offset = (if (radius > 0f) radius else 3f) * 2.5f
-            plan.addCrossSection(CrossSectioner.section(survey, station), position.add(0f, offset))
+            val section = CrossSectioner.section(survey, station)
+            val tips = section.getProjection().legMap.values.map { it.end }
+            val sectionRadius = max(tips.maxOfOrNull { it.mag() } ?: 0f, MIN_CROSS_SECTION_HALF_EXTENT)
+
+            val offset =
+                crossSectionOffset(
+                    position,
+                    section.angle,
+                    sectionRadius,
+                    plan.crossSectionScale,
+                    obstacles,
+                    centroid,
+                )
+            val sectionCentre = position + offset
+            val detail = plan.addCrossSection(section, sectionCentre)
+            detail.sketch = outlineAroundLruds(tips, random)
+
+            obstacles.add(Obstacle(sectionCentre, sectionRadius * plan.crossSectionScale))
         }
+    }
+
+    /**
+     * [count] stations, at least one of which is on a side branch. The old random-fifth could
+     * (and, on plenty of seeds, did) land every section on the entrance series, which rather
+     * undersells a cave with four branches off it.
+     */
+    internal fun chooseSectionStations(
+        candidates: List<Station>,
+        branchStations: Set<Station>,
+        count: Int,
+        random: Random,
+    ): List<Station> {
+        val onABranch = candidates.filter { it in branchStations }.shuffled(random).take(1)
+        val rest =
+            candidates.filterNot { it in onABranch }
+                .shuffled(random)
+                .take(maxOf(0, count - onABranch.size))
+        return onABranch + rest
+    }
+
+    private fun centroidOf(points: Collection<Coord2D>): Coord2D {
+        if (points.isEmpty()) return Coord2D.ORIGIN
+        var sum = Coord2D.ORIGIN
+        for (point in points) sum += point
+        return sum.scale(1f / points.size)
+    }
+
+    /**
+     * Everything a cross-section has to be placed clear of, as a point cloud with a clearance
+     * radius each: stations and wall points need none of their own, but a section added by the
+     * caller afterwards carries its own footprint so the next one does not overlap it.
+     *
+     * Wall points stand in for the wall lines themselves: [freehandTo]'s sub-segments put enough
+     * of them down that a candidate clearing every point clears the line between them too. Leg
+     * midpoints fill the one gap that leaves — a long, dead-straight leg has no wall jitter near
+     * its middle to trip over, so without this a section could still land on the centreline.
+     */
+    private fun collectObstacles(
+        plan: Sketch,
+        stationPositions: Collection<Coord2D>,
+        legs: Collection<Line<Coord2D>>,
+    ): MutableList<Obstacle> {
+        val obstacles = mutableListOf<Obstacle>()
+        for (position in stationPositions) obstacles.add(Obstacle(position, 0f))
+        for (path in plan.pathDetails) {
+            for (point in path.path) obstacles.add(Obstacle(point, 0f))
+        }
+        for (leg in legs) {
+            obstacles.add(Obstacle((leg.start + leg.end).scale(0.5f), 0f))
+        }
+        return obstacles
+    }
+
+    private class Obstacle(val point: Coord2D, val radius: Float)
+
+    /**
+     * Where to park a cross-section so it reads as a separate drawing rather than ink on the
+     * passage.
+     *
+     * Offset perpendicular to the local passage bearing ([sectionAngle], the same bearing the
+     * section is sliced at) rather than in a fixed direction: offsetting *along* the passage would
+     * draw the section over the very shot it is a cutaway of, on a passage running any way other
+     * than the one fixed direction the old offset assumed. Of the two perpendicular sides, the one
+     * that actually clears every obstacle wins; if neither does at the first distance, both step
+     * further out together until one does. A tie between two clear sides goes to whichever ends up
+     * further from the middle of the cave, so a section drifts into open space rather than towards
+     * the bulk of the rest of the survey.
+     */
+    private fun crossSectionOffset(
+        stationPosition: Coord2D,
+        sectionAngle: Float,
+        sectionRadius: Float,
+        crossSectionScale: Float,
+        obstacles: List<Obstacle>,
+        centroid: Coord2D,
+    ): Coord2D {
+        val along = Projection2D.PLAN.project(toCartesian(Coord3D.ORIGIN, Leg(1f, sectionAngle, 0f)))
+        val direction = along.normalise()
+        val perpendicular = Coord2D(-direction.y, direction.x)
+        val footprint = sectionRadius * crossSectionScale
+        val step = footprint + CROSS_SECTION_CLEARANCE_METRES
+        val sides = listOf(perpendicular, perpendicular.scale(-1f))
+
+        for (multiplier in 1..MAX_CLEARANCE_STEPS) {
+            val distance = step * multiplier
+            val clear =
+                sides.filter { side ->
+                    val candidate = stationPosition + side.scale(distance)
+                    obstacles.all { obstacle ->
+                        getDistance(candidate, obstacle.point) >=
+                            footprint + obstacle.radius + CROSS_SECTION_CLEARANCE_METRES
+                    }
+                }
+            if (clear.isNotEmpty()) {
+                return furthestFromCentroid(clear, stationPosition, distance, centroid).scale(distance)
+            }
+        }
+        // Nowhere fully clears — a tightly packed corner of the demo cave. Take the least-bad side
+        // at the furthest distance tried rather than give up and draw on top of the centreline.
+        val distance = step * MAX_CLEARANCE_STEPS
+        return furthestFromCentroid(sides, stationPosition, distance, centroid).scale(distance)
+    }
+
+    private fun furthestFromCentroid(
+        sides: List<Coord2D>,
+        stationPosition: Coord2D,
+        distance: Float,
+        centroid: Coord2D,
+    ): Coord2D =
+        sides.maxByOrNull { side -> getDistance(stationPosition + side.scale(distance), centroid) }!!
+
+    /** A buffer beyond the strict footprint, so a section reads as clearly apart rather than tangent. */
+    private const val CROSS_SECTION_CLEARANCE_METRES = 1.5f
+
+    private const val MAX_CLEARANCE_STEPS = 6
+
+    /**
+     * A closed wall traced around the four LRUD splay tips, the way a surveyor closes a
+     * cross-section by joining the shots into the shape of the passage instead of leaving a bare
+     * star of rays. Drawn hand-drawn-wobbly with [freehandTo], the same as the plan's own walls.
+     *
+     * Ordered by angle around the station rather than by which splay is which, because
+     * [CrossSection.getProjection] deliberately does not preserve that identity (see its own doc
+     * comment) — sorting by angle recovers a walk around the outside without needing it, and works
+     * for any number of splays, not just this demo's four.
+     */
+    private fun outlineAroundLruds(tips: List<Coord2D>, random: Random): Sketch {
+        val sketch = Sketch()
+        if (tips.size < 3) return sketch
+
+        val ordered = tips.sortedBy { atan2(it.y, it.x) }
+        val path = sketch.startNewPath(ordered.first(), Colour.BLACK)
+        for (i in ordered.indices) {
+            freehandTo(path, ordered[i], ordered[(i + 1) % ordered.size], random)
+        }
+        return sketch
     }
 
     // -----------------------------------------------------------------------------------------
@@ -144,7 +322,7 @@ object ExampleSurvey {
     }
 
     private fun drawWallChain(
-        plan: org.hwyl.sexytopo.shared.model.sketch.Sketch,
+        plan: Sketch,
         survey: Survey,
         positions: Map<Station, Coord2D>,
         wallPoints: MutableMap<Station, Coord2D>,
