@@ -3194,6 +3194,29 @@ These are the things that would actually shape a real port.
    grows, which running the check first at the two most different content lengths this fix produces
    - nothing typed, and the full team-plus-licence flow - happened to prove rather than assume.
 
+97. **A faster zoom that was fast enough to lose most of what was on screen.** Finding 90's own fix
+   doubled `ZOOM_PER_SCROLLED_PIXEL` from 0.0015 to 0.006 - four times the original, not two - to
+   answer "zooming in browser isn't very fast". `desktop.mjs`'s own checks caught what that
+   actually did: a single scripted ctrl-scroll now zoomed by a factor of four rather than the
+   intended "generous", which is fine arithmetic but a bad gesture - a real pinch that strong
+   leaves the point under the fingers where it started and throws almost everything *around* it
+   out of frame. The clearest tell was a setup step three lines later in the same file, written to
+   zoom out to "about 40%" with a fixed scroll amount so a following pan check would have room to
+   move: at the faster constant that same fixed amount landed at 3%, because the amount was tuned
+   against the old constant rather than against a fixed physical gesture, and nothing about
+   changing the constant updated it. `field.mjs`, run separately at phone size with no ctrl-scroll
+   in it at all, had no way to see this - it is exactly the reason `desktop.mjs` exists as its own
+   file rather than more of that one.
+
+   0.006 was corrected in the same commit that introduced it, this session having not run
+   `desktop.mjs` (which needs a desktop-sized viewport `field.mjs`'s does not have) before
+   pushing. Halved again here, to 0.003 - eight-tenths of a factor of one and a third per notch,
+   comfortably faster than the 0.0015 that prompted the report without a single gesture being able
+   to zoom past what the screen can show. Verified against real numbers rather than the formula
+   alone, since the formula's own prediction for 0.006 (a plain multiply) undersold how much of the
+   drawing a strong zoom moves out of a fixed viewport: two clean runs of `desktop.mjs`, `field.mjs`
+   and `smoke.mjs` together, at 0.003, with nothing else in any of the three touched.
+
 ---
 
 ## A defect worth reporting upstream

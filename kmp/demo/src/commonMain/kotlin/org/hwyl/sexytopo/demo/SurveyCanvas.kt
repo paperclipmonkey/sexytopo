@@ -1166,10 +1166,21 @@ const val FADED_ALPHA = 0.2f
  * A wheel notch in a browser is 100 pixels, and at the original 0.0015 that was a factor of only
  * about 1.16 - close to the 1.1 the toolbar's own buttons use, which reads as generous for a
  * single tap and as nothing at all for a gesture somebody expects to cover a whole survey in a
- * few strokes. At 0.006 the same notch is a factor of about 1.8, and a firm two-finger pinch or a
- * few clicks of a mouse wheel now gets from one end of a cave to the other. Exponential rather
- * than multiplied, so that zooming out and back in returns to the scale you started at instead of
- * drifting a little each time.
+ * few strokes. At 0.003 the same notch is a factor of about 1.35, and a firm two-finger pinch or a
+ * few clicks of a mouse wheel now gets from one end of a cave to the other.
+ *
+ * Not 0.006, which this was for one commit: a real gesture is several notches, not one, and
+ * exponentiated across a whole pinch that reaches a factor of four or more in a single motion -
+ * enough that the point under the fingers is still where it started but most of what was on
+ * screen around it no longer is. `desktop.mjs`'s own checks caught it: a scripted "zoom out to
+ * make room to pan" step landed at 3% of the original scale instead of the ~40% it was written
+ * expecting, because that step's own fixed scroll amount was tuned against the constant, not
+ * against a fixed physical gesture. Halving the increase rather than reverting it keeps the
+ * improvement the report asked for while landing back in whatever range makes a single realistic
+ * gesture feel bigger without throwing most of the drawing out of frame.
+ *
+ * Exponential rather than multiplied, so that zooming out and back in returns to the scale you
+ * started at instead of drifting a little each time.
  *
  * This only speeds up Chrome and Firefox, which report a trackpad pinch as a real `wheel` event
  * with a physical `deltaY` this multiplies. Safari reports a pinch as its own `gesturechange`
@@ -1184,7 +1195,7 @@ const val FADED_ALPHA = 0.2f
  * do it. One constant, passed across, rather than the same figure written down in Kotlin and again
  * in a string of JavaScript where nothing would ever notice the two drifting apart.
  */
-internal const val ZOOM_PER_SCROLLED_PIXEL = 0.006f
+internal const val ZOOM_PER_SCROLLED_PIXEL = 0.003f
 
 /** `GraphView.DASHED_LINE_INTERVAL_DP`. */
 private const val DASH_INTERVAL_DP = 4f
