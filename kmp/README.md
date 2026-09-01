@@ -2686,6 +2686,60 @@ These are the things that would actually shape a real port.
    drag across five strokes changes **one** with the Android eraser and **six** with this one, and
    a tap of the pencil leaves nothing before and one stroke after.
 
+81. **A drag bar with grip marks on it that could not be dragged, and behind it a whole class of
+   settings the gestures never saw.** Reported from the field, again, and as a question rather
+   than a bug: *"Should I be able to move a cross section diagram? That doesn't seem to be
+   supported."*
+
+   It was supported, and it was unfindable. Moving a section meant opening the drawing menu and
+   picking *Move a cross-section* first. Meanwhile every section on the plan was drawn with a green
+   bar across the top of its frame carrying three grip marks — the universal "this is a thing you
+   drag" — and nothing ever hit-tested it. The Android app needs no menu at all:
+   `isCrossSectionMoveSelection` tests the bar on every touch-down, *before* the touch is
+   dispatched to a tool, and switches to `MOVE_CROSS_SECTION` for the rest of the gesture. The
+   affordance was drawn and not wired, which is worse than not drawing it: the port was telling
+   every user something about itself that was not true, and this one believed it, tried it, and
+   concluded the feature was missing.
+
+   Two things made the fix interesting. The Java's trick is to switch the current tool mid-touch,
+   which is not open to a Compose port — every `pointerInput` here is keyed on the tool, so the
+   switch would tear down the very gesture it was starting. A detector of its own, installed
+   between the long-press and the hot corners so the dispatch order matches the Java's order of
+   tests, comes to the same behaviour: it consumes the touch only when a bar is under it. And the
+   rectangles it tests are the ones the *draw pass* recorded, exactly as
+   `GraphView.crossSectionHandleRects` does, rather than a second computation of the padding, the
+   scale and the projection that would be free to drift from the bar people can see. That the map
+   is cleared every frame is the half with no other symptom, so there is a check for it: move a
+   section, and the bar has to be found at the new place.
+
+   The one deliberate departure is the size. The bar is drawn 8dp tall and Android hit-tests
+   exactly that — about 1.3mm, under a third of what Android's own guidance asks of a touch
+   target, and not a target anybody hits in a wet cave in gloves. The hit rectangle is grown to
+   24dp, and only *upwards*: below the bar is the section's own frame, where a press means "open
+   this for drawing", so growing downwards would have bought the drag by breaking the tap.
+
+   **And the browser check for it turned up something much larger by accident.** Written with the
+   pencil selected — because that is the case that has to work — it moved the section, and four
+   checks later the run collapsed. A tap on a *hidden* cross-section opened its editor: the Android
+   app's own "special case: can't tap on invisible X-sections", which this port had implemented,
+   in one place, correctly, and which did not work.
+
+   `Modifier.pointerInput` restarts its gesture loop only when a key changes, and every detector in
+   the file was keyed on `(scene, tool)` while reading `options` — which is rebuilt on every read
+   and changes only when somebody opens a menu. So a running loop held the settings it captured
+   when it started. Turning cross-sections off changed what was drawn immediately and what a finger
+   could do **not at all**, until the tool was switched or the view left and re-entered. The same
+   was true of the pinch-to-zoom preference, of the eraser's fragment setting, and of the symbol
+   size. `DisplayOptions` is a data class now and every gesture keys on the whole of it — not on
+   the settings each detector happens to read today, which is exactly the list that goes stale the
+   next time somebody adds a line.
+
+   The finding under the finding is about the check, not the code. This check had been in the suite
+   for weeks and had been passing, because the tool selected when it ran was the re-aim tool, which
+   has no tap detector at all. It was asserting that nothing happened in a situation where nothing
+   could have happened. **A check whose subject cannot act is a check that cannot fail**, and the
+   only reason this one ever spoke was that unrelated work changed the tool in front of it.
+
 ---
 
 ## A defect worth reporting upstream
@@ -2837,9 +2891,9 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 777
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 398 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 406 over the UI's own
 logic, 20 running the iOS half in a simulator,
-108 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
+110 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

@@ -1417,6 +1417,109 @@ if (!aimedSection) {
   pass('a cross-section can be re-aimed when the bearing the app guessed is wrong')
 }
 
+// ---- and picked up by the bar it is drawn with -------------------------------------------
+// Every section is drawn with a green bar across the top of its frame, three grip marks down the
+// middle: the universal "this is a thing you drag". The port drew it from the day the frame went
+// in and never hit-tested it, so the one affordance a section has did nothing, and moving one
+// meant knowing to open the drawing menu and pick "Move a cross-section" first. `GraphView` needs
+// no such thing - it hit-tests the bar on every touch-down, whatever tool is in hand.
+//
+// Checked with the *pencil* selected, because that is the case that has to work and the case that
+// can silently fail: the bar's detector and the drawing detector are two gesture loops over the
+// same pixels, and getting this wrong either leaves the section where it was or draws a line
+// across the cave while moving it. Both are checked.
+const handleSpot = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, top, bottom]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    // `crossSectionFrame`: 0xFF7FAF7F. Deliberately the app bar's own green, so the frame reads
+    // as chrome rather than as something the surveyor drew - which is why the scan is bounded to
+    // the sketch, with the app bar above it and the toolbar below.
+    const rows = new Map()
+    for (let y = top; y < bottom; y++) {
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        if (Math.abs(px[i] - 0x7f) < 12 && Math.abs(px[i + 1] - 0xaf) < 12 &&
+            Math.abs(px[i + 2] - 0x7f) < 12) {
+          if (!rows.has(y)) rows.set(y, [])
+          rows.get(y).push(x)
+        }
+      }
+    }
+    if (rows.size === 0) return null
+    // Counted, not measured end to end: the frame is a stroked rectangle, so *every* row of it
+    // has green at the left edge and green at the right edge and spans the whole width. What
+    // separates the filled bar from the hairline sides is how many pixels are green in between.
+    const most = Math.max(...[...rows.values()].map((xs) => xs.length))
+    const filled = [...rows.entries()].filter(([, xs]) => xs.length > most / 2).map(([y]) => y)
+    const barTop = Math.min(...filled)
+    const xs = rows.get(barTop)
+    return [Math.round((Math.min(...xs) + Math.max(...xs)) / 2), barTop + 4]
+    // The app bar and the toolbar are the same green as the frame, which is the point of the
+    // colour - so the scan is bounded to the sketch between them. Measured rather than guessed:
+    // the bar runs 0 to 51 and the toolbar starts eighty pixels off the bottom.
+  }, [b64, 60, Math.round(box.height) - 100])
+}
+
+const planPathCount = () => page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  if (!key) return null
+  return (JSON.parse(localStorage.getItem(key)).paths ?? []).length
+})
+
+await at(...toolCell(1)); await page.waitForTimeout(500)
+const grip = await handleSpot()
+const strokesBeforeGrab = await planPathCount()
+if (!grip) {
+  fail('no cross-section frame was found on the plan, so its drag bar could not be tried')
+} else {
+  await drag([grip[0], grip[1]], [grip[0] + 70, grip[1] - 60]); await page.waitForTimeout(900)
+  await page.screenshot({ path: join(shotDir, 'field-cross-section-handle.png') })
+  const grabbed = await firstSection()
+  const strokesAfterGrab = await planPathCount()
+  if (!grabbed) {
+    fail('the plan sketch was not saved, so the cross-section drag bar could not be checked')
+  } else if (
+    grabbed.location.x === aimedSection.location.x &&
+    grabbed.location.y === aimedSection.location.y
+  ) {
+    fail('dragging a cross-section by its drag bar did not move it')
+  } else if (strokesAfterGrab !== strokesBeforeGrab) {
+    fail('moving a cross-section by its bar drew a line across the plan as well')
+  } else if (grabbed.angle !== aimedSection.angle) {
+    fail('moving a cross-section by its bar also changed its bearing')
+  } else {
+    pass('a cross-section can be picked up by its drag bar without changing tools')
+  }
+
+  // And the bar goes where the section went. The rectangles the hit test reads are filled in by
+  // the draw pass and cleared at the start of every frame, and "cleared" is the half that has no
+  // other symptom: a map that only ever grew would leave last frame's bar live at last frame's
+  // coordinates, and a second grab would pick up a section that is no longer in the sketch.
+  const movedGrip = await handleSpot()
+  if (!movedGrip) {
+    fail('the drag bar vanished after the section was dropped')
+  } else if (
+    Math.abs(movedGrip[0] - (grip[0] + 70)) > 8 ||
+    Math.abs(movedGrip[1] - (grip[1] - 60)) > 8
+  ) {
+    fail(`the drag bar stayed where the section used to be (${grip} then ${movedGrip})`)
+  } else {
+    pass('the drag bar follows the section it belongs to')
+    // Put it back where the rest of the checks expect to find it — by the bar, which is the
+    // gesture being tested, so the restoring drag is a second run of it.
+    await drag([movedGrip[0], movedGrip[1]], [movedGrip[0] - 70, movedGrip[1] + 60])
+    await page.waitForTimeout(900)
+  }
+}
+
 // ---- and taken off the drawing altogether ------------------------------------------------
 // `sketch_menu_show_xsections`. The half worth checking is not that they stop being drawn but that
 // they stop being *tapped*: the Android app's own "special case: can't tap on invisible

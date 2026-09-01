@@ -168,17 +168,29 @@ fun SurveyCanvas(
     // normally".
     var sectionDrag by remember { mutableStateOf<SectionDrag?>(null) }
 
-    /** Grab whatever cross-section is under the finger, for a [mode] drag. */
-    fun grab(mode: SectionDragMode, at: Coord2D): SectionDrag? {
-        if (!options.crossSectionsAreTouchable) return null
-        val detail = findCrossSectionBodyAt(scene.sketch, at) ?: return null
-        return SectionDrag(
+    /** Start a [mode] drag of [detail], the finger being at [at]. */
+    fun hold(mode: SectionDragMode, detail: CrossSectionDetail, at: Coord2D): SectionDrag =
+        SectionDrag(
             mode = mode,
             detail = detail,
             from = at,
             pivot = scene.positionOf(detail.station.name),
         )
+
+    /** Grab whatever cross-section is under the finger, for a [mode] drag. */
+    fun grab(mode: SectionDragMode, at: Coord2D): SectionDrag? {
+        if (!options.crossSectionsAreTouchable) return null
+        val detail = findCrossSectionBodyAt(scene.sketch, at) ?: return null
+        return hold(mode, detail, at)
     }
+
+    // Where each cross-section's drag bar was drawn last frame, in screen coordinates: written by
+    // the draw pass, read by [sectionHandle] below. `GraphView.crossSectionHandleRects`.
+    //
+    // A plain map rather than snapshot state, and that is not laziness: it is written from inside
+    // the draw, and a write that invalidated the composition would ask for another frame, which
+    // would write it again.
+    val handleRects = remember { mutableMapOf<CrossSectionDetail, Rect>() }
 
     // Keyed on `tool` as well as `scene`, and that is the whole reason the toolbar works.
     //
@@ -189,10 +201,24 @@ fun SurveyCanvas(
     // selection worked, because switching between the table and a sketch rebuilds `scene` and the
     // loop restarted with whatever tool was current by then - so the fix was always one view
     // switch away, which is exactly how the bug was reported.
+    //
+    // And on `options`, for the same reason and with the same symptom, which is a bug this file
+    // carried until a check that had been passing for the wrong reason was pointed at a tool that
+    // could actually fail it. A running loop holds the `options` it captured when it started, so
+    // turning a setting off from a menu changed nothing a finger could feel: with cross-sections
+    // hidden, a tap still opened a section's editor from what looks like blank paper - the very
+    // thing `handleCrossSectionBodyTap`'s "special case: can't tap on invisible X-sections" exists
+    // to prevent - and it stayed wrong until the tool was switched or the view left and re-entered.
+    //
+    // The whole object rather than the settings each detector happens to read. Two of the loops
+    // below already listed theirs (`snapToLines`, `hotCorners`, `twoFingerMove`) and were right
+    // about those and silently wrong about the rest; a list of what a lambda reads is exactly the
+    // sort of thing that goes stale the next time somebody adds a line to it. `DisplayOptions` is
+    // a data class, so this key changes when a setting changes and not when a frame is drawn.
     val gestures =
         when (tool) {
             SketchTool.MOVE ->
-                Modifier.pointerInput(scene, tool) {
+                Modifier.pointerInput(scene, tool, options) {
                     detectTransformGestures { centroid, panChange, zoomChange, _ ->
                         // Zoom about the pinch centre first, then pan, so the point under the
                         // fingers stays under them. adjustZoomBy refuses to leave the shared
@@ -233,10 +259,10 @@ fun SurveyCanvas(
                 }
 
                 Modifier
-                    .pointerInput(scene, tool, symbol) {
+                    .pointerInput(scene, tool, options, symbol) {
                         detectTapGestures { offset -> stamp(offset, 0f) }
                     }
-                    .pointerInput(scene, tool, symbol) {
+                    .pointerInput(scene, tool, options, symbol) {
                         var start = Offset.Zero
                         var angle = 0f
                         detectDragGestures(
@@ -266,7 +292,7 @@ fun SurveyCanvas(
                     if (tool == SketchTool.MOVE_CROSS_SECTION) SectionDragMode.MOVE
                     else SectionDragMode.ROTATE
 
-                Modifier.pointerInput(scene, tool) {
+                Modifier.pointerInput(scene, tool, options) {
                     detectDragGestures(
                         onDragStart = { offset ->
                             sectionDrag = grab(mode, viewport.toSurvey(offset))
@@ -286,7 +312,7 @@ fun SurveyCanvas(
             }
 
             SketchTool.POSITION_CROSS_SECTION ->
-                Modifier.pointerInput(scene, tool) {
+                Modifier.pointerInput(scene, tool, options) {
                     // Tap a station. The Android app splits this in two — a context-menu item that
                     // names the station, then a tap that positions the drawing — because it has a
                     // long-press menu to hang the first half on. One tap does both here: the
@@ -313,7 +339,7 @@ fun SurveyCanvas(
                 }
 
             SketchTool.TEXT ->
-                Modifier.pointerInput(scene, tool) {
+                Modifier.pointerInput(scene, tool, options) {
                     // Tap where the label goes. The size is converted from sp on screen into
                     // metres in the survey, exactly as the symbol tool does, so a label keeps its
                     // physical size in the cave rather than its size on the screen it was placed
@@ -328,7 +354,7 @@ fun SurveyCanvas(
                 }
 
             SketchTool.SELECT ->
-                Modifier.pointerInput(scene, tool) {
+                Modifier.pointerInput(scene, tool, options) {
                     // Tap a station to make it the one the next leg starts from. The reach is the
                     // app's own SELECTION_SENSITIVITY_DP, which is much larger than the eraser's -
                     // a station is a 10dp dot and a cold finger is not precise.
@@ -361,7 +387,7 @@ fun SurveyCanvas(
                 }
 
             SketchTool.ERASE ->
-                Modifier.pointerInput(scene, tool) {
+                Modifier.pointerInput(scene, tool, options) {
                     // A rubber that rubs, which is a deliberate departure from the Android app.
                     //
                     // `GraphView.handleErase` does its work under `case ACTION_DOWN` and its
@@ -440,7 +466,7 @@ fun SurveyCanvas(
                     // drawing working at all — including inside the cross-section editor, three
                     // checks earlier in the browser suite. Tap-then-drag is the arrangement the
                     // SYMBOL branch above already proves.
-                    .pointerInput(scene, tool) {
+                    .pointerInput(scene, tool, options) {
                         detectTapGestures { offset ->
                             val at = viewport.toSurvey(offset)
                             val section =
@@ -462,7 +488,7 @@ fun SurveyCanvas(
                             }
                         }
                     }
-                    .pointerInput(scene, tool, options.snapToLines) {
+                    .pointerInput(scene, tool, options) {
                         // A passage wall is drawn as a series of strokes, and the joins between
                         // them are where a drawing stops looking like a survey — a wall with gaps
                         // in it is also one no tracing tool can fill. Snapping is ported from
@@ -519,7 +545,7 @@ fun SurveyCanvas(
     // Hold a station to get at it. See [detectLongPress] for why this is not detectTapGestures,
     // and why it sits between the tool's own detectors and the hot-corner one.
     val longPress =
-        Modifier.pointerInput(scene, tool) {
+        Modifier.pointerInput(scene, tool, options) {
             // The station under the press, decided while the finger is still down and acted on
             // when it lifts. One gesture loop, so a plain local is safe.
             var held: String? = null
@@ -545,6 +571,68 @@ fun SurveyCanvas(
             )
         }
 
+    // Pick a cross-section up by its drag bar, whatever tool is in hand.
+    //
+    // `GraphView` does this in `onTouchEvent` before it dispatches to the current tool at all:
+    // `isCrossSectionMoveSelection` hit-tests the bar on every ACTION_DOWN and, if it hits,
+    // switches to SketchTool.MOVE_CROSS_SECTION for the rest of the touch, putting the previous
+    // tool back on the way up. That is what the bar is *for*. This port drew the bar - grip marks
+    // and all, three ticks saying "drag me" - and never hit-tested it, so the only affordance a
+    // section has did nothing at all, and moving one meant knowing to open the drawing menu and
+    // pick "Move a cross-section" first. An affordance that lies is worse than none.
+    //
+    // Switching `tool` mid-gesture is not open to us the way it is to the Java: every
+    // `pointerInput` in this file is keyed on `tool`, so the switch would tear down and restart
+    // the very gesture it was meant to begin. A detector of its own instead, which comes to the
+    // same behaviour by another route - it takes the touch only when the press lands on a bar,
+    // and otherwise consumes nothing, so no other tool notices it is there.
+    //
+    // Placed after `longPress` and before `modalMove`, which is the Java's order of tests: the
+    // Main pass runs innermost-first, so the hot corners get first refusal (as
+    // `isModalMoveSelection` does, being asked first), the bars next, and the tool's own
+    // detectors last.
+    val sectionHandle =
+        if (options.legacyCrossSections) {
+            // No bar is drawn in legacy mode, so there is nothing to grab; `handleRects` would be
+            // empty anyway, and `isCrossSectionMoveSelection` bails on the same condition in the
+            // same place.
+            Modifier
+        } else {
+            Modifier.pointerInput(scene, tool, options) {
+                val reach = CanvasSizes.CROSS_SECTION_HANDLE_TOUCH_HEIGHT_DP.dp.toPx()
+                awaitEachGesture {
+                    // requireUnconsumed: a hot corner has already claimed this touch, and a
+                    // section parked in the corner must not steal the pan.
+                    val down = awaitFirstDown(requireUnconsumed = true)
+                    val detail =
+                        findCrossSectionHandleAt(handleRects, down.position, reach)
+                            ?: return@awaitEachGesture
+                    // Only now, once a bar is actually under the finger. Consuming on every press
+                    // would starve every other tool on the canvas.
+                    down.consume()
+                    sectionDrag = hold(SectionDragMode.MOVE, detail, viewport.toSurvey(down.position))
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val pointer = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (pointer.isConsumed) {
+                            // Something ahead of us took the touch - a second finger reaching
+                            // `detectModalMove`, in practice. Drop the section where it was rather
+                            // than committing a move the surveyor has stopped making.
+                            sectionDrag = null
+                            return@awaitEachGesture
+                        }
+                        if (!pointer.pressed) break
+                        sectionDrag = sectionDrag?.movedTo(viewport.toSurvey(pointer.position))
+                        pointer.consume()
+                    }
+
+                    if (sectionDrag?.commit(editor) == true) onSketchEdit()
+                    sectionDrag = null
+                }
+            }
+        }
+
     // Pan and zoom without leaving the current tool: see [detectModalMove]. Not installed over the
     // pan tool, which already does all of it with one finger and would end up handling a pinch
     // twice.
@@ -552,7 +640,7 @@ fun SurveyCanvas(
         if (tool == SketchTool.MOVE) {
             Modifier
         } else {
-            Modifier.pointerInput(scene, tool, options.hotCorners, options.twoFingerMove) {
+            Modifier.pointerInput(scene, tool, options) {
                 detectModalMove(
                     hotCorners = options.hotCorners,
                     twoFingerPan = options.twoFingerMove,
@@ -579,7 +667,15 @@ fun SurveyCanvas(
     // not appear, so something up the tree is already clipping. But "something up the tree" is a
     // layout change away from not being true, and the failure it would produce is the cave painting
     // over the app bar. One modifier is a cheap way not to depend on an ancestor for that.
-    Box(modifier = modifier.clipToBounds().then(gestures).then(longPress).then(modalMove)) {
+    Box(
+        modifier =
+            modifier
+                .clipToBounds()
+                .then(gestures)
+                .then(longPress)
+                .then(sectionHandle)
+                .then(modalMove)
+    ) {
         Canvas(Modifier.fillMaxSize()) {
             // Read both counters so a gesture or a toolbar button repaints; the values themselves
             // are not used.
@@ -621,6 +717,7 @@ fun SurveyCanvas(
                 // returns immediately unless the projection is the plan, and so does this.
                 isPlan = sceneOverride == null && projection == Projection2D.PLAN,
                 projection = projection,
+                handleRects = handleRects,
             )
         }
     }
@@ -851,7 +948,14 @@ private const val CROSS_SECTION_SCREEN_FRACTION = 0.4f
 /** Half the width, in metres, of the view opened onto a station with no splays to measure. */
 private const val EMPTY_CROSS_SECTION_HALF_EXTENT = 2.5f
 
-class DisplayOptions(
+/*
+ * A data class, and that is load-bearing rather than tidiness: [DemoState.displayOptions] is a
+ * `get()` that builds a fresh one every read, so identity changes on every recomposition, while
+ * the settings inside it change only when somebody opens a menu. Value equality is what lets the
+ * gesture loops below key on the whole object - see the note on `gestures` - instead of restarting
+ * every detector on the canvas sixty times a second.
+ */
+data class DisplayOptions(
     val showSplays: Boolean = true,
     val showSketch: Boolean = true,
     val showStationLabels: Boolean = true,
@@ -961,6 +1065,20 @@ private object CanvasSizes {
     const val CROSS_SECTION_BORDER_PADDING_FRACTION = 0.05f
     const val CROSS_SECTION_BORDER_CORNER_RADIUS_DP = 6f
     const val CROSS_SECTION_HANDLE_WIDTH_DP = 8f
+
+    /**
+     * How tall the drag bar is to a finger, as opposed to an eye.
+     *
+     * The bar is drawn 8dp tall, which the Android app also hit-tests at 8dp - about 1.3mm, well
+     * under a third of the 48dp Android's own guidance asks of a touch target, and a target you
+     * would not reliably hit indoors with a dry hand, never mind in a wet cave in gloves. This
+     * port grows the *hit* rectangle to 24dp before testing it, and only upwards: everything
+     * below the bar is the section's own frame, where a press means "open this section for
+     * drawing", so growing downwards would buy one gesture by breaking another.
+     *
+     * A deliberate departure, not a port of anything.
+     */
+    const val CROSS_SECTION_HANDLE_TOUCH_HEIGHT_DP = 24f
     const val CROSS_SECTION_HANDLE_GRIP_WIDTH_DP = 2f
     const val CROSS_SECTION_HANDLE_GRIP_SPACING_DP = 5f
     const val CROSS_SECTION_HANDLE_GRIP_LENGTH_FRACTION = 0.45f
@@ -1176,8 +1294,16 @@ private fun DrawScope.drawCrossSectionBorder(
  * The grip marks are the whole point. A plain green strip is decoration; three ticks is the
  * universal "this is a thing you drag", and it is the only affordance the section has - moving one
  * by grabbing its middle would fight the sketching tool for the same touch.
+ *
+ * Returns the bar's rectangle, in screen coordinates, so the caller can record where it ended up.
+ * That is how `GraphView` does it too - `crossSectionHandleRects.put(originalDetail, handleRect)`
+ * on the line after the draw - and the reason is worth stating: a hit test that recomputed this
+ * rectangle from the sketch would be a second copy of the padding, the scale and the projection,
+ * free to drift from the one that drew the bar. Then the grip marks would be in one place and the
+ * thing you can actually grab in another, which is the worst kind of bug to have underground
+ * because it looks like the app ignoring you.
  */
-private fun DrawScope.drawCrossSectionHandle(borderRect: Rect, palette: Palette) {
+private fun DrawScope.drawCrossSectionHandle(borderRect: Rect, palette: Palette): Rect {
     val handleHeight = CanvasSizes.CROSS_SECTION_HANDLE_WIDTH_DP.dp.toPx()
     val corner = CanvasSizes.CROSS_SECTION_BORDER_CORNER_RADIUS_DP.dp.toPx()
     val handleRect =
@@ -1211,6 +1337,8 @@ private fun DrawScope.drawCrossSectionHandle(borderRect: Rect, palette: Palette)
             StrokeCap.Round,
         )
     }
+
+    return handleRect
 }
 
 /**
@@ -1317,6 +1445,35 @@ private fun DrawScope.drawGrid(viewport: SketchViewport, palette: Palette) {
 }
 
 /**
+ * The cross-section whose drag bar is under [pointOnScreen], or null. `GraphView`'s
+ * `findCrossSectionHandleAt`.
+ *
+ * [handleRects] is filled by the draw pass, so this asks about the bars actually on the screen
+ * rather than recomputing where they ought to be. Everything that stops a bar being drawn - the
+ * "show cross-sections" toggle, legacy mode, a section outside the sketch being shown - therefore
+ * stops it being grabbable, for free and without a second set of conditions to keep in step.
+ *
+ * [minimumHeightPx] is the departure described on
+ * [CanvasSizes.CROSS_SECTION_HANDLE_TOUCH_HEIGHT_DP]: a rectangle shorter than this is grown
+ * upwards, away from the section's own body, until it is that tall. First match wins, as in the
+ * original, which iterates a LinkedHashMap and returns on the first rectangle that contains the
+ * point.
+ */
+internal fun findCrossSectionHandleAt(
+    handleRects: Map<CrossSectionDetail, Rect>,
+    pointOnScreen: Offset,
+    minimumHeightPx: Float,
+): CrossSectionDetail? {
+    for ((detail, rect) in handleRects) {
+        val reachable =
+            if (rect.height >= minimumHeightPx) rect
+            else Rect(rect.left, rect.bottom - minimumHeightPx, rect.right, rect.bottom)
+        if (reachable.contains(pointOnScreen)) return detail
+    }
+    return null
+}
+
+/**
  * Below this zoom the station names are dropped.
  *
  * Deliberately generous. Legs are commonly 5-10 m, so at this scale adjacent labels are only about
@@ -1341,8 +1498,19 @@ private fun DrawScope.drawSurvey(
      * `isLegInPlane` the same question the Java's `drawLegs` asks of every other segment.
      */
     projection: Projection2D = Projection2D.PLAN,
+    /**
+     * Where each cross-section's drag bar was drawn, in screen coordinates, filled in as they are
+     * drawn and read by the gesture that lets one be picked up. `GraphView.crossSectionHandleRects`
+     * exactly: the draw pass is the only thing that knows where the bar ended up, so it is the
+     * thing that says. Cleared here, on every frame, whatever the display options say - a section
+     * hidden by "show cross-sections", drawn in legacy mode, or scrolled out of the survey
+     * entirely must not leave a live handle behind at last frame's coordinates.
+     */
+    handleRects: MutableMap<CrossSectionDetail, Rect>? = null,
 ) {
     val palette = if (options.darkMode) DarkPalette else LightPalette
+
+    handleRects?.clear()
 
     drawRect(palette.background)
 
@@ -1738,7 +1906,11 @@ private fun DrawScope.drawSurvey(
                         drawDashes(stationOnScreen, end, palette.crossSection)
                     }
                 }
-                drawCrossSectionHandle(border, palette)
+                // Keyed on the detail in the sketch, not on `shown`: mid-drag `shown` is the
+                // preview, a different object every frame, and the map would fill up with dead
+                // sections. The Java is careful about the same thing - `originalDetail`, not the
+                // one it just drew.
+                handleRects?.put(detail, drawCrossSectionHandle(border, palette))
             }
         }
 
