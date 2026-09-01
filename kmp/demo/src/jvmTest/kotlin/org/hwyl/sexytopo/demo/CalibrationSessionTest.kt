@@ -3,6 +3,11 @@ package org.hwyl.sexytopo.demo
 import org.hwyl.sexytopo.shared.calibration.CalibrationPositions
 import org.hwyl.sexytopo.shared.comms.InstrumentCommand
 import org.hwyl.sexytopo.shared.comms.InstrumentDecoder
+import org.hwyl.sexytopo.shared.comms.InstrumentProfile
+import org.hwyl.sexytopo.shared.comms.InstrumentTransport
+import org.hwyl.sexytopo.shared.comms.InstrumentTransportListener
+import org.hwyl.sexytopo.shared.comms.TransportSubscription
+import org.hwyl.sexytopo.shared.comms.distox.DistoXBleFraming
 import org.hwyl.sexytopo.shared.comms.sim.SimulatedInstrument
 import org.hwyl.sexytopo.shared.demo.ExampleCalibration
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -141,6 +146,56 @@ class CalibrationSessionTest {
         // A different transport from `session.simulator`, so this is the "not the demo" path.
         assertFalse(session.simulateCalibrationReading())
         assertEquals(0, session.calibration.count)
+    }
+
+    /**
+     * A recording transport, so a test can inspect the exact bytes `writeCalibration` put on the
+     * wire rather than only how many chunks it split them into - `session.simulator.send` unwraps
+     * BLE framing and re-decodes each byte as a single-byte instrument command, which is the right
+     * thing for the commands it is built to test and the wrong thing for reading back a memory
+     * write's own bytes.
+     */
+    private class RecordingTransport : InstrumentTransport {
+        val sent = mutableListOf<ByteArray>()
+        override val isConnected = true
+        override fun connect() {}
+        override fun disconnect() {}
+        override fun send(bytes: ByteArray) { sent += bytes }
+        override fun observe(listener: InstrumentTransportListener) = TransportSubscription {}
+    }
+
+    /**
+     * The actual bug: a DistoX-BLE instrument does not speak the classic per-four-byte protocol at
+     * all, and sending it that shape means twelve packets its firmware has no reason to recognise
+     * as a calibration write - nothing would reject them, so the app reported success while the
+     * instrument's coefficients never changed. This exercises the whole path `writeCalibration`
+     * takes, not just `CalibrationRun.writeCommands` in isolation, so a future change to how the
+     * decoder's family reaches that call cannot silently reintroduce the bug at the seam.
+     */
+    @Test
+    fun aBleInstrumentGetsOneFramedCalibrationWrite() {
+        val session = session()
+        val transport = RecordingTransport()
+        session.attachForTest(
+            transport,
+            InstrumentDecoder.forProfile(InstrumentProfile.DISTOX_BLE),
+            InstrumentProfile.DISTOX_BLE,
+        )
+        // A different transport is attached, so simulateCalibrationReading would refuse - this
+        // is the "a real calibration screen already has a solved result to write" case, not the
+        // "walk 56 shots through the simulator" one those other tests cover.
+        val fit = org.hwyl.sexytopo.shared.calibration.CalibrationRun()
+        ExampleCalibration.READINGS.forEach(fit::add)
+        val result = fit.solve()
+
+        val blocks = session.writeCalibration(result)
+
+        assertEquals(1, blocks, "a BLE instrument should get one frame, not a dribble")
+        assertEquals(1, transport.sent.size)
+        assertTrue(
+            DistoXBleFraming.payloadOrNull(transport.sent.single()) != null,
+            "the single write should be a real data: frame, not raw bytes",
+        )
     }
 
     /** FCL exposes no calibration commands at all, and the screen has to be able to say so. */

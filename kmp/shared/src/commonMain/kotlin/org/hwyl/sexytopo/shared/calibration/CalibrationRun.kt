@@ -1,5 +1,8 @@
 package org.hwyl.sexytopo.shared.calibration
 
+import org.hwyl.sexytopo.shared.comms.InstrumentFamily
+import org.hwyl.sexytopo.shared.comms.distox.DistoXBleFraming
+import org.hwyl.sexytopo.shared.comms.distox.DistoXMemoryRange
 import org.hwyl.sexytopo.shared.comms.distox.DistoXProtocol
 
 /**
@@ -89,12 +92,33 @@ class CalibrationRun {
     /**
      * The memory writes that store [result] on the instrument.
      *
-     * Four coefficient bytes per command, from address 0x8010, which is
-     * `WriteCalibrationProtocol.go`. The instrument replies to each one and
-     * [DistoXProtocol.isCalibrationWriteReplyValid] says whether it took.
+     * Two shapes, not one, and which of them is right depends on [family] rather than on
+     * anything about the coefficients themselves. The classic protocol
+     * ([InstrumentFamily.DISTOX], reached only over an RFCOMM socket this port cannot open, but
+     * still the shape the simulator and the shared tests exercise) dribbles the block out four
+     * bytes at a time from address 0x8010 — `WriteCalibrationProtocol.go` — and the instrument
+     * replies to each one, which [DistoXProtocol.isCalibrationWriteReplyValid] checks. DistoX-BLE
+     * and Cavway X1 (which copies DistoX-BLE's framing verbatim) instead take the whole 52-byte
+     * block in a single `data:`-framed memory write and send no reply at all — see
+     * [DistoXBleFraming.createWriteMemoryPacket]'s own note. Sending the classic dribble to a BLE
+     * instrument means twelve unframed packets its firmware has no reason to recognise as a
+     * calibration write at all: nothing rejects them, so the app would report success while the
+     * instrument's coefficients never changed.
      */
-    fun writeCommands(result: CalibrationResult): List<ByteArray> =
-        DistoXProtocol.createWriteCalibrationCommands(result.toBytes())
+    fun writeCommands(
+        result: CalibrationResult,
+        family: InstrumentFamily = InstrumentFamily.DISTOX,
+    ): List<ByteArray> =
+        when (family) {
+            InstrumentFamily.DISTOX_BLE, InstrumentFamily.CAVWAY_X1 ->
+                listOf(
+                    DistoXBleFraming.createWriteMemoryPacket(
+                        DistoXMemoryRange.CALIBRATION_COEFFICIENTS,
+                        result.toBytes(),
+                    ),
+                )
+            else -> DistoXProtocol.createWriteCalibrationCommands(result.toBytes())
+        }
 }
 
 /** What to tell the surveyor about a fit. */

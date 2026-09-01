@@ -255,9 +255,18 @@ class SurveySession(
      * 0x8010, exactly as `WriteCalibrationProtocol` does.
      */
     fun writeCalibration(result: CalibrationResult): Int {
-        val commands = calibration.writeCommands(result)
+        val commands = calibration.writeCommands(result, decoder.family)
         for (command in commands) transport.send(command)
-        note("wrote ${commands.size} coefficient blocks to the instrument")
+        // "coefficient blocks" undersells it on a BLE instrument, which gets the whole result in
+        // one frame and, per DistoXBleFraming's own note, sends no reply to confirm it landed -
+        // "wrote 1 coefficient block" would read as a partial write rather than the whole thing.
+        note(
+            if (commands.size == 1) {
+                "sent calibration to the instrument"
+            } else {
+                "wrote ${commands.size} coefficient blocks to the instrument"
+            },
+        )
         return commands.size
     }
 

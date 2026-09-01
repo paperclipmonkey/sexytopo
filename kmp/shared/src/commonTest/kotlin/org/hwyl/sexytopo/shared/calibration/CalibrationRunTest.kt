@@ -1,5 +1,8 @@
 package org.hwyl.sexytopo.shared.calibration
 
+import org.hwyl.sexytopo.shared.comms.InstrumentFamily
+import org.hwyl.sexytopo.shared.comms.distox.DistoXBleFraming
+import org.hwyl.sexytopo.shared.comms.distox.DistoXMemoryRange
 import org.hwyl.sexytopo.shared.comms.distox.DistoXProtocol
 import org.hwyl.sexytopo.shared.demo.ExampleCalibration
 import kotlin.test.Test
@@ -211,5 +214,48 @@ class CalibrationRunTest {
     fun theNonLinearFitWritesOneMoreBlock() {
         val run = run(56)
         assertEquals(13, run.writeCommands(run.solve(useNonLinearity = true)).size)
+    }
+
+    /**
+     * DistoX-BLE and Cavway X1 do not speak the classic protocol at all: they expect the whole
+     * coefficient block in one `data:`-framed memory write, and send no reply to check, unlike the
+     * per-four-byte dance above. Sending the classic shape to one of these was the actual defect —
+     * twelve unframed packets a BLE instrument has no reason to recognise as anything, so nothing
+     * would reject them and the app would report success while the coefficients never changed.
+     */
+    @Test
+    fun bleFamiliesGetOneFramedMemoryWriteInstead() {
+        val run = run(56)
+        val result = run.solve()
+
+        for (family in listOf(InstrumentFamily.DISTOX_BLE, InstrumentFamily.CAVWAY_X1)) {
+            val commands = run.writeCommands(result, family)
+
+            assertEquals(1, commands.size, "$family should get one frame, not a dribble")
+            val expected =
+                DistoXBleFraming.createWriteMemoryPacket(
+                    DistoXMemoryRange.CALIBRATION_COEFFICIENTS,
+                    result.toBytes(),
+                )
+            assertTrue(
+                commands.single().contentEquals(expected),
+                "$family's single frame should be the real BLE memory-write packet",
+            )
+            // Unwrappable by the same framing the simulator and a real link both understand, and
+            // carrying every coefficient byte, not a truncated prefix of them.
+            val unwrapped = DistoXBleFraming.payloadOrNull(commands.single())
+            assertTrue(unwrapped != null && unwrapped.size == result.toBytes().size + 4)
+        }
+    }
+
+    /** Every other family keeps the classic shape - this is not "BLE good, everything else bad". */
+    @Test
+    fun otherFamiliesStillGetTheClassicDribble() {
+        val run = run(56)
+        val result = run.solve()
+
+        for (family in listOf(InstrumentFamily.DISTOX, InstrumentFamily.BRIC4, InstrumentFamily.SAP6)) {
+            assertEquals(12, run.writeCommands(result, family).size, "$family should keep the classic shape")
+        }
     }
 }

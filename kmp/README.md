@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 786 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 788 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and eight more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -3062,6 +3062,36 @@ These are the things that would actually shape a real port.
    both depend on, so a later edit cannot quietly remove a line either one needs without a browser
    open to notice.
 
+92. **A calibration written back in the wrong shape entirely, to the only DistoX variant this
+   port can actually reach.** `CalibrationRun.writeCommands` called
+   `DistoXProtocol.createWriteCalibrationCommands`, the classic protocol's shape: twelve four-byte
+   memory writes from address 0x8010, each expecting a reply
+   (`DistoXProtocol.isCalibrationWriteReplyValid`) — `WriteCalibrationProtocol.go`, ported and used
+   by nothing but the RFCOMM transport this port cannot open on any platform it runs on. DistoX-BLE
+   and Cavway X1 do not speak that protocol at all: `DistoXBleFraming.createWriteMemoryPacket`
+   takes the whole 52-byte block in one `data:`-framed packet and expects no reply, exactly as its
+   own doc comment already said — the correct code has existed since the framing was ported, with
+   zero production callers. Sending the classic dribble to a BLE instrument means twelve unframed
+   packets its firmware has no reason to recognise as a calibration write at all: nothing would
+   reject them, so `SurveySession.writeCalibration` reported success while the instrument's
+   coefficients never changed — a caver who calibrated, saw "wrote 12 coefficient blocks", and
+   trusted the number.
+
+   `writeCommands` now takes the connected instrument's `InstrumentFamily` and branches at it,
+   the same seam `InstrumentDecoder.encodeCommand` already branches single-byte commands at.
+   Everything that is not DistoX-BLE or Cavway X1 keeps the classic shape untouched — this is not
+   "BLE good, everything else suspect," it is one family sending the wrong protocol. The log line
+   changes with it: "wrote N coefficient blocks" implies a reply for each one, which the BLE model
+   never sends, so a single-frame write now reads "sent calibration to the instrument" instead.
+
+   Two tests, not one, because a unit test on `CalibrationRun` alone would not have caught the
+   actual defect — the bug was in what reached it, not in what it did with what it was given.
+   `CalibrationRunTest` checks the framing in isolation; `CalibrationSessionTest` attaches a
+   recording transport under a real `InstrumentDecoder.forProfile(InstrumentProfile.DISTOX_BLE)`
+   and asserts the session sends exactly one frame that unwraps as a genuine `data:` packet — the
+   whole path from a connected profile to bytes on the wire, so a future change to how the family
+   reaches `writeCalibration` cannot silently reopen the seam.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3212,8 +3242,8 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 786
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 435 over the UI's own
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 788
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 436 over the UI's own
 logic, 20 running the iOS half in a simulator,
 111 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 10 more at a desk, on a wheel, a trackpad and a keyboard. The
