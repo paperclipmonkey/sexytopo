@@ -61,6 +61,40 @@ import org.jetbrains.compose.resources.painterResource
  * hold symbols and labels in the model, and the Android app drops them on commit; matching that is
  * better than silently storing something its own editor would throw away.
  */
+/**
+ * What the cross-section editor's canvas is drawn with.
+ *
+ * A plain function rather than inlined into the composable, so it can be tested the way
+ * [DemoState.displayOptions] already is — a `@Composable` cannot be called from a `jvmTest`.
+ *
+ * `CrossSectionView` is a bare `GraphView` subclass with no overrides, so on the Android app every
+ * numeric sketch setting and the eraser's fragment toggle apply identically whether the surveyor
+ * is drawing the plan or a section. [style] and [deletePathFragments] were missing here until this
+ * function existed: a surveyor who enlarged line widths, station size or label text for a head
+ * torch, or turned fragment-erase off, got the ordinary defaults back the moment they opened a
+ * section — the one screen most likely to be drawn on with cold hands and poor light, since it
+ * exists to draw the shape a plan cannot show.
+ */
+internal fun crossSectionDisplayOptions(darkMode: Boolean, preferences: AppPreferences) =
+    DisplayOptions(
+        // Splays are the whole subject here, so the plan's toggle does not apply.
+        showSplays = true,
+        showSketch = true,
+        // One station, at the origin, whose name is already in the title bar.
+        showStationLabels = false,
+        showGrid = true,
+        darkMode = darkMode,
+        // The same escape from the toolbar as the plan has: a section is drawn with the same
+        // pencil and moved just as often.
+        hotCorners = preferences.hotCorners,
+        twoFingerMove = preferences.twoFingerMove,
+        // The same preference the plan honours: a surveyor who turned the pinch off should not
+        // meet it again inside a section.
+        pinchToZoom = preferences.pinchToZoom,
+        style = preferences.sketchStyle,
+        deletePathFragments = preferences.deletePathFragments,
+    )
+
 @Composable
 fun CrossSectionEditor(
     survey: Survey,
@@ -114,23 +148,7 @@ fun CrossSectionEditor(
         SurveyCanvas(
             survey = survey,
             projection = Projection2D.CROSS_SECTION,
-            options =
-                DisplayOptions(
-                    // Splays are the whole subject here, so the plan's toggle does not apply.
-                    showSplays = true,
-                    showSketch = true,
-                    // One station, at the origin, whose name is already in the title bar.
-                    showStationLabels = false,
-                    showGrid = true,
-                    darkMode = darkMode,
-                    // The same escape from the toolbar as the plan has: a section is drawn with
-                    // the same pencil and moved just as often.
-                    hotCorners = preferences.hotCorners,
-                    twoFingerMove = preferences.twoFingerMove,
-                    // The same preference the plan honours: a surveyor who turned the pinch off
-                    // should not meet it again inside a section.
-                    pinchToZoom = preferences.pinchToZoom,
-                ),
+            options = crossSectionDisplayOptions(darkMode, preferences),
             editor = editor,
             canvas = canvas,
             modifier = Modifier.weight(1f).fillMaxWidth(),

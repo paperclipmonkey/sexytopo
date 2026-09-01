@@ -2886,6 +2886,21 @@ These are the things that would actually shape a real port.
    loosening the repeat count to one and checking that a single simulated reading promotes to a
    station, a tolerance no wrong session could satisfy by accident.
 
+85. **A cross-section drawn with the wrong pencil.** `CrossSectionEditor`'s own `DisplayOptions`
+   call passed `hotCorners`, `twoFingerMove` and `pinchToZoom` from the surveyor's preferences and
+   stopped there — `style` (line width, station size, label and legend font size) and
+   `deletePathFragments` (the eraser's fragment toggle) fell back to the class defaults regardless
+   of what `preferences_sketching.xml`'s numeric group held. `CrossSectionView` on the Android app
+   is a bare `GraphView` subclass with no overrides, so every one of those settings genuinely does
+   apply the same way to a section as to the plan; a surveyor who enlarged everything for a head
+   torch got the ordinary sizes back the moment they opened the one screen most likely to be drawn
+   on with cold hands and poor light, since it exists to draw the shape a plan cannot show.
+
+   The construction is now `crossSectionDisplayOptions(darkMode, preferences)`, a plain function
+   rather than inline in the composable — the same reason `DemoState.displayOptions` is a property
+   and not inlined into `App()` — so a `jvmTest` can call it directly instead of needing a Compose
+   test harness for two lines of preference plumbing.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3037,7 +3052,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 777
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 419 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 421 over the UI's own
 logic, 20 running the iOS half in a simulator,
 111 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 10 more at a desk, on a wheel, a trackpad and a keyboard. The

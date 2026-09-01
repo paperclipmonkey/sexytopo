@@ -6,10 +6,12 @@ import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
+import org.hwyl.sexytopo.shared.sketch.SketchStyle
 import org.hwyl.sexytopo.shared.survey.CrossSectioner
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -245,5 +247,41 @@ class CrossSectionEditorTest {
             moved.sketch.pathDetails.single().path,
             "the outline stays station-relative, so it moves with the section",
         )
+    }
+
+    // -------------------------------------------------------------------------------------
+    // What the section is drawn with
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * A surveyor who enlarged everything for a head torch, or turned fragment-erase off, sees the
+     * same behaviour inside a section as on the plan. `CrossSectionView` is a bare `GraphView`
+     * subclass on the Android app — no overrides — so these were never a section's own setting to
+     * withhold; they were just never threaded through here.
+     */
+    @Test
+    fun theSectionIsDrawnWithTheSurveyorsOwnSketchStyle() {
+        val loudStyle =
+            SketchStyle(
+                sketchLineWidthDp = 4f,
+                legWidthDp = 3f,
+                splayWidthDp = 3f,
+                stationDiameterDp = 20f,
+            )
+        val preferences = AppPreferences.DEFAULT.copy(sketchStyle = loudStyle)
+
+        val options = crossSectionDisplayOptions(darkMode = false, preferences = preferences)
+
+        assertEquals(loudStyle, options.style)
+    }
+
+    /** And the eraser's fragment toggle, the same way. */
+    @Test
+    fun theSectionHonoursTheEraserFragmentPreference() {
+        val preferences = AppPreferences.DEFAULT.copy(deletePathFragments = false)
+
+        val options = crossSectionDisplayOptions(darkMode = false, preferences = preferences)
+
+        assertFalse(options.deletePathFragments)
     }
 }
