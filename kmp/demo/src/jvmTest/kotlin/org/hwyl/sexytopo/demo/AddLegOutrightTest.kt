@@ -97,6 +97,62 @@ class AddLegOutrightTest {
         assertEquals(3, survey.getAllStations().size)
     }
 
+    /**
+     * A name that would break the exports is refused before the leg is added.
+     *
+     * The same rule as the rename dialog, and it was missing here: *Add a leg* offers to name the
+     * far station, so without this a leg to `sump 2` is accepted and then breaks every Survex and
+     * Therion export the survey ever produces. Survex separates its columns with whitespace, so
+     * that leg comes out as six fields where five are expected; a semicolon is worse, because it
+     * starts a comment and the readings on the line are thrown away silently.
+     */
+    @Test
+    fun aNameThatWouldBreakTheExportsIsRefused() {
+        assertTrue(newStationNameProblem("sump 2") != null, "a space should be refused")
+        assertTrue(newStationNameProblem("AV12;") != null, "a semicolon should be refused")
+        assertTrue(newStationNameProblem("AV12") == null, "an ordinary name should be accepted")
+    }
+
+    /**
+     * A blank name is not a problem, unlike in the rename dialog.
+     *
+     * It means "call it whatever you would have called it" — the box is pre-filled with exactly
+     * that — so refusing it would be refusing the default.
+     */
+    @Test
+    fun leavingTheNameAloneIsNotAProblem() {
+        assertTrue(newStationNameProblem("") == null)
+        assertTrue(newStationNameProblem("   ") == null)
+    }
+
+    /**
+     * A name that collides only after `Station` has stripped it is still made unique.
+     *
+     * The uniqueness check runs on the *typed* string and the survey holds *stored* ones, and
+     * `Station` strips newlines on the way in — so `AV\n12` compared against a survey that already
+     * holds `AV12` finds no collision, and then stores `AV12` on top of it. Two stations sharing a
+     * name is a survey whose exports name the wrong end of a passage.
+     *
+     * The first version of this test asserted the stored *name* instead, which cannot fail:
+     * `Station` sanitises on assignment, so both the checked and the unchecked path store `AV12`.
+     * Mutating the code back is what said so.
+     */
+    @Test
+    fun aNameThatCollidesOnlyOnceStrippedIsStillAdvanced() {
+        val survey = cave()
+        addLegOutright(survey, Leg(7f, 45f, 0f), asSplay = false, toName = "AV12")
+        assertEquals("AV12", survey.activeStation.name)
+
+        addLegOutright(survey, Leg(3f, 200f, 0f), asSplay = false, toName = "AV\n12")
+
+        assertEquals("AV13", survey.activeStation.name, "the stripped name was not made unique")
+        assertEquals(
+            1,
+            survey.getAllStations().count { it.name == "AV12" },
+            "the survey holds two stations of the same name",
+        )
+    }
+
     @Test
     fun theNoteReachesTheNewStation() {
         val survey = cave()

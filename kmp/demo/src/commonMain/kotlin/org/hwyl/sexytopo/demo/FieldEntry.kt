@@ -247,6 +247,10 @@ fun AddLegDialog(
     val lrud = remember { mutableStateListOf("", "", "", "") }
 
     val parsed = parseReading(distance, azimuth, inclination)
+    // A name that would break the exports is refused here rather than at export time, for the
+    // reason finding 63 gives: a station quietly renamed on the way out is a station nobody can
+    // match back to their notes. Splays have no far end, so there is nothing to check.
+    val nameProblem = if (asSplay) null else newStationNameProblem(toName)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -315,7 +319,7 @@ fun AddLegDialog(
                         }
                     }
                 }
-                parsed.problem?.let {
+                (parsed.problem ?: nameProblem)?.let {
                     Text(
                         it,
                         style = MaterialTheme.typography.bodySmall,
@@ -326,7 +330,7 @@ fun AddLegDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = parsed.leg != null,
+                enabled = parsed.leg != null && nameProblem == null,
                 onClick = {
                     parsed.leg?.let { onAdd(it, toName, toComment, lrud.toList()) }
                 },
@@ -374,7 +378,10 @@ internal fun addLegOutright(
         // fields in its splay dialog for the same reason.
         SurveyBuilder.addSplay(survey, from, leg)
     } else {
-        val wanted = toName.trim()
+        // Sanitised as `applyStationEdit` does, so the model never stores what `Station` would
+        // strip: a name differing from an existing one only by a newline would otherwise pass the
+        // uniqueness check above and then collide once stored.
+        val wanted = sanitiseStationName(toName)
         val name =
             if (wanted.isEmpty()) {
                 StationNamer.generateNextStationName(survey, from)

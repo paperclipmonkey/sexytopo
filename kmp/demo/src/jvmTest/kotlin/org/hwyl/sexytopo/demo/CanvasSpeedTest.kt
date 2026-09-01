@@ -100,10 +100,25 @@ class CanvasSpeedTest {
             repeat(zoomSteps) { canvas.zoomIn() }
             repeat(3) { scene.render() }
 
+            // The *fastest* frame, not the mean of a block of them.
+            //
+            // Load can only ever add time to a frame, so the quickest one is the one least
+            // disturbed by whatever else the machine was doing — which on a shared CI runner is a
+            // great deal. Timing twelve frames as one block and dividing was the original, and it
+            // let a single scheduler preemption inflate the whole measurement; the test below
+            // compares *differences* between two such numbers, so noise in either one moved its
+            // tolerance rather than its subject, and it failed twice in a day on a busy machine
+            // while passing on its own. Everything here is a comparison, so a consistent lower
+            // bound answers the same questions with far less noise.
             val clock = TimeSource.Monotonic
-            val start = clock.markNow()
-            repeat(frames) { scene.render() }
-            start.elapsedNow().inWholeMicroseconds / 1000.0 / frames
+            var best = Double.MAX_VALUE
+            repeat(frames) {
+                val start = clock.markNow()
+                scene.render()
+                val ms = start.elapsedNow().inWholeMicroseconds / 1000.0
+                if (ms < best) best = ms
+            }
+            best
         } finally {
             scene.close()
         }
@@ -140,7 +155,8 @@ class CanvasSpeedTest {
      * before they were culled.
      *
      * Measured, it is not the same at all. Eight thousand strokes cost **67 ms a frame** with all
-     * of them on screen and **0.4 ms** with almost none of them — a third of one per cent of the
+     * of them on screen and **0.4 ms** with almost none of them (best-frame times; see
+     * `timeFrames`) — a third of one per cent of the
      * frame, inside the noise. Mapping the points and building the path is cheap; what cost the
      * time was rasterising them, and rasterising is what Skia already skips. So there is no cull
      * here, and this test is what says so: if a stroke ever becomes expensive to *prepare* rather
@@ -165,11 +181,30 @@ class CanvasSpeedTest {
             "1000 stations, 8000 strokes: zoomed out ${plainOut} without / ${drawnOut} with; " +
                 "zoomed in ${plainIn} without / ${drawnIn} with",
         )
+        // The denominator first: if the drawing does not cost meaningfully more with all of it on
+        // screen than without, the fixture is not demonstrating anything and the comparison below
+        // would pass or fail on noise. Say so rather than report either.
+        val costOnScreen = drawnOut - plainOut
         assertTrue(
-            drawnIn < plainIn + (drawnOut - plainOut) * 0.2,
-            "with almost none of the drawing on screen it still cost ${drawnIn - plainIn} ms a " +
-                "frame, against ${drawnOut - plainOut} with all of it — preparing the strokes has " +
-                "become expensive enough to be worth culling, which it was not when this was written",
+            costOnScreen > 1.0,
+            "eight thousand strokes on screen cost only $costOnScreen ms a frame more than none, " +
+                "so this fixture cannot show whether the off-screen case is cheaper",
+        )
+        val costOffScreen = drawnIn - plainIn
+        assertTrue(
+            costOffScreen < costOnScreen * 0.2,
+            "with almost none of the drawing on screen the strokes still cost $costOffScreen ms a " +
+                "frame, against $costOnScreen with all of them showing — " +
+                "${(costOffScreen / costOnScreen * 100).toInt()}% rather than under 20%.\n" +
+                "\n" +
+                "Read this as a ratio before reading it as a regression. What it compares is " +
+                "*preparing* a stroke against *rasterising* it, so it moves with the machine: a " +
+                "box whose CPU is slow relative to its rasteriser reports a higher percentage " +
+                "without anything having changed in the app. It has been seen at 30-50% on a " +
+                "loaded shared container and under 20% on CI, with identical code — checked by " +
+                "running an older commit side by side, which reported the same. So: if this fails " +
+                "on a busy machine, re-run it on a quiet one before believing it. If it fails on " +
+                "CI, something really has made stroke preparation expensive.",
         )
     }
 

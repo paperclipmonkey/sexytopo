@@ -2605,6 +2605,45 @@ These are the things that would actually shape a real port.
    thing does rather than what it contains, which is exactly the direction a port's own sweeps do
    not look.
 
+78. **A name that would break every export, one dialog along.** Found by reviewing my own morning's
+   diff rather than by a sweep, which is the note worth making: finding 63 put a check on the
+   *rename* dialog, because Survex separates its columns with whitespace and Therion the same way,
+   so a station called `sump 2` turns a five-field line into six and a semicolon starts a comment
+   that eats the readings after it. Finding 76 then added a **second** place a station gets named —
+   the *To* box on *Add a leg* — and did not put the check on it. A rule enforced in one of two
+   doorways is not enforced.
+
+   Two departures from the rename rule, both deliberate and both now tested. A blank name is fine
+   here, because it means "call it whatever you would have called it" and the box is pre-filled
+   with exactly that. And a name already in the survey is *advanced* rather than refused, which is
+   what `advanceNumberIfNotUnique` does upstream and is better than losing a reading somebody has
+   just taken.
+
+   The mutation testing earned its keep again on the way. The first test of the sanitising asserted
+   the *stored* name and could not fail: `Station` strips newlines on assignment, so the checked
+   and unchecked paths store the same thing. What the sanitising actually changes is the
+   **uniqueness check**, which runs on the typed string while the survey holds stored ones — so
+   `AV\n12` finds no collision against a survey holding `AV12`, and then stores `AV12` on top of
+   it. The replacement test asserts that, and mutating the code back fails it.
+
+79. **A performance test that fails on a slow machine and passes on a fast one.**
+   `CanvasSpeedTest.aDrawingThatIsOffTheScreenCostsAlmostNothing` failed twice in a day on this
+   container while passing in CI, which is the shape of a flake and was worth not treating as one.
+
+   Running an older commit side by side settled it: the same test fails the same way at a commit
+   from before any of the day's work, so nothing had regressed. What it compares is *preparing* a
+   stroke against *rasterising* it, and that ratio moves with the machine — a box whose CPU is slow
+   relative to its rasteriser reports a higher percentage with identical code. It was 30-50% here
+   and under 20% on CI.
+
+   The fix is in the measurement rather than the tolerance, which is the part worth keeping: it
+   timed twelve frames as one block and divided, so a single scheduler preemption inflated the
+   whole number — and the test compares *differences* between two such numbers, so noise in either
+   moved its tolerance rather than its subject. Timing each frame and taking the **fastest** is a
+   consistent lower bound, because load can only ever add time. Two full-suite runs under the load
+   that broke it before now pass. The failure message says all this too, so the next person to see
+   it on a busy machine does not go looking for a regression that is not there.
+
 ---
 
 ## A defect worth reporting upstream
@@ -2756,7 +2795,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 777
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 388 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 391 over the UI's own
 logic, 20 running the iOS half in a simulator,
 106 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375. The

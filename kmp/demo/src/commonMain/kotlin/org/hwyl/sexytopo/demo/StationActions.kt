@@ -200,6 +200,25 @@ private fun exportProblem(wanted: String): String? =
         else -> null
     }
 
+/**
+ * What is wrong with a name typed for a station that does not exist yet, or null.
+ *
+ * The other door into the same room as [renameProblem], and it was standing open: *Add a leg* lets
+ * a surveyor name the far station, and without this a leg to `sump 2` would be accepted and then
+ * break every Survex and Therion export the survey ever produced — which is finding 63 exactly,
+ * one dialog along.
+ *
+ * Two of [renameProblem]'s three rules do not apply here, and both differences are deliberate. A
+ * blank name is fine: it means "call it whatever you would have called it", which is what the box
+ * is pre-filled with. And a name already in the survey is *not* refused, because
+ * `advanceNumberIfNotUnique` moves it on — `2` becomes `3` — which is what upstream does with a
+ * typed name and is better than losing a reading somebody has just taken.
+ */
+internal fun newStationNameProblem(typed: String): String? {
+    val wanted = sanitiseStationName(typed)
+    return if (wanted.isEmpty()) null else exportProblem(wanted)
+}
+
 /** What [Station] will keep of a typed name. */
 internal fun sanitiseStationName(typed: String): String =
     typed.filterNot { it in Station.FORBIDDEN_CHARS }.trim()
