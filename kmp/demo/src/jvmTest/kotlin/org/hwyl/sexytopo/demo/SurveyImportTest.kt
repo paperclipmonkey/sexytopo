@@ -80,6 +80,56 @@ class SurveyImportTest {
     }
 
     /**
+     * A survey from the Android app comes in at the station somebody was standing at.
+     *
+     * The Android app keeps the active station in `<name>.metadata.json` and nowhere else — the
+     * `activeStation` key inside the data file is this port's own. So a survey handed over by an
+     * Android surveyor, mid-trip, imported here at the entrance of the cave: everything was there
+     * and the one thing that says *where you are* was not.
+     *
+     * The fixture is deliberately what Android writes rather than what this port writes: a data
+     * file with no `activeStation` in it at all, so the only copy of the answer is the metadata
+     * file. That way the test fails if the reading is dropped, rather than being carried by the
+     * port's own key.
+     */
+    @Test
+    fun aSurveyFromTheAndroidAppOpensAtTheStationItWasLeftAt() {
+        val store = store()
+        val survey = aSurvey("Eastwater")
+        SurveyBuilder.updateWithNewStation(survey, Leg(3f, 90f, 0f))
+        val android =
+            SurveyJson.write(survey)
+                .lines()
+                .filterNot { it.contains("activeStation") }
+                .joinToString("\n")
+                .replace(Regex(",(\\s*})\\s*$"), "$1")
+        store.writeText(listOf("Eastwater.data.json"), android)
+        store.writeText(
+            listOf("Eastwater.metadata.json"),
+            """{ "name": "Eastwater", "active-station": "2", "connections": {} }""",
+        )
+
+        val imported = assertNotNull(
+            SurveyImport.import(SurveyLibrary(store), store, "Eastwater.data.json"),
+        )
+
+        assertEquals("2", imported.activeStation.name, "the working end did not come with it")
+    }
+
+    /** And one with no metadata file beside it imports as it always did. */
+    @Test
+    fun aSurveyWithNoMetadataFileStillImports() {
+        val store = store()
+        store.writeText(listOf("Eastwater.data.json"), SurveyJson.write(aSurvey("Eastwater")))
+
+        val imported = assertNotNull(
+            SurveyImport.import(SurveyLibrary(store), store, "Eastwater.data.json"),
+        )
+
+        assertEquals("Eastwater", imported.name)
+    }
+
+    /**
      * A drawing that is *there* and will not parse is reported, not swallowed.
      *
      * This is the fix for the dropped-drawings bug committing the same sin one level down: it read

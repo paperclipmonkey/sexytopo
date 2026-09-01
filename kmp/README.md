@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 766 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 771 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and eight more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -2434,7 +2434,42 @@ These are the things that would actually shape a real port.
    new seam is never compiled here. The `NSData` construction in it is copied deliberately from
    `CoreBluetoothTransport.toNSData`, which a macOS runner has actually built - both opt-ins
    included, and `BetaInteropApi` is the one that is easy to leave off. The check that matters for
-   that file is the macOS job in CI.
+   that file is the macOS job in CI. It has since run: the whole seam compiles for the simulator
+   and for a real iPhone, and the app it links into starts and draws.
+
+73. **A survey written here opened on Android at the entrance of the cave.** The last thing the
+   class sweep turned up, and the quietest of the three. `MetadataTranslater` writes
+   `<name>.metadata.json`, which carries exactly two things: the station the surveyor is working
+   at, and this survey's links to other surveys. `Loader.loadMetadata` is the *only* place the
+   Android app reads an active station from.
+
+   This port kept the active station too — as `activeStation` inside the **data** file, which is
+   this port's own extension and not somewhere the Android app looks — and wrote no metadata file
+   at all. `SurveyFileType.METADATA` was declared and never used, which is the shape of the whole
+   defect in one line. So a cave surveyed on an iPhone and continued on an Android phone came up at
+   the origin: two hundred stations, all present, and the one thing that says *where you are*
+   silently reset. Nothing was corrupted, nothing warned, and the survey was perfectly good — which
+   is exactly why it would have been found underground rather than here.
+
+   Worth checking before fixing, and the answer was reassuring in one direction and not the other:
+   `Loader.loadMetadata` is guarded by `exists()` and `IoUtils.isSurveyDirectory` asks only for the
+   data file, so a survey from this port *opens* on Android. It was a lost convenience rather than
+   a survey the other app would refuse. Both halves are now ported — written on save and on export,
+   read on load and on import — and the zip is four files rather than three.
+
+   Two small departures from the Java, both deliberate. Its reader **throws** when the tag is
+   missing (`throw new Exception("Error loading active station")`); here a metadata file with no
+   active station in it is a no-op, because a survey is still a survey without one and refusing to
+   open it is a worse answer than opening it at the origin. And where a name does not match any
+   station — a survey edited on one device and its metadata copied from another — the Java's
+   `getStationByName` returns null and `setActiveStation(null)` leaves the app pointing at nothing;
+   here the name is ignored and whatever the data file said still stands.
+
+   `connections` is written as an empty object and ignored on read. Cross-survey links stay a
+   documented gap for a reason that is in the model rather than the file: a connection names the
+   other survey by Android `Uri`, a path into one device's document provider, which means nothing
+   on another phone. `{}` is what the Android app itself writes for a survey with no links, so the
+   file is the shape the other end expects rather than a shape it has to tolerate.
 
 ---
 
@@ -2586,8 +2621,8 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 766
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 374 over the UI's own
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 771
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 376 over the UI's own
 logic, 18 running the iOS half in a simulator,
 103 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375. The

@@ -20,8 +20,16 @@ import org.hwyl.sexytopo.shared.model.sketch.Symbol
  */
 internal object XviSymbolPaths {
 
-    /** The grid the coordinates are on, matching [Symbol.VIEWPORT]. */
-    const val VIEWBOX: Float = 40.0f
+    /**
+     * The grid the coordinates are on.
+     *
+     * *Is* [Symbol.VIEWPORT] rather than a second forty beside it. The Java keeps its own
+     * `SVG_VIEWBOX_SIZE = 40.0f` in `SymbolDetailTranslater`, which is correct today and is two
+     * places to change if a symbol is ever redrawn on a different grid; the shapes below were
+     * authored on the same grid as the app's drawables precisely so they line up, so the equality
+     * is the point rather than a coincidence.
+     */
+    const val VIEWBOX: Float = Symbol.VIEWPORT
 
     val PATHS: Map<Symbol, List<FloatArray>> = mapOf(
         Symbol.ENTRANCE to listOf(

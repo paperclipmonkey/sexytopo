@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.hwyl.sexytopo.shared.io.MetadataJson
 import org.hwyl.sexytopo.shared.io.SketchJson
 import org.hwyl.sexytopo.shared.io.SurveyJson
 import org.hwyl.sexytopo.shared.io.store.SurveyZip
@@ -39,6 +40,7 @@ import org.hwyl.sexytopo.shared.io.export.TherionExport
 import org.hwyl.sexytopo.shared.io.export.TherionExporter
 import org.hwyl.sexytopo.shared.io.export.XviExporter
 import org.hwyl.sexytopo.shared.io.store.SurveyFileType
+import org.hwyl.sexytopo.shared.io.store.SurveyStorage
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.survey.SurveyDate
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -398,13 +400,24 @@ internal fun exportText(
  * file and ignored the sketches beside it — and fixing one end while leaving the other would mean
  * this app could read a complete survey and not write one.
  *
+ * Four files, the fourth being the metadata file: it is where the Android app keeps the active
+ * station, and it is a hundred bytes. Leaving it out costs the surveyor at the other end nothing
+ * they would notice and everything they would want - the survey opens at the entrance of the cave
+ * rather than where they stopped.
+ *
  * The preview stays the data file. The sketches are thousands of coordinates and there is nothing
  * to learn from looking at them; what matters is that they are written, and the row under the
- * button names all three.
+ * button names all four.
  */
 internal fun companionFiles(survey: Survey, format: ExportFormat): List<Pair<String, String>> =
     if (format == ExportFormat.NATIVE) {
         listOf(
+            SurveyFileType.METADATA.filenameFor(survey.name) to
+                MetadataJson.write(
+                    survey,
+                    SurveyStorage.DEFAULT_VERSION_NAME,
+                    0,
+                ),
             SurveyFileType.PLAN_SKETCH.filenameFor(survey.name) to
                 SketchJson.write(survey.planSketch, survey.name),
             SurveyFileType.EXTENDED_ELEVATION_SKETCH.filenameFor(survey.name) to

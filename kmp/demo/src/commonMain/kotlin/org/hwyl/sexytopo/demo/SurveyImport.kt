@@ -1,5 +1,6 @@
 package org.hwyl.sexytopo.demo
 
+import org.hwyl.sexytopo.shared.io.MetadataJson
 import org.hwyl.sexytopo.shared.io.SketchJson
 import org.hwyl.sexytopo.shared.io.SurveyJson
 import org.hwyl.sexytopo.shared.io.export.SurveyFormat
@@ -253,6 +254,15 @@ object SurveyImport {
 
         read(SurveyFileType.PLAN_SKETCH) { survey.planSketch = it }
         read(SurveyFileType.EXTENDED_ELEVATION_SKETCH) { survey.elevationSketch = it }
+
+        // And the working end. It is in the metadata file rather than the data file when the
+        // survey came from the Android app, which keeps it nowhere else. Not reported when it is
+        // missing or will not parse, unlike the drawings above: a survey that opens at the
+        // entrance of the cave rather than where somebody stopped has lost a convenience, and a
+        // warning about it beside a perfectly good centreline would read as a damaged import.
+        runCatching { store.readText(listOf(SurveyFileType.METADATA.filenameFor(base))) }
+            .getOrNull()
+            ?.let { MetadataJson.apply(survey, it) }
 
         return when {
             unreadable.isNotEmpty() ->

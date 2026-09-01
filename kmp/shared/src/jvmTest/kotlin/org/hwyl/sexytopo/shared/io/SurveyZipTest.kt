@@ -57,13 +57,18 @@ class SurveyZipTest {
 
     /** The whole point: what comes out is a zip, and it holds the survey. */
     @Test
-    fun aSurveyZipsIntoTheThreeFilesASurveyDirectoryHolds() {
+    fun aSurveyZipsIntoTheFourFilesASurveyDirectoryHolds() {
         val archive = SurveyZip.archive(cave(), "test", 1)
 
         val contents = readBack(archive)
 
         assertEquals(
-            listOf("Swildons.data.json", "Swildons.plan.json", "Swildons.ext-elevation.json"),
+            listOf(
+                "Swildons.data.json",
+                "Swildons.metadata.json",
+                "Swildons.plan.json",
+                "Swildons.ext-elevation.json",
+            ),
             contents.keys.toList(),
             "the entries should be named as the files in a survey directory are",
         )
@@ -146,6 +151,15 @@ class SurveyZipTest {
     private companion object {
         const val LOCAL_HEADER = 0x04034b50
         const val CENTRAL_HEADER = 0x02014b50
+
+        /**
+         * How many files a survey is: data, metadata, plan, extended elevation.
+         *
+         * In one place because it was in two, and the second one was wrong within an hour of being
+         * written - the metadata file was added to the archive and this test went on scanning for
+         * exactly three headers, then reported the miscount as a missing UTF-8 flag.
+         */
+        const val ENTRIES = 4
     }
 
     /**
@@ -170,7 +184,7 @@ class SurveyZipTest {
             if (flag and (1 shl 11) == 0) return false
             found++
         }
-        return found == 3
+        return found == ENTRIES
     }
 
     /**
@@ -210,9 +224,14 @@ class SurveyZipTest {
         ZipFile(file).use { zip ->
             val names = zip.entries().toList().map { it.name }
             assertEquals(
-                listOf("Swildons.data.json", "Swildons.plan.json", "Swildons.ext-elevation.json"),
+                listOf(
+                    "Swildons.data.json",
+                    "Swildons.metadata.json",
+                    "Swildons.plan.json",
+                    "Swildons.ext-elevation.json",
+                ),
                 names,
-                "the directory should list the same three entries, in order",
+                "the directory should list the same four entries, in order",
             )
             for (entry in zip.entries()) {
                 // Reading through the directory means seeking to the offset it records, so a wrong
@@ -229,12 +248,12 @@ class SurveyZipTest {
     }
 
     /**
-     * The record at the end says how many files there are, and says three.
+     * The record at the end says how many files there are, and says four.
      *
      * Not covered by any of the readers above, which was found by mutating the writer to claim two:
      * `ZipInputStream` never reads the record at all and walks the local headers instead, and
      * `ZipFile` reads the central directory to its end rather than counting entries out of it. So
-     * both of them recover all three files from an archive whose own summary says there are two —
+     * both of them recover every file from an archive whose own summary says there is one fewer —
      * and `unzip`, and Windows Explorer, and anything else that trusts the count, hand over two and
      * lose the drawing. Read the field itself.
      *
@@ -250,8 +269,16 @@ class SurveyZipTest {
         val u32 = { at: Int -> u16(at) or (u16(at + 2) shl 16) }
 
         assertEquals(0x06054b50, u32(eocd), "the archive does not end with the record it should")
-        assertEquals(3, u16(eocd + 8), "the record does not say three files are on this disk")
-        assertEquals(3, u16(eocd + 10), "the record does not say the archive holds three files")
+        assertEquals(
+            ENTRIES,
+            u16(eocd + 8),
+            "the record does not say how many files are on this disk",
+        )
+        assertEquals(
+            ENTRIES,
+            u16(eocd + 10),
+            "the record does not say how many files the archive holds",
+        )
         // And where it says the directory is, is where the directory is.
         val start = u32(eocd + 16)
         assertEquals(0x02014b50, u32(start), "the record points somewhere that is not the directory")

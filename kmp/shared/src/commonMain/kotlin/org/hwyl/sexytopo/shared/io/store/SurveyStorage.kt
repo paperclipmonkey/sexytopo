@@ -1,5 +1,6 @@
 package org.hwyl.sexytopo.shared.io.store
 
+import org.hwyl.sexytopo.shared.io.MetadataJson
 import org.hwyl.sexytopo.shared.io.SketchJson
 import org.hwyl.sexytopo.shared.io.SurveyJson
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -134,6 +135,13 @@ object SurveyStorage {
             directory + nameFor(SurveyFileType.DATA),
             SurveyJson.write(survey, versionName, versionCode),
         )
+        // The fourth file, which the Android app reads the active station out of and this port
+        // wrote nowhere until now. See `MetadataJson`: a survey written without it opens on
+        // Android at the origin rather than at the working end, quietly.
+        store.writeText(
+            directory + nameFor(SurveyFileType.METADATA),
+            MetadataJson.write(survey, versionName, versionCode),
+        )
         store.writeText(
             directory + nameFor(SurveyFileType.PLAN_SKETCH),
             SketchJson.write(survey.planSketch, name),
@@ -185,6 +193,11 @@ object SurveyStorage {
         // The directory is the survey's name, as in the Android app, where `Survey.setName` is
         // private and the name comes from the folder rather than from inside the file.
         survey.name = name
+
+        // After the data file, because it overrides what that said - the Android app keeps the
+        // active station here and this is the only copy a survey from that app has. Before the
+        // sketches only because nothing in them depends on it.
+        read(SurveyFileType.METADATA)?.let { MetadataJson.apply(survey, it) }
 
         var dropped = 0
         read(SurveyFileType.PLAN_SKETCH)?.let {

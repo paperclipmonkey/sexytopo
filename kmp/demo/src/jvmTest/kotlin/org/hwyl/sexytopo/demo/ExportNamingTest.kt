@@ -39,7 +39,12 @@ class ExportNamingTest {
             listOf(fileNameFor(survey, ExportFormat.NATIVE)) +
                 companionFiles(survey, ExportFormat.NATIVE).map { it.first }
         assertEquals(
-            listOf("Swildons.data.json", "Swildons.plan.json", "Swildons.ext-elevation.json"),
+            listOf(
+                "Swildons.data.json",
+                "Swildons.metadata.json",
+                "Swildons.plan.json",
+                "Swildons.ext-elevation.json",
+            ),
             written,
             "the native export is not the four-file survey the importer expects",
         )

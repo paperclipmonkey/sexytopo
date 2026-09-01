@@ -117,6 +117,7 @@ class SurveyStorageTest {
             listOf(
                 "Swildons.data.json",
                 "Swildons.ext-elevation.json",
+                "Swildons.metadata.json",
                 "Swildons.plan.json",
             ),
             store.list(directory()),
@@ -245,6 +246,115 @@ class SurveyStorageTest {
         assertFalse(store.exists(directory()))
         assertFalse(store.exists(directory() + "Swildons.data.json"))
         assertTrue(store.exists(home), "the parent survives")
+    }
+
+    // -------------------------------------------------------------------------------------
+    // The metadata file, which is where the Android app keeps the active station
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * A survey saved here and opened by the Android app opens where the surveyor left off.
+     *
+     * `Loader.loadMetadata` reads the active station out of `<name>.metadata.json` and nowhere
+     * else. This port kept it as `activeStation` inside the *data* file — its own extension, which
+     * the Android app does not read — and wrote no metadata file at all. So a cave surveyed on a
+     * phone here and continued on an Android one came up at the entrance, with nothing to say that
+     * anything had been dropped.
+     */
+    @Test
+    fun theActiveStationIsWrittenWhereTheAndroidAppLooksForIt() {
+        val store = InMemoryFileStore()
+        val survey = survey()
+        val working = survey.getStationByName("3")
+        assertTrue(working != null, "the fixture should have a third station")
+        survey.activeStation = working
+
+        SurveyStorage.save(store, survey, directory())
+
+        val metadata = store.readText(directory() + "Swildons.metadata.json")
+        assertTrue(metadata != null, "no metadata file was written")
+        assertTrue(
+            metadata.contains("\"active-station\": \"3\""),
+            "the metadata file does not name the working station: $metadata",
+        )
+    }
+
+    /** And a survey that only has the Android app's copy of it is read the same way. */
+    @Test
+    fun theActiveStationIsReadBackFromTheMetadataFileAlone() {
+        val store = InMemoryFileStore()
+        SurveyStorage.save(store, survey(), directory())
+        // What a survey written by the Android app looks like: no `activeStation` in the data
+        // file, because that key is this port's own.
+        val data = store.readText(directory() + "Swildons.data.json")!!
+        val withoutIt =
+            data.lines().filterNot { it.contains("activeStation") }.joinToString("\n")
+        store.writeText(
+            directory() + "Swildons.data.json",
+            // `activeStation` is written last, so taking its line out leaves the comma that
+            // separated it. Trailing commas are not JSON and the parser is right to refuse them.
+            withoutIt.replace(Regex(",(\\s*})\\s*$"), "$1"),
+        )
+        store.writeText(
+            directory() + "Swildons.metadata.json",
+            """
+            {
+              "name": "Swildons",
+              "active-station": "3",
+              "connections": {}
+            }
+            """.trimIndent(),
+        )
+
+        val loaded = SurveyStorage.load(store, directory())
+
+        assertEquals("3", loaded.activeStation.name)
+    }
+
+    /** A round trip keeps it, which is the case a surveyor actually meets. */
+    @Test
+    fun theWorkingEndSurvivesSavingAndLoading() {
+        val store = InMemoryFileStore()
+        val survey = survey()
+        survey.activeStation = survey.getStationByName("2")!!
+
+        SurveyStorage.save(store, survey, directory())
+
+        assertEquals("2", SurveyStorage.load(store, directory()).activeStation.name)
+    }
+
+    /**
+     * A metadata file naming a station this survey does not have leaves the survey alone.
+     *
+     * The Java sets the active station to whatever `getStationByName` returned, which for an
+     * unknown name is null — so a metadata file that has drifted out of step with its survey (a
+     * station renamed on one device, the file copied from another) leaves the Android app pointing
+     * at nothing. Here it is a no-op: whatever the data file said still stands.
+     */
+    @Test
+    fun aMetadataFileNamingAStationThatIsNotThereChangesNothing() {
+        val store = InMemoryFileStore()
+        val survey = survey()
+        survey.activeStation = survey.getStationByName("2")!!
+        SurveyStorage.save(store, survey, directory())
+        store.writeText(
+            directory() + "Swildons.metadata.json",
+            """{ "active-station": "Sump", "connections": {} }""",
+        )
+
+        assertEquals("2", SurveyStorage.load(store, directory()).activeStation.name)
+    }
+
+    /** As does one that is not JSON at all, rather than refusing to open the survey. */
+    @Test
+    fun aDamagedMetadataFileDoesNotStopTheSurveyOpening() {
+        val store = InMemoryFileStore()
+        SurveyStorage.save(store, survey(), directory())
+        store.writeText(directory() + "Swildons.metadata.json", "{ this is not json")
+
+        val loaded = SurveyStorage.load(store, directory())
+
+        assertEquals(3, loaded.getAllStations().size)
     }
 
     @Test
