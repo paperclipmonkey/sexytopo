@@ -6,6 +6,7 @@ import org.hwyl.sexytopo.shared.io.export.SurveyFormat
 import org.hwyl.sexytopo.shared.io.imports.PocketTopoImporter
 import org.hwyl.sexytopo.shared.io.imports.PocketTopoTxtImporter
 import org.hwyl.sexytopo.shared.io.imports.SurveyImporter
+import org.hwyl.sexytopo.shared.io.imports.XviImporter
 import org.hwyl.sexytopo.shared.io.store.FileStore
 import org.hwyl.sexytopo.shared.io.store.SurveyFileType
 import org.hwyl.sexytopo.shared.io.store.SurveyStorage
@@ -77,6 +78,9 @@ object SurveyImport {
     /** PocketTopo's own binary file, which its Save writes rather than its Export. */
     private fun isPocketTopoBinary(fileName: String) = fileName.endsWith(".top", ignoreCase = true)
 
+    /** A Therion tracing image: a drawing with no centreline under it. */
+    private fun isTracing(fileName: String) = fileName.endsWith(".xvi", ignoreCase = true)
+
     /**
      * Whether a `.txt` at the root is a PocketTopo export rather than somebody's notes.
      *
@@ -109,6 +113,7 @@ object SurveyImport {
                     isNative(it) ||
                     formatOf(it) != null ||
                     isPocketTopoBinary(it) ||
+                    isTracing(it) ||
                     (isPocketTopo(it) && looksLikePocketTopo(store, it))
             }
         }.getOrDefault(emptyList())
@@ -160,10 +165,24 @@ object SurveyImport {
         if (!isSurveyFolder(store, fileName) && isNative(fileName)) {
             library.lastWarning = withSketchesBesideIt(store, fileName, survey)
         }
+        // The same idea for a Therion project: the `.th` carries the centreline and the tracing
+        // images beside it carry the two drawings, so importing the one without the others is the
+        // silent loss this app has already been fixed for once, in its own format.
+        if (formatOf(fileName) == SurveyFormat.THERION) {
+            library.lastWarning = withTracingsBesideIt(store, fileName, survey)
+        }
         // An empty survey means the file parsed but held nothing this app understands — a Therion
         // file that is all `scrap`, say. Importing it would put a survey with no legs in the
         // library and look like success.
-        if (survey.origin.onwardLegs.isEmpty()) return null
+        //
+        // A tracing image is the exception, and it took writing this to notice: an `.xvi` has no
+        // centreline in it *by definition*, so the guard would have thrown away every one of them
+        // as empty. It is offered if it brought a drawing, which is the whole of what it holds.
+        if (survey.origin.onwardLegs.isEmpty() &&
+            !(isTracing(fileName) && survey.planSketch.pathDetails.isNotEmpty())
+        ) {
+            return null
+        }
         survey.name = library.uniqueName(name)
         return if (library.save(survey)) survey else null
     }
@@ -182,6 +201,7 @@ object SurveyImport {
         val text = store.readText(listOf(fileName)) ?: return null
         val format = formatOf(fileName)
         return when {
+            isTracing(fileName) -> XviImporter.read(text, name)
             format != null -> SurveyImporter.read(text, format, name)
             isPocketTopo(fileName) -> PocketTopoTxtImporter.read(text, name)
             else -> SurveyJson.parse(text)
@@ -242,6 +262,62 @@ object SurveyImport {
         }
     }
 
+    /**
+     * The tracing images beside a Therion file, which is where its drawings live.
+     *
+     * A Therion project is a `.th` and a `.th2` scrap per drawing, and the scrap is traced over an
+     * `.xvi` background image. `TherionImporter` in the Android app reads the `.th` for the
+     * centreline and then any `.xvi` beside it for the plan and the extended elevation; this port
+     * read the `.th` and stopped, so a Therion project imported as a bare centreline.
+     *
+     * Files are matched by name rather than by a fixed suffix, because the suffix is the
+     * surveyor's to choose: this app writes `Name.plan.xvi` and `Name.ee.xvi` by default, the
+     * Android app writes `Nameplan` and `Nameee`, and somebody who typed `P` and `EE` into the
+     * Therion settings gets those. So anything called `Name*.xvi` is a tracing of this survey, and
+     * what follows the name decides which drawing it is: ending in `ee` is the elevation and
+     * everything else is the plan, which also lets a lone `Name.xvi` in as the plan.
+     */
+    private fun withTracingsBesideIt(
+        store: FileStore,
+        fileName: String,
+        survey: Survey,
+    ): String? {
+        val base = fileName.dropExtension(".th")
+        val tracings =
+            runCatching { store.list(emptyList()) }
+                .getOrNull()
+                .orEmpty()
+                .filter {
+                    isTracing(it) && it.startsWith(base, ignoreCase = true) && it != fileName
+                }
+                .sorted()
+        if (tracings.isEmpty()) return null
+
+        val unreadable = mutableListOf<String>()
+        var drawings = 0
+        for (name in tracings) {
+            val text = runCatching { store.readText(listOf(name)) }.getOrNull()
+            if (text == null) {
+                unreadable += name
+                continue
+            }
+            val sketch = runCatching { XviImporter.sketchFrom(text) }.getOrNull()
+            if (sketch == null || sketch.pathDetails.isEmpty()) {
+                unreadable += name
+                continue
+            }
+            drawings++
+            val middle = name.dropExtension(".xvi").drop(base.length).lowercase()
+            if (middle.endsWith("ee")) survey.elevationSketch = sketch else survey.planSketch = sketch
+        }
+
+        return when {
+            unreadable.isNotEmpty() ->
+                "the centreline came in but ${unreadable.joinToString(" and ")} could not be read"
+            else -> null
+        }
+    }
+
     private fun plural(dropped: Int) = if (dropped == 1) "mark" else "marks"
 
     /**
@@ -260,6 +336,7 @@ object SurveyImport {
             .dropExtension(".th")
             .dropExtension(".txt")
             .dropExtension(".top")
+            .dropExtension(".xvi")
             .ifBlank { "Imported survey" }
 
     /** [String.removeSuffix], but a file called `CAVE.SVX` is the same file as `cave.svx`. */

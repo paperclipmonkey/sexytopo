@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 759 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 766 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
@@ -2329,6 +2329,48 @@ These are the things that would actually shape a real port.
    The link icon for a connected survey is the one mark still missing, and it stays missing for the
    reason cross-survey links do - see the deferred list.
 
+71. **A format this port could write and could not read.** Found by the broadest sweep yet: every
+   one of the Android app's 200 classes, checked for whether this port has the behaviour. Most of
+   the sixty-four with no counterpart are Android plumbing that a Compose app does not need -
+   activities, BLE managers, adapters - but two are real, and the first is the worse kind of gap.
+
+   The app **exports** a Therion tracing image, `.xvi`, and could not **import** one. A format the
+   app emits and cannot take back is one where its own export does not round-trip: send a Therion
+   project to somebody, get it back, and the drawing is gone without a word.
+
+   The half that costs a trip is not the loose file, though - it is the project. A Therion project
+   is a `.th` for the centreline and an `.xvi` per drawing beside it, and `TherionImporter` in the
+   Android app reads all of them. This port read the `.th` and stopped, so importing somebody's
+   Therion project gave you the numbers and threw away the drawing. That is exactly finding 60
+   again - *bring the drawings in with the survey, not just the centreline* - in a second format,
+   which is the argument for sweeping a dimension rather than fixing what gets reported.
+
+   The tracing files are matched by *name* rather than by a fixed suffix, because the suffix is the
+   surveyor's to choose: this port writes `Name.plan.xvi` by default, the Android app writes
+   `Nameplan`, and somebody who typed `P` and `EE` into the Therion settings gets those. So anything
+   called `Name*.xvi` is a tracing of this survey and what follows the name decides which drawing it
+   is - which also lets a lone `Name.xvi` in as the plan.
+
+   Checked as a **round trip**, which is only possible because both halves now live in one
+   codebase: export a drawing, read the file back, and every stroke has to land where it started.
+   That catches the scale, the sign of y, the token order and the brace scanning at once - and the
+   sign of y is the one that fails quietly, because getting it wrong in one half draws the cave
+   mirrored about its own centreline, which looks like a perfectly plausible cave. Without the
+   wiring the check reports **0 strokes where 2 were drawn**.
+
+   Three smaller things came out of writing it. A `.th` alone still imports with empty drawings and
+   no warning, because a survey handed over as its centreline is ordinary. A tracing image on its
+   own imports as a drawing with no centreline under it - which nearly did not work, because
+   `import` refuses a survey with no legs (a Therion file that is all `scrap` parses into one), and
+   an `.xvi` has no centreline *by definition*; it is now let through when it brought a drawing, and
+   an empty one is still refused. And where the Android importer throws on a malformed entry -
+   failing the whole import on one bad line - this skips it, so ninety-nine good strokes and one bad
+   one arrive as ninety-nine strokes.
+
+   The test for that last one failed first time, on the test rather than the code: the "unknown
+   colour" it used was `chartreuse`, and SexyTopo's palette is the full 144-name CSS list. An
+   unknown colour has to be a word that really is not one.
+
 ---
 
 ## A defect worth reporting upstream
@@ -2373,7 +2415,13 @@ somewhere in the Java, and `table_full_leg_selected.xml`, `table_splay_selected.
 Worth reporting because of what is *in* them. `menu_move_row`, "Move to Different Station", is
 offered on a leg and on a splay and appears in no other menu, so the only place it exists is a file
 nobody reads: a caver who has booked a splay from the wrong station cannot move it, whatever the
-resource says. Everything else in the three is a duplicate of something the live menus offer. This
+resource says. The class sweep later turned up the other half of it - `control/util/LegMover` is
+written, and is called from nowhere in the app and from no test. The feature is implemented, has a
+menu item, and is unreachable from both ends.
+
+Four more classes are written and called from nowhere: `SpaceFlipper`, `StationRotator`,
+`SketchDetailProjection` and `comms/CalibrationType`. Listed because a maintainer deciding what to
+delete is better served by the whole list than by the one this port happened to want. Everything else in the three is a duplicate of something the live menus offer. This
 port implements the five live menus item for item and does not implement that one, which is the
 answer to a reviewer asking why - it is not a gap, it is a feature the app does not have either.
 
@@ -2473,8 +2521,8 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 759
-shared tests on three targets, 370 over the UI's own logic, 18 running the iOS half in a simulator,
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 766
+shared tests on three targets, 374 over the UI's own logic, 18 running the iOS half in a simulator,
 102 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the

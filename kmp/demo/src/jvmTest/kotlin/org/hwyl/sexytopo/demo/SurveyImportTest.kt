@@ -4,9 +4,12 @@ import org.hwyl.sexytopo.shared.io.SketchJson
 import org.hwyl.sexytopo.shared.io.SurveyJson
 import org.hwyl.sexytopo.shared.io.export.SurvexExporter
 import org.hwyl.sexytopo.shared.io.export.TherionExporter
+import org.hwyl.sexytopo.shared.io.export.XviExporter
 import org.hwyl.sexytopo.shared.io.store.InMemoryFileStore
 import org.hwyl.sexytopo.shared.io.store.SurveyStorage
+import org.hwyl.sexytopo.shared.model.common.Frame
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
+import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.sketch.PathDetail
 import org.hwyl.sexytopo.shared.model.survey.Leg
@@ -535,4 +538,113 @@ class SurveyImportTest {
             mapping() // the elevation's
             add(0) // and so is that
         }.toByteArray()
+    // -----------------------------------------------------------------------------------------
+    // A Therion project, which is a centreline file and its tracing images
+    // -----------------------------------------------------------------------------------------
+
+    private fun tracedCave(): Survey {
+        val survey = Survey("Swildons")
+        SurveyBuilder.updateWithNewStation(survey, Leg(10f, 0f, 0f))
+        SurveyBuilder.updateWithNewStation(survey, Leg(10f, 90f, 0f))
+        survey.planSketch.pathDetails =
+            mutableListOf(
+                PathDetail(listOf(Coord2D(1f, -1f), Coord2D(4f, -3f)), Colour.BLACK),
+                PathDetail(listOf(Coord2D(2f, -5f), Coord2D(6f, -7f)), Colour.BLUE),
+            )
+        survey.elevationSketch.pathDetails =
+            mutableListOf(PathDetail(listOf(Coord2D(0f, 0f), Coord2D(3f, -2f)), Colour.BROWN))
+        return survey
+    }
+
+    private fun tracingFor(survey: Survey, projection: Projection2D): String =
+        XviExporter.export(
+            sketch = survey.getSketch(projection),
+            space = projection.project(survey),
+            scale = 50f,
+            gridFrame = Frame(-100f, 100f, -100f, 100f),
+        )
+
+    /**
+     * A Therion project arrives with its drawings, not as a bare centreline.
+     *
+     * The Android app reads the `.th` for the numbers and then any `.xvi` beside it for the plan
+     * and the extended elevation; this port read the `.th` and stopped, so importing somebody's
+     * Therion project silently threw away the part that took the whole trip. Exactly the loss that
+     * was already fixed for this app's own four-file format, in a format it can also write.
+     *
+     * Written by this app's own exporters, so what is asserted is a real round trip rather than a
+     * fixture somebody typed.
+     */
+    @Test
+    fun aTherionProjectBringsItsDrawingsIn() {
+        val store = store()
+        val original = tracedCave()
+        store.writeText(listOf("Swildons.th"), TherionExporter.export(original))
+        store.writeText(listOf("Swildons.plan.xvi"), tracingFor(original, Projection2D.PLAN))
+        store.writeText(
+            listOf("Swildons.ee.xvi"),
+            tracingFor(original, Projection2D.EXTENDED_ELEVATION),
+        )
+        val library = SurveyLibrary(store)
+
+        val imported = assertNotNull(SurveyImport.import(library, store, "Swildons.th"))
+
+        assertTrue(imported.getAllLegsInChronoOrder().isNotEmpty(), "the centreline came in")
+        assertEquals(2, imported.planSketch.pathDetails.size, "and both strokes of the plan")
+        assertEquals(
+            1,
+            imported.elevationSketch.pathDetails.size,
+            "and the elevation, told apart by its name ending in ee",
+        )
+        assertNull(library.lastWarning, "nothing was unreadable, so nothing should be reported")
+    }
+
+    /** A `.th` on its own still imports, as it always did, with empty drawings and no complaint. */
+    @Test
+    fun aTherionFileWithNoTracingsBesideItStillImports() {
+        val store = store()
+        store.writeText(listOf("Swildons.th"), TherionExporter.export(tracedCave()))
+        val library = SurveyLibrary(store)
+
+        val imported = assertNotNull(SurveyImport.import(library, store, "Swildons.th"))
+
+        assertTrue(imported.getAllLegsInChronoOrder().isNotEmpty())
+        assertTrue(imported.planSketch.pathDetails.isEmpty())
+        assertNull(library.lastWarning, "an absent drawing is ordinary and not worth a warning")
+    }
+
+    /**
+     * A loose tracing image imports as a drawing with nothing under it.
+     *
+     * This one nearly did not work, and the reason is worth keeping: `import` refuses a survey
+     * with no legs, because a Therion file that is all `scrap` parses into an empty survey and
+     * importing it looks like success. An `.xvi` has no centreline *by definition*, so that guard
+     * would have thrown away every tracing image ever picked. It is now let through when it
+     * brought a drawing.
+     */
+    @Test
+    fun aLooseTracingImageImportsAsADrawing() {
+        val store = store()
+        store.writeText(listOf("Traced.xvi"), tracingFor(tracedCave(), Projection2D.PLAN))
+        val library = SurveyLibrary(store)
+
+        assertTrue(SurveyImport.candidates(store).contains("Traced.xvi"), "it should be offered")
+
+        val imported = assertNotNull(SurveyImport.import(library, store, "Traced.xvi"))
+
+        assertEquals("Traced", imported.name, "the .xvi comes off the name")
+        assertTrue(imported.getAllLegsInChronoOrder().isEmpty(), "a tracing has no centreline")
+        assertEquals(2, imported.planSketch.pathDetails.size, "but it does have the drawing")
+    }
+
+    /** And an empty one is still refused, so the guard has not simply been removed. */
+    @Test
+    fun aTracingImageWithNothingDrawnInItIsStillRefused() {
+        val store = store()
+        store.writeText(listOf("Blank.xvi"), "set XVIgrid {0 0 1 0 0 1 10 10}\n")
+        val library = SurveyLibrary(store)
+
+        assertNull(SurveyImport.import(library, store, "Blank.xvi"))
+    }
+
 }
