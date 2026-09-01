@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 777 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 781 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and eight more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -2935,6 +2935,26 @@ These are the things that would actually shape a real port.
    instrument attached, so it is off an ordinary field bar and reachable exactly where the Android
    app keeps the same idea.
 
+88. **A direction round-tripped through the exporter and lost on the way back in, on both
+   formats.** `TherionImporter.handleElevationDirectionData` was ported and, for Survex files,
+   never had a Java counterpart to port at all — `SurvexImporter` has no equivalent call, though
+   nothing about either format's shape makes it Therion-only. Neither half was reachable here:
+   `parseCentreline`'s very first line skips anything starting with `*`, which for Survex is every
+   command including its own `*extend left 2`, and for Therion the same lines fell through the
+   five-token leg guard a few lines later. Nothing anywhere in the importer ever called
+   `Station.extendedElevationDirection = ...` from parsed text. Exporting a survey with a station
+   marked *left* and reading the file back in produced *right* — the default — silently, on both
+   formats, which is the same shape of defect as finding 82's, on the other end of the pipe.
+
+   Fixed as one interception ahead of the command-skip rather than two format-specific parsers: an
+   `extend` line is recognised after stripping Survex's optional `*` (a no-op for Therion, which
+   never had one), so the same sixteen lines handle both. `extend start <station>` is a written
+   no-op marker rather than a direction called "start", and needs no separate check for it — no
+   `ExtendedElevationDirection` is named that, so the lookup already fails safely on it, which a
+   mutation pass confirmed by proving the explicit check unverified before it was deleted.
+   `VERTICAL`, matching the model's own `propagates` flag, applies only to the destination named in
+   `extend vertical <from> <to>`, never the station above it.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3085,7 +3105,7 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 777
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 781
 shared tests on three targets, 8 more against `java.util.zip` on the JVM, 423 over the UI's own
 logic, 20 running the iOS half in a simulator,
 111 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then

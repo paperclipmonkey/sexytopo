@@ -2,6 +2,7 @@ package org.hwyl.sexytopo.shared.io.imports
 
 import org.hwyl.sexytopo.shared.io.export.SurveyFormat
 import org.hwyl.sexytopo.shared.model.survey.Leg
+import org.hwyl.sexytopo.shared.model.graph.ExtendedElevationDirection
 import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.model.survey.SurveyDate
@@ -67,7 +68,20 @@ object SurvexTherionImporter {
 
         for ((index, line) in lines.withIndex()) {
             val trimmed = line.trim()
-            if (trimmed.isEmpty() || trimmed.startsWith("*")) continue
+            if (trimmed.isEmpty()) continue
+
+            // Survex marks this a command with a leading `*`; Therion writes it bare. Checked
+            // before the general `*`-command skip below, because that skip would otherwise throw
+            // Survex's own `*extend ...` lines away with every other command line, which is
+            // exactly what was happening: `handleElevationDirection` never ran on a Survex file
+            // at all, and on a Therion one only because Therion has no marker to strip.
+            val withoutMarker = trimmed.removePrefix("*")
+            if (withoutMarker.startsWith("extend ")) {
+                applyExtendCommand(survey, stations, withoutMarker)
+                continue
+            }
+
+            if (trimmed.startsWith("*")) continue
 
             // A whole-line comment is never data. Precursor shots written on comment lines are
             // picked up from the leg above them instead, in commentedPrecursors.
@@ -86,6 +100,47 @@ object SurvexTherionImporter {
 
             addLeg(survey, stations, tokens, comment, precursors, useLegComments)
         }
+    }
+
+    /**
+     * `extend <direction> [<fromStation>] <station>`, mirroring `TherionImporter`'s
+     * `handleElevationDirectionData` — the one half of this the Java only ever did for Therion,
+     * not for Survex, though nothing in either file's shape makes it Therion-only. Applied to
+     * both here, since a direction round-tripped through a Survex file is no less real than one
+     * round-tripped through a Therion one.
+     *
+     * `extend start <station>` is a no-op marker the exporter writes when there is nothing to say
+     * - RIGHT is already the default - and is skipped rather than resolved as a direction name.
+     *
+     * A propagating direction (LEFT/RIGHT) names one station, and setting it there is enough: the
+     * exporter only ever writes one such line per run of stations sharing a direction, exactly
+     * because [SurveyUpdater.setExtendedElevationDirection] already carried it down the subtree
+     * when the surveyor set it, so every station under this one already agrees. A non-propagating
+     * one (VERTICAL) names a from/to pair and applies only to the *destination* — the station
+     * whose incoming leg is the pitch - matching where the app itself puts it.
+     *
+     * A station named in the file that this survey does not have is skipped rather than aborting
+     * the import: the rest of the centreline is worth keeping even if one direction line does not
+     * resolve.
+     */
+    private fun applyExtendCommand(
+        survey: Survey,
+        stations: Map<String, Station>,
+        withoutMarker: String,
+    ) {
+        val tokens = withoutMarker.split(WHITESPACE)
+        if (tokens.size < 2) return
+        // "start" is a no-op marker rather than a direction name, and needs no separate check for
+        // it: no `ExtendedElevationDirection` is called that, so the lookup below already fails
+        // safely on it the same way it would on any other word that is not a direction.
+        val direction =
+            ExtendedElevationDirection.entries.firstOrNull {
+                it.name.equals(tokens[1], ignoreCase = true)
+            } ?: return
+
+        val targetName = tokens.last()
+        val target = stations[targetName] ?: survey.getStationByName(targetName) ?: return
+        target.extendedElevationDirection = direction
     }
 
     /**

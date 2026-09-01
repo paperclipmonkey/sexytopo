@@ -5,6 +5,7 @@ import org.hwyl.sexytopo.shared.io.export.SurvexExporter
 import org.hwyl.sexytopo.shared.io.export.TherionExporter
 import org.hwyl.sexytopo.shared.io.imports.SurveyImporter
 import org.hwyl.sexytopo.shared.io.imports.SurvexTherionImporter
+import org.hwyl.sexytopo.shared.model.graph.ExtendedElevationDirection
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.model.survey.SurveyDate
@@ -105,6 +106,98 @@ class SurvexTherionImportTest {
         val imported = roundTrip(original, SurveyFormat.SURVEX)
 
         assertEquals("junction", imported.getStationByName("2")!!.comment)
+    }
+
+    /**
+     * Left and right carry down the passage, and both formats keep them.
+     *
+     * `TherionImporter.handleElevationDirectionData` was ported and Survex had no equivalent to
+     * port at all - the Java's own `SurvexImporter` never calls it - so this exercises exactly the
+     * gap: a station sent left comes back left from *either* format, not only the one the original
+     * app happened to support.
+     */
+    @Test
+    fun anExtendedElevationDirectionSurvivesTheRoundTrip() {
+        val original = cave()
+        original.getStationByName("2")!!.extendedElevationDirection = ExtendedElevationDirection.LEFT
+
+        for (format in SurveyFormat.entries) {
+            val imported = roundTrip(original, format)
+            assertEquals(
+                ExtendedElevationDirection.LEFT,
+                imported.getStationByName("2")!!.extendedElevationDirection,
+                "direction lost on the $format round trip",
+            )
+        }
+    }
+
+    /**
+     * A pitch applies to the one leg it names and nowhere else, on either format - the same
+     * distinction [ExtendedElevationDirection.propagates] draws in the model.
+     */
+    @Test
+    fun aVerticalDirectionAppliesOnlyToItsOwnLegOnEitherFormat() {
+        val original = cave()
+        // Station 2 goes vertical; station 1 (its parent) must not inherit it, and there is
+        // nothing beyond station 2 in this fixture to accidentally inherit it either.
+        original.getStationByName("2")!!.extendedElevationDirection =
+            ExtendedElevationDirection.VERTICAL
+
+        for (format in SurveyFormat.entries) {
+            val imported = roundTrip(original, format)
+            assertEquals(
+                ExtendedElevationDirection.VERTICAL,
+                imported.getStationByName("2")!!.extendedElevationDirection,
+                "the pitch itself, on $format",
+            )
+            assertEquals(
+                ExtendedElevationDirection.DEFAULT,
+                imported.origin.extendedElevationDirection,
+                "the station above a pitch should not inherit it, on $format",
+            )
+        }
+    }
+
+    /**
+     * A hand-written Survex file with no SexyTopo export behind it at all. This is the case the
+     * Java's own importer never handled — `SurvexImporter` has no counterpart to
+     * `handleElevationDirectionData` — so there is no "faithful to the original" answer here,
+     * only "does the thing Survex's own `*extend` command means actually happen."
+     */
+    @Test
+    fun aHandWrittenSurvexExtendLineIsRead() {
+        val handWritten =
+            """
+            *begin Swildons
+            *data normal from to length compass clino
+            1 2 10.0 0.0 0.0
+            *extend left 2
+            *end Swildons
+            """.trimIndent()
+
+        val survey = SurveyImporter.read(handWritten, SurveyFormat.SURVEX, "Swildons")
+
+        assertEquals(
+            ExtendedElevationDirection.LEFT,
+            survey.getStationByName("2")!!.extendedElevationDirection,
+        )
+    }
+
+    /** `extend start <station>` is a no-op marker, not a direction called "start". */
+    @Test
+    fun anExtendStartLineIsNotMistakenForADirection() {
+        val handWritten =
+            """
+            *begin Swildons
+            *data normal from to length compass clino
+            1 2 10.0 0.0 0.0
+            *extend start 1
+            *end Swildons
+            """.trimIndent()
+
+        val survey = SurveyImporter.read(handWritten, SurveyFormat.SURVEX, "Swildons")
+
+        assertEquals(ExtendedElevationDirection.DEFAULT, survey.origin.extendedElevationDirection)
     }
 
     @Test
