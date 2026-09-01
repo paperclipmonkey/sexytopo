@@ -257,7 +257,6 @@ const COMMENT_FIELD_ABOVE_SAVE = 76
 const COMMENT_SAVE_X = 317
 const EDIT_SAVE = [309, 552]
 const CONFIRM_DELETE = [292, 496]
-const STATION_CHIP = [310, 790]
 const STATION_NAME = [210, 260]
 const STATION_COMMENT = [210, 336]
 const STATION_LRUD_LEFT = [106, 520]
@@ -563,11 +562,11 @@ const settingsSave = async () => {
   if (button === null) throw new Error('the settings dialog has no Save button on screen')
   return button
 }
-const TRIP_ADD_NAME = [177, 340]
-const TRIP_ADD_BUTTON = [317, 336]
-const TRIP_ROLE_BOOK = [106, 298]
-const TRIP_INSTRUMENT = [210, 498]
-const TRIP_SAVE = [317, 810]
+const TRIP_ADD_NAME = [177, 370]
+const TRIP_ADD_BUTTON = [317, 370]
+const TRIP_ROLE_BOOK = [106, 328]
+const TRIP_INSTRUMENT = [210, 527]
+const TRIP_SAVE = [317, 840]
 const LABEL_TEXT = [210, 442]
 const LABEL_PLACE = [316, 518]
 // The sketch toolbar is nine equal columns; the bottom row's third cell is the label tool.
@@ -2472,12 +2471,60 @@ const eeDirectionCarriedDownThePassage = (stations, from) => {
   return true
 }
 
+/**
+ * The "From <station> · N stations" text on the field bar, found by where it actually is rather
+ * than a fixed pixel: this is the second thing this file has hard-coded a tap onto (the first was
+ * `menuRowAt`, which is why every *other* row in this file is found this way) that a legitimate
+ * layout change moved out from under. `Simulate` used to sit between `Add reading` and this text
+ * before finding 87 put it behind Developer Mode; the text slid left when the button did, and a
+ * click aimed where it used to be landed on empty field bar instead.
+ *
+ * The text is drawn in the app's own pure-black `legend` colour - not `Add reading`'s Material
+ * purple, and not the pale grid lines above it - so a scan for near-black pixels on the field
+ * bar's own row finds it without needing to know what else is sharing that row this week.
+ */
+const fieldStatusChipSpot = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async (data) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    // The field bar's bottom row, from field-station.png: the chip sits at y=790 whatever else is
+    // on the row with it, so the band is narrow enough to stay off the toolbar below and the
+    // reading fields above.
+    const top = 780
+    const bottom = 800
+    let minX = Infinity
+    let maxX = -Infinity
+    let y = top
+    for (let row = top; row < bottom; row++) {
+      for (let x = 0; x < c.width; x++) {
+        const i = (row * c.width + x) * 4
+        if (px[i] < 40 && px[i + 1] < 40 && px[i + 2] < 40) {
+          minX = Math.min(minX, x)
+          maxX = Math.max(maxX, x)
+          y = row
+        }
+      }
+    }
+    if (!isFinite(minX)) return null
+    return [Math.round((minX + maxX) / 2), y]
+  }, b64)
+}
+
 // ---- a station can be named, and told what is there ----------------------------------------
 // Numbered stations are fine down a straight passage and useless at a junction: the surveyor's
 // notebook says "sump", and a survey where that name exists only on paper cannot be tied to the
 // next trip's. The comment is the same argument — a lead nobody wrote down is a lead nobody goes
 // back for.
-await at(...STATION_CHIP); await page.waitForTimeout(800)
+const statusChip = await fieldStatusChipSpot()
+if (!statusChip) fail('the field bar\'s status text was not found, so the station menu could not be opened')
+await at(...statusChip); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-station.png') })
 await retype(STATION_NAME, 'Sump')
 await at(...STATION_COMMENT); await page.waitForTimeout(250)

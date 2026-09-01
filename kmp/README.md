@@ -3092,6 +3092,34 @@ These are the things that would actually shape a real port.
    whole path from a connected profile to bytes on the wire, so a future change to how the family
    reaches `writeCalibration` cannot silently reopen the seam.
 
+93. **Two of this session's own changes broke the checks that would have caught them
+   somewhere else.** Gating *Simulate* behind Developer Mode (finding 87) removed a button from
+   the field bar, which shifted the "From 1 · 2 stations" status text left by exactly the width
+   that button used to occupy; a browser check that tapped a fixed pixel to open it
+   (`STATION_CHIP`) now landed on empty field bar, and everything downstream of that tap — a
+   rename, a passage-size entry, a label — failed in a cascade that had nothing to do with any of
+   those features. Separately, adding the exploration-date switch to Trip Details (finding 90)
+   pushed every field below it down by one row, so `TRIP_ADD_NAME`, `TRIP_ROLE_BOOK` and
+   `TRIP_INSTRUMENT` — three more fixed pixels — landed on the wrong fields or on nothing, and
+   typed text went into whichever box happened to be sitting where the intended one used to be.
+
+   Both are the exact failure mode this file has named before, in the "measured, not guessed"
+   findings on dialog geometry: a coordinate pinned to one layout is a coordinate that breaks the
+   next time that layout has a good reason to change, and a legitimate UI improvement is a very
+   good reason. The station chip is fixed properly rather than re-guessed — `fieldStatusChipSpot`
+   scans the field bar's own row for the app's `legend` colour (pure black, distinct from
+   `Add reading`'s Material purple and the grid lines above it) and clicks whatever it finds,
+   so the next button added or removed from that row cannot break it the same way again. The trip
+   dialog's three constants are re-measured against the actual current layout instead — a smaller
+   fix, because unlike the field bar's contents, which vary with a preference, the trip dialog's
+   field order does not vary at runtime, so a coordinate for it goes stale only when the dialog
+   itself changes shape, which is rarer and easier to catch by eye when it happens.
+
+   Worth stating plainly: this was not agent interference, and both failures were confirmed
+   reproducible on a quiet working tree before being fixed — they were real regressions from real
+   UI changes, caught by running the full browser suite after those changes rather than trusting
+   the unit tests alone.
+
 ---
 
 ## A defect worth reporting upstream
