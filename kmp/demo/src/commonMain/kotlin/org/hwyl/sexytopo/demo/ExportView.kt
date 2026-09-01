@@ -384,7 +384,11 @@ internal fun exportText(
                     // The image reference carries the surveyor's xvi folder, because that is
                     // the half xtherion resolves: a scrap naming an image that is not where it
                     // says opens with a missing-file complaint and no background at all.
-                    options = therion.th2Options(therion.xviReference(survey.name, projection)),
+                    options =
+                        therion.th2Options(
+                            therion.xviReference(survey.name, projection),
+                            projection,
+                        ),
                 )
 
             ExportFormat.POCKET_TOPO -> PocketTopoExporter.export(survey)

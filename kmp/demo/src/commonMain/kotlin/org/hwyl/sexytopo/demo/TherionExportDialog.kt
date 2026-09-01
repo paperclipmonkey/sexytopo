@@ -54,6 +54,12 @@ fun TherionExportDialog(
     var crossSections by remember { mutableStateOf(options.crossSections) }
     var symbols by remember { mutableStateOf(options.symbols) }
     var labels by remember { mutableStateOf(options.labels) }
+    // Kept as text rather than as an Int, like every other number in these dialogs: a box that
+    // rejects the empty string cannot be cleared to type a new value into.
+    var planScraps by remember { mutableStateOf(options.planScrapCount.toString()) }
+    var elevationScraps by remember { mutableStateOf(options.elevationScrapCount.toString()) }
+    var stationsInPlan by remember { mutableStateOf(options.stationsInFirstPlanScrap) }
+    var stationsInElevation by remember { mutableStateOf(options.stationsInFirstElevationScrap) }
 
     // Built from what is typed rather than from what is saved, so the names move as the boxes do.
     val preview =
@@ -118,6 +124,32 @@ fun TherionExportDialog(
 
                 HorizontalDivider()
 
+                Text(
+                    "Splitting a drawing up. More than one scrap gives you the extra ones empty, " +
+                        "named and ready to draw into — which is how a big cave gets drawn up, " +
+                        "one scrap per chamber. Only the first holds anything.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                NumberField(planScraps, { planScraps = it }, "Plan scraps")
+                NumberField(elevationScraps, { elevationScraps = it }, "Elevation scraps")
+                Toggle(
+                    title = "Stations in the first plan scrap",
+                    detail =
+                        "Off puts them in a scrap of your own, so re-exporting after a " +
+                            "correction does not overwrite a drawing you have worked on.",
+                    checked = stationsInPlan,
+                    onCheckedChange = { stationsInPlan = it },
+                )
+                Toggle(
+                    title = "Stations in the first elevation scrap",
+                    detail = "The same, for the extended elevation.",
+                    checked = stationsInElevation,
+                    onCheckedChange = { stationsInElevation = it },
+                )
+
+                HorizontalDivider()
+
                 Toggle(
                     title = "Export cross-sections",
                     detail = "Each passage section as a scrap of its own, beside its station.",
@@ -153,6 +185,13 @@ fun TherionExportDialog(
                             crossSections = crossSections,
                             symbols = symbols,
                             labels = labels,
+                            // At least one, as the Java's `parseIntSafe` does: an empty box or
+                            // "three" means the surveyor did not change it, and zero scraps is a
+                            // th2 with no drawing in it at all.
+                            planScrapCount = scrapsFrom(planScraps),
+                            elevationScrapCount = scrapsFrom(elevationScraps),
+                            stationsInFirstPlanScrap = stationsInPlan,
+                            stationsInFirstElevationScrap = stationsInElevation,
                         ),
                     )
                 },
@@ -161,6 +200,15 @@ fun TherionExportDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
+/**
+ * How many scraps a box asking for a number means.
+ *
+ * `Math.max(1, ...)` with a default of 1 on a parse failure, which is `TherionExporter.parseIntSafe`
+ * exactly. Worth copying rather than improving on: zero scraps would be a `.th2` holding no drawing
+ * at all, and a negative one is a loop that never runs.
+ */
+internal fun scrapsFrom(text: String): Int = (text.trim().toIntOrNull() ?: 1).coerceAtLeast(1)
 
 /**
  * A one-line text box for something that goes in a filename.

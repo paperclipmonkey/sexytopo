@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 771 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 777 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and eight more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -2471,6 +2471,39 @@ These are the things that would actually shape a real port.
    on another phone. `{}` is what the Android app itself writes for a survey with no links, so the
    file is the shape the other end expects rather than a shape it has to tolerate.
 
+74. **A whole export dialog that was never asked about.** The class sweep's last find, and the one
+   that shows what a *preference* sweep cannot reach. `TherionExportOptions` carries four settings —
+   how many scraps the plan is written as, how many the extended elevation, and whether each one's
+   stations go in its first scrap — and none of them is a `pref_therion_*`. They are asked for in a
+   dialog on the way out of *every* export, so a sweep of the settings XML, which is how the ten
+   Therion preferences were found, walks straight past them. The port had the ten and none of these
+   four: it always wrote one scrap per drawing with the stations in it.
+
+   What they are for is a Therion habit rather than a curiosity. Therion is slow on one enormous
+   scrap and a large cave is drawn up by several people, so a project gets divided by area — one
+   scrap per chamber, one per level. Asking for six plan scraps gives you the first with the
+   drawing in it and five more **empty**: the header, the projection and the copyright line, named
+   and framed and ready to draw into. Which sounds like nothing until the alternative is
+   hand-typing `scrap` headers and getting a plan scrap into an elevation. And leaving the stations
+   out of the first scrap puts them in one of the surveyor's own, so re-exporting after a
+   correction to the centreline does not overwrite a drawing somebody has spent an evening on.
+
+   Two things about the port of it. The `#`/`##` expansion was already implemented for the
+   *cross-section* suffix and not for the scrap suffix, where the Java also has it — so a surveyor
+   who set `-plan-##` would have got a literal `##` in the scrap name. And the four settings are
+   *remembered* here rather than asked for on every export, which is the same call this branch made
+   about the SVG options: a question a surveyor answers identically every trip does not belong in
+   the way of the file.
+
+   The check that came out of it is worth more than the feature. `everyTherionOptionSurvivesTheApp
+   BeingClosed` builds an options object with every field moved off its default and requires it to
+   round-trip — an excellent test whose coverage is a hand-written list, so a field added to the
+   class and not to the list stays at its default, round-trips trivially, and passes whether or not
+   anybody wrote the key. Which is exactly the position these four were in. There is now a second
+   test that reflects over the class's fields and fails if any of them is still at its default in
+   that list, so the next setting cannot be quietly half-added. **A test whose thoroughness is a
+   list needs a test that the list is complete.**
+
 ---
 
 ## A defect worth reporting upstream
@@ -2621,10 +2654,10 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 771
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 376 over the UI's own
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 777
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 377 over the UI's own
 logic, 18 running the iOS half in a simulator,
-103 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
+104 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

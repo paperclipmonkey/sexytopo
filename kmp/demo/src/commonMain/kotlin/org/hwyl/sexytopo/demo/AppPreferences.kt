@@ -449,6 +449,12 @@ object AppPreferencesStore {
             appendLine("therionCrossSections=${therion.crossSections}")
             appendLine("therionSymbols=${therion.symbols}")
             appendLine("therionLabels=${therion.labels}")
+            appendLine("therionPlanScraps=${therion.planScrapCount}")
+            appendLine("therionElevationScraps=${therion.elevationScrapCount}")
+            appendLine("therionStationsInPlanScrap=${therion.stationsInFirstPlanScrap}")
+            appendLine(
+                "therionStationsInElevationScrap=${therion.stationsInFirstElevationScrap}",
+            )
         }
 
     fun parse(text: String): AppPreferences {
@@ -586,7 +592,8 @@ object AppPreferencesStore {
     }
 
     /**
-     * The ten Therion export settings, each falling back to the exporter's own default.
+     * The ten Therion export settings and the four from its export dialog, each falling back to
+     * the exporter's own default.
      *
      * The suffixes are read *without* trimming and without rejecting anything, on purpose. An
      * empty suffix is a real choice - it means "no suffix" and the Android app takes it - and a
@@ -599,6 +606,8 @@ object AppPreferencesStore {
         val default = TherionExport.DEFAULT
         fun text(key: String, fallback: String) = values[key] ?: fallback
         fun flag(key: String, fallback: Boolean) = values[key]?.toBooleanStrictOrNull() ?: fallback
+        fun count(key: String, fallback: Int) =
+            (values[key]?.trim()?.toIntOrNull() ?: fallback).coerceAtLeast(1)
         return TherionExport(
             planSuffix = text("therionPlanSuffix", default.planSuffix),
             elevationSuffix = text("therionElevationSuffix", default.elevationSuffix),
@@ -613,6 +622,17 @@ object AppPreferencesStore {
             crossSections = flag("therionCrossSections", default.crossSections),
             symbols = flag("therionSymbols", default.symbols),
             labels = flag("therionLabels", default.labels),
+            // At least one, whatever is in the file. Unlike the suffixes above, a bad value here
+            // is not merely an oddly named file: zero scraps is a `.th2` with no drawing in it.
+            planScrapCount = count("therionPlanScraps", default.planScrapCount),
+            elevationScrapCount = count("therionElevationScraps", default.elevationScrapCount),
+            stationsInFirstPlanScrap =
+                flag("therionStationsInPlanScrap", default.stationsInFirstPlanScrap),
+            stationsInFirstElevationScrap =
+                flag(
+                    "therionStationsInElevationScrap",
+                    default.stationsInFirstElevationScrap,
+                ),
         )
     }
 

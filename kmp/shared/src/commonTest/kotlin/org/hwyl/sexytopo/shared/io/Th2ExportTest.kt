@@ -109,6 +109,101 @@ class Th2ExportTest {
     // Cross-sections
     // ------------------------------------------------------------------------------------
 
+    // -------------------------------------------------------------------------------------
+    // Splitting a drawing into scraps
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * A big cave is drawn up as several scraps, and the app makes the empty ones.
+     *
+     * `TherionExportOptions` in the Android app carries four settings that are not among its ten
+     * `pref_therion_*` preferences: they are asked for in a dialog on the way out of every export.
+     * The port had the ten and none of these, so it always wrote one scrap with the stations in it.
+     *
+     * Extra scraps are *empty* on purpose. They carry the header, the projection and the copyright
+     * line and nothing else, because the drawing that goes in them has not been done yet — this is
+     * the app making the containers so a surveyor does not hand-type `scrap` headers and get a plan
+     * scrap into an elevation.
+     */
+    @Test
+    fun aDrawingCanBeWrittenAsSeveralScraps() {
+        val th2 = exportOf(cave(), options = Th2Exporter.Options(scrapCount = 3))
+
+        assertEquals(3, Regex("^scrap ", RegexOption.MULTILINE).findAll(th2).count())
+        assertContains(th2, "scrap Swildons-Hole-plan1 -projection plan")
+        assertContains(th2, "scrap Swildons-Hole-plan2 -projection plan")
+        assertContains(th2, "scrap Swildons-Hole-plan3 -projection plan")
+    }
+
+    /** And only the first one has anything in it. */
+    @Test
+    fun onlyTheFirstScrapCarriesTheDrawing() {
+        val survey = cave()
+        survey.planSketch.addTextDetail(Coord2D(1f, 1f), "sump", 1f, Colour.BLACK)
+
+        val th2 = exportOf(survey, options = Th2Exporter.Options(scrapCount = 2))
+
+        val scraps = th2.split(Regex("(?m)^scrap ")).drop(1)
+        assertEquals(2, scraps.size)
+        assertContains(scraps[0], "point")
+        assertContains(scraps[0], "sump")
+        assertFalse(scraps[1].contains("point"), "the second scrap should be empty: ${scraps[1]}")
+    }
+
+    /**
+     * One scrap is named as it always was, so an existing project does not move under a surveyor.
+     *
+     * The suffix becomes a *pattern* only once there is more than one: this is the case that would
+     * otherwise rename `Name-plan` to `Name-plan1` for everybody who never asked for scraps.
+     */
+    @Test
+    fun oneScrapKeepsThePlainNameItAlwaysHad() {
+        assertContains(exportOf(cave()), "scrap Swildons-Hole-plan -projection plan")
+    }
+
+    /** `#` takes the number and `##` pads it, as the Java's `formatScrapName` does. */
+    @Test
+    fun theSuffixIsAPatternOnceThereIsMoreThanOneScrap() {
+        assertEquals("Cave-plan-1", Th2Exporter.scrapName("Cave", "-plan-#", 1, 2))
+        assertEquals("Cave-plan-02", Th2Exporter.scrapName("Cave", "-plan-##", 2, 12))
+        assertEquals("Cave-plan3", Th2Exporter.scrapName("Cave", "-plan", 3, 4))
+        assertEquals("Cave-plan", Th2Exporter.scrapName("Cave", "-plan", 1, 1))
+        // A placeholder in a single scrap is still expanded — somebody who wrote `#` meant it.
+        assertEquals("Cave-plan-1", Th2Exporter.scrapName("Cave", "-plan-#", 1, 1))
+    }
+
+    /**
+     * The stations can be left out, so they can live in a scrap of their own.
+     *
+     * Which is a real Therion habit rather than a curiosity: with the stations in their own scrap,
+     * re-exporting after a correction to the centreline does not overwrite a drawing somebody has
+     * spent an evening on.
+     */
+    @Test
+    fun theStationsCanBeLeftOutOfTheFirstScrap() {
+        val withThem = exportOf(cave(), options = Th2Exporter.Options(stationsInFirstScrap = true))
+        val without = exportOf(cave(), options = Th2Exporter.Options(stationsInFirstScrap = false))
+
+        assertContains(withThem, "-name 1")
+        assertFalse(without.contains("-name 1"), "the stations were written anyway: $without")
+    }
+
+    /** And the cross-section anchors go with them, because they are written at their station. */
+    @Test
+    fun theCrossSectionAnchorsFollowTheStations() {
+        val survey = withCrossSection()
+
+        val without =
+            exportOf(survey, options = Th2Exporter.Options(stationsInFirstScrap = false))
+
+        assertFalse(
+            without.contains("point.*section".toRegex()),
+            "a section anchor was left with no station to hang it on: $without",
+        )
+        // The section's own scrap is still written: it is the drawing, not the anchor.
+        assertContains(without, "-projection none")
+    }
+
     private fun withCrossSection(): Survey {
         val survey = cave()
         val middle = survey.getStationByName("2")!!

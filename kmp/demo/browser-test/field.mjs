@@ -2984,6 +2984,55 @@ if (th2WithoutSections === null) {
   pass('a Therion export option reaches the scrap file, and takes out only what it names')
 }
 
+// ---- and the stations can be left out, so they can live in a scrap of their own --------------
+// `TherionExportOptions` carries four settings that are *not* among the ten `pref_therion_*`
+// preferences: the Android app asks for them in a dialog on the way out of every export. The port
+// had the ten and none of these four, so it always wrote one scrap with the stations in it.
+//
+// This checks the switch. The two scrap *counts* beside it are numbers rather than switches and
+// are covered by the exporter's own tests and by the preference round-trip, not from here — said
+// plainly rather than left to be assumed, because a browser check that quietly covers three of
+// four settings reads exactly like one that covers all of them.
+//
+// Why a Therion surveyor wants it: with the stations in a scrap of their own, re-exporting after a
+// correction to the centreline does not overwrite a drawing somebody has spent an evening on.
+await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
+await scrollSettingsToTheEnd()
+const therionSwitches = (await switchRows()).length
+if (therionSwitches !== 5) {
+  fail(`the Therion options show ${therionSwitches} switches, not the five this check counts from`)
+  await at(...(await settingsSave())); await page.waitForTimeout(900)
+} else {
+  // Fifth from the end: stations in the first plan scrap, then the elevation's, then the three
+  // that were already here — cross-sections, symbols, text.
+  await at(...(await settingsSwitch(-5))); await page.waitForTimeout(300)
+  await at(...(await settingsSave())); await page.waitForTimeout(900)
+
+  const th2WithoutStations = await savedExport()
+  const stationsIn = (th2) => (th2.match(/point [^\n]* station /g) ?? []).length
+  if (th2WithoutStations === null) {
+    fail('the scrap file would not save after the stations were turned off')
+  } else if (stationsIn(th2WithSections) === 0) {
+    fail('the scrap file had no stations in it to begin with, so this check cannot fail')
+  } else if (stationsIn(th2WithoutStations) !== 0) {
+    fail(
+      `the stations were written anyway ` +
+        `(${stationsIn(th2WithSections)} before, ${stationsIn(th2WithoutStations)} after)`)
+  } else if (!th2WithoutStations.includes('scrap ')) {
+    fail('turning the stations off took the scrap with them, which is a different file')
+  } else {
+    pass(
+      `the stations can be left out of the Therion scrap ` +
+        `(${stationsIn(th2WithSections)} of them, and the scrap is still there)`)
+  }
+
+  // Back on, for the same reason as everything else here.
+  await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
+  await scrollSettingsToTheEnd()
+  await at(...(await settingsSwitch(-5))); await page.waitForTimeout(300)
+  await at(...(await settingsSave())); await page.waitForTimeout(900)
+}
+
 // Put it back, for the same reason as above.
 await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
 await scrollSettingsToTheEnd()

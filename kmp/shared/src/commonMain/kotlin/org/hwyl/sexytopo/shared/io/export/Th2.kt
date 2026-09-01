@@ -45,6 +45,30 @@ object Th2Exporter {
         val crossSections: Boolean = true,
         val labels: Boolean = true,
         val symbols: Boolean = true,
+        /**
+         * How many scraps this drawing is written as.
+         *
+         * One is a drawing; more is a set of containers to divide it into. Only the first carries
+         * anything — the stations, the labels, the symbols; the rest are empty scraps with the same
+         * projection and the same header, pre-named and ready to be drawn into.
+         *
+         * That sounds like nothing and is the way a large cave gets drawn up. Therion is slow on
+         * one enormous scrap and a survey is worked on by several people, so a project is split
+         * into scraps by area: one per chamber, one per level. Making them by hand means typing a
+         * `scrap` header, remembering the projection, and keeping the names in step with the ones
+         * the app generated — which is exactly the kind of copying that puts a plan scrap into an
+         * elevation.
+         */
+        val scrapCount: Int = 1,
+        /**
+         * Whether the station points go in the first scrap.
+         *
+         * Off is for a project where the stations are their own scrap, so a change to the
+         * centreline does not mean re-exporting a drawing somebody has since worked on. The cross-
+         * section anchors travel with the stations, because a `-scrap` reference is written at the
+         * station it belongs to.
+         */
+        val stationsInFirstScrap: Boolean = true,
         /** The XVI to show behind the drawing; omitted when there is none. */
         val xviFileName: String? = null,
     ) {
@@ -80,18 +104,28 @@ object Th2Exporter {
                 emptyMap()
             }
 
-        sections.add(
-            scrap(
-                survey = survey,
-                name = baseName + scrapSuffix(projection, options),
-                projection = projection,
-                sketch = sketch,
-                space = space,
-                scale = scale,
-                sectionScrapNames = sectionScrapNames,
-                options = options,
-            ),
-        )
+        val total = if (options.scrapCount < 1) 1 else options.scrapCount
+        for (index in 1..total) {
+            // Everything is in the first one. The others exist to be drawn into.
+            val first = index == 1
+            val stations = first && options.stationsInFirstScrap
+            sections.add(
+                scrap(
+                    survey = survey,
+                    name = scrapName(baseName, scrapSuffix(projection, options), index, total),
+                    projection = projection,
+                    sketch = sketch,
+                    space = space,
+                    scale = scale,
+                    // Only alongside the stations they anchor to: a `-scrap` reference is written
+                    // at its station, so with the stations left out there is nothing to hang it on.
+                    sectionScrapNames = if (stations) sectionScrapNames else emptyMap(),
+                    includeStations = stations,
+                    includeSketchContent = first,
+                    options = options,
+                ),
+            )
+        }
 
         if (options.crossSections) {
             sections.addAll(
@@ -185,13 +219,46 @@ object Th2Exporter {
         space: Space<Coord2D>,
         scale: Float,
         sectionScrapNames: Map<String, String>,
+        includeStations: Boolean = true,
+        includeSketchContent: Boolean = true,
         options: Options,
     ): String {
         val parts = mutableListOf<String>()
         parts.add(startLines("scrap $name -projection ${therionProjection(projection)}", survey))
-        parts.addAll(scrapCommands(survey, sketch, space, scale, sectionScrapNames, options))
+        parts.addAll(
+            scrapCommands(
+                survey,
+                sketch,
+                space,
+                scale,
+                sectionScrapNames,
+                includeStations,
+                includeSketchContent,
+                options,
+            ),
+        )
         parts.add("endscrap")
         return parts.joinToString("\n\n")
+    }
+
+    /**
+     * What one scrap of a drawing is called.
+     *
+     * The suffix is a *pattern* once there is more than one scrap: `#` takes the number, `##`
+     * zero-pads it to two, so `-plan-##` gives `Name-plan-01`, `Name-plan-02`. A suffix with no
+     * placeholder gets the number appended, and a single unnumbered scrap keeps the plain name it
+     * has always had — so an existing project's file does not change because this option arrived.
+     */
+    internal fun scrapName(baseName: String, suffix: String, index: Int, total: Int): String {
+        if (total == 1 && '#' !in suffix) return baseName + suffix
+        val numbered =
+            when {
+                "##" in suffix -> suffix.replace("##", index.toString().padStart(2, '0'))
+                "#" in suffix -> suffix.replace("#", index.toString())
+                total > 1 -> suffix + index
+                else -> suffix
+            }
+        return baseName + numbered
     }
 
     private fun therionProjection(projection: Projection2D): String =
@@ -217,11 +284,13 @@ object Th2Exporter {
         space: Space<Coord2D>,
         scale: Float,
         sectionScrapNames: Map<String, String>,
+        includeStations: Boolean,
+        includeSketchContent: Boolean,
         options: Options,
     ): List<String> {
         val commands = mutableListOf<String>()
 
-        for (station in survey.getAllStationsInChronoOrder()) {
+        for (station in if (includeStations) survey.getAllStationsInChronoOrder() else emptyList()) {
             val at = space.stationMap[station] ?: continue
             val point = at.flipVertically().scale(scale)
             commands.add(point(point, "station", "-name", station.name))
@@ -234,7 +303,7 @@ object Th2Exporter {
             commands.add(point(sectionAt, "section", "-scrap", scrapName))
         }
 
-        if (options.labels) {
+        if (includeSketchContent && options.labels) {
             for (label in sketch.textDetails) {
                 val at = label.position.scale(scale).flipVertically()
                 commands.add(
@@ -243,7 +312,7 @@ object Th2Exporter {
             }
         }
 
-        if (options.symbols) {
+        if (includeSketchContent && options.symbols) {
             for (stamp in sketch.symbolDetails) {
                 val at = stamp.position.scale(scale).flipVertically()
                 val arguments = mutableListOf("-scale " + therionSize(stamp.size))

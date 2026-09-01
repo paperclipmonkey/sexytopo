@@ -142,10 +142,68 @@ class TherionExportOptionsTest {
                 crossSections = false,
                 symbols = false,
                 labels = false,
+                planScrapCount = 4,
+                elevationScrapCount = 2,
+                stationsInFirstPlanScrap = false,
+                stationsInFirstElevationScrap = false,
             )
         AppPreferencesStore.save(store, AppPreferences(therionExport = flipped))
 
         assertEquals(flipped, AppPreferencesStore.load(store).therionExport)
+    }
+
+    /**
+     * And "every" above means every one, checked rather than remembered.
+     *
+     * The test above is only as good as the list inside it: a setting added to [TherionExport] and
+     * not added to `flipped` leaves it at its default, so it round-trips whether or not anybody
+     * wrote the key — and the test goes on passing while the setting is quietly forgotten every
+     * time the app closes. Which is what happened: the four scrap options were added to the class,
+     * to the dialog and to the store, and this test would have said nothing if the store had been
+     * missed.
+     *
+     * So: walk the fields and require each to have been moved off its default. Reflection over a
+     * Kotlin data class's backing fields, which is a thing only a JVM test can do — the same reason
+     * the zip tests live on the JVM.
+     */
+    @Test
+    fun theRoundTripAboveActuallyCoversEveryOption() {
+        val flipped =
+            TherionExport(
+                planSuffix = "P",
+                elevationSuffix = "E",
+                xviFolder = "images",
+                planScrapSuffix = "-p",
+                elevationScrapSuffix = "-e",
+                planCrossSectionSuffix = "X#",
+                elevationCrossSectionSuffix = "Y#",
+                crossSections = false,
+                symbols = false,
+                labels = false,
+                planScrapCount = 4,
+                elevationScrapCount = 2,
+                stationsInFirstPlanScrap = false,
+                stationsInFirstElevationScrap = false,
+            )
+        val default = TherionExport.DEFAULT
+
+        val unmoved =
+            TherionExport::class.java.declaredFields
+                // Instance fields only: the companion holds the two default-suffix constants and
+                // DEFAULT itself, which are not settings and are equal to themselves by definition.
+                .filterNot { it.isSynthetic || java.lang.reflect.Modifier.isStatic(it.modifiers) }
+                .filter { field ->
+                    field.isAccessible = true
+                    field.get(flipped) == field.get(default)
+                }
+                .map { it.name }
+
+        assertEquals(
+            emptyList(),
+            unmoved,
+            "these settings are still at their defaults in the round-trip test above, so it is" +
+                " not checking them",
+        )
     }
 
     /**

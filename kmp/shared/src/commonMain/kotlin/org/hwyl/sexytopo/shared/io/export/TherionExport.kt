@@ -43,6 +43,23 @@ data class TherionExport(
     val symbols: Boolean = true,
     /** `pref_therion_export_text`. */
     val labels: Boolean = true,
+    /**
+     * How many scraps the plan is written as — `planScrapsInput` in the Java's export dialog.
+     *
+     * The four below are the only settings in this class that are *not* one of the ten
+     * `pref_therion_*` preferences. In the Android app they live in `TherionExportOptions` and are
+     * asked for in a dialog on the way out of every export, which is a question a surveyor answers
+     * the same way every time and has to answer again on the next trip. Here they are remembered
+     * with the rest, for the reason the SVG options are: the settings that decide what a file
+     * contains belong where a surveyor can set them once.
+     */
+    val planScrapCount: Int = 1,
+    /** As [planScrapCount], for the extended elevation — `eeScrapsInput`. */
+    val elevationScrapCount: Int = 1,
+    /** `stationsInPlanCheckbox`: whether the plan's stations go in its first scrap. */
+    val stationsInFirstPlanScrap: Boolean = true,
+    /** `stationsInEeCheckbox`. */
+    val stationsInFirstElevationScrap: Boolean = true,
 ) {
     /** The filename suffix for one drawing. */
     fun suffixFor(projection: Projection2D): String =
@@ -59,8 +76,29 @@ data class TherionExport(
         return if (folder.isEmpty()) name else "$folder/$name"
     }
 
-    /** These options as the scrap exporter's, with the image reference filled in. */
-    fun th2Options(xviFileName: String?): Th2Exporter.Options =
+    /** How many scraps [projection] is written as. */
+    fun scrapCountFor(projection: Projection2D): Int =
+        if (projection == Projection2D.PLAN) planScrapCount else elevationScrapCount
+
+    /** Whether [projection]'s stations go in its first scrap. */
+    fun stationsInFirstScrapFor(projection: Projection2D): Boolean =
+        if (projection == Projection2D.PLAN) {
+            stationsInFirstPlanScrap
+        } else {
+            stationsInFirstElevationScrap
+        }
+
+    /**
+     * These options as the scrap exporter's, with the image reference filled in.
+     *
+     * [projection] because two of them differ between the drawings: a surveyor splitting a plan
+     * into six scraps by chamber usually wants the extended elevation left as one, and the Java
+     * asks for the two counts separately in the same dialog for that reason.
+     */
+    fun th2Options(
+        xviFileName: String?,
+        projection: Projection2D = Projection2D.PLAN,
+    ): Th2Exporter.Options =
         Th2Exporter.Options(
             planScrapSuffix = planScrapSuffix,
             elevationScrapSuffix = elevationScrapSuffix,
@@ -69,6 +107,8 @@ data class TherionExport(
             crossSections = crossSections,
             labels = labels,
             symbols = symbols,
+            scrapCount = scrapCountFor(projection),
+            stationsInFirstScrap = stationsInFirstScrapFor(projection),
             xviFileName = xviFileName,
         )
 
