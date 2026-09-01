@@ -2347,6 +2347,19 @@ callers:
   the value is always the `"survey"` fallback and the choice cannot be made. Two conventions exist
   in the code and one of them is unreachable.
 
+**Three whole context menus that nothing opens, and one feature that only exists in them.** The
+same sweep run over `res/menu/` rather than `res/xml/`: five of the eight menu files are inflated
+somewhere in the Java, and `table_full_leg_selected.xml`, `table_splay_selected.xml` and
+`table_station_selected.xml` are not - and not one of their item ids is ever looked up either. They are the table's old per-selection menus, left behind when the unified
+`ContextMenuManager` replaced them.
+
+Worth reporting because of what is *in* them. `menu_move_row`, "Move to Different Station", is
+offered on a leg and on a splay and appears in no other menu, so the only place it exists is a file
+nobody reads: a caver who has booked a splay from the wrong station cannot move it, whatever the
+resource says. Everything else in the three is a duplicate of something the live menus offer. This
+port implements the five live menus item for item and does not implement that one, which is the
+answer to a reviewer asking why - it is not a gap, it is a feature the app does not have either.
+
 A third, found porting the fade: **which stations come out faded depends on hash order.**
 `GraphView.drawStations` sets its paint to a fifth alpha, walks the station map, and sets the alpha
 back to solid when it reaches the active station — and never sets it down again. So every station
@@ -2444,7 +2457,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 759
-shared tests on three targets, 369 over the UI's own logic, 18 running the iOS half in a simulator,
+shared tests on three targets, 370 over the UI's own logic, 18 running the iOS half in a simulator,
 101 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the

@@ -118,6 +118,63 @@ class ReadmeReferencesTest {
             "the README cites ${absent.size} tests that do not exist: $absent",
         )
     }
+    /**
+     * The three Android context menus this README calls dead are still dead.
+     *
+     * The claim is load-bearing: it is the answer to a reviewer who greps `res/menu/` and asks why
+     * this port has no *Move to Different Station*. The answer is that neither has the Android app
+     * - the item lives in `table_splay_selected.xml` and `table_full_leg_selected.xml`, and nothing
+     * inflates either file. That is a fact about somebody else's tree, which is exactly the kind
+     * that goes stale without anyone here noticing, so it is asserted rather than left in prose.
+     *
+     * Two ways of being dead are checked, because either alone can mislead: the file is never
+     * passed to `inflate`, and not one of its item ids is ever looked up. If upstream wires them
+     * back up, this fails and the paragraph in the README gets revisited - which is the point.
+     */
+    @Test
+    fun theTableContextMenusTheReadmeCallsDeadStillAre() {
+        val menus = File(kmp, "../app/src/main/res/menu")
+        if (!menus.isDirectory) return // A checkout of `kmp/` alone; nothing to check against.
+
+        val java =
+            File(kmp, "../app/src/main/java")
+                .walkTopDown()
+                .filter { it.isFile && it.extension == "java" }
+                .joinToString("\n") { it.readText() }
+
+        val dead =
+            listOf("table_full_leg_selected", "table_splay_selected", "table_station_selected")
+        for (name in dead) {
+            val file = File(menus, "$name.xml")
+            assertTrue(file.isFile, "$name.xml is gone, so the README's paragraph about it is stale")
+            assertTrue(
+                "R.menu.$name" !in java,
+                "$name.xml is inflated somewhere now; the README says nothing opens it",
+            )
+            val ids =
+                Regex("android:id=\"@\\+id/([A-Za-z0-9_]+)\"")
+                    .findAll(file.readText())
+                    .map { it.groupValues[1] }
+                    .toList()
+            assertTrue(ids.isNotEmpty(), "$name.xml has no item ids at all, which is unlikely")
+            // Whole word, not substring: `R.id.editLeg` is a prefix of the live
+            // `R.id.editLegComment`, and matching loosely reported this file's ids as used when
+            // none of them are. The first version of this check failed for exactly that reason.
+            val used = ids.filter { Regex("R\\.id\\.$it\\b").containsMatchIn(java) }
+            assertTrue(
+                used.isEmpty(),
+                "$name.xml has ids the app now uses ($used); the README says none of them appear",
+            )
+        }
+
+        // And the five the README calls live really are, so "five of the eight" stays true.
+        val live = listOf("action_bar", "context_leg", "context_station", "cross_section", "drawing")
+        val notInflated = live.filterNot { "R.menu.$it" in java }
+        assertTrue(
+            notInflated.isEmpty(),
+            "the README calls these menus live and nothing inflates them: $notInflated",
+        )
+    }
 
     /**
      * The Android identifiers it credits — menu ids, preference keys, class names — have to be
