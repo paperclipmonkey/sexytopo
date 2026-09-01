@@ -91,6 +91,17 @@ object SexyTopoColours {
 
     /** `crossSectionConnection` and `crossSectionIndicator`. */
     val crossSectionConnection = Color(0xFFC0C0C0)
+
+    /**
+     * The frame drawn round a cross-section on the plan, and the grip marks on its drag bar.
+     *
+     * `GraphView` resolves these from the theme rather than from `colors.xml` - `colorPrimary` and
+     * `colorOnPrimary`, which `themes.xml` sets to `sexyTopoGreen` and white. So the frame is the
+     * same green as the app bar, which is what makes it read as a piece of chrome sitting on the
+     * drawing rather than as something the surveyor drew.
+     */
+    val crossSectionFrame = Color(0xFF7FAF7F)
+    val onCrossSectionFrame = Color(0xFFFFFFFF)
     val crossSectionIndicator = Color(0xFF8B0000)
     val crossSectionIndicatorNight = Color(0xFFFF0000)
 

@@ -67,6 +67,7 @@ class AppPreferencesTest {
                 highlightLatestLeg = false,
                 blueWater = false,
                 showCrossSections = false,
+                legacyCrossSections = true,
                 pinchToZoom = false,
                 showSplays = false,
                 showSketch = false,
@@ -252,6 +253,16 @@ class AppPreferencesTest {
         assertTrue(DisplayOptions().crossSectionsAreTouchable, "both on by default")
         assertFalse(DisplayOptions(showCrossSections = false).crossSectionsAreTouchable)
         assertFalse(DisplayOptions(showSketch = false).crossSectionsAreTouchable)
+        // And the third way, which the Android app states in the setting's own summary:
+        // "disables tap-to-edit".
+        assertFalse(DisplayOptions(legacyCrossSections = true).crossSectionsAreTouchable)
+    }
+
+    /** Off, as `GeneralPreferences.isLegacyCrossSectionsOn` has it. */
+    @Test
+    fun crossSectionsAreFramedUntilTheOldDrawingIsAskedFor() {
+        assertFalse(AppPreferences.DEFAULT.legacyCrossSections)
+        assertFalse(DisplayOptions().legacyCrossSections)
     }
 
     // -------------------------------------------------------------------------------------

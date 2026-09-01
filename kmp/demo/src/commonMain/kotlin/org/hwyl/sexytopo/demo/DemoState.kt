@@ -608,6 +608,7 @@ class DemoState(
                 highlightLatestLeg = preferences.highlightLatestLeg,
                 blueWater = preferences.blueWater,
                 showCrossSections = preferences.showCrossSections,
+                legacyCrossSections = preferences.legacyCrossSections,
                 pinchToZoom = preferences.pinchToZoom,
                 deletePathFragments = preferences.deletePathFragments,
                 style = preferences.sketchStyle,

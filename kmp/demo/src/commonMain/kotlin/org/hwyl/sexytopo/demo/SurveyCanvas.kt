@@ -16,7 +16,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -49,6 +52,7 @@ import org.hwyl.sexytopo.shared.sketch.SketchStyle
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.sketch.SketchViewport
+import org.hwyl.sexytopo.shared.sketch.boundsOf
 import org.hwyl.sexytopo.shared.sketch.centroidOf
 import org.hwyl.sexytopo.shared.sketch.colourForSymbol
 import org.hwyl.sexytopo.shared.sketch.dashesAlong
@@ -62,6 +66,8 @@ import org.hwyl.sexytopo.shared.survey.CrossSectioner
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.log10
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
@@ -809,15 +815,25 @@ class DisplayOptions(
      * because every other thing that changes what the drawing looks like arrives by this route.
      */
     val style: SketchStyle = SketchStyle.DEFAULT,
+    /**
+     * Whether a cross-section is drawn the old way: the splay star and a dashed line to it, with
+     * no frame, no drag bar and - as the Android app's own summary for the setting says - no
+     * tap-to-edit. `pref_legacy_cross_sections`, default off.
+     */
+    val legacyCrossSections: Boolean = AppPreferences.DEFAULT_LEGACY_CROSS_SECTIONS,
 ) {
     /**
      * Whether a cross-section on the plan is there to be found by a finger.
      *
      * One property rather than the same pair of conditions at four hit-test sites, because the
      * Java's rule is a single sentence — an invisible cross-section cannot be tapped — and it is
-     * invisible either because the whole sketch is hidden or because sections are.
+     * invisible either because the whole sketch is hidden or because sections are. Legacy sections
+     * are the third way of being untouchable: `settings_legacy_cross_sections_summary` says the
+     * mode "disables tap-to-edit", and it has to - the frame and its handle are the only things
+     * that mark a section as an object, so without them a tap near one is a tap on the drawing.
      */
-    val crossSectionsAreTouchable: Boolean get() = showSketch && showCrossSections
+    val crossSectionsAreTouchable: Boolean
+        get() = showSketch && showCrossSections && !legacyCrossSections
 }
 
 /** `GraphView.FADED_ALPHA`, which is `0xff / 5` of full. */
@@ -852,6 +868,19 @@ private object CanvasSizes {
     /** Where a station's name sits relative to its dot. */
     const val LABEL_RIGHT_DP = 5f
     const val LABEL_UP_DP = 14f
+
+    // The frame round a cross-section on the plan. Every one of these is a `GraphView` constant of
+    // the same name, so the frame is the size and shape the Android app draws.
+    const val CROSS_SECTION_CONNECTOR_WIDTH_DP = 2f
+    const val CROSS_SECTION_BORDER_WIDTH_DP = 2f
+    const val CROSS_SECTION_BORDER_PADDING_MIN_DP = 4f
+    const val CROSS_SECTION_BORDER_PADDING_MAX_DP = 16f
+    const val CROSS_SECTION_BORDER_PADDING_FRACTION = 0.05f
+    const val CROSS_SECTION_BORDER_CORNER_RADIUS_DP = 6f
+    const val CROSS_SECTION_HANDLE_WIDTH_DP = 8f
+    const val CROSS_SECTION_HANDLE_GRIP_WIDTH_DP = 2f
+    const val CROSS_SECTION_HANDLE_GRIP_SPACING_DP = 5f
+    const val CROSS_SECTION_HANDLE_GRIP_LENGTH_FRACTION = 0.45f
 }
 
 /**
@@ -890,9 +919,18 @@ private const val COMPASS_GAP_DP = 6f
  * showing you where the survey is about to grow from — and it is the single most recognisable thing
  * on the screen after the red centreline. Leaving it out made the plan look subtly wrong in a way
  * that was hard to name.
+ *
+ * The diameter is the *setting*, `pref_station_diameter`, as the Java's `stationCrossDiameterPx`
+ * is. This used to read the 10dp default constant instead, so a surveyor who enlarged their
+ * stations for cold hands got brackets that stayed where they were and ended up drawn inside the
+ * cross they are meant to frame.
  */
-private fun DrawScope.drawActiveStationHighlight(centre: Offset, palette: Palette) {
-    val diameter = SketchDefaults.STATION_CROSS_DIAMETER_DP.dp.toPx() * 1.1f
+private fun DrawScope.drawActiveStationHighlight(
+    centre: Offset,
+    palette: Palette,
+    stationDiameterDp: Float,
+) {
+    val diameter = stationDiameterDp.dp.toPx() * 1.1f
     val gap = diameter / 3f
     val half = diameter / 2f
     val arm = (diameter - gap) / 2f
@@ -912,6 +950,118 @@ private fun DrawScope.drawActiveStationHighlight(centre: Offset, palette: Palett
     corner(right, top, -1f, 1f)
     corner(left, bottom, 1f, -1f)
     corner(right, bottom, -1f, -1f)
+}
+
+/**
+ * The frame drawn round a cross-section sitting on the plan, and the bar you drag it by.
+ *
+ * `GraphView.drawCrossSectionBorder` and `drawCrossSectionHandle`, which this port did not have at
+ * all: a section was a star of splay lines and a dot, floating on the drawing with nothing to say
+ * where it ended or that it could be moved. The frame is what makes it an object. The rectangle is
+ * the section's own bounding box - splays, sub-sketch and a forced minimum, all from
+ * [boundsOf] - scaled by the sketch's cross-section scale about the section's centre, then padded
+ * by a twentieth of its shorter side clamped into 4..16dp, with room above for the handle.
+ *
+ * Returns the border rectangle so the connector can be clipped to it.
+ */
+private fun DrawScope.drawCrossSectionBorder(
+    topLeftOnScreen: Offset,
+    bottomRightOnScreen: Offset,
+    palette: Palette,
+): Rect {
+    val contentWidth = bottomRightOnScreen.x - topLeftOnScreen.x
+    val contentHeight = bottomRightOnScreen.y - topLeftOnScreen.y
+    val scaledPadding =
+        min(contentWidth, contentHeight) * CanvasSizes.CROSS_SECTION_BORDER_PADDING_FRACTION
+    val padding =
+        max(
+            CanvasSizes.CROSS_SECTION_BORDER_PADDING_MIN_DP.dp.toPx(),
+            min(CanvasSizes.CROSS_SECTION_BORDER_PADDING_MAX_DP.dp.toPx(), scaledPadding),
+        )
+    val topPadding = padding + CanvasSizes.CROSS_SECTION_HANDLE_WIDTH_DP.dp.toPx()
+    val rect =
+        Rect(
+            left = topLeftOnScreen.x - padding,
+            top = topLeftOnScreen.y - topPadding,
+            right = bottomRightOnScreen.x + padding,
+            bottom = bottomRightOnScreen.y + padding,
+        )
+    val corner = CanvasSizes.CROSS_SECTION_BORDER_CORNER_RADIUS_DP.dp.toPx()
+    drawRoundRect(
+        palette.crossSectionFrame,
+        topLeft = rect.topLeft,
+        size = rect.size,
+        cornerRadius = CornerRadius(corner, corner),
+        style = Stroke(CanvasSizes.CROSS_SECTION_BORDER_WIDTH_DP.dp.toPx()),
+    )
+    return rect
+}
+
+/**
+ * The drag bar along the top of a section's frame: a filled strip with rounded top corners, three
+ * grip marks down the middle. `GraphView.drawCrossSectionHandle`.
+ *
+ * The grip marks are the whole point. A plain green strip is decoration; three ticks is the
+ * universal "this is a thing you drag", and it is the only affordance the section has - moving one
+ * by grabbing its middle would fight the sketching tool for the same touch.
+ */
+private fun DrawScope.drawCrossSectionHandle(borderRect: Rect, palette: Palette) {
+    val handleHeight = CanvasSizes.CROSS_SECTION_HANDLE_WIDTH_DP.dp.toPx()
+    val corner = CanvasSizes.CROSS_SECTION_BORDER_CORNER_RADIUS_DP.dp.toPx()
+    val handleRect =
+        Rect(borderRect.left, borderRect.top, borderRect.right, borderRect.top + handleHeight)
+
+    drawPath(
+        Path().apply {
+            addRoundRect(
+                RoundRect(
+                    handleRect,
+                    topLeft = CornerRadius(corner, corner),
+                    topRight = CornerRadius(corner, corner),
+                    bottomRight = CornerRadius.Zero,
+                    bottomLeft = CornerRadius.Zero,
+                )
+            )
+        },
+        palette.crossSectionFrame,
+    )
+
+    val centreX = handleRect.center.x
+    val centreY = handleRect.center.y
+    val gripHalf = handleHeight * CanvasSizes.CROSS_SECTION_HANDLE_GRIP_LENGTH_FRACTION / 2f
+    val spacing = CanvasSizes.CROSS_SECTION_HANDLE_GRIP_SPACING_DP.dp.toPx()
+    for (gripX in listOf(centreX - spacing, centreX, centreX + spacing)) {
+        drawLine(
+            palette.onCrossSectionFrame,
+            Offset(gripX, centreY - gripHalf),
+            Offset(gripX, centreY + gripHalf),
+            CanvasSizes.CROSS_SECTION_HANDLE_GRIP_WIDTH_DP.dp.toPx(),
+            StrokeCap.Round,
+        )
+    }
+}
+
+/**
+ * Where a line from [from] to [to] first meets [rect], or null if [from] is already inside it.
+ *
+ * `GraphView.clipSegmentToRectBoundary`. The connector runs from the station to the section's
+ * centre; without this it would be drawn straight across the section's own frame and through
+ * whatever the surveyor drew inside it. Stopping at the border says the same thing and covers
+ * nothing.
+ */
+internal fun clipSegmentToRectBoundary(from: Offset, to: Offset, rect: Rect): Offset? {
+    if (rect.contains(from)) return null
+    val dx = to.x - from.x
+    val dy = to.y - from.y
+    var enter = 0f
+    if (dx != 0f) {
+        enter = max(enter, min((rect.left - from.x) / dx, (rect.right - from.x) / dx))
+    }
+    if (dy != 0f) {
+        enter = max(enter, min((rect.top - from.y) / dy, (rect.bottom - from.y) / dy))
+    }
+    if (enter <= 0f || enter >= 1f) return to
+    return Offset(from.x + enter * dx, from.y + enter * dy)
 }
 
 /**
@@ -1019,6 +1169,16 @@ private fun DrawScope.drawSurvey(
         }
     }
 
+    // `GraphView.drawDashedLine`, used for a foreshortened leg and for the line joining a
+    // cross-section to its station.
+    fun drawDashes(from: Offset, to: Offset, colour: Color) {
+        val dashLength = DASH_INTERVAL_DP.dp.toPx()
+        val width = CanvasSizes.CROSS_SECTION_CONNECTOR_WIDTH_DP.dp.toPx()
+        for ((dashFrom, dashTo) in dashesAlong(from.toCoord2D(), to.toCoord2D(), dashLength)) {
+            drawLine(colour, dashFrom.toOffset(), dashTo.toOffset(), width, StrokeCap.Round)
+        }
+    }
+
     // The magenta is tested here as well as on the legs because the Java asks
     // `getMostRecentLeg() == leg` *before* it asks whether the reading is a splay, so a wall shot
     // that was the last thing taken is marked too. Drawing splays in their own loop is what made
@@ -1074,13 +1234,31 @@ private fun DrawScope.drawSurvey(
             } else {
                 palette.station
             }
-        drawCircle(
+        // A cross, as `GraphView.drawStationCross` draws it: two lines through the point, each
+        // the full station diameter long, at `STATION_STROKE_WIDTH_DP`.
+        //
+        // This port drew a filled dot instead, which was written down as a divergence and never
+        // given a reason. There is a good one for the cross and none for the dot: a station is a
+        // *position*, and a cross says where it is while a blob covers it — at the default ten dp
+        // a filled dot hides the ends of every leg meeting there, which on a plan is exactly the
+        // junction a surveyor is trying to read. It is also what every cave survey ever published
+        // uses, and what the app this copies looks like.
+        val arm = options.style.stationRadiusDp.dp.toPx()
+        val stationStroke = SketchDefaults.STATION_STROKE_WIDTH_DP.dp.toPx()
+        drawLine(
             stationColour,
-            radius = options.style.stationRadiusDp.dp.toPx(),
-            center = centre,
+            Offset(centre.x, centre.y - arm),
+            Offset(centre.x, centre.y + arm),
+            stationStroke,
+        )
+        drawLine(
+            stationColour,
+            Offset(centre.x - arm, centre.y),
+            Offset(centre.x + arm, centre.y),
+            stationStroke,
         )
         if (isActive) {
-            drawActiveStationHighlight(centre, palette)
+            drawActiveStationHighlight(centre, palette, options.style.stationDiameterDp)
         }
         if (options.showStationLabels &&
             viewport.pixelsPerMetre > LABEL_VISIBILITY_PIXELS_PER_METRE
@@ -1161,8 +1339,14 @@ private fun DrawScope.drawSurvey(
         // in the sketch, and in the indicator colour so it is obvious which one is moving. The
         // preview comes from SectionDrag, which is also what commits the edit - so what is drawn
         // during the drag cannot disagree with what the drag leaves behind.
+        val sections =
+            if (options.showCrossSections) scene.sketch.crossSectionDetails else emptyList()
+        // Built once per frame and only when there is a section to join to a station: this is a
+        // map the size of the survey, allocated inside the drawing of every frame, and a big cave
+        // being panned is the worst moment to be doing that for nothing.
+        val stationPositions = if (sections.isEmpty()) emptyMap() else scene.stations.toMap()
         val sectionScale = scene.sketch.crossSectionScale
-        for (detail in if (options.showCrossSections) scene.sketch.crossSectionDetails else emptyList()) {
+        for (detail in sections) {
             val dragged = sectionDrag != null && sectionDrag.detail === detail
             val shown = if (dragged) sectionDrag.preview() else detail
             val colour = if (dragged) palette.symbol else palette.crossSection
@@ -1211,6 +1395,43 @@ private fun DrawScope.drawSurvey(
                     Color(ink.intValue),
                     options.style.sketchLineWidthDp.dp.toPx(),
                 )
+            }
+
+            // The frame, the drag bar, and the dashed line back to the station the section was
+            // taken at. `GraphView` draws all three and this port drew none of them, which left a
+            // section as a star of lines floating on the plan: nothing said how big it was,
+            // nothing said it could be moved, and - the one that actually costs you underground -
+            // nothing said which station it belonged to. Drop two sections in the same chamber and
+            // the drawing stops being readable.
+            //
+            // The Java skips the frame entirely under `pref_legacy_cross_sections`, drawing the
+            // connector straight to the centre instead; [DisplayOptions.legacyCrossSections]
+            // carries that setting through, so the old look is still available to anyone who
+            // prefers it.
+            val stationOnScreen = stationPositions[shown.station.name]?.let(::project)
+            if (options.legacyCrossSections) {
+                if (stationOnScreen != null) {
+                    drawDashes(stationOnScreen, centre, palette.crossSection)
+                }
+            } else {
+                val bounds = boundsOf(shown)
+                val border =
+                    drawCrossSectionBorder(
+                        project(
+                            shown.position + (bounds.topLeft - shown.position).scale(sectionScale)
+                        ),
+                        project(
+                            shown.position +
+                                (bounds.bottomRight - shown.position).scale(sectionScale)
+                        ),
+                        palette,
+                    )
+                if (stationOnScreen != null) {
+                    clipSegmentToRectBoundary(stationOnScreen, centre, border)?.let { end ->
+                        drawDashes(stationOnScreen, end, palette.crossSection)
+                    }
+                }
+                drawCrossSectionHandle(border, palette)
             }
         }
 
@@ -1370,6 +1591,10 @@ class Palette(
     val stationLabel: Color,
     val symbol: Color,
     val crossSection: Color,
+    /** `colorPrimary`: the frame and drag bar drawn round a cross-section on the plan. */
+    val crossSectionFrame: Color,
+    /** `colorOnPrimary`: the grip marks on the drag bar. */
+    val onCrossSectionFrame: Color,
     val scaleBar: Color,
     val grid: Color,
     val activeStation: Color,
@@ -1396,6 +1621,8 @@ private val LightPalette =
         stationLabel = SexyTopoColours.station,
         symbol = SexyTopoColours.crossSectionIndicator,
         crossSection = SexyTopoColours.crossSectionConnection,
+        crossSectionFrame = SexyTopoColours.crossSectionFrame,
+        onCrossSectionFrame = SexyTopoColours.onCrossSectionFrame,
         scaleBar = SexyTopoColours.legend,
         grid = SexyTopoColours.grid,
         activeStation = SexyTopoColours.activeStation,
@@ -1412,6 +1639,8 @@ private val DarkPalette =
         stationLabel = SexyTopoColours.stationNight,
         symbol = SexyTopoColours.crossSectionIndicatorNight,
         crossSection = SexyTopoColours.crossSectionConnection,
+        crossSectionFrame = SexyTopoColours.crossSectionFrame,
+        onCrossSectionFrame = SexyTopoColours.onCrossSectionFrame,
         scaleBar = SexyTopoColours.legendNight,
         grid = SexyTopoColours.gridNight,
         activeStation = SexyTopoColours.activeStationNight,

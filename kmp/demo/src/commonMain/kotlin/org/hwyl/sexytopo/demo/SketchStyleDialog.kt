@@ -50,6 +50,7 @@ fun SketchStyleDialog(
     var symbol by remember { mutableStateOf(style.symbolSizeDp.toString()) }
     var text by remember { mutableStateOf(style.textSizeSp.toString()) }
     var fragments by remember { mutableStateOf(preferences.deletePathFragments) }
+    var legacySections by remember { mutableStateOf(preferences.legacyCrossSections) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -89,6 +90,18 @@ fun SketchStyleDialog(
                     checked = fragments,
                     onCheckedChange = { fragments = it },
                 )
+
+                // `pref_legacy_cross_sections`, which this port did not have because it did not
+                // have the frame the setting turns off.
+                Toggle(
+                    title = "Plain cross-sections",
+                    detail =
+                        "Draw a cross-section as bare splays with a dashed line to its station, " +
+                            "the way the app used to. No frame, no drag bar, and no tapping one " +
+                            "open to draw inside it.",
+                    checked = legacySections,
+                    onCheckedChange = { legacySections = it },
+                )
             }
         },
         confirmButton = {
@@ -97,6 +110,7 @@ fun SketchStyleDialog(
                     onSave(
                         preferences.copy(
                             deletePathFragments = fragments,
+                            legacyCrossSections = legacySections,
                             sketchStyle =
                                 styleFrom(
                                     style,

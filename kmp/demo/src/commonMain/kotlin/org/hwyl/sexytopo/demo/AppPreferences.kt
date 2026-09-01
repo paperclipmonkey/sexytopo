@@ -75,6 +75,8 @@ data class AppPreferences(
     val blueWater: Boolean = DEFAULT_BLUE_WATER,
     /** Draw cross-sections on the plan, and let them be tapped. `SHOW_X_SECTIONS`. */
     val showCrossSections: Boolean = DEFAULT_SHOW_CROSS_SECTIONS,
+    /** Draw them the old way: no frame, no drag bar, no editing. `pref_legacy_cross_sections`. */
+    val legacyCrossSections: Boolean = DEFAULT_LEGACY_CROSS_SECTIONS,
     /** Let two fingers zoom the drawing and the 3D view. `PINCH_TO_ZOOM`. */
     val pinchToZoom: Boolean = DEFAULT_PINCH_TO_ZOOM,
     /** Draw the splay shots. `SHOW_SPLAYS`. */
@@ -255,6 +257,16 @@ data class AppPreferences(
         const val DEFAULT_SHOW_CROSS_SECTIONS = true
 
         /**
+         * Off, as `GeneralPreferences.isLegacyCrossSectionsOn` has it.
+         *
+         * The Android app kept the old drawing behind a setting when it gained the editable frame,
+         * which is the polite thing to do to a surveyor who has drawn a hundred sections one way.
+         * It is offered here for the same reason and not because the port needs it - the frame is
+         * the default in both.
+         */
+        const val DEFAULT_LEGACY_CROSS_SECTIONS = false
+
+        /**
          * On, as `SketchPreferences.Toggle.PINCH_TO_ZOOM` is.
          *
          * Worth having off for anyone drawing with a stylus and a resting hand, which is what a
@@ -375,6 +387,7 @@ object AppPreferencesStore {
             appendLine("highlightLatestLeg=${preferences.highlightLatestLeg}")
             appendLine("blueWater=${preferences.blueWater}")
             appendLine("showCrossSections=${preferences.showCrossSections}")
+            appendLine("legacyCrossSections=${preferences.legacyCrossSections}")
             appendLine("pinchToZoom=${preferences.pinchToZoom}")
             appendLine("showSplays=${preferences.showSplays}")
             appendLine("showSketch=${preferences.showSketch}")
@@ -472,6 +485,9 @@ object AppPreferencesStore {
             showCrossSections =
                 values["showCrossSections"]?.toBooleanStrictOrNull()
                     ?: AppPreferences.DEFAULT_SHOW_CROSS_SECTIONS,
+            legacyCrossSections =
+                values["legacyCrossSections"]?.toBooleanStrictOrNull()
+                    ?: AppPreferences.DEFAULT_LEGACY_CROSS_SECTIONS,
             pinchToZoom =
                 values["pinchToZoom"]?.toBooleanStrictOrNull()
                     ?: AppPreferences.DEFAULT_PINCH_TO_ZOOM,

@@ -43,9 +43,24 @@ class DrawingSizeTest {
         return survey
     }
 
+    /**
+     * The centreline is `0xFF0000` and a station is `0x8B0000`, so a pixel's own colour says which
+     * of the two drew it. [redPixels] counts both; [stationPixels] counts only the darker one,
+     * which is what lets a question about stations be asked without the legs in the answer.
+     */
+    private fun isRed(r: Int, g: Int, b: Int) = r > 100 && r - g > 60 && r - b > 60
+
+    private fun isStation(r: Int, g: Int, b: Int) = r in 100..200 && g < 60 && b < 60
+
     /** How many pixels of the plan are the app's red centreline, at [style]. */
     @OptIn(ExperimentalComposeUiApi::class)
-    private fun redPixels(style: SketchStyle): Long {
+    private fun redPixels(style: SketchStyle): Long = pixels(style, ::isRed)
+
+    /** How many are the darker red the stations themselves are drawn in. */
+    private fun stationPixels(style: SketchStyle): Long = pixels(style, ::isStation)
+
+    @OptIn(ExperimentalComposeUiApi::class)
+    private fun pixels(style: SketchStyle, matches: (Int, Int, Int) -> Boolean): Long {
         val survey = survey()
         val projection = Projection2D.PLAN
         val scene =
@@ -76,7 +91,7 @@ class DrawingSizeTest {
                 val r = (rgb shr 16) and 0xff
                 val g = (rgb shr 8) and 0xff
                 val b = rgb and 0xff
-                if (r > 100 && r - g > 60 && r - b > 60) red++
+                if (matches(r, g, b)) red++
             }
         }
         return red
@@ -98,18 +113,51 @@ class DrawingSizeTest {
         )
     }
 
-    /** And a bigger station is a bigger station, which is the one people notice first. */
+    /**
+     * And a bigger station is a bigger station, which is the one people notice first.
+     *
+     * Counted in the station's own colour rather than in all the red on the page, so the legs are
+     * not a constant sitting in both numbers: three times the diameter should be about three times
+     * the ink, and it is not worth asking the question through a fog.
+     */
     @Test
     fun askingForABiggerStationDrawsOne() {
-        val ordinary = redPixels(SketchStyle.DEFAULT.copy(legWidthDp = SketchStyle.SMALLEST))
-        val big =
-            redPixels(
-                SketchStyle.DEFAULT.copy(
-                    legWidthDp = SketchStyle.SMALLEST,
-                    stationDiameterDp = 30f,
-                ),
-            )
+        val ordinary = stationPixels(SketchStyle.DEFAULT)
+        val big = stationPixels(SketchStyle.DEFAULT.copy(stationDiameterDp = 30f))
 
+        assertTrue(ordinary > 0, "no stations were drawn at all")
         assertTrue(big > ordinary * 2, "$big against $ordinary")
+    }
+
+    /**
+     * That a station is drawn as a cross and not as a filled dot.
+     *
+     * `GraphView.drawStationCross` draws two lines through the point. This port drew a filled
+     * circle instead - written down in `SketchStyle` as a divergence, with no reason given - and
+     * nothing could tell, because every test that looked at stations asked only whether the ink
+     * grew when the setting did. It did: a disc grows too. So this asks *how* it grows, which is
+     * the one measurement the two shapes disagree about. Quadruple the diameter and a cross - two
+     * arms, each four times as long, at a stroke width that has not moved - draws about four times
+     * the ink. A disc draws about sixteen times it. There is no threshold between 4 and 16 that a
+     * plausible-but-wrong shape could sneak through.
+     */
+    @Test
+    fun aStationIsACrossRatherThanADot() {
+        val small = stationPixels(SketchStyle.DEFAULT.copy(stationDiameterDp = 10f))
+        val large = stationPixels(SketchStyle.DEFAULT.copy(stationDiameterDp = 40f))
+
+        assertTrue(small > 0, "no stations were drawn at all")
+        val growth = large.toDouble() / small
+        assertTrue(
+            growth < 8.0,
+            "quadrupling the station diameter multiplied the station ink by $growth " +
+                "($small to $large), which is area growth: the stations are being drawn as " +
+                "filled dots, not as the cross GraphView.drawStationCross draws",
+        )
+        assertTrue(
+            growth > 2.5,
+            "quadrupling the station diameter multiplied the station ink by only $growth " +
+                "($small to $large), so the arms are not growing with the setting",
+        )
     }
 }

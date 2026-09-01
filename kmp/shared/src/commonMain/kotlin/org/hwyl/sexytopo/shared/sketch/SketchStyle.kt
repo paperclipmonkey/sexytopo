@@ -53,7 +53,7 @@ data class SketchStyle(
     /** How big a written label starts. `pref_survey_text_tool_font_size`. */
     val textSizeSp: Float = DEFAULT_TEXT_SIZE_SP,
 ) {
-    /** Half of [stationDiameterDp]: the port draws a filled dot where the Java draws a cross. */
+    /** Half of [stationDiameterDp]: the arm of the cross a station is drawn as. */
     val stationRadiusDp: Float
         get() = stationDiameterDp / 2f
 

@@ -2178,6 +2178,64 @@ These are the things that would actually shape a real port.
    sizing and wrong for this transform. Upstream has the same semantics, so upstream has that bug
    waiting wherever a symbol can be stamped inside a section.
 
+68. **A station was a filled dot where the Android app draws a cross.** Found by the second half of
+   the same sweep as 67 — every `draw*` method in `GraphView` read against `SurveyCanvas.kt` — and
+   the one that had been *written down* rather than missed. `SketchStyle.stationRadiusDp` carried
+   the KDoc "Half of `stationDiameterDp`: the port draws a filled dot where the Java draws a
+   cross", which records the divergence and gives no reason for it, and a divergence with no reason
+   is a defect that has been looked at and left.
+
+   There is a good reason for the cross and none for the dot. A station is a *position*, and a
+   cross says where it is while a blob covers it: at the default ten dp a filled dot hides the ends
+   of every leg meeting there, which on a plan is exactly the junction a surveyor is trying to
+   read. It is also what every published cave survey uses, and what the app this copies looks like.
+   `GraphView.drawStationCross` is four lines; the port now draws the same two lines at the same
+   `STATION_STROKE_WIDTH_DP`, and the amber corner brackets round the active station — already
+   ported, geometry and all — now scale off `pref_station_diameter` as the Java's do rather than
+   off the 10dp default constant, so enlarging your stations for cold hands no longer leaves the
+   brackets stranded inside the cross they are meant to frame.
+
+   How it hid is the interesting half, because there *was* a test. `DrawingSizeTest` asked whether
+   a bigger station setting drew a bigger station, and it passed — a disc grows when you enlarge it
+   just as a cross does. The shapes only disagree about *how*: quadruple the diameter and a cross,
+   two arms at an unchanged stroke width, draws about four times the ink, while a disc draws about
+   sixteen times it. Asked that way the old drawing fails at **17.2x** and the new one passes, with
+   no threshold in between that a plausible-but-wrong shape could slip through. The counting is
+   done in the station's own `0x8B0000` rather than in all the red on the page, so the legs are not
+   a constant sitting in both numbers — the same test asked through a fog is a weaker test.
+
+69. **A cross-section on the plan had no frame, no handle and nothing joining it to its station.**
+   The rest of that sweep, and the largest of the three. `GraphView.drawCrossSection` draws four
+   things this port did not: a rounded border round the section in the app bar's own green
+   (`drawCrossSectionBorder`), a drag bar along its top with three grip marks
+   (`drawCrossSectionHandle`), a dashed line back to the station the section was taken at
+   (`drawDashedLine`), and the clipping that stops that line at the border rather than running it
+   across whatever is drawn inside (`clipSegmentToRectBoundary`).
+
+   Without them a section is a star of lines floating on the drawing. Nothing says how far it
+   extends, nothing says it can be moved — and the one that actually costs you underground, nothing
+   says which station it belongs to. Drop two sections in the same chamber and the plan stops being
+   readable. The border is the section's bounding box — splays, sub-sketch, and a forced minimum of
+   a metre either way so an empty one is still big enough to tap — scaled about its centre by the
+   sketch's cross-section scale and padded by a twentieth of its shorter side, clamped into 4..16dp.
+   All of that arithmetic was already ported, in `boundsOf(CrossSectionDetail)`; only the drawing
+   was missing.
+
+   `pref_legacy_cross_sections` arrives with it, which is why it is one finding and not two. The
+   Android app kept the old bare drawing behind that setting when it gained the frame, and the port
+   could not offer the setting while it only had the thing the setting turns *off*. It now draws
+   both, defaults off as `GeneralPreferences.isLegacyCrossSectionsOn` does, and honours the rest of
+   what the setting's own summary promises: legacy sections cannot be tapped open, which joins the
+   two ways of being untouchable the port already had.
+
+   Checked by rendering: the frame's green is a colour nothing else on a plan uses, so
+   `CrossSectionOnThePlanTest` counts it and requires it present by default and **exactly zero**
+   under the legacy setting — a setting that changes nothing being the defect this branch has hit
+   more often than any other. `clipSegmentToRectBoundary` gets its own check because it is the one
+   piece that is arithmetic rather than drawing, and both its edge cases are silent: a station
+   already inside the frame gets no connector at all, and one on a line that never enters gets its
+   unclipped end back.
+
 ---
 
 ## A defect worth reporting upstream
@@ -2309,8 +2367,8 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 744
-shared tests on three targets, 360 over the UI's own logic, 18 running the iOS half in a simulator,
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 759
+shared tests on three targets, 364 over the UI's own logic, 18 running the iOS half in a simulator,
 101 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
