@@ -124,4 +124,89 @@ class StationNamingTest {
 
         assertEquals("draughting", station.comment)
     }
+
+    /** 1 → 2 → 3 → 4, all heading east, so every station starts on the default direction. */
+    private fun fourStations(): Survey {
+        val survey = Survey("T")
+        repeat(3) { SurveyBuilder.updateWithNewStation(survey, Leg(5f, 90f, 0f)) }
+        return survey
+    }
+
+    /**
+     * Sending a station left sends everything beyond it left too.
+     *
+     * This is what the direction *means*. An extended elevation unrolls the cave onto a line, and
+     * at a junction the surveyor says which way the next passage is drawn — so the answer applies
+     * to that passage, not to one leg of it. `SurveyUpdater.setExtendedElevationDirection` walks
+     * the subtree for exactly this reason, and the dialog was setting the field on the one station
+     * instead: mark a junction left and the leg into it flipped while everything past it carried
+     * on to the right, which is a drawing that is wrong and does not look wrong.
+     */
+    @Test
+    fun sendingAStationLeftSendsThePassageBeyondItLeftToo() {
+        val survey = fourStations()
+        val junction = survey.getStationByName("2")!!
+
+        applyStationEdit(survey, junction, junction.name, "", ExtendedElevationDirection.LEFT)
+
+        for (name in listOf("2", "3", "4")) {
+            assertEquals(
+                ExtendedElevationDirection.LEFT,
+                survey.getStationByName(name)!!.extendedElevationDirection,
+                "station $name should have gone left with the passage",
+            )
+        }
+    }
+
+    /** And not the passage before it: the surveyor marked a junction, not the whole cave. */
+    @Test
+    fun theStationsAboveTheJunctionAreLeftAlone() {
+        val survey = fourStations()
+        val junction = survey.getStationByName("2")!!
+
+        applyStationEdit(survey, junction, junction.name, "", ExtendedElevationDirection.LEFT)
+
+        assertEquals(
+            ExtendedElevationDirection.RIGHT,
+            survey.origin.extendedElevationDirection,
+        )
+    }
+
+    /**
+     * Vertical is the exception, and the model already says so: [ExtendedElevationDirection]
+     * carries a `propagates` flag which is false for it. A pitch is drawn from its height change
+     * alone and says nothing about which way the passage at the bottom goes, so the survey resumes
+     * whatever it was doing.
+     */
+    @Test
+    fun aPitchAppliesToItsOwnLegAndNoFurther() {
+        val survey = fourStations()
+        val head = survey.getStationByName("2")!!
+
+        applyStationEdit(survey, head, head.name, "", ExtendedElevationDirection.VERTICAL)
+
+        assertEquals(ExtendedElevationDirection.VERTICAL, head.extendedElevationDirection)
+        for (name in listOf("3", "4")) {
+            assertEquals(
+                ExtendedElevationDirection.RIGHT,
+                survey.getStationByName(name)!!.extendedElevationDirection,
+                "station $name is below a pitch, not on it",
+            )
+        }
+    }
+
+    /** A direction that has not changed must not quietly re-flood the subtree under it. */
+    @Test
+    fun leavingTheDirectionAloneLeavesTheSubtreeAlone() {
+        val survey = fourStations()
+        val junction = survey.getStationByName("2")!!
+        val below = survey.getStationByName("3")!!
+        // Somebody sent this one branch the other way earlier in the trip.
+        below.extendedElevationDirection = ExtendedElevationDirection.LEFT
+
+        applyStationEdit(survey, junction, junction.name, "sump", junction.extendedElevationDirection)
+
+        assertEquals("sump", junction.comment)
+        assertEquals(ExtendedElevationDirection.LEFT, below.extendedElevationDirection)
+    }
 }

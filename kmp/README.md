@@ -2793,6 +2793,40 @@ These are the things that would actually shape a real port.
    was written from would pass whatever number it invented. The first version was out by a factor
    of six hundred and sixty-six and still zoomed in the right direction.
 
+82. **A survey drawn wrong, plausibly, by a control that looked like it worked.** Found by
+   sweeping `res/values/strings.xml` — all 691 of them — on the theory that a string the Android
+   app can say and this port cannot is a feature, a message or a warning that is missing. As an
+   oracle it is *bad*: 412 of the 691 have no textual counterpart here, almost entirely because
+   this port writes its own copy, and spot-checking the largest groups found stats, settings,
+   devices and calibration all present under different words. What it was good for was raising a
+   question about one specific thing.
+
+   `menu_draw_left`, `menu_draw_right` and `menu_draw_vertical` sit in an **Elevation** submenu on
+   the Android station menu. The port has no such submenu — it folds the choice into the station's
+   own edit dialog instead, which is a defensible rearrangement, and the first conclusion was that
+   this was a false alarm. It was not, but the reason took another layer of looking:
+   `SurveyUpdater.setExtendedElevationDirection` was ported, tested, and **called by nothing**. The
+   dialog assigned `station.extendedElevationDirection` directly.
+
+   That distinction is the whole meaning of the setting. An extended elevation unrolls the cave
+   onto a line, and marking a junction *left* is the surveyor saying which way the passage beyond
+   here is drawn — so `LEFT` and `RIGHT` carry down the subtree, which is what the model's own
+   `ExtendedElevationDirection.propagates` flag and `setExtendedElevationDirectionOfSubtree`
+   exist to do. Assigning the field turned one leg and left everything past the junction going as
+   it was. Nothing looks broken in that drawing; the passage simply goes the wrong way, on a
+   survey nobody is going to walk again to check. `VERTICAL` is the exception and the model already
+   said so: a pitch is drawn from its height change alone and says nothing about the passage at the
+   bottom.
+
+   **The browser check for this had been passing the whole time.** It set a station to unroll left
+   and then asked one question — is *this* station's `eeDirection` now `left`? — which was true
+   before the fix and after it. The same shape as finding 81's: a check that asserts the thing it
+   just did rather than the thing that was supposed to follow from it. It now computes the
+   subtree from the saved file and asserts every station below went with it and every station above
+   did not, and it fails with `Sump=left 2=right` against the old code. The Java guards on the
+   direction having *changed* before it floods, and so does this now — without it, editing a
+   comment would silently re-flood a branch somebody had sent the other way an hour earlier.
+
 ---
 
 ## A defect worth reporting upstream
@@ -2944,7 +2978,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 777
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 406 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 410 over the UI's own
 logic, 20 running the iOS half in a simulator,
 110 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 10 more at a desk, on a wheel, a trackpad and a keyboard. The

@@ -237,7 +237,22 @@ internal fun applyStationEdit(
         SurveyUpdater.renameStation(survey, station, wanted)
     }
     station.comment = comment
-    station.extendedElevationDirection = direction
+    // Through SurveyUpdater rather than by assignment, and only when it actually changed - which
+    // is what `SurveyEditorActivity.setDirection` does, guard and all.
+    //
+    // The difference is the whole meaning of the setting. An extended elevation unrolls the cave
+    // onto a line, and at a junction the surveyor is saying which way *the passage beyond here*
+    // is drawn - so LEFT and RIGHT carry down the subtree (`ExtendedElevationDirection.propagates`
+    // says so in the model, and `setExtendedElevationDirectionOfSubtree` is what acts on it).
+    // Assigning the field sent one leg the other way and left everything past the junction going
+    // as it was: a drawing that is wrong and does not look wrong, which is the worst kind for a
+    // survey nobody will re-walk.
+    //
+    // The guard matters too. Re-flooding the subtree every time somebody edited a comment would
+    // undo a branch that had been sent the other way earlier in the trip.
+    if (station.extendedElevationDirection != direction) {
+        SurveyUpdater.setExtendedElevationDirection(survey, station, direction)
+    }
     survey.isSaved = false
 }
 

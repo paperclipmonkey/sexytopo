@@ -2391,6 +2391,39 @@ if (jumped === null) {
 
 await at(...PLAN_TAB); await page.waitForTimeout(600)
 
+/**
+ * Did "unroll left" reach the whole passage below the station it was set on, and no further?
+ *
+ * The direction is not a property of one station: an extended elevation unrolls the cave onto a
+ * line, so at a junction the surveyor is saying which way *everything beyond here* is drawn.
+ * `SurveyUpdater.setExtendedElevationDirection` walks the subtree for that reason, and the dialog
+ * used to assign the field on the one station instead — which this check could not see, because it
+ * only ever asked about the station it had just edited. It passed for weeks over a drawing that
+ * was wrong.
+ *
+ * The subtree is computed from the saved file rather than assumed, because which station the field
+ * bar's chip is pointing at depends on every check before this one.
+ */
+const eeDirectionCarriedDownThePassage = (stations, from) => {
+  const byName = new Map(stations.map((st) => [st.name, st]))
+  const below = new Set()
+  const walk = (name) => {
+    for (const leg of byName.get(name)?.legs ?? []) {
+      if (isSplay(leg) || !leg.destination || below.has(leg.destination)) continue
+      below.add(leg.destination)
+      walk(leg.destination)
+    }
+  }
+  walk(from)
+  // Nothing below it is no evidence either way, so say so rather than passing vacuously.
+  if (below.size === 0) return false
+  for (const st of stations) {
+    const wanted = st.name === from || below.has(st.name) ? 'left' : 'right'
+    if (st.eeDirection !== wanted) return false
+  }
+  return true
+}
+
 // ---- a station can be named, and told what is there ----------------------------------------
 // Numbered stations are fine down a straight passage and useless at a junction: the surveyor's
 // notebook says "sump", and a survey where that name exists only on paper cannot be tied to the
@@ -2420,6 +2453,11 @@ if (!sump) {
   fail(`the station's comment was not kept (${JSON.stringify(sump.comment)})`)
 } else if (sump.eeDirection !== 'left') {
   fail(`the extended-elevation direction was not kept (${sump.eeDirection})`)
+} else if (!eeDirectionCarriedDownThePassage(named, 'Sump')) {
+  fail(
+    'setting a station to unroll left did not carry down the passage beyond it: ' +
+      named.map((st) => `${st.name}=${st.eeDirection}`).join(' '),
+  )
 } else {
   pass('a station can be named, commented and pointed the right way in the extended elevation')
 }
