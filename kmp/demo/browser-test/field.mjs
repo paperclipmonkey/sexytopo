@@ -3983,6 +3983,77 @@ if (wideTop === null || wideHeight === null) {
   }
 }
 
+// ---- and the same phone the right way up, with the keyboard up ------------------------------
+// The check above squeezes the height and says honestly that it is the keyboard case in
+// disguise. It is - but only half of it. A phone turned sideways is 667 pixels *wide*, and a
+// dialog with 667 pixels to lay out in has room the same dialog does not have in portrait. What a
+// keyboard actually leaves an iPhone SE is 375 by 375: narrow and short at once, and neither of
+// the two viewports this file has run so far is that.
+//
+// So this is the shape itself rather than a stand-in for it. What it still cannot prove is the
+// other half the section above names: whether iOS reports the keyboard's height as a window inset
+// at all. That needs a phone. What it does prove is that if iOS does, the dialog underneath is a
+// dialog you can still finish.
+await page.setViewportSize({ width: 375, height: 375 })
+await page.waitForTimeout(1200)
+box = await (await page.$('canvas')).boundingBox()
+const squeezed = box
+await page.screenshot({ path: join(shotDir, 'field-portrait-squeezed.png') })
+
+// Recounted rather than reused: the landscape check above created a survey, so the saved list is
+// one longer than it was when `smallSaved` was taken and every menu row below it has moved.
+const squeezedSaved = await page.evaluate(() => {
+  const prefix = 'sexytopo:f:surveys/'
+  const names = Object.keys(localStorage)
+    .filter((k) => k.startsWith(prefix))
+    .map((k) => k.slice(prefix.length).split('/')[0])
+  return new Set(names).size
+})
+
+await at(...overflowButton()); await page.waitForTimeout(600)
+await at(...(await menuRow('new', squeezedSaved))); await page.waitForTimeout(900)
+await page.screenshot({ path: join(shotDir, 'field-portrait-squeezed-dialog.png') })
+
+const squeezedTop = await dialogTop()
+const squeezedHeight = await dialogHeight()
+if (squeezedTop === null || squeezedHeight === null) {
+  fail('the new-survey dialog did not open on a 375x375 screen')
+} else if (squeezedTop + squeezedHeight > squeezed.height) {
+  fail(
+    `with a keyboard up the dialog runs from ${squeezedTop} to ` +
+      `${squeezedTop + squeezedHeight} in ${squeezed.height} pixels of height, so its buttons ` +
+      'are off the bottom',
+  )
+} else {
+  const squeezedRows = await dialogTextRows()
+  const squeezedConfirm = await dialogConfirm()
+  if (squeezedConfirm === null || squeezedRows.length === 0) {
+    fail('on a 375x375 screen the new-survey dialog has no field or no button on screen')
+  } else {
+    await page.mouse.click(
+      squeezed.x + squeezed.width / 2,
+      squeezed.y + squeezedTop + squeezedHeight / 2,
+    )
+    await page.waitForTimeout(250)
+    await page.keyboard.type('Squeezed', { delay: 25 })
+    await page.waitForTimeout(250)
+    await at(...squeezedConfirm); await page.waitForTimeout(1200)
+    if ((await dialogTop()) !== null) {
+      fail('on a 375x375 screen the new-survey dialog would not close from its own button')
+    } else {
+      pass(
+        'a dialog can be opened, typed into and confirmed in 375 by 375, which is what a ' +
+          `keyboard leaves a phone (${squeezedHeight} tall at y=${squeezedTop})`,
+      )
+    }
+  }
+}
+
+// Back to landscape, because everything below was written against that window.
+await page.setViewportSize({ width: 667, height: 375 })
+await page.waitForTimeout(1200)
+box = await (await page.$('canvas')).boundingBox()
+
 // ---- the theme, which was forgotten every time the app closed -------------------------------
 // `pref_theme` is a three-value list in the Android app — auto, light, dark — applied through
 // `AppCompatDelegate.setDefaultNightMode`. This port had a two-state toggle on the menu that was a

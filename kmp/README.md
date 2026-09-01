@@ -53,7 +53,7 @@ Being precise about this matters more than the demo looking good.
 | **A station can be found by name, and the last leg taken back** | **Verified** | `FindStationTest` — names and comments both searched, a station the survey no longer holds has no position rather than a crash, and the last leg is the last one *taken* rather than the last in any walk of the tree — and `field.mjs` finds a station on a phone screen and checks the view moved, then adds a splay, takes it back from the drawing menu and checks only it went |
 | **The plan says which end of the survey you are working at** | **Verified** | `CentrelineDisplayTest` and `DashedLineTest` — the mark follows the last reading *taken*, splay included, as the Java's own paint order does; a leg is matched by identity, because two shots down a straight passage read the same; a pitch is out of the plan's plane and in the extended elevation's; and a leg too short to dash draws nothing rather than one stub that would read as solid — plus `field.mjs` finds the app's magenta on the drawn plan, turns the mark off and checks every magenta pixel went, fades the rest of the cave and checks the drawing got lighter, then brings it back |
 | **It fits a small phone** | **Mostly** | `field.mjs` ends by resizing to 375x667 — an iPhone SE — and checking the toolbar is still where it computes it to be and the canvas still takes a stroke. It then opens the one dialog certain to overflow that screen and checks the mechanism the other dialogs rely on: the card is sized to the window rather than clipped, a wheel scrolls its text, and the button below the text is on screen and closes it |
-| **And sideways, which is most of the keyboard case** | **Verified, for the half that is layout** | then 667x375 — the same phone turned over, and about the height a portrait phone has left once a keyboard has taken a third. The sketch still takes a stroke, and a dialog with a text field in it is measured to fit that height, typed into and confirmed from its own button. What this does **not** test is whether iOS reports the keyboard's height as a window inset at all; that is a device question. The vertical squeeze is the same problem either way, and it is now checked |
+| **And at the size a keyboard leaves, which is the case itself** | **Verified, for the half that is layout** | then 667x375, the same phone turned over — the sketch still takes a stroke, and a dialog with a text field in it is measured to fit that height, typed into and confirmed from its own button. Then 375x375, which is what a keyboard actually leaves an iPhone SE: narrow *and* short at once, which sideways is not. A dialog 667 pixels wide has room the same dialog has not got in portrait, so the landscape pass was a stand-in and this is the shape. What neither tests is whether iOS reports the keyboard's height as a window inset at all; that is a device question, and it is the only part still open |
 | **The table and the drawing are joined up, both ways** | **Verified** | `StationMenuTest` for each menu offering the views the other is not showing, `SurveyTableTest` for which row a station is found at and for which station a cell is about when the shot was booked backwards — and `field.mjs` taps both ends of one leg on a phone screen, checks they offer different menus, follows *show it on the plan* to a station that lands within forty pixels of the middle, then holds a station on the drawing and follows *show it in the table* back |
 | **A reading can be corrected, annotated, reversed or unmade** | **Verified** | `LegActionsTest` and `SurveyUpdaterTest` — which actions each row offers and what they do: a leg with splays hanging off its far end is not offered the downgrade `SurveyUpdater` would throw over, the first reading of a survey is not offered a promotion there is no leg above for, a leg the survey no longer holds answers "no" instead of throwing, and a comment marks the survey unsaved, which the Android app's own dialogs do not — and `field.mjs` counts what the menu offers a splay and a leg on a phone screen, writes a note against a leg, checks the table gains the app's dagger, and turns the shot end for end and back again |
 | **Any station can be reached from the sketch, not just the active one** | **Verified** | `StationMenuTest` for which actions a station offers — the origin has no incoming leg and no delete, cross-sections belong to the plan, a backsight is normalised the way the table normalises it — and `field.mjs` finds a station that is *not* the active one on the drawn plan, holds it, and checks that the menu moved the active station there without marking the paper |
@@ -647,6 +647,13 @@ window gets shorter, and an iPhone SE turned over is 667x375: about what a portr
 once a third of it is keypad. So `field.mjs` finishes there too, draws a stroke, and opens a dialog
 *with a text field in it* — measuring that the card fits those 375 pixels, then typing a name into
 it and confirming from its own button.
+
+Sideways is only half a stand-in, though, and it took saying it out loud to see why: a phone turned
+over is 667 pixels *wide*, and a dialog with 667 pixels to lay out in has room the same dialog has
+not got in portrait. What a keyboard actually leaves is **375 by 375** — narrow and short at once,
+which is neither of the two windows this file had run. So it runs a third, and it is the shape
+itself rather than a stand-in for it: the same dialog, opened, measured, typed into and confirmed
+in the window a surveyor really has while typing a station name.
 
 What that does not answer is whether iOS reports the keyboard's height as a window inset in the
 first place, which is plumbing rather than layout and which only a device can settle. Said plainly
@@ -2458,8 +2465,8 @@ this up again is which of the remaining items are *blocked* and which are merely
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 759
 shared tests on three targets, 370 over the UI's own logic, 18 running the iOS half in a simulator,
-101 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
-667x375. The
+102 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
+667x375, then 375x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.
 
@@ -2472,8 +2479,10 @@ things that are missing are missing on purpose and are listed below.
    first thing it found was a crash nothing here could reach — see finding 54. That is the honest
    summary of this whole line item: the build instructions were right, the app launched, and one
    `Info.plist` key belonging to Compose rather than to Apple took it down on a phone and on no
-   simulator. What is still unmet is a dialog with the *keyboard up*, which takes a third of an
-   iPhone SE's screen and which no headless browser and no simulator screenshot has. The dp conversion (finding 28) was on this list and is
+   simulator. What is still unmet is narrower than it was: the *geometry* a keyboard leaves - 375 by
+   375 - is now a viewport `field.mjs` runs a dialog through, so what a phone is needed for is
+   whether iOS reports the keyboard's height as a window inset in the first place, which is
+   plumbing rather than layout. The dp conversion (finding 28) was on this list and is
    not any more — `DrawingDensityTest` renders the canvas at a phone's density and would catch it —
    and the app icon has been through a real `actool`.
 3. **A decision from upstream.** Cross-survey links are absolute `content://` URIs; replacing them
