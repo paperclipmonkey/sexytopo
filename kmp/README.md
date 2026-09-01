@@ -2827,6 +2827,30 @@ These are the things that would actually shape a real port.
    direction having *changed* before it floods, and so does this now — without it, editing a
    comment would silently re-flood a branch somebody had sent the other way an hour earlier.
 
+83. **A leg booked off the wrong station, and no way back short of deleting it.**
+   `SurveyUpdater.moveLeg` was ported and unit-tested from the day the survey engine was, and
+   nothing in this port ever called it. The mistake it repairs is not a mistyped number — the edit
+   dialog already fixes those — it is a shot taken from the wrong place: pushing on from the end of
+   the passage when the reading should have come off the junction thirty metres back. Without
+   `moveLeg` the only repair was *Delete*, which for a connecting leg takes everything surveyed
+   beyond it too, turning one wrong station into an afternoon of re-surveying a passage that was
+   never actually lost.
+
+   The move itself is one line — unhook the leg, hang it on the new station — and the Java's own
+   guard against it lives one layer up, in the form rather than the updater, which is exactly why
+   porting the updater did not bring the guard with it. `moveLeg`'s own comment says so: "there is
+   no check that this keeps the survey a tree." A survey is a tree by convention only, and hanging a
+   leg inside its own subtree makes a cycle — every traversal here is a loop rather than recursion
+   (finding 17), so a cycle does not overflow the stack, it spins forever, on a phone, in a cave.
+   `SurveyTools.isInSubtree` was the other half never ported; it is now, and the candidate list a
+   surveyor sees excludes a leg's own subtree outright rather than showing it and refusing the tap.
+
+   The picker is `FindStationDialog` in miniature — search by name or by what was written in the
+   comment, because a surveyor two hours into a trip does not remember whether the junction was
+   station 14 or 15, only that it draughted. Sharing `stationsMatching` was not a convenience; it
+   was the only way to be sure the two dialogs treat a query the same way, since either one wrong
+   is a station nobody can find.
+
 ---
 
 ## A defect worth reporting upstream
@@ -2978,9 +3002,9 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 777
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 410 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 416 over the UI's own
 logic, 20 running the iOS half in a simulator,
-110 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
+111 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 10 more at a desk, on a wheel, a trackpad and a keyboard. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

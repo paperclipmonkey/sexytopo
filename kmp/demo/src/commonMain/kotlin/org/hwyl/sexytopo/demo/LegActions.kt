@@ -3,6 +3,9 @@ package org.hwyl.sexytopo.demo
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -18,9 +21,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.math.adjustAngle
 import org.hwyl.sexytopo.shared.model.survey.Leg
+import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 
@@ -44,6 +49,7 @@ enum class LegAction(private val legLabel: String, private val splayLabel: Strin
     UPGRADE("Make it a station"),
     DOWNGRADE("Make it a splay"),
     PROMOTE("Add it to the leg above"),
+    MOVE("Hang it off another station…"),
     DELETE("Delete"),
     ;
 
@@ -70,7 +76,39 @@ fun legActionsFor(survey: Survey, row: SurveyTableRow): List<LegAction> = buildL
         add(LegAction.REVERSE)
         if (SurveyUpdater.canDowngradeLeg(row.leg)) add(LegAction.DOWNGRADE)
     }
+    if (legMoveTargets(survey, row).isNotEmpty()) add(LegAction.MOVE)
     add(LegAction.DELETE)
+}
+
+/**
+ * The stations [row]'s shot could be re-hung on, filtered by [query] the way *Find a station* is.
+ *
+ * The reason this exists at all: a shot is taken from whichever station is active, and the mistake
+ * a surveyor actually makes is taking one from the wrong place — pushing on from the end of the
+ * passage when the leg should have come off the junction thirty metres back. `SurveyUpdater.moveLeg`
+ * is the Java's answer and was ported here long ago; nothing in this port called it, so the only
+ * repair available was *Delete*, which for a full leg takes everything surveyed beyond it too. That
+ * turns one mistyped station into an hour of re-surveying.
+ *
+ * Two stations are excluded, and the second is not cosmetic. The one the leg already hangs off,
+ * because moving it there does nothing. And, for a connecting leg, the station it leads to and
+ * everything below that: `moveLeg` re-parents without checking, its own note says so, and a survey
+ * is a tree only by convention — so hanging a leg inside its own subtree makes a cycle and the next
+ * traversal never returns. The Android app refuses the same move with
+ * `survey_update_error_descendant_station`, in `EditLegForm` rather than in the updater, which is
+ * why porting the updater did not bring the guard with it.
+ *
+ * Excluded rather than shown and refused, and when nothing is left the action is not offered — the
+ * same rule the rest of this file follows, and the reason the Java's "Nowhere valid to move this
+ * leg" has no counterpart here.
+ */
+fun legMoveTargets(survey: Survey, row: SurveyTableRow, query: String = ""): List<Station> {
+    val leg = row.leg
+    val current = survey.getOriginatingStation(leg) ?: return emptyList()
+    return stationsMatching(survey, query).filter { candidate ->
+        candidate !== current &&
+            !(leg.hasDestination() && Survey.isInSubtree(leg.destination, candidate))
+    }
 }
 
 /**
@@ -97,8 +135,20 @@ fun LegActionsDialog(
     var editing by remember { mutableStateOf(false) }
     var commenting by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
+    var moving by remember { mutableStateOf(false) }
 
     when {
+        moving ->
+            MoveLegDialog(
+                survey = survey,
+                row = row,
+                onDismiss = { moving = false },
+                onMove = { station ->
+                    SurveyUpdater.moveLeg(survey, row.leg, station)
+                    onEdited()
+                },
+            )
+
         commenting ->
             LegCommentDialog(
                 row = row,
@@ -202,6 +252,7 @@ fun LegActionsDialog(
                                             SurveyUpdater.promoteToAboveLeg(survey, row.leg)
                                             onEdited()
                                         }
+                                        LegAction.MOVE -> moving = true
                                     }
                                 },
                             ) { Text(action.label(row.isSplay)) }
@@ -332,6 +383,74 @@ private fun LegCommentDialog(
             )
         },
         confirmButton = { TextButton(onClick = { onSave(comment) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
+ * Pick the station this shot should have come off.
+ *
+ * Built like *Find a station* — a search box over a list of every candidate — for the same reason:
+ * the surveyor knows it is "the one at the junction with the draught", not its number, and the
+ * comment is searched as well as the name. The list is [legMoveTargets], so a station that would
+ * make a cycle is not on it to be tapped.
+ */
+@Composable
+private fun MoveLegDialog(
+    survey: Survey,
+    row: SurveyTableRow,
+    onDismiss: () -> Unit,
+    onMove: (Station) -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    val targets = remember(survey, row, query) { legMoveTargets(survey, row, query) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Hang it off which station?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    if (row.isSplay) {
+                        "The splay moves; nothing else does."
+                    } else {
+                        "Everything surveyed beyond ${row.to} comes with it."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (targets.isEmpty()) {
+                    Text(
+                        "No station is called that.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    LazyColumn(Modifier.heightIn(max = 220.dp)) {
+                        items(targets, key = { it.name }) { station ->
+                            TextButton(
+                                onClick = { onMove(station) },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    describe(station),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    textAlign = TextAlign.Start,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

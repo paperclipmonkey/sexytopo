@@ -266,4 +266,84 @@ class LegActionsTest {
         assertFalse(SurveyUpdater.canDowngradeLeg(splayOff(survey, "2")))
     }
 
+    // -------------------------------------------------------------------------------------
+    // Re-hanging a shot taken from the wrong station
+    // -------------------------------------------------------------------------------------
+
+    private fun names(stations: List<org.hwyl.sexytopo.shared.model.survey.Station>) =
+        stations.map { it.name }
+
+    /**
+     * The move that matters, and the one the port had no way to make: a leg that should have come
+     * off the junction rather than the end of the passage.
+     */
+    @Test
+    fun aLegCanBeHungOffAnyStationThatIsNotBelowIt() {
+        val survey = passage()
+        val row = rowFor(survey, "2", legInto(survey, "3"))
+
+        assertContains(legActionsFor(survey, row), LegAction.MOVE)
+        assertEquals(listOf("1"), names(legMoveTargets(survey, row)))
+    }
+
+    /**
+     * And not onto itself or anything it leads to.
+     *
+     * `SurveyUpdater.moveLeg` re-parents without checking - its own note says so, and the Java's
+     * does too - so a leg hung inside its own subtree makes a cycle and the next traversal never
+     * comes back. The Android app refuses the same move in `EditLegForm`, not in the updater,
+     * which is why porting the updater did not bring the guard along. This is the guard.
+     */
+    @Test
+    fun aLegCannotBeHungOnTheCaveBelowIt() {
+        val survey = passage()
+        val row = rowFor(survey, "1", legInto(survey, "2"))
+        val offered = names(legMoveTargets(survey, row))
+
+        assertFalse("1" in offered, "it already hangs there")
+        assertFalse("2" in offered, "that is the station this leg makes")
+        assertFalse("3" in offered, "that is below the station this leg makes")
+        assertTrue(offered.isEmpty(), "so on this survey there is nowhere to put it: $offered")
+    }
+
+    /** And when there is nowhere to put it the action is not offered at all. */
+    @Test
+    fun aLegWithNowhereToGoIsNotOfferedTheMove() {
+        val survey = passage()
+        assertFalse(LegAction.MOVE in legActionsFor(survey, rowFor(survey, "1", legInto(survey, "2"))))
+    }
+
+    /** A splay leads nowhere, so every other station in the cave is fair game. */
+    @Test
+    fun aSplayCanBeHungAnywhereButWhereItIs() {
+        val survey = passage()
+        val row = rowFor(survey, "2", splayOff(survey, "2"))
+
+        assertEquals(listOf("1", "3"), names(legMoveTargets(survey, row)))
+    }
+
+    /** The list is searched by name and comment, as *Find a station* is. */
+    @Test
+    fun theStationsCanBeSearchedByWhatWasWrittenAboutThem() {
+        val survey = passage()
+        survey.getStationByName("1")!!.comment = "the draughting junction"
+        val row = rowFor(survey, "2", splayOff(survey, "2"))
+
+        assertEquals(listOf("1"), names(legMoveTargets(survey, row, "draught")))
+        assertEquals(listOf("3"), names(legMoveTargets(survey, row, "3")))
+    }
+
+    /** And the move itself does what it says, through the ported updater. */
+    @Test
+    fun movingAShotRehangsItAndLeavesTheSurveyWalkable() {
+        val survey = passage()
+        val splay = splayOff(survey, "2")
+
+        SurveyUpdater.moveLeg(survey, splay, survey.getStationByName("3")!!)
+
+        assertSame(survey.getStationByName("3"), survey.getOriginatingStation(splay))
+        assertFalse(splay in survey.getStationByName("2")!!.onwardLegs)
+        // The traversal terminating is the whole point of the guard above.
+        assertEquals(3, survey.getAllStationsInChronoOrder().size)
+    }
 }

@@ -295,6 +295,23 @@ class Survey(name: String = DEFAULT_NAME) {
             return false
         }
 
+        /**
+         * Is [station] [root] itself, or anywhere in the passage below it?
+         *
+         * `SurveyTools.isInSubtree`, which the Java uses for one thing: refusing to re-hang a leg
+         * on a station that the leg itself leads to. `SurveyUpdater.moveLeg` does not check - its
+         * own note says so, in both languages - and the survey is a tree only by convention, so a
+         * move into its own subtree makes a cycle and the next traversal never comes back. That is
+         * a hang, in a cave, on a survey that has not been saved.
+         *
+         * By identity, like everything else here: a survey read from a file can hold two stations
+         * with the same name.
+         */
+        fun isInSubtree(root: Station?, station: Station?): Boolean {
+            if (root == null || station == null) return false
+            return traverseStations(root) { it === station }
+        }
+
         /** Ported from `control/util/SurveyTools.traverseStations`; visits [station] first. */
         fun traverseStations(station: Station, visit: (Station) -> Boolean): Boolean {
             val pending = ArrayDeque<Station>()

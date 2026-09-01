@@ -2202,13 +2202,61 @@ if (splayRow < 0) {
   // what a downgrade would make it. Getting this wrong is not a cosmetic fault: every one of
   // these buttons rewrites the survey.
   const splayActions = await legActionRows()
-  if (splayActions.length !== 5) {
-    fail(`a splay offered ${splayActions.length} actions, not the expected five`)
+  if (splayActions.length !== 6) {
+    fail(`a splay offered ${splayActions.length} actions, not the expected six`)
   } else {
     pass('a splay is offered every way of promoting it, and neither of the leg-only actions')
   }
 
-  await at(...splayActions[0]); await page.waitForTimeout(700)
+  // ---- and a shot booked off the wrong station can be re-hung -----------------------------
+  // The mistake this repairs is not a mistyped number: it is a shot taken from the wrong place,
+  // which happens whenever somebody pushes on from the end of the passage when the leg should
+  // have come off the junction behind them. Until this existed the only repair was Delete, and
+  // for a connecting leg that takes everything surveyed beyond it too.
+  //
+  // The station the splay hangs off is read from the saved file rather than from the table, so
+  // this says what actually happened to the survey and not what the screen drew.
+  const splayHost = () => page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
+    if (!key) return null
+    const stations = JSON.parse(localStorage.getItem(key)).stations ?? []
+    const owner = stations.find((st) => (st.legs ?? []).some((leg) => leg.destination === '-'))
+    return owner ? owner.name : null
+  })
+
+  const hostBefore = await splayHost()
+  await at(...splayActions[4]); await page.waitForTimeout(700)
+  await page.screenshot({ path: join(shotDir, 'field-move-leg.png') })
+  // The picker is the explanation, the Name box, one row per candidate station, then Cancel — so
+  // the first text row is the first station it will let you move to, and on this survey the only
+  // one: the splay is off station 1, and a splay leads nowhere, so every other station is fair
+  // game. A connecting leg would have its own subtree missing from this list.
+  const pickerRows = await dialogTextRows()
+  if (pickerRows.length < 2) {
+    fail(`the move-leg picker offered no station to move to (${JSON.stringify(pickerRows)})`)
+  } else {
+    await at(ACT_X, pickerRows[0]); await page.waitForTimeout(900)
+    const hostAfter = await splayHost()
+    const stillThere = (await savedLegs()).filter(isSplay).length
+    if (hostAfter === hostBefore) {
+      fail(`re-hanging the shot left it on station ${hostAfter}`)
+    } else if (stillThere !== 1) {
+      fail(`re-hanging the shot did not move it, it copied or lost it (${stillThere} splays)`)
+    } else if (!(await savedLegs()).some(isConnecting)) {
+      fail('re-hanging the shot took the connected leg with it')
+    } else {
+      pass(`a shot booked off the wrong station can be re-hung (${hostBefore} to ${hostAfter})`)
+    }
+  }
+
+  // Re-hanging the shot closed the actions dialog, as every action that rewrites the survey does,
+  // so the edit below needs it opened again. The splay is still the second row: the table is in
+  // survey order and it now hangs off station 2 rather than station 1, which is the row after the
+  // leg that makes station 2 either way.
+  await at(...TABLE_ROW(2)); await page.waitForTimeout(700)
+  const afterMoveActions = await legActionRows()
+
+  await at(...afterMoveActions[0]); await page.waitForTimeout(700)
   await retype(EDIT_DISTANCE, '2.75')
   await page.screenshot({ path: join(shotDir, 'field-edit-reading.png') })
   await at(...EDIT_SAVE); await page.waitForTimeout(900)
