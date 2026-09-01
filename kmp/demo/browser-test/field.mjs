@@ -3890,12 +3890,109 @@ if (backToTheSketch === 0) {
 await page.setViewportSize({ width: 375, height: 667 })
 await page.waitForTimeout(1000)
 box = await (await page.$('canvas')).boundingBox()
-const small = box
+let small = box
 const tapSmall = (x, y) => page.mouse.click(small.x + x, small.y + y)
 const smallToolRow = small.height - 20
 const smallColumn = small.width / 9
 
 await page.screenshot({ path: join(shotDir, 'field-small-screen.png') })
+
+// ---- the table's last column is reachable on the smaller phone -------------------------------
+// Five fixed-width columns come to 396 pixels and the padding to 24 more: exactly the 420-pixel
+// window everything above ran in, and forty-five too many for an iPhone SE. The header alone was
+// scrollable and the rows were not, so the inclination — the reading that says whether a passage
+// goes up or down — ran off the right of every row with no way to reach it, and had the header
+// ever been dragged its labels would have come away from the numbers under them.
+//
+// A touch drag, because that is what a phone does and what Compose treats as a scroll: a mouse
+// drag on a scrollable is not one, which is why every other drag in this file marks the paper.
+// Touch emulation is turned on for this check alone rather than for the whole run, so the two
+// hundred checks above go on being what they were.
+// The tabs are right-aligned in the app bar, so on a narrower phone they move left by exactly the
+// difference in width — not proportionally. Scaling by 375/420 lands between two icons and, on the
+// way back, selected the extended elevation instead of the plan; every check after this one then
+// ran against the wrong drawing, and the one that noticed was three screens later.
+const smallTable = [small.width - (420 - TABLE_TAB[0]), TABLE_TAB[1]]
+const smallPlan = [small.width - (420 - PLAN_TAB[0]), PLAN_TAB[1]]
+await tapSmall(...smallTable); await page.waitForTimeout(900)
+
+/** The x of the rightmost ink in a band of rows, or null if the band is blank. */
+const rightmostInk = async (fromY, toY) => {
+  const b64 = (await page.screenshot({ clip: small })).toString('base64')
+  return page.evaluate(async ([data, top, bottom]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    for (let x = c.width - 1; x >= 0; x--) {
+      for (let y = top; y <= Math.min(bottom, c.height - 1); y++) {
+        const i = (y * c.width + x) * 4
+        if (Math.max(px[i], px[i + 1], px[i + 2]) < 150) return x
+      }
+    }
+    return null
+  }, [b64, fromY, toY])
+}
+
+// The header band and a band of data rows, measured from the rendered page.
+const HEADER_BAND = [58, 76]
+const ROWS_BAND = [140, 260]
+const headerBefore = await rightmostInk(...HEADER_BAND)
+const rowsBefore = await rightmostInk(...ROWS_BAND)
+
+const cdp = await ctx.newCDPSession(page)
+await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 })
+const touchAt = (type, x, y) =>
+  cdp.send('Input.dispatchTouchEvent', {
+    type,
+    touchPoints: type === 'touchEnd' ? [] : [{ x: small.x + x, y: small.y + y }],
+  })
+await touchAt('touchStart', 320, 200)
+for (let x = 320; x >= 180; x -= 10) { await touchAt('touchMove', x, 200); await page.waitForTimeout(16) }
+await touchAt('touchEnd', 180, 200)
+await page.waitForTimeout(800)
+await page.screenshot({ path: join(shotDir, 'field-small-table-scrolled.png') })
+
+const headerAfter = await rightmostInk(...HEADER_BAND)
+const rowsAfter = await rightmostInk(...ROWS_BAND)
+await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false })
+await cdp.detach()
+
+// And then a pixel out and back, which is not superstition.
+//
+// Compose lays out differently for a coarse pointer than for a fine one — the app bar is 52 pixels
+// of green with a mouse and 36 with a finger — and turning the emulation off does not re-run the
+// layout on its own. Without the nudge the app stays in its touch layout for the rest of the file,
+// and the first check to notice is the full-screen one three screens later, complaining that the
+// app bar it is about to hide is already short. Which is exactly the sort of failure that gets
+// blamed on the check that reports it.
+await page.setViewportSize({ width: 374, height: 667 }); await page.waitForTimeout(300)
+await page.setViewportSize({ width: 375, height: 667 }); await page.waitForTimeout(600)
+small = await (await page.$('canvas')).boundingBox()
+
+if (headerBefore === null || rowsBefore === null) {
+  fail('the table showed nothing on the small phone, so this check cannot fail')
+} else if (headerBefore < small.width - 4) {
+  fail(
+    `the table's last column was already clear of the edge (${headerBefore} of ${small.width}),` +
+      ' so there is nothing here to scroll to')
+} else if (headerAfter === null || headerAfter >= small.width - 4) {
+  fail('dragging the table sideways did not bring the last column into view')
+} else if (Math.abs((headerBefore - headerAfter) - (rowsBefore - rowsAfter)) > 6) {
+  fail(
+    'the header and the rows moved by different amounts, so the labels no longer sit over the' +
+      ` numbers (header ${headerBefore}->${headerAfter}, rows ${rowsBefore}->${rowsAfter})`)
+} else {
+  pass(
+    'the table scrolls sideways as one on a small phone, so the last column can be read' +
+      ` (${headerBefore} to ${headerAfter} of ${small.width})`)
+}
+
+await tapSmall(...smallPlan); await page.waitForTimeout(700)
 
 // Ink over the middle of the sketch, whatever survey happens to be open by now.
 const middleInk = async () => {

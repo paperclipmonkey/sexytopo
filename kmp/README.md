@@ -2504,6 +2504,32 @@ These are the things that would actually shape a real port.
    that list, so the next setting cannot be quietly half-added. **A test whose thoroughness is a
    list needs a test that the list is complete.**
 
+75. **The table's last column was unreachable on an iPhone SE.** Not from the class sweep — from
+   reading `StickyHeaderDecoration`, deciding the port had no gap there (its header sits outside
+   the `LazyColumn`, so it is fixed by construction rather than by drawing over a `RecyclerView`),
+   and then noticing that the header carried `horizontalScroll` and the rows did not.
+
+   Five fixed-width columns come to 396dp and the padding to 24 more: **exactly** the 420-pixel
+   window every browser check above ran in, and forty-five too many for a 375-point phone. So on an
+   iPhone SE the inclination — the reading that says whether a passage goes up or down — ran off
+   the right of every row, with no way to reach it. And because only the header could scroll, had
+   it ever been dragged its labels would have come away from the numbers under them.
+
+   Two things about how it was found, both worth more than the fix. The first: 420 is the width the
+   browser harness uses, and it is one pixel-perfect coincidence away from the width at which this
+   never shows. **A test at exactly one size cannot see a layout that only just fits.** The second:
+   a mouse drag on a Compose scrollable is not a scroll — only touch is — so every drag in that
+   harness marks the paper rather than scrolling, and the check for this had to dispatch real touch
+   events through CDP to see the behaviour a phone gets.
+
+   Which produced a third finding on the way. Compose lays out differently for a coarse pointer
+   than for a fine one — the app bar is 52 pixels of green with a mouse and 36 with a finger — and
+   turning Chrome's touch emulation back off does *not* re-run the layout. The app therefore stayed
+   in its touch layout for the rest of the run, and the check that finally complained was three
+   screens later, about something else entirely. A one-pixel viewport nudge forces the relayout.
+   The general shape: **a harness that changes the environment has to change it back, and "back"
+   sometimes needs an event, not just a flag.**
+
 ---
 
 ## A defect worth reporting upstream
@@ -2657,7 +2683,7 @@ this up again is which of the remaining items are *blocked* and which are merely
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 777
 shared tests on three targets, 8 more against `java.util.zip` on the JVM, 377 over the UI's own
 logic, 18 running the iOS half in a simulator,
-104 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
+105 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

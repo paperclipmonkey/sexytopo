@@ -87,12 +87,22 @@ fun SurveyTableView(
         )
     }
 
+    // One scroll state for the header and every row, so the whole table moves together.
+    //
+    // Five fixed-width columns come to 396dp and the padding to 24 more, which is exactly a
+    // 420-pixel window and forty-five too many for an iPhone SE. The header alone was scrollable
+    // and the rows were not, which is the worst of both: the inclination column ran off the right
+    // of every row with no way to reach it, and had the header ever been dragged its labels would
+    // have come away from the numbers under them. Sharing the state is what the Android app gets
+    // for free — its header is drawn *over* one RecyclerView, in the same coordinate space.
+    val columns = rememberScrollState()
+
     Column(modifier.fillMaxSize()) {
         Row(
             Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                .horizontalScroll(rememberScrollState())
+                .horizontalScroll(columns)
                 .padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
             HeaderCell("From", 64.dp)
@@ -115,6 +125,7 @@ fun SurveyTableView(
                                 Modifier
                             },
                         )
+                        .horizontalScroll(columns)
                         .padding(horizontal = 12.dp, vertical = 3.dp),
                 ) {
                     // A tap on a station's name is about the station; a tap anywhere else on the
