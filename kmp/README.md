@@ -2851,6 +2851,41 @@ These are the things that would actually shape a real port.
    was the only way to be sure the two dialogs treat a query the same way, since either one wrong
    is a station nobody can find.
 
+84. **The surveying tolerances a surveyor sets were saved, reloaded, and never actually
+   checked against.** Found by a workflow of agents sweeping the Android app for reachable parity
+   gaps and independently fact-checking each other's claims before it ever reached me — the
+   verifier read both languages itself and traced the exact call chain rather than trusting the
+   summary. `SurveySession.settings` was a constructor-only value defaulting to
+   `SurveySettings.DEFAULT`. `DemoState.session` is a property, built once, before
+   `loadSettings()` — the function that reads the saved tolerances — has ever run; `adopt()`
+   rebuilds `session` on every new, opened or imported survey and never touched `settings` either,
+   although it dutifully re-wires `autoReconnect` and `traceFrames` onto the fresh session two
+   lines below where `settings` should have been; and `updateSettings()` wrote the new value to
+   disk and to the settings screen's own state and stopped there. Every reading from a real
+   instrument or the simulator was checked against the class default forever, whatever the
+   Surveying settings dialog showed or the library had saved — a surveyor who loosened the
+   distance/angle tolerance for a compass-and-tape trip, or changed the repeat count, changed
+   nothing a shot could feel. The Java has no session object to go stale: `AngularAmalgamator` and
+   `LegAmalgamationAlgorithm` read `GeneralPreferences` fresh on every call, so a change there is
+   live on the very next shot.
+
+   The one place this port's own settings dialog *did* visibly work was hand-typed manual entry,
+   which passes `state.surveySettings` straight into `addTypedReading` on every call rather than
+   asking a session for it — which is exactly why the bug was easy to miss. The primary workflow,
+   an attached or simulated instrument, was the one silently wrong.
+
+   `settings` is now a `var`, pushed onto the live session the same way `updatePreferences` already
+   pushes `autoReconnect` and `traceFrames`: once from `loadSettings()` at startup, once from
+   `updateSettings()` when the dialog saves, and passed into the constructor from `adopt()` for
+   every survey after the first. The first session's own property initialiser was deliberately
+   *not* given a settings default — `loadSettings()` always overwrites it before a surveyor could
+   possibly reach the session, and a mutation pass proved that default line was never exercised by
+   any test; adding it back would have been exactly the kind of unverified line this project
+   keeps finding and removing. Three tests cover the three real paths — the first session of a
+   launch, a setting changed mid-survey, and a survey opened after the setting changed — each by
+   loosening the repeat count to one and checking that a single simulated reading promotes to a
+   station, a tolerance no wrong session could satisfy by accident.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3002,7 +3037,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 777
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 416 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 419 over the UI's own
 logic, 20 running the iOS half in a simulator,
 111 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 10 more at a desk, on a wheel, a trackpad and a keyboard. The

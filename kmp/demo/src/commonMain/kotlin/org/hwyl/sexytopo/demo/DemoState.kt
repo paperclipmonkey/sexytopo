@@ -172,6 +172,10 @@ class DemoState(
         preferences = library.loadPreferences()
         session.onStationCreated = ::noteStationCreated
         session.autoReconnect = preferences.reconnection
+        // session was constructed with SurveySettings.DEFAULT, before this load ever ran — the
+        // same reason autoReconnect is pushed on the line above rather than trusted to have
+        // arrived with the session.
+        session.settings = surveySettings
         restoreSelections()
     }
 
@@ -237,6 +241,12 @@ class DemoState(
 
     fun updateSettings(settings: SurveySettings) {
         surveySettings = settings
+        // Onto the *live* session, not just the next one — the same reason updatePreferences
+        // pushes autoReconnect and traceFrames onto session rather than leaving them for adopt()
+        // to pick up. A surveyor opens this dialog because the tolerances just rejected a real
+        // reading; a fix that only helped the next survey would not help the shot they are
+        // holding right now.
+        session.settings = settings
         if (!library.saveSettings(settings)) {
             storageProblem = library.lastError ?: "could not save settings"
         }
@@ -324,6 +334,12 @@ class DemoState(
     var liveSurvey by mutableStateOf(Survey(DEFAULT_NEW_SURVEY_NAME))
         private set
 
+    // Built on the class default rather than `surveySettings`, exactly as it is for
+    // `autoReconnect` and `onStationCreated` below: this session exists before `loadSettings()`
+    // has ever run, and `loadSettings()` (called once, at startup, before anything a surveyor
+    // could touch) is what pushes the real values onto it. A default here that `loadSettings`
+    // always overwrites first would be an unverified line - nothing in this file could tell it
+    // apart from `SurveySession(liveSurvey)` doing the same job.
     var session by mutableStateOf(SurveySession(liveSurvey))
         private set
 
@@ -445,7 +461,7 @@ class DemoState(
 
     private fun adopt(survey: Survey) {
         liveSurvey = survey
-        session = SurveySession(survey)
+        session = SurveySession(survey, surveySettings)
         // A new session starts on the class default, which is off — so opening a second survey
         // would quietly turn auto-reconnect off for the rest of the trip.
         session.autoReconnect = preferences.reconnection

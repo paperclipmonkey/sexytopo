@@ -12,6 +12,7 @@ import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.survey.InputMode
 import org.hwyl.sexytopo.shared.survey.LrudMode
+import org.hwyl.sexytopo.shared.survey.SurveySettings
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -605,5 +606,110 @@ class AppPreferencesTest {
 
         assertEquals(CalibrationChoice.LINEAR, loaded.calibrationAlgorithm)
         assertEquals(LrudMode.SURVEY, loaded.lrudMode)
+    }
+
+    // -------------------------------------------------------------------------------------
+    // The surveying tolerances, reaching the session that actually checks readings against them
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * A setting the surveyor has already saved reaches the very first session the app opens with.
+     *
+     * `SurveySession` used to take `settings` as a constructor-only value, defaulting to
+     * [SurveySettings.DEFAULT]. `DemoState.session` is a property initialiser, built before
+     * `loadSettings()` — the function that reads the saved tolerances — ever runs, so the first
+     * session of every launch was permanently on the defaults regardless of what had been saved.
+     * One reading is enough to promote here because [SurveySettings.numberOfRepeatsForNewStation]
+     * is set to 1 rather than the default 3 — the tolerance a wrong session could not possibly
+     * satisfy by accident, so a station appearing at all is proof the setting reached it.
+     */
+    @Test
+    fun aSavedToleranceReachesTheFirstSessionOfTheLaunch() {
+        val library = SurveyLibrary(InMemoryFileStore())
+        library.saveSettings(SurveySettings(numberOfRepeatsForNewStation = 1))
+
+        val state =
+            DemoState(
+                exampleSurvey = ExampleSurvey.create(),
+                initialProjection = Projection2D.PLAN,
+                initialSystemDark = false,
+                initialTool = null,
+                initialMode = SurveyMode.EXAMPLE,
+                initialScreen = Screen.SKETCH,
+                library = library,
+            )
+        state.loadSettings()
+
+        state.session.takeReading()
+
+        assertEquals(
+            2,
+            state.liveSurvey.getAllStations().size,
+            "one reading should have promoted under a loosened repeat count",
+        )
+    }
+
+    /**
+     * And a setting changed from the dialog reaches the session already in progress, not only the
+     * next one — the same requirement `updatePreferences` already meets for auto-reconnect and the
+     * frame trace. A surveyor opens the Surveying settings dialog because the tolerances just
+     * rejected the shot they are holding; a fix that helped only the next survey would not help.
+     */
+    @Test
+    fun aToleranceChangedMidSurveyReachesTheLiveSession() {
+        val library = SurveyLibrary(InMemoryFileStore())
+        val state =
+            DemoState(
+                exampleSurvey = ExampleSurvey.create(),
+                initialProjection = Projection2D.PLAN,
+                initialSystemDark = false,
+                initialTool = null,
+                initialMode = SurveyMode.EXAMPLE,
+                initialScreen = Screen.SKETCH,
+                library = library,
+            )
+        state.loadSettings()
+
+        state.updateSettings(SurveySettings(numberOfRepeatsForNewStation = 1))
+        state.session.takeReading()
+
+        assertEquals(
+            2,
+            state.liveSurvey.getAllStations().size,
+            "the loosened repeat count should have applied to the session already open",
+        )
+    }
+
+    /**
+     * And a survey opened, started or imported *after* a tolerance was set builds its session on
+     * that tolerance too. `adopt()` — the one place a new [SurveySession] replaces the old one,
+     * shared by [DemoState.newSurvey], [DemoState.openSurvey] and [DemoState.importSurvey] — passes
+     * `surveySettings` into the constructor rather than pushing it afterwards the way it does for
+     * `autoReconnect` and `traceFrames`, so this is the one path the two tests above do not reach.
+     */
+    @Test
+    fun startingANewSurveyAfterChangingTheToleranceKeepsIt() {
+        val library = SurveyLibrary(InMemoryFileStore())
+        val state =
+            DemoState(
+                exampleSurvey = ExampleSurvey.create(),
+                initialProjection = Projection2D.PLAN,
+                initialSystemDark = false,
+                initialTool = null,
+                initialMode = SurveyMode.EXAMPLE,
+                initialScreen = Screen.SKETCH,
+                library = library,
+            )
+        state.loadSettings()
+        state.updateSettings(SurveySettings(numberOfRepeatsForNewStation = 1))
+
+        state.newSurvey("Second trip")
+        state.session.takeReading()
+
+        assertEquals(
+            2,
+            state.liveSurvey.getAllStations().size,
+            "the tolerance set before starting this survey should still apply to it",
+        )
     }
 }

@@ -50,7 +50,7 @@ import kotlin.time.TimeSource
  */
 class SurveySession(
     val survey: Survey,
-    private val settings: SurveySettings = SurveySettings.DEFAULT,
+    initialSettings: SurveySettings = SurveySettings.DEFAULT,
     /**
      * Milliseconds since this session began, for the reconnection window.
      *
@@ -67,6 +67,23 @@ class SurveySession(
 ) {
     /** Kept so the demo's "Simulate" button can nudge it; a real instrument needs no such help. */
     val simulator = SimulatedInstrument(script = fieldScript(), loop = true)
+
+    /**
+     * The tolerances a real reading is amalgamated against: `pref_leg_amalgamation_algorithm`,
+     * `pref_max_distance_delta`/`pref_max_angle_delta` and the repeat count for a new station.
+     *
+     * A `var` rather than the constructor-only `val` this began as, because `DemoState` can open a
+     * settings dialog on a session that already exists. The Java has no session object at all —
+     * `AngularAmalgamator` and `LegAmalgamationAlgorithm` read `GeneralPreferences` fresh on every
+     * call, so a change there is live on the very next shot. A constructor-only value here made a
+     * changed setting apply to the *next* survey opened and never to the one in progress, which
+     * for the surveyor holding the instrument is the same as it not applying at all: every reading
+     * from an instrument or the simulator was silently checked against [SurveySettings.DEFAULT]
+     * forever, whatever the dialog showed or the library had saved. `DemoState.updateSettings`
+     * pushes here the same way `updatePreferences` already pushes [autoReconnect] and
+     * [traceFrames] onto a live session.
+     */
+    var settings: SurveySettings = initialSettings
 
     /**
      * Whether to chase a lost instrument, and for how long. Kept current by [DemoState].
