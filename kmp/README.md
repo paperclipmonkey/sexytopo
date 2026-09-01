@@ -2722,7 +2722,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 777
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 385 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 388 over the UI's own
 logic, 18 running the iOS half in a simulator,
 106 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375. The
@@ -2795,15 +2795,20 @@ What it does **not** include:
   instrument — but neither has met a radio. The iOS simulator has no Bluetooth stack, so this one
   genuinely needs an instrument in hand. There is no Android transport here either (the Android app
   keeps its own).
-- **Cross-survey links.** They live in `Name.metadata.json`, the fourth file of a survey, and this
-  port **does not read or write that file at all** — so a survey imported here and exported again
-  comes back without its links. Worth saying precisely, because the obvious half-measure is worse
-  than the loss: carrying the file through untouched would also carry its `active-station`, and the
-  Android loader reads that *after* the data file and would therefore override the station a
-  surveyor had just been working at. Doing it properly means parsing metadata to update one field,
-  and the links themselves are absolute `content://` URIs — meaningless off Android, and already
-  broken when a folder moves — so it is a format decision to take with upstream rather than a
-  porting one. Nothing here draws a neighbouring survey either.
+- **Cross-survey links.** The other half of `Name.metadata.json`. The file itself is no longer a
+  gap — it is written on save and on export and read on load and on import, which is finding 73 and
+  was the whole of this bullet until today: a survey written here used to open on Android at the
+  entrance of the cave, because the active station lives in that file and nowhere else.
+
+  The *links* stay out, and for a reason in the data rather than in the effort. A connection names
+  the other survey by absolute `content://` URI: a path into one Android device's document
+  provider, meaningless on another phone, and already broken when a folder moves. Carrying them
+  through would mean writing down something this app cannot resolve and the other one can only
+  sometimes; what a portable format needs is a survey *name* and a station, which is a format
+  decision to take with upstream rather than a porting one. So the field is written as `{}` — which
+  is exactly what the Android app writes for a survey with no links, so the file is the shape the
+  other end expects rather than one it has to tolerate. Nothing here draws a neighbouring survey
+  either.
 - **The Android app adopting this core.** That is the step that would make the work pay for itself
   regardless of the iOS outcome, and it is deliberately not attempted yet.
 

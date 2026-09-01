@@ -2,6 +2,7 @@ package org.hwyl.sexytopo.demo
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
@@ -54,6 +55,73 @@ class ReadmeReferencesTest {
             path.startsWith(from) && File(kmp, to + path.removePrefix(from)).exists()
         }
     }
+
+    /** Every `@Test` under a source directory, counted the way a reader would count them. */
+    private fun testsUnder(vararg paths: String): Int =
+        paths.sumOf { path ->
+            File(kmp, path)
+                .walkTopDown()
+                .filter { it.extension == "kt" }
+                .sumOf { file -> Regex("@Test\\b").findAll(file.readText()).count() }
+        }
+
+    /**
+     * The numbers the README quotes are the numbers the repository holds.
+     *
+     * Every one of these has been wrong at least once, and one of them was wrong in *both*
+     * directions on the same day — the headline said 772 while the state-of-it paragraph said 766,
+     * neither of which was the count. A number in a document about testing is exactly the claim a
+     * reader takes on trust, and it goes stale on the commit that adds a test rather than on the
+     * commit that touches the paragraph, which is why nobody notices.
+     *
+     * The counts are derived rather than asserted against a constant, so this fails with the right
+     * number in the message and the fix is to paste it in.
+     */
+    @Test
+    fun theCountsTheReadmeQuotesAreTheOnesTheRepositoryHolds() {
+        val shared = testsUnder("shared/src/commonTest")
+        val sharedJvm = testsUnder("shared/src/jvmTest")
+        val demo = testsUnder("demo/src/jvmTest")
+        val ios = testsUnder("demo/src/iosTest")
+        // A browser check is a `pass(...)`: the harness prints one line per check and counts them
+        // itself, and the two agree — 106 static calls, 106 lines in the log.
+        val browser =
+            Regex("\\bpass\\(")
+                .findAll(File(kmp, "demo/browser-test/field.mjs").readText())
+                .count()
+        val iosFiles =
+            File(kmp, "demo/src/iosMain/kotlin/org/hwyl/sexytopo/demo")
+                .listFiles()
+                .orEmpty()
+                .count { it.extension == "kt" }
+
+        val wanted =
+            listOf(
+                "covered by $shared shared tests" to shared,
+                "green in CI: $shared" to shared,
+                "$sharedJvm more against `java.util.zip` on the JVM" to sharedJvm,
+                "$demo over the UI's own" to demo,
+                "$ios running the iOS half in a simulator" to ios,
+                "$browser browser checks driving the real page" to browser,
+                "`demo/src/iosMain/` holds ${inWords(iosFiles)}" to iosFiles,
+            )
+
+        val missing = wanted.filterNot { (phrase, _) -> phrase in readme }.map { it.first }
+
+        assertEquals(
+            emptyList(),
+            missing,
+            "the README does not say these, so one of its counts has drifted from the repository",
+        )
+    }
+
+    /** The README spells small counts out, so this has to as well to find them. */
+    private fun inWords(n: Int): String =
+        listOf(
+            "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+            "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
+            "eighteen", "nineteen", "twenty",
+        ).getOrElse(n) { n.toString() }
 
     @Test
     fun everyPathTheReadmeNamesIsThere() {
