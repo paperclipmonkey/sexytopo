@@ -63,13 +63,16 @@ import org.hwyl.sexytopo.shared.sketch.hotCornerTopLefts
 import org.hwyl.sexytopo.shared.sketch.whollyOutside
 import org.hwyl.sexytopo.shared.sketch.zoomBetween
 import org.hwyl.sexytopo.shared.survey.CrossSectioner
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
  * The survey drawing surface, written once in Compose Multiplatform and rendered by Skia on every
@@ -594,6 +597,16 @@ class SurveyScene private constructor(
     val sketch: Sketch,
     /** Which station the next leg will start from; drawn with the app's amber brackets. */
     val activeStationName: String,
+    /**
+     * The stations carrying a comment, and the origin's name with the survey's.
+     *
+     * `GraphView.drawStations` marks both on the plan - an icon beside the name for a comment, and
+     * `name (surveyName)` for the origin - and this port marked neither, so a note written at a
+     * station could only be found by opening the table.
+     */
+    val commentedStations: Set<String>,
+    val originName: String,
+    val surveyName: String,
     /** Everything drawn, centreline and ink alike — what the opening zoom is fitted to. */
     val bounds: Bounds,
     /**
@@ -683,6 +696,9 @@ class SurveyScene private constructor(
                 splays,
                 sketch,
                 survey.activeStation.name,
+                space.stationMap.keys.filter { it.hasComment() }.map { it.name }.toSet(),
+                survey.origin.name,
+                survey.name,
                 bounds,
                 surveyBounds,
             )
@@ -725,6 +741,12 @@ class SurveyScene private constructor(
                 // The station is highlighted here for the same reason it is on the plan: it is
                 // the fixed point everything in this view is measured from.
                 activeStationName = station.name,
+                // The section editor draws one station and no chrome round it: no comment icon
+                // (the note belongs to the station on the plan, not to the profile of the passage
+                // at it) and no survey name in brackets, because there is no origin in here.
+                commentedStations = emptySet(),
+                originName = "",
+                surveyName = "",
                 bounds = crossSectionFitBounds(splays),
                 surveyBounds = Bounds.of(points),
             )
@@ -871,6 +893,7 @@ private object CanvasSizes {
     // The frame round a cross-section on the plan. Every one of these is a `GraphView` constant of
     // the same name, so the frame is the size and shape the Android app draws.
     const val CROSS_SECTION_CONNECTOR_WIDTH_DP = 2f
+    const val CROSS_SECTION_INDICATOR_WIDTH_DP = 2f
     const val CROSS_SECTION_BORDER_WIDTH_DP = 2f
     const val CROSS_SECTION_BORDER_PADDING_MIN_DP = 4f
     const val CROSS_SECTION_BORDER_PADDING_MAX_DP = 16f
@@ -886,7 +909,10 @@ private object CanvasSizes {
  * How far off the screen a station can be and still put something on it.
  *
  * Its name goes up and to the right of the dot, so this has to cover the longest name a surveyor
- * is likely to type rather than the dot's own radius.
+ * is likely to type rather than the dot's own radius - and, since the origin's label carries the
+ * survey's name in brackets as well, a fair bit of that too. The Android app culls nothing at all,
+ * so the worst this can do is drop the tail of a very long label that was already mostly off the
+ * side of the screen.
  */
 private const val STATION_CULL_MARGIN_DP = 120f
 
@@ -950,6 +976,92 @@ private fun DrawScope.drawActiveStationHighlight(
     corner(left, bottom, 1f, -1f)
     corner(right, bottom, -1f, -1f)
 }
+
+/**
+ * The mark on a station that says a cross-section was taken there, and which way it faces.
+ *
+ * `GraphView.drawCrossSectionIndicator`, which this port did not have. It matters more here than
+ * it looks, because a section is drawn wherever it was dragged to - possibly right across the
+ * chamber - and this is the only thing left at the station itself to say one exists. Without it a
+ * plan gives you no way to tell which stations have been sectioned without tapping each in turn.
+ *
+ * It is a line one metre long lying *in* the section's plane, with a small arrowhead at one end
+ * pointing along the bearing, so it reads as "cut here, looking that way". The Java gets the plane
+ * for free with a trick worth spelling out: a compass bearing of `a` degrees is the screen
+ * direction `(sin a, -cos a)`, and the section's plane is that turned a right angle, which is
+ * `(cos a, sin a)` - so taking the cosine and sine of the bearing directly gives the plane rather
+ * than the bearing. The arrow then uses `a - 90`, which turns it back.
+ *
+ * Drawn at half strength, as the Java's `alpha / 2` does: it is an annotation on the station, not
+ * a shot, and at full strength on a busy junction it reads as another splay.
+ */
+private fun DrawScope.drawCrossSectionIndicator(
+    stationOnScreen: Offset,
+    angleDegrees: Float,
+    pixelsPerMetre: Float,
+    palette: Palette,
+) {
+    val radians = angleDegrees * PI.toFloat() / 180f
+    val alongPlane = Offset(cos(radians), sin(radians))
+    val half = pixelsPerMetre / 2f
+    val start = stationOnScreen - alongPlane * half
+    val end = stationOnScreen + alongPlane * half
+    val ink = palette.symbol.copy(alpha = FADED_INDICATOR_ALPHA)
+
+    drawLine(ink, start, end, CanvasSizes.CROSS_SECTION_INDICATOR_WIDTH_DP.dp.toPx())
+
+    // The arrowhead: a thin triangle off the near end of the plane line, pointing along the
+    // bearing. Its length is 0.4 of the line and its base 0.05 of it, both from the Java.
+    val alongBearing = Offset(cos(radians - PI.toFloat() / 2f), sin(radians - PI.toFloat() / 2f))
+    val tip = start + alongBearing * (pixelsPerMetre * ARROW_LENGTH_FRACTION)
+    val innerCorner = start + alongPlane * (pixelsPerMetre * ARROW_BASE_FRACTION)
+    drawPath(
+        Path().apply {
+            moveTo(innerCorner.x, innerCorner.y)
+            lineTo(start.x, start.y)
+            lineTo(tip.x, tip.y)
+            close()
+        },
+        ink,
+    )
+}
+
+/** `GraphView`'s `alpha / 2` for the cross-section indicator. */
+private const val FADED_INDICATOR_ALPHA = 0.5f
+
+/** The arrowhead's length and base, as fractions of the indicator line. */
+private const val ARROW_LENGTH_FRACTION = 0.4f
+private const val ARROW_BASE_FRACTION = 0.05f
+
+/**
+ * The mark beside a station's name that says somebody wrote a note there.
+ *
+ * `GraphView.drawStations` draws a bitmap; this draws the same idea with three strokes, because
+ * the port has no icon assets and a note is a shape everybody already knows: a page with writing
+ * on it. Sized off the station diameter, as the Java sizes its icon.
+ *
+ * Not decoration. A comment is the only place a surveyor can write "sump, not passed" or "loose,
+ * do not climb", and until now this port put it in the table and nowhere else - so on the drawing,
+ * which is what you look at underground, it did not exist.
+ */
+private fun DrawScope.drawCommentMark(topLeft: Offset, size: Float, palette: Palette) {
+    val stroke = CanvasSizes.THIN_STROKE_DP.dp.toPx()
+    drawRect(
+        palette.stationLabel,
+        topLeft = topLeft,
+        size = Size(size * COMMENT_MARK_WIDTH_FRACTION, size),
+        style = Stroke(stroke),
+    )
+    val inset = size * COMMENT_MARK_INSET_FRACTION
+    val right = topLeft.x + size * COMMENT_MARK_WIDTH_FRACTION - inset
+    for (line in 1..2) {
+        val y = topLeft.y + size * line / 3f
+        drawLine(palette.stationLabel, Offset(topLeft.x + inset, y), Offset(right, y), stroke)
+    }
+}
+
+private const val COMMENT_MARK_WIDTH_FRACTION = 0.8f
+private const val COMMENT_MARK_INSET_FRACTION = 0.2f
 
 /**
  * The frame drawn round a cross-section sitting on the plan, and the bar you drag it by.
@@ -1220,6 +1332,32 @@ private fun DrawScope.drawSurvey(
     }
 
     val stationMargin = STATION_CULL_MARGIN_DP.dp.toPx()
+    // Which stations carry a cross-section, and at what bearing - with the rotate gesture's live
+    // angle in place of the stored one, so the mark on the station swings with the section it
+    // belongs to rather than snapping to it when the finger lifts.
+    //
+    // Drawn whatever the sketch and cross-section toggles say, which is what `GraphView` does:
+    // `drawStations` reads the sketch directly and the two toggles gate `drawSketch` and
+    // `drawCrossSections`. It looks like an oversight and works out well - with sections hidden to
+    // clear the page you can still see which stations have one - so it is reproduced rather than
+    // tidied.
+    val sectionAngles =
+        if (scene.sketch.crossSectionDetails.isEmpty()) {
+            emptyMap()
+        } else {
+            buildMap {
+                for (detail in scene.sketch.crossSectionDetails) {
+                    val shown =
+                        if (sectionDrag != null && sectionDrag.detail === detail) {
+                            sectionDrag.preview()
+                        } else {
+                            detail
+                        }
+                    put(shown.station.name, shown.crossSection.angle)
+                }
+            }
+        }
+
     for ((name, coord) in scene.stations) {
         val centre = project(coord)
         // Zoomed into one passage, almost every station of a real survey is off screen, and a
@@ -1264,26 +1402,51 @@ private fun DrawScope.drawSurvey(
         if (isActive) {
             drawActiveStationHighlight(centre, palette, options.style.stationDiameterDp)
         }
-        if (options.showStationLabels &&
-            viewport.pixelsPerMetre > LABEL_VISIBILITY_PIXELS_PER_METRE
-        ) {
+        // What sits to the right of the station: its name, then a mark for each thing it carries,
+        // in that order and spaced off the station's own diameter - so a bigger station setting
+        // spaces the annotations out with it, as `GraphView.drawStations` does.
+        //
+        // The one difference is vertical. The Java puts the name and its icons on one row through
+        // the station; this port has always drawn the name a little above and to the right, which
+        // keeps it off the centreline at a junction, so the mark sits below its label rather than
+        // beside it. Left as it is: moving the label back onto the station's row to gain the
+        // alignment would cost the thing the offset was for.
+        val markSize = options.style.stationDiameterDp.dp.toPx()
+        var nextX = centre.x + CanvasSizes.LABEL_RIGHT_DP.dp.toPx()
+        val labelTop = centre.y - CanvasSizes.LABEL_UP_DP.dp.toPx()
+        val labelsVisible =
+            options.showStationLabels && viewport.pixelsPerMetre > LABEL_VISIBILITY_PIXELS_PER_METRE
+
+        if (labelsVisible) {
+            // The origin says which survey it is the origin of, as the Java does. On one survey
+            // that is a curiosity; the moment two are open, or one is drawn under another, it is
+            // the only thing on the page that says which cave you are looking at.
+            val label =
+                if (name == scene.originName && scene.surveyName.isNotEmpty()) {
+                    "$name (${scene.surveyName})"
+                } else {
+                    name
+                }
             val layout =
                 textMeasurer.measure(
-                    name,
+                    label,
                     TextStyle(
                         color = palette.stationLabel,
                         fontSize = options.style.stationLabelSizeSp.sp,
                         fontFamily = fontFamily,
                     ),
                 )
-            drawText(
-                layout,
-                topLeft =
-                    Offset(
-                        centre.x + CanvasSizes.LABEL_RIGHT_DP.dp.toPx(),
-                        centre.y - CanvasSizes.LABEL_UP_DP.dp.toPx(),
-                    ),
-            )
+            drawText(layout, topLeft = Offset(nextX, labelTop))
+            nextX += layout.size.width + markSize / 2f
+        }
+
+        if (name in scene.commentedStations) {
+            drawCommentMark(Offset(nextX, centre.y - markSize / 2f), markSize, palette)
+            nextX += markSize + markSize / 2f
+        }
+
+        sectionAngles[name]?.let { angle ->
+            drawCrossSectionIndicator(centre, angle, viewport.pixelsPerMetre, palette)
         }
     }
 

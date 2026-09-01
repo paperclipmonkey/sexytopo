@@ -1373,7 +1373,18 @@ await toggleOption('show-xsections')
 await page.screenshot({ path: join(shotDir, 'field-cross-section-hidden.png') })
 
 const withoutSection = await inkAround(SECTION_PATCH)
-if (!(withSection > 100 && withoutSection === 0)) {
+// Not "the window is empty", which is what this used to ask. The station keeps its cross-section
+// indicator when sections are hidden, because the Android app keeps it: only `drawCrossSections`
+// is behind the toggle, while `drawStations` reads the sketch directly and draws the mark for any
+// station carrying a section. That is useful rather than a slip - with the sections cleared off
+// the page you can still see which stations have one - and it is why the port reproduces it.
+//
+// The mark is a metre-long line through the station with a thin arrowhead, and here the section
+// was dropped so near its own station that the arrowhead's tip clips the corner of this window:
+// sixteen units of ink against the section's own two and a half thousand. So what is asserted is
+// that essentially all of the section's ink goes. A section still being drawn would leave
+// hundreds, and fail this as squarely as it failed the old form.
+if (!(withSection > 100 && withoutSection * 20 < withSection)) {
   fail(`hiding cross-sections left the drawing much as it was (${withSection} then ${withoutSection})`)
 } else {
   pass('a cross-section can be taken off the drawing when it is in the way')

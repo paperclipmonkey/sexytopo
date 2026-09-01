@@ -244,6 +244,158 @@ class CrossSectionOnThePlanTest {
     }
 
     /**
+     * A survey running along [azimuth] for two legs, with or without a section at the middle
+     * station. Used to isolate the mark drawn on the station itself.
+     */
+    private fun straightPassage(azimuth: Float, withSection: Boolean): Pair<Survey, SketchEditor> {
+        val survey = Survey("Indicator")
+        SurveyBuilder.updateWithNewStation(survey, Leg(10f, azimuth, 0f))
+        SurveyBuilder.updateWithNewStation(survey, Leg(10f, azimuth, 0f))
+        val editor = SketchEditor(survey.getSketch(Projection2D.PLAN))
+        if (withSection) {
+            val station = survey.getStationByName("2")!!
+            // Dropped exactly on its own station rather than beside it. Anywhere else and the
+            // section's position widens `SurveyScene.bounds`, the opening zoom changes to take it
+            // in, and the two renders then differ by the whole survey shifted a few pixels -
+            // which is a difference, and not the one being measured. The first version of this
+            // check reported the mark as 63 by 579 for that reason.
+            val where = Projection2D.PLAN.project(survey).stationMap[station]!!
+            editor.addCrossSection(CrossSectioner.section(survey, station), where)
+        }
+        return survey to editor
+    }
+
+    /**
+     * The bounding box of everything the section adds to a plan drawn with the sketch turned off.
+     *
+     * With the sketch hidden there is no frame, no connector and no star - `GraphView` draws all
+     * three from `drawSketch`, and the indicator from `drawStations`, which is why hiding the
+     * sketch is what isolates it. So the pixels that differ between the two renders are the
+     * indicator and nothing else, and the shape of the box they fall in is its direction.
+     */
+    @OptIn(ExperimentalComposeUiApi::class)
+    private fun indicatorBox(
+        azimuth: Float,
+        options: DisplayOptions =
+            DisplayOptions(showGrid = false, showStationLabels = false, showSketch = false),
+    ): IntArray {
+
+        fun render(withSection: Boolean): BufferedImage {
+            val (survey, editor) = straightPassage(azimuth, withSection)
+            val scene =
+                ImageComposeScene(width = width, height = height, density = Density(1f)) {
+                    SurveyCanvas(
+                        survey = survey,
+                        projection = Projection2D.PLAN,
+                        options = options,
+                        editor = editor,
+                        canvas = CanvasController(),
+                        modifier = Modifier.fillMaxSize(),
+                        tool = SketchTool.MOVE,
+                        revision = 0,
+                    )
+                }
+            val image = try { scene.render() } finally { scene.close() }
+            val png = image.encodeToData(EncodedImageFormat.PNG) ?: error("Skia would not encode")
+            return ImageIO.read(ByteArrayInputStream(png.bytes))
+        }
+
+        val with = render(true)
+        val without = render(false)
+        var left = Int.MAX_VALUE
+        var right = Int.MIN_VALUE
+        var top = Int.MAX_VALUE
+        var bottom = Int.MIN_VALUE
+        for (y in 0 until with.height) {
+            for (x in 0 until with.width) {
+                if (with.getRGB(x, y) != without.getRGB(x, y)) {
+                    if (x < left) left = x
+                    if (x > right) right = x
+                    if (y < top) top = y
+                    if (y > bottom) bottom = y
+                }
+            }
+        }
+        return intArrayOf(left, top, right, bottom)
+    }
+
+    /**
+     * That the mark on a sectioned station lies *across* the passage, which is the one thing it
+     * has to say.
+     *
+     * `GraphView.drawCrossSectionIndicator` draws a line a metre long in the section's own plane,
+     * with an arrowhead along the bearing, at every station carrying a section - and this port
+     * drew nothing at all. A section is drawn wherever it was dragged to, so with no mark at the
+     * station there is no way to see which stations have been sectioned short of tapping each one.
+     *
+     * The direction is where this goes wrong quietly, because the Java's arithmetic looks like a
+     * mistake: it takes the cosine and sine of a *compass bearing* and uses them as x and y. That
+     * is deliberate and it is the whole trick - a bearing of `a` is the screen direction
+     * `(sin a, -cos a)`, so `(cos a, sin a)` is that turned a right angle, which is the plane the
+     * section was cut in. Copy it as written and it is right; "fix" it and the mark lies along the
+     * passage instead of across it, which is exactly backwards and looks plausible.
+     *
+     * So the check is the one a surveyor would make: point the passage north and the mark should
+     * be wide and flat, point it east and the same mark should be tall and thin.
+     */
+    @Test
+    fun aSectionedStationIsMarkedAcrossThePassage() {
+        val northSouth = indicatorBox(0f)
+        val eastWest = indicatorBox(90f)
+
+        val nsWidth = northSouth[2] - northSouth[0]
+        val nsHeight = northSouth[3] - northSouth[1]
+        val ewWidth = eastWest[2] - eastWest[0]
+        val ewHeight = eastWest[3] - eastWest[1]
+
+        assertTrue(nsWidth > 0 && ewHeight > 0, "no mark was drawn on the sectioned station at all")
+        assertTrue(
+            nsWidth > nsHeight,
+            "a passage running north should be marked across, east-west ($nsWidth by $nsHeight)",
+        )
+        assertTrue(
+            ewHeight > ewWidth,
+            "a passage running east should be marked across, north-south ($ewWidth by $ewHeight)",
+        )
+    }
+
+    /**
+     * And the mark survives both toggles that take the section itself off the page.
+     *
+     * The Android app draws it from `drawStations`, which reads the sketch directly; only
+     * `drawCrossSections` sits behind `SHOW_X_SECTIONS` and only `drawSketch` behind `SHOW_SKETCH`.
+     * It looks like an oversight and is worth keeping: with the sections cleared off to read the
+     * passage walls, the stations still say which of them have been sectioned. Asserted rather than
+     * assumed, because a port that "tidied" this would be quietly hiding the only mark there is.
+     */
+    @Test
+    fun theMarkOutlivesTheTogglesThatHideTheSection() {
+        val sketchHidden =
+            indicatorBox(
+                0f,
+                DisplayOptions(showGrid = false, showStationLabels = false, showSketch = false),
+            )
+        val sectionsHidden =
+            indicatorBox(
+                0f,
+                DisplayOptions(
+                    showGrid = false,
+                    showStationLabels = false,
+                    showCrossSections = false,
+                ),
+            )
+
+        assertTrue(
+            sketchHidden[2] - sketchHidden[0] > 0,
+            "the mark should survive the sketch being hidden",
+        )
+        assertTrue(
+            sectionsHidden[2] - sectionsHidden[0] > 0,
+            "the mark should survive the cross-sections being hidden",
+        )
+    }
+
+    /**
      * The connector stops at the frame rather than running across whatever is drawn inside it.
      *
      * `GraphView.clipSegmentToRectBoundary`, which is worth its own check because it is the one

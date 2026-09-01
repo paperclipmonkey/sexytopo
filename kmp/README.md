@@ -2257,6 +2257,61 @@ These are the things that would actually shape a real port.
    at full strength, green and blue equal and about half - is what a check of a drawn thing has to
    do.
 
+70. **Nothing on the plan said which stations carried a section, or a note.** The end of the
+   `GraphView` sweep, and the last of what `drawStations` does that this port did not. Three marks
+   sit to the right of a station in the Android app - the name, an icon for a comment, an icon for
+   a linked survey - and the Java draws a fourth *on* the station: `drawCrossSectionIndicator`, a
+   line a metre long lying in the section's own plane with an arrowhead along the bearing.
+
+   The indicator matters more than it sounds, because a section is drawn wherever it was dragged
+   to, which may be right across the chamber. With no mark at the station there is no way to see
+   which stations have been sectioned short of tapping each one in turn, and no way at all to see
+   which way a section faces.
+
+   Its direction is where a port goes wrong quietly, because the Java's arithmetic looks like a
+   mistake: it takes the cosine and sine of a *compass bearing* and uses them as x and y. That is
+   deliberate and it is the whole trick - a bearing of `a` is the screen direction `(sin a, -cos a)`,
+   so `(cos a, sin a)` is that turned a right angle, which is the plane the section was cut in.
+   Copy it as written and the mark lies across the passage; "fix" it and it lies along the passage,
+   which is exactly backwards and looks entirely plausible. So the check is the one a surveyor
+   would make: point the passage north and the mark has to come out wide and flat, point it east
+   and the same mark has to come out tall and thin. Made as written the check passes; made the
+   plausible way the north-south passage's mark measures **1 pixel by 27**, which is the mark
+   pointing the wrong way by exactly ninety degrees.
+
+   That check also had to be *made* able to fail, twice over. Its first version put the section
+   beside its station, which widened `SurveyScene.bounds`, changed the opening zoom, and made the
+   two renders differ by the whole survey shifted a few pixels - a difference, and not the one
+   being measured. Dropping the section exactly on its own station holds the bounds still. And the
+   indicator had to be isolated from the frame, the connector and the star: it is drawn from
+   `drawStations` and they are drawn from `drawSketch`, so turning the sketch off leaves the
+   indicator and nothing else. That is the Java's own arrangement, and it means a surveyor who
+   hides the sketch to clear the page can still see which stations are sectioned - reproduced
+   rather than tidied.
+
+   A comment is the smaller mark and the plainer defect. It is where a surveyor writes "sump, not
+   passed" or "loose, do not climb"; this port stored it, exported it and showed it in the table,
+   and put nothing on the drawing, which is the half you look at underground. It is drawn here as
+   three strokes making a page with writing on it rather than as the Java's bitmap, because the
+   port ships no icon assets. The origin's label gains the survey's name in brackets at the same
+   time, which on one survey is a curiosity and the moment two are open is the only thing on the
+   page saying which cave you are looking at. Both are checked by rendering the plan twice and
+   differencing: **zero** pixels differ with the marks removed.
+
+   One browser check failed on this, and was right to: it asserted that hiding cross-sections left
+   the window round one of them completely empty, and the indicator put sixteen units of ink back
+   into the corner of it against the section's own two and a half thousand. That is the arrowhead's
+   tip, and it is correct - `drawStations` reads the sketch directly, so only `drawCrossSections`
+   is behind the toggle, and clearing the sections off the page to read the passage walls still
+   leaves the stations saying which of them are sectioned. The check now asserts that essentially
+   all of the section's ink goes rather than that the window is bare, which is the claim it was
+   always making, and the toggle behaviour is asserted outright rather than left to the incidental
+   geometry of one window. Loosening a check to let a change through is the failure mode here; the
+   distinction is that the window being *empty* was never the thing being defended.
+
+   The link icon for a connected survey is the one mark still missing, and it stays missing for the
+   reason cross-survey links do - see the deferred list.
+
 ---
 
 ## A defect worth reporting upstream
@@ -2389,7 +2444,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 759
-shared tests on three targets, 364 over the UI's own logic, 18 running the iOS half in a simulator,
+shared tests on three targets, 369 over the UI's own logic, 18 running the iOS half in a simulator,
 101 browser checks driving the real page on a 420-pixel screen and finishing at 375x667 and then
 667x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
