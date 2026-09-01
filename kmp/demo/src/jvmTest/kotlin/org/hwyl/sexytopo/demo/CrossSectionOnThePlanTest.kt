@@ -21,6 +21,7 @@ import org.jetbrains.skia.EncodedImageFormat
 import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
 import javax.imageio.ImageIO
+import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -53,7 +54,10 @@ class CrossSectionOnThePlanTest {
      * app's own cross-section colour — and a check that counts a colour the picture uses
      * elsewhere is a check that cannot fail for the right reason.
      */
-    private fun surveyWithADrawnSection(drawInside: Boolean): Pair<Survey, SketchEditor> {
+    private fun surveyWithADrawnSection(
+        drawInside: Boolean,
+        withSection: Boolean = true,
+    ): Pair<Survey, SketchEditor> {
         val survey = Survey("Section")
         SurveyBuilder.updateWithNewStation(survey, Leg(8f, 0f, 0f))
         SurveyBuilder.updateWithNewStation(survey, Leg(8f, 0f, 0f))
@@ -62,6 +66,7 @@ class CrossSectionOnThePlanTest {
         SurveyBuilder.addSplay(survey, station, Leg(3f, 90f, 0f))
 
         val editor = SketchEditor(survey.getSketch(Projection2D.PLAN))
+        if (!withSection) return survey to editor
         val detail =
             editor.addCrossSection(CrossSectioner.section(survey, station), Coord2D(6f, -8f))
         if (drawInside) {
@@ -80,8 +85,12 @@ class CrossSectionOnThePlanTest {
 
     /** The plan rendered as a bitmap, for a scene with (or without) a drawing inside the section. */
     @OptIn(ExperimentalComposeUiApi::class)
-    private fun plan(drawInside: Boolean, options: DisplayOptions): BufferedImage {
-        val (survey, editor) = surveyWithADrawnSection(drawInside)
+    private fun plan(
+        drawInside: Boolean,
+        options: DisplayOptions,
+        withSection: Boolean = true,
+    ): BufferedImage {
+        val (survey, editor) = surveyWithADrawnSection(drawInside, withSection)
         val scene =
             ImageComposeScene(width = width, height = height, density = Density(1f)) {
                 SurveyCanvas(
@@ -100,14 +109,32 @@ class CrossSectionOnThePlanTest {
         return ImageIO.read(ByteArrayInputStream(png.bytes))
     }
 
-    private fun BufferedImage.count(rgb: Int): Long {
+    private fun BufferedImage.count(rgb: Int): Long = count { it and 0xFFFFFF == rgb }
+
+    private fun BufferedImage.count(matches: (Int) -> Boolean): Long {
         var found = 0L
         for (y in 0 until height) {
             for (x in 0 until width) {
-                if (getRGB(x, y) and 0xFFFFFF == rgb) found++
+                if (matches(getRGB(x, y))) found++
             }
         }
         return found
+    }
+
+    /**
+     * Salmon-ish rather than exactly `0xFF8080`.
+     *
+     * A splay is one dp wide, and a one-pixel line that does not happen to land on a pixel centre
+     * is drawn as two half-covered rows - so a plan full of splays can contain not one pixel of
+     * the exact colour. Asked exactly, the check below reported zero salmon in a picture that
+     * plainly has splays in it. What identifies the colour is its shape: red at full strength with
+     * green and blue equal and about half.
+     */
+    private fun isSalmon(rgb: Int): Boolean {
+        val r = (rgb shr 16) and 0xff
+        val g = (rgb shr 8) and 0xff
+        val b = rgb and 0xff
+        return r > 230 && g in 100..200 && b in 100..200 && abs(g - b) < 12
     }
 
     /** How many pixels of the rendered plan are the colour drawn inside the section. */
@@ -172,6 +199,47 @@ class CrossSectionOnThePlanTest {
             legacy,
             "legacy cross-sections should have no frame at all, and $legacy pixels of one were " +
                 "drawn: the setting reaches the file and not the canvas",
+        )
+    }
+
+    /**
+     * That a cross-section's splays are drawn as splays: the app's own splay colour, and gone when
+     * the splays are turned off.
+     *
+     * `GraphView.drawCrossSection` draws the star through `drawLegs`, the same routine that draws
+     * every other segment on the page, so a section's shots get `splayPaint`, the splay width, the
+     * `SHOW_SPLAYS` toggle and the dashing that marks a shot as foreshortened. This port drew them
+     * silver, at its own 1.2dp, always visible and never dashed - a reasonable substitute while a
+     * section had no frame to mark it out, and redundant now that it has one.
+     *
+     * The three cases together are what make this a check rather than a coincidence: the star adds
+     * salmon that a plan without a section does not have, turning the splays off takes all of it
+     * away, and the frame stays either way, which is what says the missing pixels are the star and
+     * not the section.
+     */
+    @Test
+    fun aCrossSectionsSplaysAreDrawnAsSplays() {
+        val frame = SexyTopoColours.crossSectionFrame.toArgb() and 0xFFFFFF
+        val shown = DisplayOptions(showGrid = false, showStationLabels = false)
+        val hidden = DisplayOptions(showGrid = false, showStationLabels = false, showSplays = false)
+
+        val withStar = plan(false, shown).count(::isSalmon)
+        val withoutSection = plan(false, shown, withSection = false).count(::isSalmon)
+        val splaysOff = plan(false, hidden)
+
+        assertTrue(
+            withStar > withoutSection + 50,
+            "the section's star should add splay-coloured ink to the plan ($withStar against " +
+                "$withoutSection with no section at all)",
+        )
+        assertEquals(
+            0L,
+            splaysOff.count(::isSalmon),
+            "turning the splays off should take the section's star with them",
+        )
+        assertTrue(
+            splaysOff.count(frame) > 200L,
+            "and should leave the frame, which the Java draws either way",
         )
     }
 

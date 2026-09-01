@@ -2228,6 +2228,18 @@ These are the things that would actually shape a real port.
    what the setting's own summary promises: legacy sections cannot be tapped open, which joins the
    two ways of being untouchable the port already had.
 
+   The star inside the frame went back to being splays at the same time, which is the rest of the
+   same divergence. `GraphView` draws a section's shots through `drawLegs` - the routine that draws
+   every other segment on the page - so they get the splay colour, the splay width, the *Show
+   splays* toggle and the dashing that marks a shot as foreshortened. This port drew them silver,
+   at its own 1.2dp, always visible and never dashed. That was a reasonable substitute while a
+   section had nothing else to mark it out, and it is redundant now: the frame does that job, which
+   is exactly why the Android app can afford to draw the star in ordinary colours. On a plan the
+   difference is worth having - the up-and-down shots come out dashed, which is what says they are
+   foreshortened rather than short. The centre goes back to the station cross the Java marks it
+   with, because that is what it is: the station the section was taken at, drawn where the section
+   was put.
+
    Checked by rendering: the frame's green is a colour nothing else on a plan uses, so
    `CrossSectionOnThePlanTest` counts it and requires it present by default and **exactly zero**
    under the legacy setting — a setting that changes nothing being the defect this branch has hit
@@ -2235,6 +2247,15 @@ These are the things that would actually shape a real port.
    piece that is arithmetic rather than drawing, and both its edge cases are silent: a station
    already inside the frame gets no connector at all, and one on a line that never enters gets its
    unclipped end back.
+
+   The star is checked three ways at once, because any one of them alone is a coincidence: it adds
+   splay-coloured ink a plan without a section does not have, turning the splays off takes all of
+   that ink away, and the frame stays either way - which is what says the missing pixels were the
+   star. Asked for the exact colour, that check found **zero** salmon in a picture plainly full of
+   splays: a one-dp line that does not land on a pixel centre is drawn as two half-covered rows, so
+   a plan can contain splays and not one pixel of their colour. Counting the colour's *shape* - red
+   at full strength, green and blue equal and about half - is what a check of a drawn thing has to
+   do.
 
 ---
 

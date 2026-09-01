@@ -556,6 +556,7 @@ fun SurveyCanvas(
                 // line and a cross-section is drawn across the passage. `GraphView.drawCompass`
                 // returns immediately unless the projection is the plan, and so does this.
                 isPlan = sceneOverride == null && projection == Projection2D.PLAN,
+                projection = projection,
             )
         }
     }
@@ -862,8 +863,6 @@ private object CanvasSizes {
     const val STATION_RADIUS_DP = 3.5f
     const val SYMBOL_FALLBACK_RADIUS_DP = 4f
     const val THIN_STROKE_DP = 1.5f
-    const val CROSS_SECTION_STROKE_DP = 1.2f
-    const val CROSS_SECTION_RADIUS_DP = 2.5f
     const val AIMING_LINE_DP = 1f
     /** Where a station's name sits relative to its dot. */
     const val LABEL_RIGHT_DP = 5f
@@ -1124,6 +1123,11 @@ private fun DrawScope.drawSurvey(
     sectionDrag: SectionDrag? = null,
     modalMoving: Boolean = false,
     isPlan: Boolean = false,
+    /**
+     * Which way the cave is being looked at. Only a cross-section's splays need it, to ask
+     * `isLegInPlane` the same question the Java's `drawLegs` asks of every other segment.
+     */
+    projection: Projection2D = Projection2D.PLAN,
 ) {
     val palette = if (options.darkMode) DarkPalette else LightPalette
 
@@ -1349,25 +1353,64 @@ private fun DrawScope.drawSurvey(
         for (detail in sections) {
             val dragged = sectionDrag != null && sectionDrag.detail === detail
             val shown = if (dragged) sectionDrag.preview() else detail
-            val colour = if (dragged) palette.symbol else palette.crossSection
             val centre = project(shown.position)
-            for (line in shown.crossSection.getProjection().legMap.values) {
-                val end = line.end.scale(sectionScale)
-                drawLine(
-                    colour,
-                    centre,
-                    Offset(
-                        centre.x + end.x * viewport.pixelsPerMetre,
-                        centre.y + end.y * viewport.pixelsPerMetre,
-                    ),
-                    CanvasSizes.CROSS_SECTION_STROKE_DP.dp.toPx(),
-                    StrokeCap.Round,
-                )
+
+            // The splay star, drawn as `GraphView.drawCrossSection` draws it: through `drawLegs`,
+            // which means in the ordinary splay colour, at the ordinary splay width, hidden with
+            // the rest of the splays, and dashed when the shot does not lie in the plane being
+            // drawn. Every one of those was different here - silver, 1.2dp, always shown, never
+            // dashed - and the reason was that a section had nothing else to mark it out. It has a
+            // frame now, which is what the Android app relies on, so the star can go back to
+            // saying what it is: splays, the same as every other splay on the page.
+            //
+            // A section being dragged keeps the indicator colour, which is this port's own and not
+            // in the Java. Alpha is what the original changes while a section moves, and alpha
+            // reads as nothing at all on a phone in a cave.
+            val starColour = if (dragged) palette.symbol else palette.splay
+            if (options.showSplays) {
+                for ((leg, line) in shown.crossSection.getProjection().legMap) {
+                    val end = line.end.scale(sectionScale)
+                    val to =
+                        Offset(
+                            centre.x + end.x * viewport.pixelsPerMetre,
+                            centre.y + end.y * viewport.pixelsPerMetre,
+                        )
+                    val width = options.style.splayWidthDp.dp.toPx()
+                    if (projection.isLegInPlane(leg)) {
+                        drawLine(starColour, centre, to, width, StrokeCap.Round)
+                    } else {
+                        val dashLength = DASH_INTERVAL_DP.dp.toPx()
+                        for ((dashFrom, dashTo) in
+                            dashesAlong(centre.toCoord2D(), to.toCoord2D(), dashLength)) {
+                            drawLine(
+                                starColour,
+                                dashFrom.toOffset(),
+                                dashTo.toOffset(),
+                                width,
+                                StrokeCap.Round,
+                            )
+                        }
+                    }
+                }
             }
-            drawCircle(
-                colour,
-                radius = CanvasSizes.CROSS_SECTION_RADIUS_DP.dp.toPx(),
-                center = centre,
+
+            // And the centre, which the Java marks with the same station cross it marks a station
+            // with - because that is what it is, the station the section was taken at, drawn where
+            // the section was put rather than where the station is.
+            val sectionArm = options.style.stationRadiusDp.dp.toPx()
+            val sectionStroke = SketchDefaults.STATION_STROKE_WIDTH_DP.dp.toPx()
+            val markColour = if (dragged) palette.symbol else palette.station
+            drawLine(
+                markColour,
+                Offset(centre.x, centre.y - sectionArm),
+                Offset(centre.x, centre.y + sectionArm),
+                sectionStroke,
+            )
+            drawLine(
+                markColour,
+                Offset(centre.x - sectionArm, centre.y),
+                Offset(centre.x + sectionArm, centre.y),
+                sectionStroke,
             )
 
             // The passage outline drawn *inside* the section, on the plan where the section sits.
