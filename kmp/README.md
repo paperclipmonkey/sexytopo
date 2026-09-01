@@ -2530,6 +2530,39 @@ These are the things that would actually shape a real port.
    The general shape: **a harness that changes the environment has to change it back, and "back"
    sometimes needs an event, not just a flag.**
 
+76. **The app could stand in for an instrument and not write a leg down.** The last thing the class
+   sweep turned up, and the one that took the longest to understand, because the port's behaviour is
+   *defensible* — it is just not all of the behaviour.
+
+   The Android app has three ways a leg reaches a survey, not two. An instrument's reading goes
+   through `SurveyUpdater.update` with the input mode, so three agreeing readings make a station and
+   a single one is kept as a splay. `LegDialogs.addStation`, from the Tools menu, goes through
+   `SurveyUpdater.addLegFromStation` **with a destination** — no input mode, no repeats, no waiting.
+   And `addSplay` does the same for a splay.
+
+   This port had the first and neither of the others. Its *Add reading* on the field bar routes a
+   typed reading through the amalgamation, which is a coherent design and arguably the better one
+   for its purpose: typing readings *instead of* shooting them should be held to the instrument's
+   standard, or a compass-and-tape survey would be held to none. The dialog says so out loud —
+   "Three agreeing readings make a station. A single one is kept as a splay." So nobody is misled.
+
+   What was missing is the other question. Entering a trip from a paper book after the event, or
+   joining onto a station somebody else surveyed, is not three repeats of anything, and the far
+   station usually has a name already — `AV12` in the other team's notes, which the port could only
+   produce by adding the leg and renaming afterwards. `action_add_leg` and `action_add_splay` are
+   now on a **Tools** page of the overflow menu, where `action_bar.xml` puts them, with the far
+   station's name and a note on it in the same dialog.
+
+   Two things worth recording about finding it. The first is that the divergence was *measured*
+   rather than reasoned about: a throwaway test that added one reading and printed the survey said
+   `stations=[1]`, and everything after that followed from the number rather than from an argument.
+   The second is what the browser harness caught within a minute of the feature existing — the two
+   new rows rendered *above* the `< Back` row rather than below it, because the block went in beside
+   the top-level list instead of after the back button. Every other group page in the app puts Back
+   first. Nothing about that is visible in a unit test, and it is the sort of thing a screenshot is
+   scanned past; the harness noticed because it addresses menu rows by name and index, and index 1
+   was the wrong item.
+
 ---
 
 ## A defect worth reporting upstream
@@ -2681,9 +2714,9 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 777
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 377 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 385 over the UI's own
 logic, 18 running the iOS half in a simulator,
-105 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
+106 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

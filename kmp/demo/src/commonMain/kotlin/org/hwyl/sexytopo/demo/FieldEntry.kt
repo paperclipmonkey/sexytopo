@@ -32,12 +32,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.model.survey.Leg
+import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.survey.SurveySettings
 import org.hwyl.sexytopo.shared.survey.Lrud
 import org.hwyl.sexytopo.shared.survey.LrudMode
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
+import org.hwyl.sexytopo.shared.survey.StationNamer
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
 import org.hwyl.sexytopo.shared.survey.DegreesMinutesSeconds
 import org.hwyl.sexytopo.shared.survey.InputMode
@@ -209,6 +211,184 @@ internal fun addTypedReading(
         onStationCreated()
     }
     return addLruds(survey, measuredFrom, lrud, lrudMode)
+}
+
+/**
+ * *Add a leg* and *Add a splay* — `LegDialogs.addStation` and `addSplay`, from the Tools menu.
+ *
+ * Distinct from *Add a reading* on the field bar, and the title says which one this is: that button
+ * stands in for the instrument and holds a typed reading to the instrument's rules, while this one
+ * writes down what a surveyor already knows. Entering a trip from a paper book after the event, or
+ * joining onto a station somebody else surveyed, is not three repeats of anything.
+ *
+ * The name of the far station is offered because that is usually the reason for coming here: the
+ * leg goes to `AV12` in somebody else's notes and calling it `4` would lose the join. It is
+ * pre-filled with the name the app would have chosen, so a surveyor who does not care can ignore
+ * it.
+ */
+@Composable
+fun AddLegDialog(
+    survey: Survey,
+    asSplay: Boolean,
+    onDismiss: () -> Unit,
+    onAdd: (Leg, String, String, List<String>) -> Unit,
+    /** `pref_lrud_fields`: the passage size in the same dialog, as `addStationWithLruds` does. */
+    lrudFields: Boolean = false,
+) {
+    var distance by remember { mutableStateOf("") }
+    var azimuth by remember { mutableStateOf("") }
+    var inclination by remember { mutableStateOf("") }
+    var toName by remember {
+        mutableStateOf(
+            if (asSplay) "" else StationNamer.generateNextStationName(survey, survey.activeStation),
+        )
+    }
+    var toComment by remember { mutableStateOf("") }
+    val lrud = remember { mutableStateListOf("", "", "", "") }
+
+    val parsed = parseReading(distance, azimuth, inclination)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (asSplay) "Add a splay" else "Add a leg") },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    if (asSplay) {
+                        "Recorded at ${survey.activeStation.name}, as written down. " +
+                            "No repeats and no agreement needed."
+                    } else {
+                        "From ${survey.activeStation.name}, as written down. The station is made " +
+                            "straight away — no repeats and no agreement needed."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ReadingFields(
+                    distance = distance,
+                    onDistance = { distance = it },
+                    azimuth = azimuth,
+                    onAzimuth = { azimuth = it },
+                    inclination = inclination,
+                    onInclination = { inclination = it },
+                    lastImeAction = ImeAction.Next,
+                )
+                // Hidden for a splay, as the Android app hides `toStationLayout` and
+                // `toCommentLayout` in the same case: a splay has no far end to name.
+                if (!asSplay) {
+                    OutlinedTextField(
+                        value = toName,
+                        onValueChange = { toName = it },
+                        label = { Text("To") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = toComment,
+                        onValueChange = { toComment = it },
+                        label = { Text("Note on the new station") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                if (lrudFields && !asSplay) {
+                    HorizontalDivider()
+                    Text(
+                        "Passage size at ${survey.activeStation.name}, where you are standing.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for ((index, side) in Lrud.entries.withIndex()) {
+                            OutlinedTextField(
+                                value = lrud[index],
+                                onValueChange = { lrud[index] = it },
+                                label = { Text(side.name.take(1)) },
+                                singleLine = true,
+                                keyboardOptions =
+                                    KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+                parsed.problem?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = parsed.leg != null,
+                onClick = {
+                    parsed.leg?.let { onAdd(it, toName, toComment, lrud.toList()) }
+                },
+            ) { Text("Add") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
+ * Adds a leg outright, making the station at the far end of it — `LegDialogs.addStation`.
+ *
+ * The other half of manual entry, and a different thing from [addTypedReading] beside it. That one
+ * is a *stand-in for the instrument*: a typed reading goes through the same amalgamation an
+ * instrument's does, so three agreeing ones make a station and a single one is kept as a splay.
+ * This one is what the Android app's Tools menu does — `SurveyUpdater.addLegFromStation` with a
+ * destination, no input mode, no repeats, no waiting. One reading, one station, now.
+ *
+ * Both belong in the app because they answer different questions. Typing readings *instead of*
+ * shooting them wants the instrument's rules, or a compass-and-tape survey would be held to no
+ * standard at all. Joining a survey to a station somebody else surveyed, or entering a leg from a
+ * paper book after the trip, wants exactly what was written down and no arithmetic.
+ *
+ * [toName] is the station's name, which is why this exists rather than a rename afterwards: the
+ * commonest reason to type a leg is that it goes to a station that already has a name in somebody
+ * else's notes. Blank falls back to the name the app would have chosen. [toComment] goes on the
+ * new station.
+ *
+ * Returns how many passage measurements were booked, as [addTypedReading] does. Those go on the
+ * station the surveyor is *standing at*, not the new one — the same rule and the same reason as
+ * there: the tape is read from where you are.
+ */
+internal fun addLegOutright(
+    survey: Survey,
+    leg: Leg,
+    asSplay: Boolean,
+    toName: String = "",
+    toComment: String = "",
+    lrud: List<String> = emptyList(),
+    lrudMode: LrudMode = LrudMode.DEFAULT,
+): Int {
+    val from = survey.activeStation
+    if (asSplay) {
+        // A splay has no far end, so it takes no name and no comment. The Android app hides both
+        // fields in its splay dialog for the same reason.
+        SurveyBuilder.addSplay(survey, from, leg)
+    } else {
+        val wanted = toName.trim()
+        val name =
+            if (wanted.isEmpty()) {
+                StationNamer.generateNextStationName(survey, from)
+            } else {
+                // Made unique even when it was typed, which is what `advanceNumberIfNotUnique`
+                // does upstream: two stations with one name is a survey whose exports name the
+                // wrong end of a passage, and refusing the leg outright would lose the reading.
+                StationNamer.advanceNumberIfNotUnique(survey, wanted)
+            }
+        val station = Station(name)
+        if (toComment.isNotBlank()) station.comment = toComment.trim()
+        SurveyBuilder.addLegFromStation(survey, from, Leg.upgradeSplayToConnectedLeg(leg, station))
+    }
+    return addLruds(survey, from, lrud, lrudMode)
 }
 
 /**

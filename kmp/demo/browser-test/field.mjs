@@ -235,6 +235,23 @@ const TABLE_ROW = (n) => [210, 66 + 26 * n]
 // A fixed y for "Edit reading" was right for a three-button dialog and landed on "Splay comment"
 // the day a fourth was added, which is exactly the sort of drift a screenshot does not show.
 const ACT_X = 300
+// *Add a leg*'s fields, measured down from the top of its own card rather than from the top of the
+// screen. The dialog is vertically centred, so its rows all move together when its height changes —
+// which it does when `pref_lrud_fields` puts four more boxes in it. Anchoring to the card means one
+// number to re-measure instead of six, which is the lesson SETTINGS_DIALOG_HEIGHT above records.
+const ADD_LEG_ROWS = {
+  distance: [144, 166],
+  azimuth: [284, 166],
+  inclination: [144, 240],
+  to: [210, 314],
+  note: [210, 388],
+  add: [317, 464],
+}
+const addLegRow = async (which) => {
+  const top = await dialogTop()
+  const [x, down] = ADD_LEG_ROWS[which]
+  return [x, top + down]
+}
 const EDIT_DISTANCE = [140, 384]
 const COMMENT_FIELD_ABOVE_SAVE = 76
 const COMMENT_SAVE_X = 317
@@ -256,7 +273,7 @@ const STATION_SAVE = [317, 700]
 // `action_bar.xml`'s submenus, which this port went back to when the flat list grew past the
 // height of an iPhone SE. The top page opens one of the five groups; a group page is a Back row,
 // then the group's items, with the saved surveys inside File where the app's own Open is.
-const MENU_TOP = ['file', 'view', 'instrument', 'settings', 'help']
+const MENU_TOP = ['file', 'view', 'instrument', 'tools', 'settings', 'help']
 // `holdsSurveys` matters: only File grows with the library, and counting the surveys into the
 // other three pages put every row of them out by one per saved survey — which lands a tap outside
 // the menu, dismisses it, and reports itself several checks later as "no menu is open".
@@ -269,6 +286,9 @@ const MENU_PAGES = {
     after: [],
     holdsSurveys: false,
   },
+  // `action_tools`'s `tools_group_manual_entry`. Its other two items are on the drawing menu
+  // instead — see the note in App.kt — so this page holds exactly these two.
+  tools: { before: ['add-leg', 'add-splay'], after: [], holdsSurveys: false },
   // `pref_theme` is a three-value list, so it is a page rather than a checkbox — and the only
   // page two levels down, which is why `menuRow` walks a chain of parents instead of assuming
   // every group hangs off the top.
@@ -1922,6 +1942,35 @@ if ((await savedLegCount()) !== legsBeforeSplay + 1) {
 
 // Reads the saved survey back. The checks below assert against the file rather than the screen,
 // because the file is what the surveyor takes home and hands to Therion.
+/**
+ * Every station in every saved survey, as `survey/station`.
+ *
+ * Across all of them rather than out of `Swildons` by name, because which survey is open depends on
+ * where in this file you are: the import checks open other ones. A check that names the survey it
+ * expects reads an empty list further down and reports it as "the leg made no station", which is
+ * both wrong and the hardest kind of wrong to read.
+ */
+const savedStationNames = () => page.evaluate(() => {
+  const names = []
+  for (const key of Object.keys(localStorage)) {
+    if (!key.endsWith('.data.json')) continue
+    const survey = key.slice(key.lastIndexOf('/') + 1).replace('.data.json', '')
+    let parsed = null
+    try { parsed = JSON.parse(localStorage.getItem(key)) } catch (e) { parsed = null }
+    for (const station of parsed?.stations ?? []) names.push(`${survey}/${station.name}`)
+  }
+  return names.sort()
+})
+
+/** How many surveys the library holds, which is what shifts the File page's rows. */
+const savedSurveyCount = () => page.evaluate(() => {
+  const prefix = 'sexytopo:f:surveys/'
+  const names = Object.keys(localStorage)
+    .filter((k) => k.startsWith(prefix))
+    .map((k) => k.slice(prefix.length).split('/')[0])
+  return new Set(names).size
+})
+
 const savedLegs = () => page.evaluate(() => {
   const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
   if (!key) return []
@@ -3874,6 +3923,46 @@ if (backToTheSketch === 0) {
   fail('closing the 3D view left no canvas at all')
 } else {
   pass('the 3D view closes back to the survey')
+}
+
+// ---- and a leg can be written down outright, from the Tools menu ----------------------------
+// `action_add_leg`, which goes through `LegDialogs.addStation` and is a different thing from *Add
+// reading* on the field bar. That button stands in for the instrument, so a typed reading is held
+// to the instrument's rules and one of them is kept as a splay — three agreeing ones make a
+// station, which is what the three readings above just did. This writes down what a surveyor
+// already knows: a leg out of a paper book, or a join onto a station somebody else surveyed, is
+// not three repeats of anything and its far end usually has a name already.
+//
+// Last of the full-size checks, deliberately. It adds a station, and every check above reads a
+// survey it expects to be a particular shape — the first attempt at putting this beside the
+// other manual-entry checks broke four of them, none of which mentioned a station count.
+const stationsBeforeOutright = await savedStationNames()
+await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...(await menuRow('add-leg', await savedSurveyCount()))); await page.waitForTimeout(800)
+await page.screenshot({ path: join(shotDir, 'field-add-leg.png') })
+
+const addLegRows = await dialogTextRows()
+if (addLegRows.length === 0) {
+  fail('Add a leg opened nothing')
+} else {
+  await retype(await addLegRow('distance'), '6.5')
+  await retype(await addLegRow('azimuth'), '210')
+  await retype(await addLegRow('inclination'), '0')
+  await retype(await addLegRow('to'), 'AV12')
+  await retype(await addLegRow('note'), 'joins the old survey')
+  await at(...(await addLegRow('add'))); await page.waitForTimeout(900)
+
+  const after = await savedStationNames()
+  const made = after.filter((name) => !stationsBeforeOutright.includes(name))
+  if (!after.some((name) => name.endsWith('/AV12'))) {
+    fail(
+      `the leg did not make AV12 — the surveys hold ${after.join(', ') || 'nothing'}`)
+  } else if (made.length !== 1) {
+    fail(`one reading made ${made.length} stations: ${made.join(', ')}`)
+  } else {
+    pass(`a leg can be written down outright, with its station named (${made[0]})`)
+  }
+
 }
 
 // ---- and all of it has to fit on a smaller phone ---------------------------------------------

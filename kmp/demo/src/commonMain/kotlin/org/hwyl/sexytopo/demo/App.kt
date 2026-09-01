@@ -256,6 +256,41 @@ private fun SexyTopoAppBar(state: DemoState) {
     var showingAbout by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf(MenuPage.TOP) }
     var deleting by remember { mutableStateOf<String?>(null) }
+    var addingLeg by remember { mutableStateOf(false) }
+    var addingSplay by remember { mutableStateOf(false) }
+
+    // `action_add_leg` and `action_add_splay`. Always against `liveSurvey`, never `state.survey`:
+    // the demo cave is a read-only example and the rule that nothing is ever recorded into it is
+    // one this app keeps everywhere else. Opening these from the example and writing into the real
+    // survey would be worse than either, so the menu rows switch to it first — which is what the
+    // Android app's Tools menu does implicitly, having only one survey open at a time.
+    if (addingLeg || addingSplay) {
+        val splay = addingSplay
+        AddLegDialog(
+            survey = state.liveSurvey,
+            asSplay = splay,
+            lrudFields = state.preferences.lrudFields,
+            onDismiss = {
+                addingLeg = false
+                addingSplay = false
+            },
+            onAdd = { leg, toName, toComment, lrud ->
+                addLegOutright(
+                    survey = state.liveSurvey,
+                    leg = leg,
+                    asSplay = splay,
+                    toName = toName,
+                    toComment = toComment,
+                    lrud = lrud,
+                    lrudMode = state.preferences.lrudMode,
+                )
+                if (!splay) state.noteStationCreated()
+                state.noteSketchEdited()
+                addingLeg = false
+                addingSplay = false
+            },
+        )
+    }
 
     if (editingTrip) {
         TripDetailsDialog(
@@ -459,12 +494,14 @@ private fun SexyTopoAppBar(state: DemoState) {
                 // popup that does not fit, so nothing was unreachable, but *About* was drawn half
                 // off the bottom edge and nothing said the list continued.
                 //
-                // The words are the app's, and so is the order: File, View, Instrument,
-                // Settings, Help.
+                // The words are the app's, and so is the order: File, View, Instrument, Tools,
+                // Settings, Help. Tools sits where `action_tools` sits, between the device menu
+                // and the settings.
                 if (page == MenuPage.TOP) {
                     MenuGroup("File", MenuPage.FILE) { page = it }
                     MenuGroup("View", MenuPage.VIEW) { page = it }
                     MenuGroup("Instrument", MenuPage.INSTRUMENT) { page = it }
+                    MenuGroup("Tools", MenuPage.TOOLS) { page = it }
                     MenuGroup("Settings", MenuPage.SETTINGS) { page = it }
                     MenuGroup("Help", MenuPage.HELP) { page = it }
                 }
@@ -476,6 +513,41 @@ private fun SexyTopoAppBar(state: DemoState) {
                         text = { Text("< Back") },
                         leadingIcon = { CheckDot(false) },
                         onClick = { page = page.parent },
+                    )
+                }
+
+                if (page == MenuPage.TOOLS) {
+                    // `tools_group_manual_entry`: `action_add_leg` and `action_add_splay`, which
+                    // go through `LegDialogs.addStation` and `addSplay` and write the leg down
+                    // immediately.
+                    //
+                    // Not the same thing as *Add reading* on the field bar, which is why both are
+                    // in the app. That button stands in for the instrument and holds a typed
+                    // reading to the instrument's rules — three agreeing readings make a station.
+                    // These two write down what a surveyor already knows: a leg out of a paper
+                    // book after the trip, or a join onto a station somebody else surveyed, is not
+                    // three repeats of anything, and the far station usually has a name already.
+                    //
+                    // The other two items of `action_tools` are elsewhere by design and stay
+                    // there: `action_undo_last_leg` and `action_find_station` are both on the
+                    // drawing menu, because their answer is a change to what the canvas shows.
+                    DropdownMenuItem(
+                        text = { Text("Add a leg") },
+                        leadingIcon = { CheckDot(false) },
+                        onClick = {
+                            addingLeg = true
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Add a splay") },
+                        leadingIcon = { CheckDot(false) },
+                        onClick = {
+                            addingSplay = true
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        },
                     )
                 }
 
@@ -741,6 +813,9 @@ enum class MenuPage {
     FILE,
     VIEW,
     INSTRUMENT,
+
+    /** `action_tools`, holding the two manual-entry items that write a leg down outright. */
+    TOOLS,
     SETTINGS,
     HELP,
 
