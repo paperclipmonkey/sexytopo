@@ -3162,6 +3162,38 @@ These are the things that would actually shape a real port.
    which still applies, unchanged, to a failure with no exception behind it at all, such as a file
    that parsed to an empty survey.
 
+96. **A survey could be saved with a licence nobody had actually chosen.** Android's `TripActivity`
+   disables Save until `isLicenceChosen` is true — set when the trip already carries a licence, or
+   the surveyor has picked one this session, including explicitly picking "No licence" — with a
+   curated seven-entry `Licence` enum (GPLv3.0+, CC0, four Creative Commons variants and All rights
+   reserved) offered as suggestions, each with a plain-English summary of what it permits and a
+   tick or a warning symbol depending on whether it lets other cavers reuse the work. The port's
+   licence field was a bare text box with nothing gating it at all: a survey saved with the field
+   untouched went out silently unlicensed, which is not a neutral default — see finding 95's own
+   distinction, and `licence_summary_none`'s point that unlicensed and All rights reserved come to
+   the same thing, just one of them says so.
+
+   Ported as far as the scope needs: a `Licence` enum (`demo/Licence.kt`, since nothing outside
+   the UI ever reads it — the trip stores its licence as plain text, same as the Java), an
+   `isLicenceChosen` flag seeded from whether the trip already has one and set by typing into the
+   field or tapping a curated chip, gating `TripDetailsDialog`'s Save button alongside the existing
+   date checks, and the summary line with its tick or warning. Left out: the dismissable hint card
+   pitching an open licence, and remembering the last licence chosen across trips (`GeneralPreferences.
+   getLastLicence`) so a new trip does not start unanswered every time — both real conveniences, but
+   the second needs a new persisted preference this session did not want to introduce for one screen.
+
+   Measured, not guessed, cost a full re-run of this file's own lesson: the Trip dialog's browser
+   check had `TRIP_ADD_NAME` and `TRIP_ADD_BUTTON` pinned to a layout where a team member had
+   already been added at that point in some earlier version of the flow; against the dialog as it
+   actually opens today - no member yet, and now with the licence's own error text and chip row
+   filling the space where a member row would otherwise be - those two coordinates landed on
+   "Instrument" and "Copyright holder" instead, one field low for everything typed afterwards. Both
+   are re-measured against a screenshot taken the moment the dialog opens, and `TRIP_LICENCE` is
+   new, taken from the same screenshot one field lower. `TRIP_SAVE` needed no change: it sits
+   outside the dialog's scrollable content, at a fixed position regardless of how much the middle
+   grows, which running the check first at the two most different content lengths this fix produces
+   - nothing typed, and the full team-plus-licence flow - happened to prove rather than assume.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3313,9 +3345,9 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 790
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 439 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 444 over the UI's own
 logic, 20 running the iOS half in a simulator,
-111 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
+113 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 10 more at a desk, on a wheel, a trackpad and a keyboard. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

@@ -41,6 +41,7 @@ import org.hwyl.sexytopo.shared.model.survey.Trip
  * It matters most for exactly the case a training weekend is: several people, several trips, one
  * cave. A survey that does not say who made it cannot be checked against anybody's notebook.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TripDetailsDialog(
     survey: Survey,
@@ -64,6 +65,11 @@ fun TripDetailsDialog(
     var comments by remember { mutableStateOf(existing?.comments ?: "") }
     var copyrightHolder by remember { mutableStateOf(existing?.copyrightHolder ?: "") }
     var licence by remember { mutableStateOf(existing?.licence ?: "") }
+    // Whether the licence question has been answered for this trip - either it already carried
+    // one when the dialog opened, or the surveyor has picked one this session, including
+    // explicitly picking "No licence". Until then Save stays disabled: a blank licence is a
+    // perfectly good answer, but it has to be chosen rather than defaulted into.
+    var isLicenceChosen by remember { mutableStateOf(existing?.licence?.isNotEmpty() == true) }
 
     // A list rather than a single string, because the exporters emit one line per person with
     // their roles, and flattening it here would throw that away.
@@ -187,17 +193,83 @@ fun TripDetailsDialog(
                 )
                 OutlinedTextField(
                     value = licence,
-                    onValueChange = { licence = it },
+                    onValueChange = {
+                        licence = it
+                        // Typing a licence by hand answers the question just as picking one of
+                        // the chips below does. Clearing the field by hand does not: an empty
+                        // field is the unanswered state, and "No licence" is its own chip.
+                        if (it.isNotBlank()) isLicenceChosen = true
+                    },
                     label = { Text("Licence") },
                     placeholder = { Text("CC-BY-SA-4.0") },
                     singleLine = true,
+                    isError = !isLicenceChosen,
+                    supportingText = if (!isLicenceChosen) {
+                        {
+                            Text(
+                                "Pick a licence before saving, or \"No licence\" if you " +
+                                    "explicitly don't want one",
+                            )
+                        }
+                    } else {
+                        null
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    FilterChip(
+                        selected = isLicenceChosen && licence.isBlank(),
+                        onClick = {
+                            licence = ""
+                            isLicenceChosen = true
+                        },
+                        label = { Text("No licence") },
+                    )
+                    for (option in Licence.entries) {
+                        FilterChip(
+                            selected = licence.trim() == option.licenceName,
+                            onClick = {
+                                licence = option.licenceName
+                                isLicenceChosen = true
+                            },
+                            label = {
+                                Text(
+                                    if (option == Licence.RECOMMENDED) {
+                                        "${option.licenceName} (Recommended)"
+                                    } else {
+                                        option.licenceName
+                                    },
+                                )
+                            },
+                        )
+                    }
+                }
+                // What the currently chosen licence permits, with the link to read it (as plain
+                // text, matching how AboutDialog offers its own links) - only the licences above
+                // have a summary; free text, an unfamiliar licence from an imported survey, and an
+                // untouched field all show nothing.
+                val chosenLicence = Licence.forName(licence.trim())
+                val licenceSummary = when {
+                    chosenLicence != null -> chosenLicence.summaryPrefix + chosenLicence.summary
+                    licence.isBlank() && isLicenceChosen -> Licence.NONE_SUMMARY
+                    else -> null
+                }
+                if (licenceSummary != null) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(licenceSummary, style = MaterialTheme.typography.bodySmall)
+                        if (chosenLicence?.hasUrl == true) {
+                            Text(chosenLicence.url.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
             TextButton(
-                enabled = dateProblem == null && explorationDateProblem == null,
+                enabled = dateProblem == null && explorationDateProblem == null && isLicenceChosen,
                 onClick = {
                     survey.trip =
                         tripFrom(

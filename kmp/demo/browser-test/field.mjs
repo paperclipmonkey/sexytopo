@@ -562,10 +562,11 @@ const settingsSave = async () => {
   if (button === null) throw new Error('the settings dialog has no Save button on screen')
   return button
 }
-const TRIP_ADD_NAME = [177, 370]
-const TRIP_ADD_BUTTON = [317, 370]
+const TRIP_ADD_NAME = [177, 275]
+const TRIP_ADD_BUTTON = [317, 275]
 const TRIP_ROLE_BOOK = [106, 328]
 const TRIP_INSTRUMENT = [210, 527]
+const TRIP_LICENCE = [210, 764]
 const TRIP_SAVE = [317, 840]
 const LABEL_TEXT = [210, 442]
 const LABEL_PLACE = [316, 518]
@@ -3011,6 +3012,24 @@ await at(...TRIP_ROLE_BOOK); await page.waitForTimeout(300)
 await at(...TRIP_INSTRUMENT); await page.waitForTimeout(250)
 await page.keyboard.type('DistoX2', { delay: 15 })
 await page.screenshot({ path: join(shotDir, 'field-trip.png') })
+
+// Save is gated on an actual licence choice, not just on there being something to save:
+// everything else needed to save a trip is already on screen at this point, so this is the one
+// place a click on Save tests the licence gate alone. A trip written here would mean the gate
+// was never wired up at all.
+await at(...TRIP_SAVE); await page.waitForTimeout(500)
+const tripBeforeALicenceIsChosen = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
+  return key ? JSON.parse(localStorage.getItem(key)).trip ?? null : null
+})
+if (tripBeforeALicenceIsChosen) {
+  fail('Save wrote a trip before a licence was chosen for it')
+} else {
+  pass('Save does nothing until a licence has been chosen, even with everything else filled in')
+}
+
+await at(...TRIP_LICENCE); await page.waitForTimeout(250)
+await page.keyboard.type('CC0', { delay: 15 })
 await at(...TRIP_SAVE); await page.waitForTimeout(800)
 
 const trip = await page.evaluate(() => {
@@ -3021,8 +3040,26 @@ if (!trip) {
   fail('the trip details were not saved with the survey')
 } else if (!JSON.stringify(trip).includes('L. Waterworth')) {
   fail(`the team did not reach the saved survey (${JSON.stringify(trip).slice(0, 120)})`)
+} else if (!JSON.stringify(trip).includes('CC0')) {
+  fail(`the chosen licence did not reach the saved survey (${JSON.stringify(trip).slice(0, 120)})`)
 } else {
-  pass('a trip records who was there, with what, and on what date')
+  pass('a trip records who was there, with what, on what date, and under what licence')
+}
+
+// Reopening a trip that already carries a licence counts the question as already answered - a
+// surveyor fixing a typo in the instrument field should not have to re-pick a licence they
+// already chose.
+await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...(await menuRow('trip', 1))); await page.waitForTimeout(800)
+await at(...TRIP_SAVE); await page.waitForTimeout(800)
+const tripAfterReopening = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
+  return key ? JSON.parse(localStorage.getItem(key)).trip ?? null : null
+})
+if (!tripAfterReopening || !JSON.stringify(tripAfterReopening).includes('CC0')) {
+  fail('reopening a trip that already had a licence should not have needed it re-chosen')
+} else {
+  pass('a trip that already has a licence does not have to have it chosen again')
 }
 
 // ---- and the survey can leave the phone as a file ------------------------------------------
