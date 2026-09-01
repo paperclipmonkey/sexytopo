@@ -1,6 +1,7 @@
 package org.hwyl.sexytopo.shared.comms
 
 import org.hwyl.sexytopo.shared.comms.distox.DistoXBlePackets
+import org.hwyl.sexytopo.shared.comms.fcl.FclProtocol
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -255,6 +256,50 @@ class InstrumentDecoderTest {
         val outOfSequence = decoder.decode(FrameChannel.EXTENDED, ByteArray(14))
         assertEquals(emptyList(), outOfSequence)
         assertNull(decoder.acknowledgementFor(FrameChannel.EXTENDED, ByteArray(14)))
+    }
+
+    /**
+     * A completed shot carries its quality, battery, temperature and roll along with it, not just
+     * the bearing and distance the survey needs. `FclDecoderAdapter.decode` used to build the
+     * measurement from `toLegOrNull()`, which discarded everything `toPacketOrNull()` assembles
+     * from the extended packet — the two packets FCL spends its whole split-packet protocol on.
+     */
+    @Test
+    fun aCompleteFclShotCarriesItsTelemetry() {
+        val decoder = InstrumentDecoder.forProfile(InstrumentProfile.FCL)
+
+        decoder.decode(
+            FrameChannel.PRIMARY,
+            FclProtocol.encodePrimary(
+                sequenceNumber = 1,
+                statusFlags = 0,
+                batteryLevel = 42,
+                azimuth = 90f,
+                inclination = 0f,
+                distance = 5f,
+                shotQuality = 0.95f,
+            ),
+        )
+        val emitted =
+            decoder.decode(
+                FrameChannel.EXTENDED,
+                FclProtocol.encodeExtended(
+                    currentMagneticField = 48f,
+                    expectedMagneticField = 48f,
+                    currentMagneticDip = 66f,
+                    expectedMagneticDip = 66f,
+                    temperature = 21.5f,
+                    rollAngle = 3.2f,
+                    measurementId = 7,
+                ),
+            )
+
+        val measurement = emitted.single() as InstrumentPacket.Measurement
+        assertEquals(0.95f, measurement.detail.shotQuality)
+        assertEquals(42, measurement.detail.batteryPercent)
+        assertEquals(21.5f, measurement.detail.temperatureCelsius)
+        assertEquals(3.2f, measurement.detail.roll)
+        assertEquals("7", measurement.detail.reference)
     }
 
     @Test

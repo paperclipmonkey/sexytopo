@@ -315,9 +315,9 @@ private class FclDecoderAdapter : InstrumentDecoder() {
         return when (val result = decoder.feed(channel, bytes)) {
             is FclDecodeResult.Complete -> {
                 lastAcknowledgement = result.acknowledgement
-                result.leg.toLegOrNull()
-                    ?.let { listOf(InstrumentPacket.Measurement(it)) }
-                    ?: emptyList()
+                // toPacketOrNull, not toLegOrNull: the quality, battery and temperature FCL just
+                // spent two packets assembling belong on the measurement, not on the floor.
+                result.leg.toPacketOrNull()?.let { listOf(it) } ?: emptyList()
             }
             // A held primary waiting for its extended half, or a frame that made no sense. The
             // Java logs and moves on in both cases, and an unacknowledged shot is resent by the

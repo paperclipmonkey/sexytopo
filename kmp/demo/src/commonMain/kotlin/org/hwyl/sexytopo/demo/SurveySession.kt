@@ -20,11 +20,12 @@ import org.hwyl.sexytopo.shared.comms.InstrumentProfile
 import org.hwyl.sexytopo.shared.comms.InstrumentTransport
 import org.hwyl.sexytopo.shared.comms.InstrumentTransportListener
 import org.hwyl.sexytopo.shared.comms.ReconnectionPolicy
+import org.hwyl.sexytopo.shared.comms.ShotDetail
 import org.hwyl.sexytopo.shared.comms.TransportSubscription
 import org.hwyl.sexytopo.shared.comms.ShotTrouble
 import org.hwyl.sexytopo.shared.comms.toHex
 import org.hwyl.sexytopo.shared.io.export.formatFixed
-import org.hwyl.sexytopo.shared.comms.measurements
+import org.hwyl.sexytopo.shared.comms.fcl.FclProtocol
 import org.hwyl.sexytopo.shared.comms.sim.SimulatedInstrument
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -414,7 +415,8 @@ class SurveySession(
                     return
                 }
 
-                for (leg in packets.measurements()) {
+                for (packet in packets.filterIsInstance<InstrumentPacket.Measurement>()) {
+                    val leg = packet.leg
                     lastReading = leg
                     readingsTaken++
                     // A shot got through, so whatever was wrong is no longer what is happening.
@@ -432,6 +434,7 @@ class SurveySession(
                     } else {
                         note("reading ${format(leg)}")
                     }
+                    noteTelemetry(packet.detail)
                 }
             }
         }
@@ -597,6 +600,30 @@ class SurveySession(
 
     private fun format(leg: Leg) =
         "${oneDp(leg.distance)}m  ${oneDp(leg.azimuth)}°  ${oneDp(leg.inclination)}°"
+
+    /**
+     * Logs the extra telemetry FCL rides along with a shot, mirroring the two log lines
+     * `FCLCommunicator.enhancedLegCallback` always writes: the quality/battery/roll summary, then
+     * the retake recommendation when quality drops below half.
+     *
+     * The classic DistoX and every other supported instrument leave [detail] at
+     * [ShotDetail.NONE], so this is silent for them. FCL's own low-battery, temperature and
+     * interference *warnings* are firmware bits this port never receives — only the values behind
+     * them do — so they are not reproduced here rather than guessed at with an invented threshold.
+     */
+    private fun noteTelemetry(detail: ShotDetail) {
+        val quality = detail.shotQuality ?: return
+        val battery = detail.batteryPercent
+        val temperature = detail.temperatureCelsius
+        val roll = detail.roll
+        note(
+            "  quality ${FclProtocol.qualityDescription(quality)} (${oneDp(quality * 100)}%)" +
+                (battery?.let { ", battery $it%" } ?: "") +
+                (roll?.let { ", roll ${oneDp(it)}°" } ?: "") +
+                (temperature?.let { ", ${oneDp(it)}°C" } ?: ""),
+        )
+        if (quality < 0.5f) note("instrument: shot quality poor, consider retaking")
+    }
 
     companion object {
 

@@ -91,13 +91,7 @@ data class FclEnhancedLeg(
 
     fun hasExtendedData(): Boolean = (statusFlags and FclStatusFlags.EXTENDED_DATA) != 0
 
-    fun qualityDescription(): String = when {
-        shotQuality >= 0.9f -> "Excellent"
-        shotQuality >= 0.8f -> "Good"
-        shotQuality >= 0.7f -> "Fair"
-        shotQuality >= 0.5f -> "Poor"
-        else -> "Very Poor"
-    }
+    fun qualityDescription(): String = FclProtocol.qualityDescription(shotQuality)
 
     /**
      * How far the measured field is from what this part of the world should read. A large
@@ -205,6 +199,15 @@ object FclProtocol {
 
     /** The Java gives the extended packet one second to follow its primary. */
     const val PACKET_TIMEOUT_MS = 1000L
+
+    /** The same ladder as `FCLBLE.EnhancedLegData.getQualityDescription`. */
+    fun qualityDescription(shotQuality: Float): String = when {
+        shotQuality >= 0.9f -> "Excellent"
+        shotQuality >= 0.8f -> "Good"
+        shotQuality >= 0.7f -> "Fair"
+        shotQuality >= 0.5f -> "Poor"
+        else -> "Very Poor"
+    }
 
     /**
      * CRC-16/CCITT-FALSE over the first [length] bytes.
