@@ -15,9 +15,120 @@
     <style>
         html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
         canvas { display: block; outline: none; }
+
+        /* Shown from the first paint, before demo.js has even started downloading - see the
+           dismissal script below for what takes it away. The background is the manifest's own
+           background_color: it is the colour a real launch screen would use for this app, already
+           chosen, so borrowing it here means one fewer colour for the app to be told apart from. */
+        #loading-overlay {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 18px;
+            background: #F5F5F5;
+            z-index: 9999;
+            transition: opacity 0.25s ease-out;
+        }
+        #loading-overlay.dismissed { opacity: 0; pointer-events: none; }
+        #loading-overlay img {
+            width: 72px;
+            height: 72px;
+            border-radius: 18px;
+            animation: sexytopo-pulse 1.6s ease-in-out infinite;
+        }
+        #loading-overlay .spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(127, 175, 127, 0.25);
+            border-top-color: #7FAF7F;
+            border-radius: 50%;
+            animation: sexytopo-spin 0.8s linear infinite;
+        }
+        #loading-overlay span {
+            font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: #666;
+        }
+        @keyframes sexytopo-spin { to { transform: rotate(360deg); } }
+        @keyframes sexytopo-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+        /* Offered, never forced - see the service-worker registration script for why. */
+        #update-toast {
+            position: fixed;
+            left: 50%;
+            bottom: 20px;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 16px;
+            background: #333;
+            color: #fff;
+            border-radius: 8px;
+            font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            z-index: 10000;
+        }
+        #update-toast button {
+            background: #7FAF7F;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
+<div id="loading-overlay" role="status" aria-live="polite">
+    <img src="./icon-192.png" alt="">
+    <div class="spinner"></div>
+    <span>Loading SexyTopo&hellip;</span>
+</div>
+<script>
+  // Takes the loading overlay away once there is something real underneath it to show.
+  //
+  // Compose has no DOM lifecycle event to hook, but it does have to create a <canvas> to draw
+  // into, and nothing else on this page ever creates one - so its arrival, in any of the app's
+  // startup modes (see Main.wasmJs.kt), is a reliable stand-in for "the wasm module loaded,
+  // compiled and ran far enough to build its first frame". A MutationObserver catches it whether
+  // Compose inserts it as a direct child of <body> or wraps it first.
+  //
+  // Two animation frames rather than zero: the canvas exists as soon as Compose creates it, but
+  // nothing has necessarily been drawn into it yet on that same tick. Waiting for two frames to
+  // pass gives the browser a real chance to have painted whatever the first composition drew,
+  // so the overlay hands off to a picture rather than to another blank surface.
+  (function () {
+    var overlay = document.getElementById('loading-overlay')
+    if (!overlay) return
+    var dismissed = false
+    function dismiss() {
+      if (dismissed) return
+      dismissed = true
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          overlay.classList.add('dismissed')
+          overlay.addEventListener('transitionend', function () { overlay.remove() }, { once: true })
+        })
+      })
+    }
+    if (document.querySelector('canvas')) {
+      dismiss()
+    } else {
+      var observer = new MutationObserver(function () {
+        if (document.querySelector('canvas')) {
+          observer.disconnect()
+          dismiss()
+        }
+      })
+      observer.observe(document.body, { childList: true, subtree: true })
+    }
+  })()
+</script>
 <script>
   // Keep the screen on while the app is open.
   //
@@ -47,9 +158,64 @@
   // Registered after the app script so a failure here can never stop the app loading. Offline is
   // what makes this usable underground, but a surveyor with a working app and no cache is far
   // better off than one staring at an error.
+  //
+  // Also where a deployed update gets noticed. sw.js is deliberately cache-first - see its own
+  // comment - which means a tab with a hit is never told the network has something newer. What can
+  // still reach it is the browser's own service-worker update check, which is a byte diff of
+  // sw.js itself; `registration.update()` below asks for that check explicitly rather than waiting
+  // for the browser to get around to it on its own schedule, on load and on every return to the
+  // foreground (the same moment the wake lock above is re-acquired - a phone coming out of a
+  // pocket is as good a moment as any to ask whether there's a newer build).
+  //
+  // sw.js already calls self.skipWaiting() and self.clients.claim(), so a newer worker takes over
+  // an already-open tab immediately rather than waiting for it to close - which fires
+  // `controllerchange` here. That is the point an update is offered, never forced: a surveyor can
+  // be mid-sketch, and while every edit already saves itself (see DemoState.saveLiveSurvey - there
+  // is no unsaved state to lose), reloading out from under a drag or a pinch is still worth asking
+  // about rather than causing. The very first controllerchange a tab ever sees is its own first
+  // install claiming it, not an update, and is deliberately not announced.
   if ('serviceWorker' in navigator) {
+    var hadController = !!navigator.serviceWorker.controller
+
+    function showUpdateToast() {
+      if (document.getElementById('update-toast')) return
+      var toast = document.createElement('div')
+      toast.id = 'update-toast'
+      var message = document.createElement('span')
+      message.textContent = 'A new version is ready.'
+      var button = document.createElement('button')
+      button.type = 'button'
+      button.textContent = 'Reload'
+      button.addEventListener('click', function () { window.location.reload() })
+      toast.appendChild(message)
+      toast.appendChild(button)
+      document.body.appendChild(toast)
+    }
+
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!hadController) {
+        hadController = true // this tab's first install, not an update
+        return
+      }
+      showUpdateToast()
+    })
+
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js').catch(function (e) {
+      navigator.serviceWorker.register('./sw.js').then(function (registration) {
+        var checkForUpdate = function () {
+          registration.update().catch(function () { /* offline: next check will retry */ })
+        }
+        checkForUpdate()
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState === 'visible') checkForUpdate()
+        })
+        // Belt and braces for a survey trip that runs for hours without ever backgrounding the
+        // tab - which the wake lock above is specifically there to encourage. Without this, a
+        // session that never leaves the foreground would only ever make the one check above, on
+        // its own load, and could run an entire trip on a build that was superseded five minutes
+        // in. An hour is often enough to matter and rare enough to cost nothing.
+        setInterval(checkForUpdate, 60 * 60 * 1000)
+      }).catch(function (e) {
         console.warn('offline support unavailable:', e)
       })
     })

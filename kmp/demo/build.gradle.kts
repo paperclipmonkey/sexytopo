@@ -89,6 +89,27 @@ compose.desktop {
     }
 }
 
+// A cache name `sw.js` can stamp into itself - see the comment on `CACHE` there. The browser's own
+// service-worker update check is a byte diff of that file, so giving it a fresh value here is what
+// turns "a new build was deployed" into "the browser notices sw.js changed", which is the one part
+// of staying current that has to happen outside the worker's own JavaScript.
+//
+// `GITHUB_SHA` when CI built this (traceable to the commit in the browser's Application panel, and
+// stable across a re-run of the same push rather than bumping for nothing); the current time
+// otherwise, so a local build always gets a namespace nothing has served before.
+val serviceWorkerBuildId: String =
+    System.getenv("GITHUB_SHA")?.take(12) ?: System.currentTimeMillis().toString()
+
+tasks.named<org.gradle.language.jvm.tasks.ProcessResources>("wasmJsProcessResources") {
+    // Gradle's up-to-date check does not otherwise know this task's output depends on a value read
+    // from outside the file collection it copies; without this, re-running the build without
+    // touching any resource would leave a stale substitution in place rather than a fresh one.
+    inputs.property("serviceWorkerBuildId", serviceWorkerBuildId)
+    filesMatching("sw.js") {
+        filter { line -> line.replace("%%BUILD_ID%%", serviceWorkerBuildId) }
+    }
+}
+
 // Renders the shared Compose UI to a PNG with no display attached. This is how the port is
 // demonstrated on a headless machine: the same composable that the iOS app hosts.
 tasks.register<JavaExec>("renderDemoPng") {

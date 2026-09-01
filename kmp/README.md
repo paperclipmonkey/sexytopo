@@ -3007,6 +3007,61 @@ These are the things that would actually shape a real port.
    one with a perfectly good, merely stale, date sitting in a field the surveyor has since said to
    ignore.
 
+91. **Reported from the field: "I find I need to force refresh" for a build that never said it had
+   one, and a blank white page under it while the old one was still loading.** Two complaints, one
+   page (`demo/src/wasmJsMain/resources/index.html` and its `sw.js`), and the first has a precise
+   mechanism: `wasmJsBrowserDistribution` names the two `.wasm` files with a content hash and
+   `demo.js` without one, so a deploy that only changes `demo.js` changes nothing the URL `demo.js`
+   names. `sw.js` is deliberately cache-first — see its own top comment on why: a phone at a cave
+   mouth with one bar cannot afford a network attempt that hangs — so a tab with a cached hit for
+   that URL is served it before anything asks whether the network has something newer. The
+   background refetch the same handler kicks off updates the cache for *next* time, not this one,
+   so the first load after a deploy is always the previous build, and the second is not guaranteed
+   to be either, depending on whether that refetch has landed — which is what "I find I need to
+   force refresh" actually is.
+
+   Fixed at the layer that can see a real deploy. `CACHE` in `sw.js` is now `sexytopo-%%BUILD_ID%%`,
+   a placeholder `wasmJsProcessResources` fills in at build time (`serviceWorkerBuildId` in
+   `demo/build.gradle.kts` — the pushing commit's SHA in CI, the clock locally), so a genuine deploy
+   changes the bytes of `sw.js` itself, which is exactly what a browser's own service-worker update
+   check looks for. `index.html` now calls `registration.update()` on load, on every return to the
+   foreground (the same `visibilitychange` the wake lock already listens for), and once an hour
+   regardless — the wake lock exists specifically to keep a session foregrounded for a whole trip,
+   which would otherwise mean `visibilitychange` never fires again to ask. `sw.js` already called
+   `self.skipWaiting()` and `self.clients.claim()`, so a new worker takes over an open tab
+   immediately rather than waiting for it to close; `index.html` now listens for the
+   `controllerchange` that produces and offers a reload with a small toast — never forces one, since
+   a surveyor can be mid-sketch when it fires, and `DemoState.saveLiveSurvey` already runs on every
+   edit, so there is nothing an unforced reload costs by waiting for a tap. One more bug the fix's
+   own end-to-end check found along the way: `install`'s precaching was fetching `index.html` and
+   its two siblings with the browser's own default HTTP cache mode, so an install running inside a
+   host's cache lifetime (GitHub Pages sends `max-age=600` on every file, confirmed against the live
+   demo) could precache whatever `index.html` the browser already had lying around from the build
+   being replaced rather than the one just deployed. Those requests now carry `cache: 'reload'`,
+   which is cheap because install only runs once the byte diff above has already found a genuinely
+   new `sw.js`.
+
+   The second complaint is unrelated: `index.html`'s `<body>` was three `<script>` tags and nothing
+   else, so the whole multi-second gap between "page requested" and "Compose calls into Skia" was a
+   blank white rectangle — worse on the flaky signal this app is built for. It now opens with a
+   loading overlay in the initial markup — the app's own icon, a CSS spinner in the manifest's theme
+   colour, on the manifest's own `background_color` rather than white — that a `MutationObserver`
+   takes away the moment a `<canvas>` element appears anywhere under `<body>`. Nothing else on this
+   page ever creates one, so its arrival is a reliable stand-in for "the wasm module loaded, compiled
+   and built its first frame" in every one of `Main.wasmJs.kt`'s startup modes without a hook into
+   any of them.
+
+   Checked against a real build in a real browser, not only read: one throttled script confirmed the
+   overlay is on screen immediately with no canvas yet, and gone with a canvas in place once the app
+   is up; a second opened one tab against a build, edited `sw.js` and `index.html` in place under the
+   same URL to become a second "deploy" with nothing reloaded, called `registration.update()` the way
+   `index.html` itself does, and checked that the open tab is offered a reload rather than given one,
+   that the old cache namespace is torn down, and that taking the offer serves the new build rather
+   than a stale response — which is also how the `cache.addAll` bug above was actually found rather
+   than guessed at. Neither script is kept in the repository; `WasmBootstrapTest` pins the wiring
+   both depend on, so a later edit cannot quietly remove a line either one needs without a browser
+   open to notice.
+
 ---
 
 ## A defect worth reporting upstream
