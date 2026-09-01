@@ -2955,6 +2955,25 @@ These are the things that would actually shape a real port.
    `VERTICAL`, matching the model's own `propagates` flag, applies only to the destination named in
    `extend vertical <from> <to>`, never the station above it.
 
+89. **A trip's exploration date, discarded every time the dialog that shows it was saved.**
+   `TripDetailsDialog`'s Save handler builds a brand-new `Trip` from what is in the boxes on
+   screen, and the boxes on screen never had an exploration-date field at all — so
+   `explorationDate` and `explorationDateLinked` fell to the class defaults every time, whatever
+   the survey's existing trip held. The model, the JSON round-trip and both the Survex and Therion
+   exporter and importer have carried this field since they were ported; nothing in the dialog
+   ever read or wrote it. A file imported with an explicit exploration date, opened in this dialog
+   and saved without touching anything, silently lost that date on the spot.
+
+   Two fields now, seeded from the trip already on the survey rather than from scratch: a switch
+   for *"explored on the day it was surveyed"* and a date box that only appears, and is only
+   validated, when it is off — mirroring `Trip.hasExplorationDate`'s own rule that a linked date
+   does not read the field at all. That rule is also why the Save button's validation and the
+   field's own guard have to agree: a mutation pass proved a version that parsed the box whenever
+   linked was true still passed every test built on an actually-invalid string in it, because
+   invalid text fails to parse whether or not the guard is there — the test worth keeping is the
+   one with a perfectly good, merely stale, date sitting in a field the surveyor has since said to
+   ignore.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3106,7 +3125,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 781
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 423 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 427 over the UI's own
 logic, 20 running the iOS half in a simulator,
 111 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 10 more at a desk, on a wheel, a trackpad and a keyboard. The

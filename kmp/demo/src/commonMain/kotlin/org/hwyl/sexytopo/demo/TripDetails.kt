@@ -13,6 +13,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,6 +51,15 @@ fun TripDetailsDialog(
     val existing = survey.trip
 
     var date by remember { mutableStateOf((existing?.surveyDate ?: SurveyDate.parseOrNull(today))?.toString() ?: today) }
+    // The two-flag encoding Trip itself keeps: linked means "explored the day it was surveyed",
+    // in which case explorationDate is never even read - see Trip.hasExplorationDate. Seeded from
+    // the trip already on the survey, not from scratch, which is the whole fix: the dialog used to
+    // build a brand-new Trip on Save and silently reset both fields to their class defaults, so an
+    // exploration date read in from an imported file did not survive opening this dialog at all.
+    var explorationDateLinked by remember { mutableStateOf(existing?.explorationDateLinked ?: true) }
+    var explorationDate by remember {
+        mutableStateOf(existing?.explorationDate?.toString() ?: date)
+    }
     var instrument by remember { mutableStateOf(existing?.instrument ?: "") }
     var comments by remember { mutableStateOf(existing?.comments ?: "") }
     var copyrightHolder by remember { mutableStateOf(existing?.copyrightHolder ?: "") }
@@ -61,6 +71,12 @@ fun TripDetailsDialog(
     var newMember by remember { mutableStateOf("") }
 
     val dateProblem = if (SurveyDate.parseOrNull(date) == null) "Dates are yyyy-mm-dd" else null
+    val explorationDateProblem =
+        if (!explorationDateLinked && SurveyDate.parseOrNull(explorationDate) == null) {
+            "Dates are yyyy-mm-dd"
+        } else {
+            null
+        }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -79,6 +95,45 @@ fun TripDetailsDialog(
                     supportingText = dateProblem?.let { { Text(it) } },
                     modifier = Modifier.fillMaxWidth(),
                 )
+
+                // `exploration_date_linked_checkbox`, `exploration_date_field` and
+                // `clear_exploration_date_button` from `activity_trip.xml`: the passage a survey
+                // records is often found on an earlier trip, and a training weekend where several
+                // people book the same lead on different days is exactly when that difference is
+                // worth keeping separate from *when this particular set of numbers was measured*.
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Switch(
+                        checked = explorationDateLinked,
+                        onCheckedChange = { linked ->
+                            explorationDateLinked = linked
+                            if (!linked) explorationDate = date
+                        },
+                    )
+                    Text("Explored on the day it was surveyed")
+                }
+                if (!explorationDateLinked) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedTextField(
+                            value = explorationDate,
+                            onValueChange = { explorationDate = it },
+                            label = { Text("Exploration date") },
+                            singleLine = true,
+                            isError = explorationDateProblem != null,
+                            supportingText = explorationDateProblem?.let { { Text(it) } },
+                            modifier = Modifier.weight(1f),
+                        )
+                        // `clear_exploration_date_button`: back to "not recorded" rather than back
+                        // to linked - a surveyor who unlinked the date because they do not know it
+                        // yet should not have to re-discover the checkbox to say so.
+                        TextButton(onClick = { explorationDate = "" }) { Text("Clear") }
+                    }
+                }
 
                 Text("Team", style = MaterialTheme.typography.titleSmall)
                 for ((index, member) in team.withIndex()) {
@@ -142,11 +197,13 @@ fun TripDetailsDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = dateProblem == null,
+                enabled = dateProblem == null && explorationDateProblem == null,
                 onClick = {
                     survey.trip =
                         tripFrom(
                             date = date,
+                            explorationDateLinked = explorationDateLinked,
+                            explorationDate = explorationDate,
                             team = team.toList(),
                             instrument = instrument,
                             comments = comments,
@@ -213,9 +270,12 @@ internal fun labelFor(role: Trip.Role): String =
  * Builds the [Trip] the dialog describes.
  *
  * Blank people are dropped rather than written: an empty name would emit a `*team ""` line that
- * Therion accepts and no human can read. [Trip.explorationDateLinked] is left at its default, which
- * says "explored on the day it was surveyed" — the common case, and the one the Android app
- * defaults to as well.
+ * Therion accepts and no human can read.
+ *
+ * [explorationDate] is parsed only when [explorationDateLinked] is false — when it is true,
+ * [Trip.hasExplorationDate] never reads the field at all, so a blank or half-typed box left behind
+ * from before the surveyor re-linked it must not block Save, matching the dialog's own
+ * `explorationDateProblem`, which is null in exactly that case for the same reason.
  */
 internal fun tripFrom(
     date: String,
@@ -224,9 +284,13 @@ internal fun tripFrom(
     comments: String,
     copyrightHolder: String,
     licence: String,
+    explorationDateLinked: Boolean = true,
+    explorationDate: String = "",
 ): Trip? {
     val surveyDate = SurveyDate.parseOrNull(date) ?: return null
     return Trip(surveyDate).also {
+        it.explorationDateLinked = explorationDateLinked
+        it.explorationDate = if (explorationDateLinked) null else SurveyDate.parseOrNull(explorationDate)
         it.team = team.filter { entry -> entry.name.isNotBlank() }
         it.instrument = instrument.trim()
         it.comments = comments.trim()
