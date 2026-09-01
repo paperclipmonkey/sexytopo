@@ -2488,6 +2488,19 @@ things that are missing are missing on purpose and are listed below.
   correct rather than approximate. What is missing is the magnetometer that turns it as the phone
   turns: an `expect`/`actual` on three platforms and, on iOS, a usage-description key that crashes
   the app on launch if it is wrong.
+- **The last four Android preferences.** Every other key in `preferences_*.xml` is offered here;
+  these four are not, and each for its own reason rather than because it was missed.
+  `pref_orientation` locks the screen to portrait or landscape, which on iOS is a change to the
+  Swift host and its `Info.plist` rather than to any Kotlin — and `Info.plist` is precisely what
+  took the app down on a phone in finding 54, so it waits until there is a device to test it on the
+  same day it is written. `pref_anti_alias` turns antialiasing off for speed: Compose's drawing
+  scope has no flag for it, so honouring it means routing every line, arc and path through
+  `drawIntoCanvas` and a hand-built `Paint`, which is a rewrite of the canvas to buy back frames
+  that Skia on a modern phone is not dropping. `pref_export_folder_name` and
+  `pref_export_type_subfolders` describe a folder layout under Android's storage-access framework;
+  this port hands a file to the platform's own share sheet or picker, so there is no folder for
+  them to name. Written down because "unported" and "does not apply" look identical from outside.
+
 - **Drawing less of a heavily traced drawing.** With a fully traced cave *all on screen*, eight
   thousand strokes are 120 ms a frame in the headless renderer. Culling does not touch it — they
   are genuinely visible — so it would want level of detail, which changes what a surveyor sees and
