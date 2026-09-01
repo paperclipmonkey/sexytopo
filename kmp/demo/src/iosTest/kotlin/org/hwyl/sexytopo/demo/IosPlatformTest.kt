@@ -3,6 +3,7 @@ package org.hwyl.sexytopo.demo
 import kotlinx.coroutines.runBlocking
 import org.hwyl.sexytopo.demo.resources.Res
 import org.hwyl.sexytopo.shared.io.store.SurveyStorage
+import org.hwyl.sexytopo.shared.io.store.SurveyZip
 import org.hwyl.sexytopo.shared.manual.contentsOf
 import org.hwyl.sexytopo.shared.manual.parseManual
 import org.hwyl.sexytopo.shared.model.survey.Leg
@@ -175,6 +176,52 @@ class IosPlatformTest {
         assertEquals("*begin Test\n*end Test\n", DocumentsFileStore().readText(listOf("exports", name)))
 
         DocumentsFileStore().delete(listOf("exports", name))
+    }
+
+    /**
+     * Handing a survey over as one file, on the platform it was written for.
+     *
+     * The other direction of the interop above, and the one with nothing else to catch it.
+     * `saveBinaryFile` builds an `NSData` from a pinned Kotlin `ByteArray` — a pointer, a length,
+     * and a copy — and every way that can be wrong compiles perfectly: a length off by one, a
+     * pointer taken of an array that moves, a `writeToFile` whose result is ignored. On Linux the
+     * iOS compile is *skipped* rather than run, so until this test existed the whole path had been
+     * near a compiler on a macOS runner and near a processor nowhere.
+     *
+     * A zip is the right fixture rather than a convenience: it is the thing this actually writes,
+     * its bytes are not text, and the reader at the other end checks a CRC — so a copy that is
+     * subtly wrong fails here rather than in somebody's Files app.
+     */
+    @Test
+    fun aWholeSurveySavesAsAZipTheBytesOfWhichSurvive() {
+        val survey = Survey("IosZip")
+        SurveyBuilder.updateWithNewStation(survey, Leg(5.5f, 90f, -3f))
+        val expected = SurveyZip.archive(survey, "test", 1)
+        val name = SurveyZip.fileNameFor(survey)
+
+        val where = saveBinaryFile(name, expected)
+
+        try {
+            assertNotNull(where, "saveBinaryFile reported failure")
+            val read =
+                assertNotNull(
+                    DocumentsFileStore().readBytes(listOf("exports", name)),
+                    "the zip is not where saveBinaryFile said it was",
+                )
+            assertEquals(expected.size, read.size, "the zip came back the wrong length")
+            assertTrue(expected.contentEquals(read), "the zip's bytes came back changed")
+            // And it is a zip rather than whatever happened to land: the local-header signature.
+            assertEquals(listOf(0x50, 0x4b, 0x03, 0x04), read.take(4).map { it.toInt() and 0xFF })
+            assertTrue(read.size > 200, "the fixture is too short to catch a length mistake")
+        } finally {
+            DocumentsFileStore().delete(listOf("exports", name))
+        }
+    }
+
+    /** An empty archive is not something to write, and saying so beats writing a broken file. */
+    @Test
+    fun savingNoBytesAtAllIsRefusedRatherThanWritten() {
+        assertNull(saveBinaryFile("ios-test-empty.zip", ByteArray(0)))
     }
 
     /**

@@ -2723,7 +2723,7 @@ this up again is which of the remaining items are *blocked* and which are merely
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 777
 shared tests on three targets, 8 more against `java.util.zip` on the JVM, 388 over the UI's own
-logic, 18 running the iOS half in a simulator,
+logic, 20 running the iOS half in a simulator,
 106 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
