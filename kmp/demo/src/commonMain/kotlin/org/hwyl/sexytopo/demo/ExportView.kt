@@ -21,12 +21,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.hwyl.sexytopo.shared.io.SketchJson
 import org.hwyl.sexytopo.shared.io.SurveyJson
+import org.hwyl.sexytopo.shared.io.store.SurveyZip
 import org.hwyl.sexytopo.shared.io.export.CompassExporter
 import org.hwyl.sexytopo.shared.io.export.PocketTopoExporter
 import org.hwyl.sexytopo.shared.io.export.SurvexExporter
@@ -107,6 +109,11 @@ fun ExportView(
     var copied by remember(format) { mutableStateOf(false) }
     var savedTo by remember(format) { mutableStateOf<String?>(null) }
     var saveFailed by remember(format) { mutableStateOf(false) }
+    // The zip is not per-format - it is the whole survey either way - so unlike the three above
+    // this is not keyed on the chips: a surveyor who shares the survey and then looks at the
+    // Therion preview should still be able to see where it went.
+    var sharedTo by remember { mutableStateOf<String?>(null) }
+    var shareFailed by remember { mutableStateOf(false) }
     var choosingSvgOptions by remember { mutableStateOf(false) }
     var choosingTherionOptions by remember { mutableStateOf(false) }
 
@@ -217,6 +224,51 @@ fun ExportView(
                 style = MaterialTheme.typography.bodySmall,
                 color =
                     if (saveFailed) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+            )
+        }
+
+        // The whole survey as one file, which is what handing it to somebody actually means.
+        //
+        // `SurveyZipSharer` does this in the Android app and this port had only the receiving half:
+        // it would read a survey somebody had unzipped and could not make the zip, so giving a
+        // survey to a caving partner meant three files and a hope they arrived together.
+        //
+        // Its own row, below the format actions rather than among them, because it is not one of
+        // them: the buttons above write whatever format the chips are set to, and this one always
+        // writes this app's own three files, which is what the other end knows how to import.
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            // Beside the button rather than above it. A `Row` aligns to the top by default, which
+            // puts a line of `bodySmall` at the top of a forty-dp button and leaves it floating
+            // over the label instead of reading as the same line.
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(
+                onClick = {
+                    val where =
+                        saveBinaryFile(
+                            SurveyZip.fileNameFor(survey),
+                            SurveyZip.archive(survey),
+                        )
+                    sharedTo = where
+                    shareFailed = where == null
+                },
+            ) { Text("Share survey") }
+            Spacer(Modifier.weight(1f))
+            Text(
+                when {
+                    shareFailed -> "Could not save a file here"
+                    sharedTo != null -> "Saved to $sharedTo"
+                    else -> SurveyZip.fileNameFor(survey)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color =
+                    if (shareFailed) {
                         MaterialTheme.colorScheme.error
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant

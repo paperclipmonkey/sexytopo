@@ -9,7 +9,9 @@ yet. It exists to answer one question with running code rather than argument:
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
 Survex and Therion exporters and the native file format are ported and covered by 766 shared tests,
-each run on the JVM, on Kotlin/Wasm and on Kotlin/Native. The UI
+each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and eight more that are JVM-only on
+purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
+exists on exactly one of the three targets. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
 iOS — and it drives the ported logic rather than reimplementing it, which is the part that actually
 tests the claim.
@@ -2371,6 +2373,69 @@ These are the things that would actually shape a real port.
    colour" it used was `chartreuse`, and SexyTopo's palette is the full 144-name CSS list. An
    unknown colour has to be a word that really is not one.
 
+72. **A survey could be received as one file and never sent as one.** The second real gap from the
+   class sweep, and the same asymmetry as 71 pointing the other way. `SurveyZipSharer` in the
+   Android app builds a zip of the survey's files and hands it to the share sheet. This port had
+   the receiving half - the importer's own comment says a survey "arrives as a zip, and unzipping
+   it" - and no way to make one. Handing a survey to a caving partner meant exporting three files
+   and hoping all three arrived.
+
+   The obstacle was real rather than an oversight: `java.util.zip` exists on the JVM and on neither
+   Kotlin/Native nor Kotlin/Wasm, so a shared implementation is either a dependency on every
+   platform or written out longhand. It is written out longhand, in about a hundred lines, and
+   every entry is **stored rather than deflated**. A survey is three small text files; compression
+   would save a few kilobytes and cost a DEFLATE implementation on three platforms. `STORED` is
+   part of the format rather than a way round it, and every unzipper reads it.
+
+   Hand-assembled headers are exactly the code that passes its author's own reader and fails
+   everybody else's - an offset off by one, a field written big-endian, a size counted before the
+   name rather than after. So the oracle is deliberately **not** a matching reader written
+   alongside: it is `java.util.zip.ZipInputStream`, and the checksum is compared against
+   `java.util.zip.CRC32`. That is the one thing a JVM test can do that a common test cannot, and it
+   is the whole reason this test lives there while the code it tests is shared.
+
+   Three decisions in it are worth their own checks. Entries carry a **fixed timestamp** rather
+   than the clock, so the same survey zips to the same bytes - the alternative is the unreproducible
+   archive this document already reports about the Android app's PocketTopo exporter, which nobody
+   can diff or test; a test asserts it so a later "improvement" has to argue. The **UTF-8 name flag**
+   is set, so a cave called `Šumava` keeps its name rather than arriving as mojibake under a name
+   that no longer matches the one inside the data file. And an empty entry is still a valid archive,
+   because a survey with no drawing is an ordinary survey.
+
+   **Then the writer was deliberately broken, five ways, to find out which of those claims the
+   tests were actually making.** Two of the five went straight through a green suite:
+
+   - The UTF-8 flag set to zero. Seven tests passed. `java.util.zip` decodes entry names as UTF-8
+     whatever the flag says, so the `Šumava` test was checking a reader's default, not the byte
+     that makes Windows Explorer and the older tools agree with it. Without the flag that cave
+     arrives as `┼aumava`, which is precisely the failure the test was written for.
+   - The end-of-archive record claiming two files instead of three. Seven tests passed.
+     `ZipInputStream` never reads that record - it walks the local headers front to back - and
+     `ZipFile` reads the central directory to its end rather than counting entries out of it. So
+     both recovered all three files from an archive whose own summary said two. `unzip` and
+     Explorer trust the count, hand over two files, and lose the drawing.
+
+   Both now have assertions that read the bytes directly rather than through a library that is
+   forgiving about them, and both mutations fail. The other three - a wrong CRC, a central
+   directory offset off by one, a wrong directory size - were already caught, the offset by exactly
+   one test, which is the `ZipFile` one added because `ZipInputStream` alone reads only the front
+   half of the artefact. The general lesson is the one this exercise keeps producing in different
+   costumes: **a tolerant oracle turns an untested claim into a passing test.** Both of these
+   defects would have shipped, and both would have surfaced on somebody else's computer.
+
+   The button that does it is on **a row of its own**, below the per-format actions rather than
+   among them, because it is not one of them: the buttons above write whatever format the chips are
+   set to, and this one always writes this app's own three files. Putting it in the format row also
+   broke a browser check that finds *Options* by counting buttons from the left, which is a fair
+   complaint from the harness about the layout rather than a problem with the harness.
+
+   One thing this found about the environment rather than the code:
+   `compileKotlinIosSimulatorArm64` is **SKIPPED** on Linux rather than run, so the iOS half of a
+   new seam is never compiled here. The `NSData` construction in it is copied deliberately from
+   `CoreBluetoothTransport.toNSData`, which a macOS runner has actually built - both opt-ins
+   included, and `BetaInteropApi` is the one that is easy to leave off. The check that matters for
+   that file is the macOS job in CI.
+
 ---
 
 ## A defect worth reporting upstream
@@ -2522,8 +2587,9 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 766
-shared tests on three targets, 374 over the UI's own logic, 18 running the iOS half in a simulator,
-102 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 374 over the UI's own
+logic, 18 running the iOS half in a simulator,
+103 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

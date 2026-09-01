@@ -13,3 +13,15 @@ package org.hwyl.sexytopo.demo
  * that silently did nothing is worse than one that says it failed.
  */
 expect fun saveTextFile(filename: String, text: String): String?
+
+/**
+ * The same, for a file that is not text.
+ *
+ * A separate seam rather than bytes added to [FileStore], because that is the shape the text one
+ * already has: `saveTextFile` writes an *export* to wherever a platform lets a user get at it,
+ * which is a different place from where the app keeps its own surveys. Only one thing needs it —
+ * handing over a whole survey as a zip — and giving `FileStore` a `writeBytes` would mean the
+ * browser's local storage, the iOS Documents directory and three others all learning to hold bytes
+ * for the sake of one button.
+ */
+expect fun saveBinaryFile(filename: String, bytes: ByteArray): String?

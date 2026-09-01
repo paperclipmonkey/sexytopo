@@ -10,6 +10,7 @@
 //   node field.mjs <url> [screenshotDir]
 import { chromium } from 'playwright'
 import { mkdirSync, readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 
 const url = process.argv[2] ?? 'http://localhost:8080/index.html'
@@ -907,6 +908,77 @@ const exportOptionsButton = async () => {
         ` (at ${buttons.map((b) => b.join(',')).join(' ')})`)
   }
   return buttons[2]
+}
+
+/**
+ * *Share survey*, which is on a row of its own below the format actions.
+ *
+ * Found by looking for the *next* band of ink below the action row, rather than by measuring down
+ * a fixed number of pixels from it. The action row is only where it is because the chips wrapped
+ * onto three rows on this phone; a constant offset from it would be a second guess stacked on the
+ * first, and would come loose the moment a format was added. A band here is a run of scanlines
+ * that have any ink at all in them: the band holding the action row is stepped over, and the one
+ * after it is this button and the file name beside it.
+ */
+const exportShareButton = async () => {
+  const chips = await exportChips()
+  const actions = Math.max(...chips.map(([, y]) => y)) + 52
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  const found = await page.evaluate(async ([data, background, from]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    const ink = (x, y) => {
+      const i = (y * c.width + x) * 4
+      return Math.abs(px[i] - background[0]) > 24 ||
+        Math.abs(px[i + 1] - background[1]) > 24 ||
+        Math.abs(px[i + 2] - background[2]) > 24
+    }
+    const anyInk = (y) => {
+      for (let x = 0; x < c.width; x++) if (ink(x, y)) return true
+      return false
+    }
+    // Bands of scanlines with ink in them, from a little above the action row to well below it.
+    const bands = []
+    let top = null
+    for (let y = Math.max(0, from - 16); y <= Math.min(c.height - 1, from + 140); y++) {
+      if (anyInk(y)) { if (top === null) top = y } else if (top !== null) { bands.push([top, y - 1]); top = null }
+    }
+    if (top !== null) bands.push([top, Math.min(c.height - 1, from + 140)])
+    const after = bands.filter(([t, b]) => t > from || b < from)
+    const below = after.filter(([t]) => t > from)
+    if (!below.length) return null
+    const [bandTop, bandBottom] = below[0]
+    const middle = Math.round((bandTop + bandBottom) / 2)
+    const inColumn = (x) => {
+      for (let y = bandTop; y <= bandBottom; y++) if (ink(x, y)) return true
+      return false
+    }
+    const groups = []
+    let start = null
+    let lastInk = null
+    for (let x = 0; x < c.width; x++) {
+      if (!inColumn(x)) continue
+      if (start === null || x - lastInk > 14) {
+        if (start !== null) groups.push([start, lastInk])
+        start = x
+      }
+      lastInk = x
+    }
+    if (start !== null) groups.push([start, lastInk])
+    const wide = groups.filter(([f, t]) => t - f >= 18)
+    if (!wide.length) return null
+    return [Math.round((wide[0][0] + wide[0][1]) / 2), middle]
+  }, [b64, EXPORT_BACKGROUND, actions])
+  if (!found) {
+    throw new Error(`no row of buttons below the export actions at y=${actions}`)
+  }
+  return found
 }
 
 /** Press Save file and read what came out, or null if nothing did. */
@@ -2755,6 +2827,68 @@ if (missing.length > 0) {
   )
 } else {
   pass(`this app's own format exports the whole survey (${nativeFiles.length} files)`)
+}
+
+// ---- and it goes as one file, which is what handing it to somebody means ----------------------
+// Three files is what the *format* is; it is not what a person can send. A surveyor at the end of a
+// trip has one thing to do with a survey — give it to whoever is drawing up — and three downloads
+// that have to arrive together, keep their names and be dropped into the same folder is a way to
+// lose a drawing. The Android app has had `SurveyZipSharer` since 2018; this port had only the
+// receiving half, so it could read a survey somebody else had zipped and could not make one.
+//
+// Checked by unzipping it with a tool that knows nothing about this app. A zip written by hand —
+// which this one is, there being no zip writer in Kotlin's common library — is exactly the kind of
+// file that reads back correctly in the code that wrote it and nowhere else.
+await page.screenshot({ path: join(shotDir, 'field-export-share.png') })
+const shared = await Promise.all([
+  page.waitForEvent('download', { timeout: 10000 }).catch(() => null),
+  at(...(await exportShareButton())),
+]).then(([d]) => d)
+
+if (shared === null) {
+  fail('Share survey produced no file at all')
+} else if (shared.suggestedFilename() !== 'Swildons.zip') {
+  fail(`the shared survey came out named ${shared.suggestedFilename()}, not Swildons.zip`)
+} else {
+  const zip = await shared.path()
+  const listed = spawnSync('unzip', ['-Z1', zip], { encoding: 'utf8' })
+  const names = (listed.stdout ?? '').split('\n').map((n) => n.trim()).filter(Boolean)
+  const wantedInZip = ['Swildons.data.json', 'Swildons.plan.json', 'Swildons.ext-elevation.json']
+  const absent = wantedInZip.filter((name) => !names.includes(name))
+  if (listed.status !== 0) {
+    fail(`unzip would not read the shared survey: ${(listed.stderr ?? '').trim().slice(0, 200)}`)
+  } else if (absent.length > 0) {
+    fail(`the shared survey holds ${names.join(', ') || 'nothing'} and is missing ${absent.join(', ')}`)
+  } else {
+    // The names being right is not the same as the bytes being right: a central directory can
+    // agree with itself and still point at rubbish. Read one entry out and require the survey.
+    const data = spawnSync('unzip', ['-p', zip, 'Swildons.data.json'], { encoding: 'utf8' })
+    const plan = spawnSync('unzip', ['-p', zip, 'Swildons.plan.json'], { encoding: 'utf8' })
+    let survey = null
+    let sketch = null
+    try { survey = JSON.parse(data.stdout) } catch (e) { survey = null }
+    try { sketch = JSON.parse(plan.stdout) } catch (e) { sketch = null }
+    const legsIn = (s) => (s.stations ?? []).reduce((n, st) => n + (st.legs ?? []).length, 0)
+    const marks = sketch === null
+      ? 0
+      : (sketch.paths ?? []).length + (sketch.labels ?? []).length + (sketch.symbols ?? []).length
+    if (survey === null) {
+      fail(`the survey inside the shared file is not JSON: ${(data.stdout ?? '').slice(0, 120)}`)
+    } else if (survey.name !== 'Swildons') {
+      fail(`the survey inside the shared file calls itself ${survey.name}, not Swildons`)
+    } else if (legsIn(survey) === 0) {
+      fail('the survey inside the shared file has no legs, so only the header went')
+    } else if (sketch === null) {
+      fail(`the drawing inside the shared file is not JSON: ${(plan.stdout ?? '').slice(0, 120)}`)
+    } else if (marks === 0) {
+      fail('the drawing inside the shared file is blank, so the sketch did not go with it')
+    } else {
+      pass(
+        `a whole survey can be handed over as one file` +
+          ` (${names.length} in Swildons.zip, ${legsIn(survey)} legs and` +
+          ` ${marks} marks on the plan)`)
+    }
+  }
 }
 
 // ---- and the drawing that leaves the cave is the one the surveyor asked for ------------------
