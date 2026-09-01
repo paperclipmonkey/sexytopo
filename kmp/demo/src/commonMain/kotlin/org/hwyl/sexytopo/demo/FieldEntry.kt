@@ -408,7 +408,19 @@ internal fun addLegOutright(
 internal data class FieldControls(
     /** *Add reading*: `pref_manual_controls`, which the Android app applies to its own two FABs. */
     val manualEntry: Boolean,
-    /** *Simulate*: this port's own, and never over a real instrument. See finding 58. */
+    /**
+     * *Simulate*: this port's own, and never over a real instrument. See finding 58.
+     *
+     * Reported from the field: *"since we're now getting a lot closer to working software can you
+     * remove the 'simulate' button unless it's also in the Android version"* - and Android has no
+     * such button. What it has instead is `action_set_test_instrument`, one row of the debug menu
+     * `SexyTopoActivity` only shows when `pref_developer_mode` is on, which attaches a fake
+     * `Instrument` for the surveyor to then connect to and shoot with normally. That is the real
+     * parity answer: not absent, but put behind the same gate Android puts it behind, so it does
+     * not sit on the ordinary field bar of an app a caver is trusting with a real trip. Safari has
+     * no Web Bluetooth at all, so this is still the only way anybody sees instrument-driven
+     * surveying work on that platform - which is worth keeping reachable for exactly that reason.
+     */
     val simulator: Boolean,
 ) {
     companion object {
@@ -420,8 +432,9 @@ internal data class FieldControls(
                 // survey. Pressed with a BRIC on the tripod that is two harms at once — a made-up
                 // leg indistinguishable from a real one afterwards, and an instrument silently
                 // disconnected while the surveyor goes on shooting. The button exists to show the
-                // app working with no instrument in the room, so it belongs only there.
-                simulator = attachedInstrument == null,
+                // app working with no instrument in the room, so it belongs only there — and now
+                // only with developer mode on too, mirroring where Android keeps the same idea.
+                simulator = attachedInstrument == null && preferences.developerMode,
             )
     }
 }

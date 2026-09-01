@@ -2901,6 +2901,40 @@ These are the things that would actually shape a real port.
    and not inlined into `App()` — so a `jvmTest` can call it directly instead of needing a Compose
    test harness for two lines of preference plumbing.
 
+86. **Zooming was correct and felt slow.** Reported directly: *"zooming in browser isn't very
+   fast. Could you improve the zoom ratio so there's less scrolling required?"* The ctrl-scroll
+   zoom this port added for a trackpad pinch was tuned to land close to the toolbar's own 1.1
+   step per notch, which is generous for one tap of a button and reads as nothing at all for a
+   continuous gesture somebody expects to cross a whole survey in a couple of strokes.
+   `ZOOM_PER_SCROLLED_PIXEL` is now four times what it was, and the change is documented as a
+   speed decision rather than a bug fix, because it is one: the shape of the code was already
+   right, the number was just timid.
+
+   Worth recording why this only helps some of the affected browsers. Chrome and Firefox report a
+   trackpad pinch as a genuine `wheel` event with a physical `deltaY`, which this constant
+   multiplies directly — so those get faster. Safari reports a pinch as its own
+   `gesturechange` with an exact scale ratio instead, and `keepPinchesInsideTheApp` deliberately
+   *divides* by this same constant on the way in, so the two cancel and a Safari pinch always
+   reproduces the ratio the fingers made, whatever the constant is. Changing the number could not
+   have fixed Safari even if that were where the report came from — a genuinely different
+   mechanism was needed there, and none was, so this is recorded as a partial fix, honestly.
+
+87. **A button with no Android counterpart, sitting on the screen every user sees.** Reported
+   directly, once the port was far enough along to be judged as software rather than a proof of
+   concept: *"can you remove the 'simulate' button unless it's also in the Android version."* It
+   is not — a search of the whole Android source for anything resembling "simulate" finds nothing.
+   What it does have is `action_set_test_instrument`, one row of `SexyTopoActivity`'s debug menu,
+   itself shown only when `pref_developer_mode` is on: attach a fake instrument, then survey with
+   it normally, from a menu a surveyor would never open by accident.
+
+   Deleting the port's own *Simulate* outright was the blunter reading and the wrong one. It is
+   still the only way anybody sees instrument-driven surveying work at all on Safari, which has no
+   Web Bluetooth — without it, an iOS visitor could only ever try manual entry, which demonstrates
+   half the app. The button now sits behind the same gate Android puts its own instrument-faking
+   behind: `FieldControls.simulator` requires `preferences.developerMode` as well as no real
+   instrument attached, so it is off an ordinary field bar and reachable exactly where the Android
+   app keeps the same idea.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3052,7 +3086,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 777
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 421 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 423 over the UI's own
 logic, 20 running the iOS half in a simulator,
 111 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 10 more at a desk, on a wheel, a trackpad and a keyboard. The

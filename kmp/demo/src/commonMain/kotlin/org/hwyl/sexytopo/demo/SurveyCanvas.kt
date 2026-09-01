@@ -1162,17 +1162,29 @@ const val FADED_ALPHA = 0.2f
 /**
  * How much a pixel of ctrl-scroll zooms the drawing, as the exponent of e.
  *
- * A wheel notch in a browser is 100 pixels, so a notch is a factor of about 1.16 - close to the
- * 1.1 the toolbar's own buttons use, a little larger because a wheel is a coarser thing than a
- * button. Exponential rather than multiplied, so that zooming out and back in returns to the scale
- * you started at instead of drifting a little each time.
+ * Reported from a MacBook: "zooming in browser isn't very fast... a lot of scrolling required".
+ * A wheel notch in a browser is 100 pixels, and at the original 0.0015 that was a factor of only
+ * about 1.16 - close to the 1.1 the toolbar's own buttons use, which reads as generous for a
+ * single tap and as nothing at all for a gesture somebody expects to cover a whole survey in a
+ * few strokes. At 0.006 the same notch is a factor of about 1.8, and a firm two-finger pinch or a
+ * few clicks of a mouse wheel now gets from one end of a cave to the other. Exponential rather
+ * than multiplied, so that zooming out and back in returns to the scale you started at instead of
+ * drifting a little each time.
+ *
+ * This only speeds up Chrome and Firefox, which report a trackpad pinch as a real `wheel` event
+ * with a physical `deltaY` this multiplies. Safari reports a pinch as its own `gesturechange`
+ * event with an exact scale ratio instead, and [keepPinchesInsideTheApp] deliberately *divides*
+ * by this same constant to turn that ratio into a wheel delta before this multiplies it back out
+ * - the two cancel, on purpose, so a Safari pinch always reproduces the ratio the fingers made
+ * exactly, whatever this number is. Changing it changes how fast a *wheel* feels and nothing about
+ * how fast a *pinch* on Safari feels.
  *
  * Not inside `CanvasSizes` with the rest, because it is not only this file's: the browser host has
  * to turn Safari's own pinch events into the wheel events this reads, and it needs this number to
  * do it. One constant, passed across, rather than the same figure written down in Kotlin and again
  * in a string of JavaScript where nothing would ever notice the two drifting apart.
  */
-internal const val ZOOM_PER_SCROLLED_PIXEL = 0.0015f
+internal const val ZOOM_PER_SCROLLED_PIXEL = 0.006f
 
 /** `GraphView.DASHED_LINE_INTERVAL_DP`. */
 private const val DASH_INTERVAL_DP = 4f

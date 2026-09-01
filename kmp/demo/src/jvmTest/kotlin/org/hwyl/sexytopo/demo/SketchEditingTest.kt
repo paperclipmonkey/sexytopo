@@ -8,6 +8,7 @@ import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchViewport
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -285,6 +286,26 @@ class SketchEditingTest {
         assertFalse(viewport.adjustZoomBy(100000f, Coord2D.ORIGIN), "past MAX_ZOOM")
         assertFalse(viewport.adjustZoomBy(0.000001f, Coord2D.ORIGIN), "past MIN_ZOOM")
         assertTrue(viewport.pixelsPerMetre > 0f && viewport.pixelsPerMetre.isFinite())
+    }
+
+    /**
+     * How fast a mouse wheel or a Chrome/Firefox trackpad pinch zooms the drawing. Reported from
+     * a MacBook - "zooming in browser isn't very fast... a lot of scrolling required" - so this
+     * pins the speed rather than only the shape: a standard 100px wheel notch has to cover a
+     * meaningful fraction of the zoom range, not a barely-perceptible nudge, or the same complaint
+     * comes back the next time somebody tunes this for a different reason.
+     *
+     * Not exact-value-pinned, because the number itself is a judgement call about feel; a range
+     * keeps this from breaking on a reasonable future adjustment while still catching a regression
+     * back to something as timid as the original 0.0015.
+     */
+    @Test
+    fun aWheelNotchZoomsByAGenerousAmount() {
+        val factorPerNotch = exp(-100f * ZOOM_PER_SCROLLED_PIXEL)
+        assertTrue(
+            factorPerNotch in 0.5f..0.8f,
+            "a 100px wheel notch should zoom by a generous, but not dizzying, amount: was $factorPerNotch",
+        )
     }
 
     @Test
