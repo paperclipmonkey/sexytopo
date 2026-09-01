@@ -98,7 +98,17 @@ object SurvexTherionImporter {
 
             val precursors = commentedPrecursors(lines, index, tokens[0], tokens[1], useLegComments)
 
-            addLeg(survey, stations, tokens, comment, precursors, useLegComments)
+            // The only way this throws is `Leg`'s own range checks — a distance, azimuth or
+            // inclination the file wrote as a number but not a legal one. Ported from the Java's
+            // `catch (Exception exception) { throw new Exception("Error importing this line: " +
+            // line) }`, which is what turns "could not read Cave.svx" into a message a surveyor
+            // can act on: which line, and the numbers as written, not as this parser understood
+            // them.
+            try {
+                addLeg(survey, stations, tokens, comment, precursors, useLegComments)
+            } catch (exception: IllegalArgumentException) {
+                throw IllegalArgumentException("Error importing this line: $line", exception)
+            }
         }
     }
 

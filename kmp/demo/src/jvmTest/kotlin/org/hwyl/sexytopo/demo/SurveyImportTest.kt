@@ -697,4 +697,29 @@ class SurveyImportTest {
         assertNull(SurveyImport.import(library, store, "Blank.xvi"))
     }
 
+    /**
+     * A Survex file with an illegal reading used to fail with the same "could not read Cave.svx"
+     * as a file that is not a survey at all - [SurveyImport.import]'s `runCatching { }.getOrNull()`
+     * threw the exception's own message away. `library.lastError` now carries it, so what a
+     * surveyor sees is the line that needs fixing, not just that something went wrong.
+     */
+    @Test
+    fun anIllegalReadingReportsWhichLine() {
+        val store = store()
+        store.writeText(
+            listOf("Cave.svx"),
+            """
+            *data normal from to tape compass clino
+            1 2 10.00 0.00 0.00
+            2 3 -5.00 45.00 0.00
+            """.trimIndent(),
+        )
+        val library = SurveyLibrary(store)
+
+        assertNull(SurveyImport.import(library, store, "Cave.svx"))
+        assertTrue(
+            library.lastError?.contains("2 3 -5.00 45.00 0.00") == true,
+            "expected the offending line in lastError, got: ${library.lastError}",
+        )
+    }
 }

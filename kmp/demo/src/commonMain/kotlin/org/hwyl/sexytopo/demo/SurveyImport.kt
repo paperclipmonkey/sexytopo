@@ -154,9 +154,17 @@ object SurveyImport {
             if (isSurveyFolder(store, fileName)) {
                 // A folder goes through the loader the library itself uses, which has read all
                 // four files since the day it was written. Nothing here needs to know how.
-                runCatching { SurveyStorage.load(store, listOf(fileName)) }.getOrNull()
+                runCatching { SurveyStorage.load(store, listOf(fileName)) }
+                    .onFailure { library.lastError = it.message }
+                    .getOrNull()
             } else {
-                runCatching { parse(store, fileName, name) }.getOrNull()
+                // The exception's own message, not the generic one `SurveyLibrary.import` falls
+                // back to below - it is what turns "could not read Cave.svx" into "Error importing
+                // this line: 1 2 3.0 45.0 999.0" for a Survex or Therion file with an illegal
+                // reading in it.
+                runCatching { parse(store, fileName, name) }
+                    .onFailure { library.lastError = it.message }
+                    .getOrNull()
             } ?: return null
 
         // A loose data file is only ever part of a survey, so the drawings beside it come too —

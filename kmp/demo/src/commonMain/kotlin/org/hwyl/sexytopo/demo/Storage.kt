@@ -34,7 +34,7 @@ val SURVEYS_ROOT = listOf("surveys")
 class SurveyLibrary(private val store: FileStore = platformFileStore()) {
 
     var lastError: String? = null
-        private set
+        internal set
 
     /**
      * A problem that did not stop the operation: something came through, but not all of it.
@@ -81,8 +81,13 @@ class SurveyLibrary(private val store: FileStore = platformFileStore()) {
 
     fun import(fileName: String): Survey? {
         lastWarning = null
+        lastError = null
         return SurveyImport.import(this, store, fileName).also {
-            if (it == null) lastError = "could not read $fileName"
+            // SurveyImport already set a specific message for anything that threw - a bad Survex
+            // or Therion reading names its own line, for instance. This generic one is only for
+            // the message-less failures: a file that plainly is not a survey, or one that parsed
+            // to nothing.
+            if (it == null && lastError == null) lastError = "could not read $fileName"
         }
     }
 

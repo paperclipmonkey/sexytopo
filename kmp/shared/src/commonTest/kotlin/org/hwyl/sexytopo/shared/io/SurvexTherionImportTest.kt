@@ -14,6 +14,7 @@ import org.hwyl.sexytopo.shared.survey.SurveyBuilder
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -462,5 +463,29 @@ class SurvexTherionImportTest {
 
         assertEquals(0, SurveyImporter.read(text, SurveyFormat.SURVEX, "T")
             .getAllLegs().single().promotedFrom.size)
+    }
+
+    /**
+     * An illegal reading names its own line, the way the Java's
+     * `catch (Exception exception) { throw new Exception("Error importing this line: " + line) }`
+     * does - not just "could not read the file", which says nothing a surveyor could act on.
+     */
+    @Test
+    fun anIllegalReadingNamesItsOwnLine() {
+        val text =
+            """
+            *data normal from to tape compass clino
+            1 2 10.00 0.00 0.00
+            2 3 -5.00 45.00 0.00
+            """.trimIndent()
+
+        val exception = assertFailsWith<IllegalArgumentException> {
+            SurveyImporter.read(text, SurveyFormat.SURVEX, "T")
+        }
+
+        assertTrue(
+            exception.message?.contains("2 3 -5.00 45.00 0.00") == true,
+            "expected the offending line in the message, got: ${exception.message}",
+        )
     }
 }

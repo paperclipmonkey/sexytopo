@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 789 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 790 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and eight more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -3140,6 +3140,28 @@ These are the things that would actually shape a real port.
    value-based check already ported verbatim — and now lives once, on `FclProtocol`, so the
    session and `FclEnhancedLeg` read off the same thresholds instead of two copies drifting apart.
 
+95. **A bad reading in a Survex or Therion file failed with the same message as a file that was
+   never a survey at all.** `SurvexTherionImporter.parseCentreline` called `addLeg` with nothing
+   around it, so an illegal reading — a negative distance, an inclination past ±90 — threw
+   `Leg`'s own `IllegalArgumentException` straight out of the loop, uncaught. `SurveyImport.import`
+   was already wrapping the whole parse in `runCatching { }.getOrNull()`, so nothing crashed; but
+   the exception's message went with it, and `SurveyLibrary.import` filled the gap with a fixed
+   `"could not read $fileName"`. A surveyor handed a colleague's damaged file learned that
+   something was wrong and nothing about what or where — the same sentence a file that is not a
+   survey at all would get.
+
+   This was very nearly the "silent failure" it first looked like, and worth being precise about
+   what it was not: the port never dropped the error on the floor the way an earlier finding's
+   sketch import once did (see the drawing-loss findings above) — a message reached the screen
+   every time. What was missing was *which line*, which is exactly what the Java's own
+   `catch (Exception exception) { throw new Exception("Error importing this line: " + line) }`
+   exists for. Both halves are ported now: `parseCentreline` wraps the `addLeg` call and re-throws
+   with the raw line text, the way the Java does, and `SurveyImport.import` and
+   `SurveyLibrary.import` (whose `lastError` had a `private set` that made this impossible from
+   another file, now `internal`) keep that message instead of discarding it for the generic one —
+   which still applies, unchanged, to a failure with no exception behind it at all, such as a file
+   that parsed to an empty survey.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3290,8 +3312,8 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 789
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 438 over the UI's own
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 790
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 439 over the UI's own
 logic, 20 running the iOS half in a simulator,
 111 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 10 more at a desk, on a wheel, a trackpad and a keyboard. The
