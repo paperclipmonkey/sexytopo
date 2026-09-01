@@ -1593,6 +1593,65 @@ if (strokeEnds === null || strokeEnds.length < 2) {
 // Off again, so nothing later in this file is silently snapped.
 await toggleOption('snap')
 
+// ---- a tap of the pencil leaves a dot -------------------------------------------------------
+// `GraphView.handleDraw`'s ACTION_UP branch opens `if (touchPointOnView.equals(actionDownPoint))
+// { // handle dots`, so on Android a press and lift without movement leaves a mark. Here the draw
+// tool was a `detectDragGestures`, which waits for the touch slop before firing anything at all —
+// so a tap produced no stroke, while `finishPath`'s own comment went on saying that a stroke of
+// fewer than two points is committed "because a tap is how you draw a dot". It is. Nothing ever
+// asked it to.
+const pathsBeforeDot = await planPaths()
+await at(150, 300); await page.waitForTimeout(600)
+const pathsAfterDot = await planPaths()
+
+if (pathsBeforeDot < 0) {
+  fail('the plan was not saved, so the dot could not be checked')
+} else if (pathsAfterDot !== pathsBeforeDot + 1) {
+  fail(
+    `a tap with the pencil left ${pathsAfterDot - pathsBeforeDot} strokes, not one` +
+      ' — the drag detector swallowed it, as it did the symbol tool before it')
+} else {
+  pass('a tap of the pencil leaves a dot, which a drag detector on its own cannot do')
+}
+
+// ---- and the rubber rubs, rather than only lifting what it landed on -------------------------
+// The one deliberate departure from the Android app in this file's sketching checks, so it is
+// worth being plain about: `GraphView.handleErase` does its work under `case ACTION_DOWN` and its
+// `ACTION_MOVE` case is a bare `break`, so over there dragging the eraser across a wall does
+// nothing at all. This port copied that faithfully. It is still wrong — a tool drawn as an eraser
+// and named *Erase* is one every surveyor will try to rub with — so here a drag erases everything
+// it passes over.
+//
+// Five separate strokes, then one drag across all of them. A tap-only eraser can take at most one.
+await at(...toolCell(1)); await page.waitForTimeout(400)
+for (let i = 0; i < 5; i++) {
+  await drag([100 + i * 30, 240], [100 + i * 30, 300])
+  await page.waitForTimeout(300)
+}
+const pathsBeforeRub = await planPaths()
+
+await at(...toolCell(3)); await page.waitForTimeout(400)
+await drag([95, 270], [235, 270]); await page.waitForTimeout(800)
+await page.screenshot({ path: join(shotDir, 'field-rubbed.png') })
+const pathsAfterRub = await planPaths()
+const rubbedOut = pathsBeforeRub - pathsAfterRub
+
+// Rubbing the middle out of a stroke *splits* it rather than deleting it, so the count can rise as
+// well as fall — which is `pref_delete_path_fragments`, on by default, and is why this counts the
+// strokes it crossed rather than the strokes that remain.
+const crossedByTheRub = 5
+if (pathsBeforeRub < crossedByTheRub) {
+  fail(`only ${pathsBeforeRub} strokes were drawn, so the rub cannot show anything`)
+} else if (rubbedOut < 2) {
+  fail(
+    `a drag across ${crossedByTheRub} strokes changed ${rubbedOut} of them — the eraser is still` +
+      ' only lifting what it landed on')
+} else {
+  pass(`the rubber rubs: one drag across ${crossedByTheRub} strokes took out ${rubbedOut}`)
+}
+
+await at(...toolCell(1)); await page.waitForTimeout(400)
+
 // ---- the drawing can be moved without putting the pencil down ----------------------------
 // The single most frequent thing a surveyor does to a sketch is move it, and until the hot corners
 // existed the only way to do that while drawing was MOVE, drag, DRAW again: two toolbar taps per

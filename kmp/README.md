@@ -2644,6 +2644,48 @@ These are the things that would actually shape a real port.
    that broke it before now pass. The failure message says all this too, so the next person to see
    it on a busy machine does not go looking for a regression that is not there.
 
+80. **A rubber that would not rub, and a pencil that would not dot.** Reported from the field
+   rather than found by a sweep: *"the rubber deletion tool only works where you click instead of
+   working on line segments you rub over"*. The instruction with it was to copy the Android app's
+   behaviour — which turned out to be the interesting part, because **the Android app does the same
+   thing**. `GraphView.handleErase` does its work under `case ACTION_DOWN`; its `ACTION_MOVE` case
+   is a bare `break`. Dragging the eraser across a wall there erases exactly what was under the
+   first touch and nothing else.
+
+   So this port was faithful, and faithful was wrong. A tool drawn as an eraser, held like an
+   eraser and named *Erase* is one every surveyor will try to rub with, and a stroke it silently
+   declines to remove is one they will assume it could not reach. The eraser now erases under the
+   finger when it lands and everywhere it goes, which is the first deliberate behavioural departure
+   in the sketching tools and is marked as one everywhere it shows: in the gesture, in `eraseAt`'s
+   documentation — which used to instruct UIs to be tap-only — and in the browser check.
+
+   Filling in *between* the samples is the part that is not obvious. A finger crossing the screen
+   is sampled perhaps a dozen times, so at speed the gaps are many times wider than the eraser and
+   a rub comes out dotted: one stroke in three, leaving a wall that looks deliberately dashed. So
+   the rub walks the segment at the eraser's own radius, bounded so that a flick across a
+   zoomed-out cave is coarse rather than frozen.
+
+   **Then the same question asked of every other tool found a second one, and this one was a plain
+   defect.** `handleDraw`'s ACTION_UP branch opens `if (touchPointOnView.equals(actionDownPointOnView))
+   { // handle dots`, so on Android a tap of the pencil leaves a mark. Here the draw tool was a
+   `detectDragGestures`, which waits for the touch slop before firing anything at all — so a tap
+   produced no stroke at all, while `finishPath`'s own comment went on claiming that a stroke of
+   fewer than two points is committed "because a tap is how you draw a dot". It is. Nothing ever
+   asked it to.
+
+   Three things worth keeping from it. The comment on the neighbouring detector had *written down*
+   the bug without noticing — "the draw tool is a drag detector, which never fires for a tap, so
+   the two do not compete" — and they did not compete because one of them was not there. The
+   SYMBOL branch four screens above documents this exact trap and works around it, so the fix
+   existed in the file and had not been applied here. And the first attempt at the fix, a third
+   `pointerInput` in the same chain, took the touch-down away from the drag detector and stopped
+   drawing working *at all* — including inside the cross-section editor, three checks earlier in
+   the browser suite, which is how it was caught within a minute.
+
+   Both checks were verified against the old behaviour, which is the only reason to believe them: a
+   drag across five strokes changes **one** with the Android eraser and **six** with this one, and
+   a tap of the pencil leaves nothing before and one stroke after.
+
 ---
 
 ## A defect worth reporting upstream
@@ -2795,9 +2837,9 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 777
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 391 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 398 over the UI's own
 logic, 20 running the iOS half in a simulator,
-106 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
+108 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

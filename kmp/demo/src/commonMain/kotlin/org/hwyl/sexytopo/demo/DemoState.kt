@@ -822,7 +822,7 @@ fun summarise(state: DemoState, compact: Boolean): String {
         } else {
             when (state.tool) {
                 SketchTool.MOVE -> "drag to pan, pinch to zoom"
-                SketchTool.ERASE -> "tap a line to rub it out"
+                SketchTool.ERASE -> "rub over the lines to take them out"
                 SketchTool.SELECT -> "tap a station to survey on from it"
                 SketchTool.SYMBOL -> "tap to stamp, drag to aim it"
                 SketchTool.TEXT -> "tap where the label goes"

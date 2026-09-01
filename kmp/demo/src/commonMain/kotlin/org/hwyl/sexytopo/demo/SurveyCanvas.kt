@@ -362,43 +362,104 @@ fun SurveyCanvas(
 
             SketchTool.ERASE ->
                 Modifier.pointerInput(scene, tool) {
-                    // onPress, not onTap: the Android app erases on touch-*down*, so the eraser is
-                    // a tapping tool rather than a rubbing one. onTap would additionally not fire
-                    // at all if the finger moved before lifting, so a press-drag-release - which is
-                    // exactly what erasing feels like it should be - would quietly erase nothing.
-                    detectTapGestures(
-                        onPress = { offset ->
-                            val erased =
-                                editor.eraseAt(
-                                    point = viewport.toSurvey(offset),
-                                    // The constant is in dp; the viewport thinks in pixels. Passing
-                                    // it straight through made the eraser's reach depend on the
-                                    // display density, and drew a circle of the wrong size to say
-                                    // so.
-                                    toleranceInMetres =
-                                        viewport.toSurveyDistance(
-                                            SketchDefaults.DELETE_DETAILS_WITHIN_DP.dp.toPx(),
-                                        ),
-                                    pixelsPerMetre = viewport.pixelsPerMetre,
-                                    deletePathFragments = options.deletePathFragments,
-                                    showCrossSections = options.crossSectionsAreTouchable,
-                                )
-                            if (erased) onSketchEdit()
-                        },
-                    )
+                    // A rubber that rubs, which is a deliberate departure from the Android app.
+                    //
+                    // `GraphView.handleErase` does its work under `case ACTION_DOWN` and its
+                    // `ACTION_MOVE` case is a bare `break` — so over there the eraser only ever
+                    // takes out what is under the *first* touch, and dragging across a wall does
+                    // nothing at all. That is not a porting gap, it is upstream's behaviour, and
+                    // this port copied it faithfully and even wrote it into `eraseAt`'s
+                    // documentation. It is still wrong: a tool drawn as an eraser, held like an
+                    // eraser and named *Erase* is one every surveyor will try to rub with, and a
+                    // stroke it silently declines to remove is one they will assume it could not
+                    // reach.
+                    //
+                    // So: erase under the finger when it lands, and again everywhere it goes.
+                    val toleranceInMetres =
+                        viewport.toSurveyDistance(
+                            // The constant is in dp; the viewport thinks in pixels. Passing it
+                            // straight through made the eraser's reach depend on the display
+                            // density, and drew a circle of the wrong size to say so.
+                            SketchDefaults.DELETE_DETAILS_WITHIN_DP.dp.toPx(),
+                        )
+
+                    fun rubAt(point: Coord2D): Boolean =
+                        editor.eraseAt(
+                            point = point,
+                            toleranceInMetres = toleranceInMetres,
+                            pixelsPerMetre = viewport.pixelsPerMetre,
+                            deletePathFragments = options.deletePathFragments,
+                            showCrossSections = options.crossSectionsAreTouchable,
+                        )
+
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        var last = viewport.toSurvey(down.position)
+                        var erased = rubAt(last)
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val pointer = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!pointer.pressed) break
+                            val here = viewport.toSurvey(pointer.position)
+                            // Along the segment, not merely at its far end. A finger moving
+                            // quickly is sampled every few frames, so at speed the gaps between
+                            // samples are far wider than the eraser and a rub would come out
+                            // dotted — taking out one stroke in three and leaving a wall that
+                            // looks deliberately dashed.
+                            erased = rubAlong(last, here, toleranceInMetres, rub = ::rubAt) || erased
+                            last = here
+                            // Consumed so the sketch does not also scroll under the rub. The
+                            // hot-corner pan detector sits outside this one and would otherwise
+                            // take the same drag.
+                            pointer.consume()
+                        }
+
+                        if (erased) onSketchEdit()
+                    }
                 }
 
             else ->
                 Modifier
-                    // A tap on a cross-section opens it, as in the Android app, where the check
-                    // runs ahead of every tool but pan and erase. It costs nothing here: the draw
-                    // tool is a drag detector, which never fires for a tap, so the two do not
-                    // compete for the same gesture.
+                    // What a *tap* with the pencil means. Two things, in the Android app's own
+                    // order: a tap on a cross-section opens it — `handleCrossSectionBodyTap` runs
+                    // ahead of every tool but pan and erase — and a tap anywhere else leaves a
+                    // dot, which is `handleDraw`'s ACTION_UP branch, opening `if
+                    // (touchPointOnView.equals(actionDownPointOnView)) { // handle dots`.
+                    //
+                    // The dot was missing here, and the comment that used to sit on this detector
+                    // said why without noticing: "the draw tool is a drag detector, which never
+                    // fires for a tap, so the two do not compete". They did not compete because
+                    // one of them was not there. `detectDragGestures` waits for the touch slop
+                    // before firing anything at all, so a tap produced no stroke — while
+                    // `finishPath`'s own comment went on claiming that a stroke of fewer than two
+                    // points is committed "because a tap is how you draw a dot".
+                    //
+                    // Both jobs go in *one* detector rather than two. A third `pointerInput` in
+                    // this chain took the touch-down away from the drag detector below and stopped
+                    // drawing working at all — including inside the cross-section editor, three
+                    // checks earlier in the browser suite. Tap-then-drag is the arrangement the
+                    // SYMBOL branch above already proves.
                     .pointerInput(scene, tool) {
                         detectTapGestures { offset ->
-                            if (!options.crossSectionsAreTouchable) return@detectTapGestures
-                            findCrossSectionBodyAt(scene.sketch, viewport.toSurvey(offset))
-                                ?.let(onOpenCrossSection)
+                            val at = viewport.toSurvey(offset)
+                            val section =
+                                if (options.crossSectionsAreTouchable) {
+                                    findCrossSectionBodyAt(scene.sketch, at)
+                                } else {
+                                    null
+                                }
+                            if (section != null) {
+                                onOpenCrossSection(section)
+                            } else {
+                                // A path of one point. `finishPath` commits it as the original
+                                // does, and the renderer draws a stroke with no length as a round
+                                // cap — which is what a dot is.
+                                editor.startPath(at)
+                                editor.finishPath()
+                                strokeTick++
+                                onSketchEdit()
+                            }
                         }
                     }
                     .pointerInput(scene, tool, options.snapToLines) {
@@ -1150,6 +1211,46 @@ private fun DrawScope.drawCrossSectionHandle(borderRect: Rect, palette: Palette)
             StrokeCap.Round,
         )
     }
+}
+
+/**
+ * Rubs along the segment from [from] to [to], a step at a time, and says whether anything went.
+ *
+ * A pure function beside the gesture rather than inside it, for the reason the rest of this file
+ * gives: a rule that lives in a composable is a rule nothing can test.
+ *
+ * [from] is *not* rubbed — the caller has already done that, either as the touch-down or as the
+ * previous move's endpoint — so a stationary finger costs one call and no repeats. [to] always is,
+ * so the rub reaches exactly as far as the finger did.
+ *
+ * The step is the eraser's own radius, which is what makes the rub continuous rather than dotted: a
+ * finger crossing the screen in a fifth of a second is sampled perhaps a dozen times, so at speed
+ * the gaps between samples are many times wider than the eraser, and rubbing along a wall would
+ * take out one stroke in three and leave something that looks deliberately dashed.
+ *
+ * [maxSteps] bounds the work per event. It only bites on a flick across a zoomed-out cave, where
+ * the alternative is thousands of nearest-detail searches inside one frame; when it does, the rub
+ * is coarser than the eraser rather than absent, which is the right way round.
+ */
+internal fun rubAlong(
+    from: Coord2D,
+    to: Coord2D,
+    stepInMetres: Float,
+    maxSteps: Int = 64,
+    rub: (Coord2D) -> Boolean,
+): Boolean {
+    val travel = to - from
+    val distance = travel.mag()
+    var erased = false
+    if (stepInMetres > 0f && distance > stepInMetres) {
+        val wanted = (distance / stepInMetres).toInt()
+        val steps = if (wanted > maxSteps) maxSteps else wanted
+        for (step in 1..steps) {
+            if (rub(from + travel.scale(step.toFloat() / (steps + 1)))) erased = true
+        }
+    }
+    if (rub(to)) erased = true
+    return erased
 }
 
 /**

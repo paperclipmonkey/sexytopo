@@ -262,8 +262,11 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
      *     eraser survive as new strokes, so rubbing out the middle of a wall leaves both ends. Turn
      *     [deletePathFragments] off to delete whole strokes instead.
      *
-     * Note the Android app only erases on touch-*down*, not while dragging, so the eraser is a
-     * tapping tool rather than a rubbing one; a UI driving this should do the same.
+     * One call is one dab of the eraser. The Android app makes exactly one per touch — its
+     * `handleErase` works under `case ACTION_DOWN` and its `ACTION_MOVE` case is a bare `break`, so
+     * dragging across a wall there does nothing — but that is a fact about its gesture handling
+     * rather than about this method, and this port's canvas deliberately calls it all along a drag
+     * instead. See `rubAlong`.
      *
      * @return true if anything was deleted.
      */
