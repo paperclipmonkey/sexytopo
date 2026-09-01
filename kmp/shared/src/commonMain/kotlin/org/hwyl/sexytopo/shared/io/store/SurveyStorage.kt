@@ -109,6 +109,24 @@ object SurveyStorage {
         versionCode: Int = 0,
     ) = writeAll(store, survey, directory, versionName, versionCode, autosave = false)
 
+    /**
+     * Writes the same four files under their `.autosave` names, which nothing in this app does.
+     *
+     * Ported and kept rather than left out, and unused rather than wired up - both on purpose, so
+     * this is the note that says so instead of a reader finding a dead function.
+     *
+     * The Android app needs autosaves because it holds an unsaved survey in memory and writes the
+     * real files when you ask it to: `action_file_save`, `action_file_save_as` and *Restore
+     * Autosave* are all in its menu and in the manual this app ships. This port has no unsaved
+     * state at all - [save] runs on every edit, so an `.autosave` here would be a copy of what is
+     * already on disk, and *Restore Autosave* would offer to recover a survey from itself.
+     *
+     * It stays because the *reading* half is not redundant: a survey folder written by the Android
+     * app can arrive with `.autosave` files in it, newer than the files beside them, and a port
+     * that could not prefer them would silently open the older copy. [load] takes the flag for
+     * that case. Wiring a caller to it is a question about which one a surveyor meant, not about
+     * whether the code works.
+     */
     fun autosave(
         store: FileStore,
         survey: Survey,
@@ -158,9 +176,9 @@ object SurveyStorage {
      * [restoreAutosave] prefers the `.autosave` sibling of each file where one exists, falling back
      * to the saved version file by file - which is what the Java does, and is the right behaviour:
      * an autosave that only got as far as the data file should still give you the saved sketches
-     * rather than nothing.
-     */
-    /**
+     * rather than nothing. **Nothing in this app passes it, and nothing calls [autosave]** - see
+     * the note there.
+     *
      * [onProblem] is told when a drawing came back smaller than the file it was read from.
      *
      * Worth a callback rather than nothing, because the consequence outlives the read: the app

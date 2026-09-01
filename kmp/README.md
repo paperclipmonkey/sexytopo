@@ -2571,6 +2571,40 @@ These are the things that would actually shape a real port.
    scanned past; the harness noticed because it addresses menu rows by name and index, and index 1
    was the wrong item.
 
+77. **The app's own manual is an oracle, and it says the port is complete.** Found by noticing that
+   the manual this app ships — upstream's, verbatim, so a surveyor can read it underground —
+   already documented *Share* ("packages the survey into a ZIP file") and *Add Leg*, two things
+   the port did not have until this morning. A document that describes the app is a list of claims
+   about the app, and it had been sitting in the resources folder unread as a checklist.
+
+   So it was read as one. Its seventy-eight named features check out against the port, several
+   under different words — the manual's *Draw Left* / *Draw Right* / *Draw Vertical Only* are this
+   port's extended-elevation direction, its *Quick Settings* is the toolbar's settings cell, and
+   *Jump to Elevation* is `StationAction.SHOW_IN_ELEVATION`, which a search for the manual's
+   phrasing misses entirely. What is genuinely absent is a short list, and every item on it is
+   already accounted for above: the cross-survey link and unlink, *Generate Test Survey* (the demo
+   cave is the same idea), *Pair Instrument* and *Enable Bluetooth* (which are the phone's settings
+   app, not this one), and the save family below.
+
+   **The save family is the finding.** *Save*, *Save As* and *Restore Autosave* are three menu
+   items in the Android app and none of them exists here, which sounds like a gap and is instead a
+   consequence: that app holds an unsaved survey in memory and writes the real files when asked,
+   and this one has no unsaved state — `SurveyStorage.save` runs on every edit. *Restore Autosave*
+   would offer to recover a survey from itself.
+
+   What the sweep did turn up is that `SurveyStorage.autosave` and the `restoreAutosave` flag are
+   ported, tested, and called by nothing — the same shape as `SurveyFileType.METADATA` in finding
+   73, and the reason to look twice at it. The answer is different: the *writing* half really is
+   redundant, but the *reading* half is not, because a survey folder from the Android app can
+   arrive with `.autosave` files newer than the files beside them and a port that could not prefer
+   them would silently open the older copy. Both now say so where a reader will find them, which is
+   the difference between a decision and a dead function.
+
+   The general point is the one worth keeping: **a project's user-facing documentation is a test
+   oracle nobody thinks to run.** It is written from the outside, by somebody describing what the
+   thing does rather than what it contains, which is exactly the direction a port's own sweeps do
+   not look.
+
 ---
 
 ## A defect worth reporting upstream
