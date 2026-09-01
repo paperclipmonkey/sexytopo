@@ -59,6 +59,7 @@ Being precise about this matters more than the demo looking good.
 | **The table and the drawing are joined up, both ways** | **Verified** | `StationMenuTest` for each menu offering the views the other is not showing, `SurveyTableTest` for which row a station is found at and for which station a cell is about when the shot was booked backwards — and `field.mjs` taps both ends of one leg on a phone screen, checks they offer different menus, follows *show it on the plan* to a station that lands within forty pixels of the middle, then holds a station on the drawing and follows *show it in the table* back |
 | **A reading can be corrected, annotated, reversed or unmade** | **Verified** | `LegActionsTest` and `SurveyUpdaterTest` — which actions each row offers and what they do: a leg with splays hanging off its far end is not offered the downgrade `SurveyUpdater` would throw over, the first reading of a survey is not offered a promotion there is no leg above for, a leg the survey no longer holds answers "no" instead of throwing, and a comment marks the survey unsaved, which the Android app's own dialogs do not — and `field.mjs` counts what the menu offers a splay and a leg on a phone screen, writes a note against a leg, checks the table gains the app's dagger, and turns the shot end for end and back again |
 | **Any station can be reached from the sketch, not just the active one** | **Verified** | `StationMenuTest` for which actions a station offers — the origin has no incoming leg and no delete, cross-sections belong to the plan, a backsight is normalised the way the table normalises it — and `field.mjs` finds a station that is *not* the active one on the drawn plan, holds it, and checks that the menu moved the active station there without marking the paper |
+| **A survey can be drawn up at a desk, not only in a cave** | **Verified** | reported from a MacBook: a trackpad pinch zoomed the browser page rather than the survey, and there was no Ctrl+Z. Plain scroll now pans, ctrl or cmd and scroll zooms about the pointer, Ctrl+Z undoes and Ctrl+Shift+Z or Ctrl+Y redoes — the conventions every desktop drawing tool uses. `desktop.mjs` drives a real wheel at 1280x800 and measures the cave: it grows on a pinch, comes back to the same scale on the way out, slides exactly a hundred pixels on a plain scroll without changing size, and a stroke drawn with the mouse comes back and goes again on the keys. The page-zoom half is asked of the browser rather than of the screen, because the obvious form of that check cannot fail — finding 82 |
 | **The drawing can be moved without putting the pencil down** | **Verified** | `MultiTouchTest` for the pinch arithmetic and the corner geometry, and `field.mjs` finds the corner squares on the drawn page, drags one, and checks the plan moved, that no stroke was left behind, and that the next stroke still draws — with no toolbar round trip |
 | A station being made can be felt rather than looked at | **Verified** | the callback fires once per station and not once per reading, the preference round-trips, and `field.mjs` turns it off through the settings screen and checks it stayed off |
 | **The app can be told to stay dark, and remembers it** | **Verified** | `pref_theme` is a three-value list in the Android app — auto, light, dark — and this port had a session-only checkbox that started light on every run. In a cave that is the difference between a survey and fifteen minutes of no night vision. `AppPreferencesTest` covers the three values, the resolution against what the platform reports, and the round trip through the file; `field.mjs` sets Chromium to `prefers-color-scheme: dark` and watches *Automatic* follow it, then chooses **Dark** with the browser back on light, **reloads the page**, and checks the app comes back dark |
@@ -2740,6 +2741,58 @@ These are the things that would actually shape a real port.
    could have happened. **A check whose subject cannot act is a check that cannot fail**, and the
    only reason this one ever spoke was that unrelated work changed the tool in front of it.
 
+82. **A pinch that zoomed the browser instead of the cave, and no way to take a stroke back
+   without reaching for the mouse.** Both reported from a laptop, which is where a survey gets
+   drawn up after the trip: *"on web desktop click and drag to pan works great but macbook pinch
+   to zoom zooms the whole page rather than the survey"*, and *"add support for ctrl+z to undo and
+   redo"*.
+
+   Nothing to port for either - a phone has no wheel and no keyboard - so the convention taken is
+   the one every desktop drawing tool uses and every caver reaching for this at home will already
+   have in their fingers: plain scroll pans, ctrl or cmd and scroll zooms about the pointer, Ctrl+Z
+   undoes and Ctrl+Shift+Z (or Ctrl+Y) redoes. The pinch honours the existing `pinchToZoom`
+   preference, because it is the same gesture that preference is about.
+
+   Four things came out of building it that are worth writing down.
+
+   **The wheel is not the same size on two targets.** Compose does not normalise it: measured in
+   Chromium, a `wheel` of `deltaY: 1` arrives as one unit of `scrollDelta` - the browser reports
+   *pixels* - while the Swing desktop reports *notches*, about one per click. Two orders of
+   magnitude. Tuned on the browser alone, the desktop build would pan one pixel per click; tuned on
+   the desktop, the first trackpad scroll would throw the cave off the screen, which is exactly
+   what the first run did. It is an `expect val` per platform now, with the measurement written
+   down beside it.
+
+   **Modifier order decides whether a key handler ever runs.** A key event goes to the focused node
+   and then *up* its ancestors, so `onKeyEvent` after `focusable()` is a descendant of the focus
+   target and hears nothing. The canvas took the keyboard focus and ignored every key.
+
+   **And a Compose button takes the focus when it is pressed** - so choosing the pencil off the
+   toolbar moved the keyboard to the pencil button, and Ctrl+Z did nothing from then on. Which is
+   not a corner case: picking a tool and then drawing with it is the only way anybody uses this.
+   The canvas asks for the focus back whenever the tool changes, and again on any touch, for the
+   buttons that do not change it. Found because the check drew with the pencil rather than with
+   whatever tool happened to be selected.
+
+   **The obvious check for the actual complaint cannot fail.** "Ctrl-scroll, then assert
+   `devicePixelRatio` has not moved" passes with the entire fix deleted, because Playwright's wheel
+   arrives through the DevTools protocol and Chromium's page zoom is a browser-window action a
+   synthetic event never reaches. The check that works asks the mechanism instead: dispatch a real
+   `WheelEvent` with `ctrlKey` from inside the page and read `defaultPrevented` back. That one
+   fails without the fix - and it settled a question reading the code could not, because it proves
+   Compose's own canvas does *not* prevent the default, so the listener is genuinely needed.
+
+   Safari is the odd one out: it sends non-standard `gesturestart`/`gesturechange` rather than a
+   ctrl-wheel, and no Compose target reads those. The browser host turns them into the wheel event
+   the rest of the path expects, using the zoom constant handed across from the Kotlin rather than
+   written down twice. That path cannot be exercised in Safari here, but it can be *driven* -
+   the shim reads nothing off the event but `scale` and the pointer position, and those go on a
+   plain `Event` - so it is checked end to end in Chromium: a pinch to 1.6 has to make the cave
+   1.6 times taller on the page. Checked that way round deliberately, against the drawing rather
+   than against the synthesized `deltaY`, because comparing the shim's arithmetic to the formula it
+   was written from would pass whatever number it invented. The first version was out by a factor
+   of six hundred and sixty-six and still zoomed in the right direction.
+
 ---
 
 ## A defect worth reporting upstream
@@ -2894,7 +2947,7 @@ this up again is which of the remaining items are *blocked* and which are merely
 shared tests on three targets, 8 more against `java.util.zip` on the JVM, 406 over the UI's own
 logic, 20 running the iOS half in a simulator,
 110 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
-667x375, then 375x375. The
+667x375, then 375x375, and 10 more at a desk, on a wheel, a trackpad and a keyboard. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.
 

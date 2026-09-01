@@ -27,6 +27,7 @@ import org.hwyl.sexytopo.shared.sketch.SketchEditor
 fun main() {
     val mode = window.location.hash
     println("sexytopo demo starting, mode='$mode'")
+    keepPinchesInsideTheApp(1.0 / ZOOM_PER_SCROLLED_PIXEL)
     // Compose Resources needs to be told how to turn a resource path into a URL on the web,
     // otherwise the bundled font is never fetched.
     configureWebResources { resourcePathMapping { path -> "./$path" } }

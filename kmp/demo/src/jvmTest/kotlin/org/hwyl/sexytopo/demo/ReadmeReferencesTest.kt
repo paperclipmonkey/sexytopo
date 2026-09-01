@@ -85,10 +85,13 @@ class ReadmeReferencesTest {
         val ios = testsUnder("demo/src/iosTest")
         // A browser check is a `pass(...)`: the harness prints one line per check and counts them
         // itself, and the two agree — 106 static calls, 106 lines in the log.
-        val browser =
-            Regex("\\bpass\\(")
-                .findAll(File(kmp, "demo/browser-test/field.mjs").readText())
-                .count()
+        fun checksIn(script: String) =
+            Regex("\\bpass\\(").findAll(File(kmp, "demo/browser-test/$script").readText()).count()
+        val browser = checksIn("field.mjs")
+        // The desk rather than the cave: a wheel, a trackpad and a keyboard, at desktop size.
+        // Counted separately because the README describes it separately — the field workflow's
+        // number is about a phone-sized screen, and folding these into it would make that untrue.
+        val desktop = checksIn("desktop.mjs")
         val iosFiles =
             File(kmp, "demo/src/iosMain/kotlin/org/hwyl/sexytopo/demo")
                 .listFiles()
@@ -103,6 +106,7 @@ class ReadmeReferencesTest {
                 "$demo over the UI's own" to demo,
                 "$ios running the iOS half in a simulator" to ios,
                 "$browser browser checks driving the real page" to browser,
+                "$desktop more at a desk, on a wheel, a trackpad and a keyboard" to desktop,
                 "`demo/src/iosMain/` holds ${inWords(iosFiles)}" to iosFiles,
             )
 

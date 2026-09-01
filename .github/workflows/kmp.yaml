@@ -333,6 +333,15 @@ jobs:
         working-directory: kmp/demo/browser-test
         run: node field.mjs http://localhost:8731/index.html field-screenshots
 
+      # The desk, rather than the cave. A survey is drawn up afterwards on a laptop, and both of
+      # the things this checks were reported from one: a trackpad pinch that zoomed the browser
+      # page instead of the survey, and no Ctrl+Z. Its own script because it needs a desktop-sized
+      # window and a wheel, and because every check in it moves the viewport that the field
+      # workflow's fixed coordinates depend on.
+      - name: Test the desktop wheel, trackpad and keyboard
+        working-directory: kmp/demo/browser-test
+        run: node desktop.mjs http://localhost:8731/index.html desktop-screenshots
+
       # A radio, without a radio.
       #
       # CoreBluetoothTransport cannot be exercised anywhere - the iOS simulator has no Bluetooth
@@ -351,6 +360,13 @@ jobs:
         with:
           name: instrument-screenshots
           path: kmp/demo/browser-test/instrument-screenshots/*.png
+
+      - name: Upload desktop screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-screenshots
+          path: kmp/demo/browser-test/desktop-screenshots/*.png
 
       - name: Upload field screenshots
         if: always()

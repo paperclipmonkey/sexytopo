@@ -1,6 +1,7 @@
 package org.hwyl.sexytopo.demo
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -9,6 +10,7 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -28,7 +30,21 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isMetaPressed
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -66,6 +82,7 @@ import org.hwyl.sexytopo.shared.survey.CrossSectioner
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.log10
 import kotlin.math.max
@@ -633,6 +650,57 @@ fun SurveyCanvas(
             }
         }
 
+    // A wheel, or a laptop trackpad, which is the whole input story on the browser build at a
+    // desk. Reported from there: *"on web desktop click and drag to pan works great but macbook
+    // pinch to zoom zooms the whole page rather than the survey"* - a pinch on a Mac trackpad
+    // arrives as a wheel event with ctrl held, so the browser takes it as page zoom and the cave
+    // never hears about it.
+    //
+    // Nothing in the Android app to port here; a phone has no wheel. The convention taken is the
+    // one every desktop drawing tool uses, which is also what a caver reaching for this at home
+    // after a trip will have in their fingers from Figma or Inkscape: plain scroll pans, ctrl (or
+    // cmd) and scroll zooms about the pointer. Two-finger scrolling therefore slides the paper
+    // around, which is what a trackpad's own gesture means everywhere else.
+    //
+    // The pinch honours `pinchToZoom`, because it is the same gesture the preference is about:
+    // somebody who turned the pinch off did so to stop the drawing jumping while they work, and a
+    // trackpad is no different.
+    val wheel =
+        Modifier.pointerInput(scene, tool, options) {
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent()
+                    if (event.type != PointerEventType.Scroll) continue
+                    // The last change rather than the first: a scroll carries one, but taking the
+                    // last is what the rest of Compose's own scroll handling does when a stray
+                    // hover change is also in the event.
+                    val change = event.changes.lastOrNull() ?: continue
+                    val scroll = change.scrollDelta
+                    if (scroll.x == 0f && scroll.y == 0f) continue
+                    // In the pixels the platform actually reports; see [scrollUnitInPixels],
+                    // which is two orders of magnitude apart between a browser and Swing.
+                    val scrolled =
+                        Coord2D(scroll.x * scrollUnitInPixels, scroll.y * scrollUnitInPixels)
+                    val modifiers = event.keyboardModifiers
+                    if (modifiers.isCtrlPressed || modifiers.isMetaPressed) {
+                        if (!options.pinchToZoom) continue
+                        // Exponential, so a notch out and a notch back land where they started -
+                        // a linear step does not, and the drawing walks away from you.
+                        canvas.transformBy(
+                            change.position.toCoord2D(),
+                            Coord2D(0f, 0f),
+                            exp(-scrolled.y * ZOOM_PER_SCROLLED_PIXEL),
+                        )
+                    } else {
+                        // Negated: a scroll *down* means the paper goes up, which is a drag
+                        // upwards, and `transformBy` takes the movement of the hand.
+                        canvas.transformBy(change.position.toCoord2D(), scrolled.scale(-1f), 1f)
+                    }
+                    change.consume()
+                }
+            }
+        }
+
     // Pan and zoom without leaving the current tool: see [detectModalMove]. Not installed over the
     // pan tool, which already does all of it with one finger and would end up handling a pinch
     // twice.
@@ -660,6 +728,60 @@ fun SurveyCanvas(
             }
         }
 
+    // Ctrl+Z and Ctrl+Shift+Z, which is the other half of what a browser build gets asked for at a
+    // desk: *"add support for ctrl+z to undo and redo? That'd be cool."* Cmd on a Mac, and Ctrl+Y
+    // as well because half of Windows reaches for that one.
+    //
+    // The keys go to the same [SketchEditor.undo] the toolbar's own arrows use, so the plan, the
+    // extended elevation and a cross-section each undo their own drawing - the three separate
+    // stacks the Android app keeps, and the reason this sits in the canvas rather than at the top
+    // of the app, where it would have to work out which of them is showing.
+    val keyboardFocus = remember { FocusRequester() }
+    // The canvas takes the keyboard when it appears, and takes it back whenever the tool changes.
+    //
+    // Both halves are needed and the second was found the hard way. Each of the sketch, the table,
+    // the manual and the cross-section editor replaces the others in the tree rather than covering
+    // them, so leaving a section brings the plan's canvas back into composition and this runs
+    // again - that is the first half. The second is that a Compose button takes the focus when it
+    // is pressed, so picking the pencil off the toolbar moved the keyboard to the pencil button
+    // and Ctrl+Z did nothing from then on. Which is not a corner case: choosing a tool and then
+    // drawing with it is the only way anybody uses this. Keying on `tool` brings the keyboard back
+    // to the paper the moment a tool is chosen, and [keyboardFocusOnTouch] covers the buttons that
+    // do not change it.
+    LaunchedEffect(tool) {
+        // requestFocus throws if the node is not attached yet, which is a race worth losing
+        // quietly: the alternative is the whole drawing failing to appear because a key handler
+        // could not be set up.
+        runCatching { keyboardFocus.requestFocus() }
+    }
+
+    // Touching the drawing gives it the keyboard back, whatever took it - a colour swatch, a menu
+    // that has closed, the browser's own address bar. Consumes nothing and is dispatched after
+    // every other detector, so no tool can tell it is there.
+    val keyboardFocusOnTouch =
+        Modifier.pointerInput(Unit) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                runCatching { keyboardFocus.requestFocus() }
+            }
+        }
+
+    fun onKey(event: KeyEvent): Boolean {
+        // Key *down*, or every shortcut fires twice.
+        if (event.type != KeyEventType.KeyDown) return false
+        if (!event.isCtrlPressed && !event.isMetaPressed) return false
+        val redo =
+            (event.key == Key.Z && event.isShiftPressed) || event.key == Key.Y
+        val undo = event.key == Key.Z && !event.isShiftPressed
+        if (!undo && !redo) return false
+        // Taken whether or not there was anything left on the stack: an undo at the bottom of the
+        // pile is still the app's key, and letting it through to the browser at that one moment
+        // would be a surprise nobody could explain.
+        if (if (undo) editor.undo() else editor.redo()) onSketchEdit()
+        strokeTick++
+        return true
+    }
+
     // Clipping is stated rather than inherited. `drawGrid` starts its first line at
     // `floor(topLeft.y / spacing) * spacing`, which is by definition at or above the top of the
     // view - the same arithmetic GraphView uses, where an Android View's own clip makes it free. It
@@ -671,10 +793,20 @@ fun SurveyCanvas(
         modifier =
             modifier
                 .clipToBounds()
+                .then(keyboardFocusOnTouch)
+                // Order is load-bearing. A key event is dispatched to the focused node and then
+                // *up* its ancestors, and `focusable()` is the node that holds the focus - so a
+                // handler placed after it is a descendant of the focus target and never hears a
+                // thing. Written that way round first, and the symptom was a canvas that took the
+                // keyboard focus and ignored every key.
+                .focusRequester(keyboardFocus)
+                .onKeyEvent(::onKey)
+                .focusable()
                 .then(gestures)
                 .then(longPress)
                 .then(sectionHandle)
                 .then(modalMove)
+                .then(wheel)
     ) {
         Canvas(Modifier.fillMaxSize()) {
             // Read both counters so a gesture or a toolbar button repaints; the values themselves
@@ -1027,6 +1159,21 @@ data class DisplayOptions(
 /** `GraphView.FADED_ALPHA`, which is `0xff / 5` of full. */
 const val FADED_ALPHA = 0.2f
 
+/**
+ * How much a pixel of ctrl-scroll zooms the drawing, as the exponent of e.
+ *
+ * A wheel notch in a browser is 100 pixels, so a notch is a factor of about 1.16 - close to the
+ * 1.1 the toolbar's own buttons use, a little larger because a wheel is a coarser thing than a
+ * button. Exponential rather than multiplied, so that zooming out and back in returns to the scale
+ * you started at instead of drifting a little each time.
+ *
+ * Not inside `CanvasSizes` with the rest, because it is not only this file's: the browser host has
+ * to turn Safari's own pinch events into the wheel events this reads, and it needs this number to
+ * do it. One constant, passed across, rather than the same figure written down in Kotlin and again
+ * in a string of JavaScript where nothing would ever notice the two drifting apart.
+ */
+internal const val ZOOM_PER_SCROLLED_PIXEL = 0.0015f
+
 /** `GraphView.DASHED_LINE_INTERVAL_DP`. */
 private const val DASH_INTERVAL_DP = 4f
 
@@ -1079,6 +1226,7 @@ private object CanvasSizes {
      * A deliberate departure, not a port of anything.
      */
     const val CROSS_SECTION_HANDLE_TOUCH_HEIGHT_DP = 24f
+
     const val CROSS_SECTION_HANDLE_GRIP_WIDTH_DP = 2f
     const val CROSS_SECTION_HANDLE_GRIP_SPACING_DP = 5f
     const val CROSS_SECTION_HANDLE_GRIP_LENGTH_FRACTION = 0.45f
