@@ -35,11 +35,9 @@ class ShotTroubleSessionTest {
     /**
      * The 58d3 frame: `uint8 code, float, float` at offset 0, and the same again at offset 9.
      *
-     * Twenty bytes and not eighteen, which is the length the *parser* needs. `BricDecoder` drops
-     * anything shorter than twenty on purpose - every BRIC parser reads within the first twenty
-     * bytes of its indication, and a truncated one on a marginal link would otherwise index past
-     * the end - so a test frame that is merely long enough to parse is one the app would throw
-     * away. See finding 70: a check has to go in the way the real thing does.
+     * Twenty bytes and not eighteen, which is the length the *parser* needs: `BricDecoder` drops
+     * anything shorter than twenty on purpose, so a test frame that is merely long enough to parse
+     * is one the app would throw away.
      */
     private fun errorFrame(
         first: Bric4Error,
@@ -56,13 +54,11 @@ class ShotTroubleSessionTest {
             }
         }
 
-    /** Little-endian IEEE-754, which is what every BRIC field is. */
     private fun putFloat(into: ByteArray, at: Int, value: Float) {
         val bits = value.toRawBits()
         for (i in 0 until 4) into[at + i] = ((bits shr (8 * i)) and 0xFF).toByte()
     }
 
-    /** An all-zero frame on the errors characteristic is how a BRIC says the shot was fine. */
     private fun goodShotFrames(instrument: FakeInstrument) {
         instrument.arrive(ByteArray(BRIC_FRAME), FrameChannel.PRIMARY)
         instrument.arrive(ByteArray(BRIC_FRAME), FrameChannel.EXTENDED)
@@ -70,7 +66,7 @@ class ShotTroubleSessionTest {
     }
 
     private companion object {
-        /** `BricDecoder.MINIMUM_FRAME`: shorter indications are dropped rather than parsed. */
+        // `BricDecoder.MINIMUM_FRAME`: shorter indications are dropped rather than parsed.
         const val BRIC_FRAME = 20
     }
 
@@ -93,10 +89,7 @@ class ShotTroubleSessionTest {
         assertNull(session.trouble, "a fresh connection is not a problem")
     }
 
-    /**
-     * The run that prompted this: a magnetometer complaint and the azimuth failure it causes,
-     * arriving in one frame, coming out as one thing to do.
-     */
+    /** A magnetometer complaint and the azimuth failure it causes, arriving in one frame. */
     @Test
     fun aRefusedShotSaysWhatIsWrongInWordsASurveyorCanAct0n() {
         val (session, instrument) = connectedToABric()
@@ -114,11 +107,9 @@ class ShotTroubleSessionTest {
     }
 
     /**
-     * And the accelerometer complaint that arrives alongside does not win.
-     *
-     * This is the case that makes the ordering worth having: told to hold the instrument stiller,
-     * a surveyor holds it stiller, and it refuses again - because the actual problem is a phone
-     * lying next to it.
+     * And the accelerometer complaint that arrives alongside does not win: told to hold the
+     * instrument stiller, a surveyor holds it stiller, and it refuses again, because the actual
+     * problem is a phone lying next to it.
      */
     @Test
     fun theSensorThatSaysWhatToDoIsTheOneReported() {
@@ -142,10 +133,8 @@ class ShotTroubleSessionTest {
     }
 
     /**
-     * And it goes when a shot gets through.
-     *
-     * A banner that stays up after the problem is fixed is worse than no banner: the next time the
-     * instrument really does refuse, nobody looks at it.
+     * And it goes when a shot gets through: a banner that stays up after the problem is fixed is
+     * worse than no banner, because next time the instrument really does refuse, nobody looks at it.
      */
     @Test
     fun aShotThatGetsThroughTakesTheWarningAway() {
@@ -165,12 +154,9 @@ class ShotTroubleSessionTest {
     }
 
     /**
-     * The numbers the instrument sent reach the screen, because they are the ones that move.
-     *
-     * A BRIC prints these on its own display - `Mag1 Low: 0.8235` - and this app used to drop
-     * both floats on the floor. They matter for one reason: the advice is "walk outside", and a
-     * code that reads *magnetometer 1 high magnitude* before and after the walk tells the surveyor
-     * nothing about whether it worked. The number does.
+     * The numbers the instrument sent reach the screen, because they are the ones that move: the
+     * advice is "walk outside", and a code that reads *magnetometer 1 high magnitude* before and
+     * after the walk tells the surveyor nothing about whether it worked. The number does.
      */
     @Test
     fun theInstrumentsOwnNumbersReachTheSurveyor() {
@@ -189,14 +175,12 @@ class ShotTroubleSessionTest {
         val detail = session.troubleDetail ?: ""
         assertTrue("0.8235" in detail, "the first magnitude should be shown: $detail")
         assertTrue("0.8398" in detail, "and the second: $detail")
-        // And the log keeps them too, because the log is what gets copied off the phone.
         assertTrue(
             session.log.any { "0.8235" in it },
             "the log should record which reading was refused, not just that one was",
         )
     }
 
-    /** The BRIC cannot be calibrated from here, and the screen has to be able to say so. */
     @Test
     fun aBricCannotBeCalibratedFromTheApp() {
         val (session, _) = connectedToABric()
@@ -210,12 +194,9 @@ class ShotTroubleSessionTest {
     /**
      * The frame trace says whether anything arrived at all.
      *
-     * The situation it is for cannot be diagnosed any other way: an instrument that appears to be
-     * shooting while the survey stays empty looks, from the surveyor's side, exactly like a radio
-     * that never connected. A frame which decodes to no packets is otherwise logged nowhere —
-     * there is no line anywhere for "something arrived and meant nothing" — and which of those two
-     * it is decides what to try next. It cannot be worked out afterwards from a survey with no
-     * legs in it.
+     * An instrument that appears to be shooting while the survey stays empty looks, from the
+     * surveyor's side, exactly like a radio that never connected — and which of those two it is
+     * decides what to try next. It cannot be worked out afterwards from a survey with no legs in it.
      */
     @Test
     fun theFrameTraceSaysWhatArrivedAndWhetherItMeantAnything() {
@@ -235,7 +216,6 @@ class ShotTroubleSessionTest {
         )
     }
 
-    /** Off, it says nothing at all — the log is a hundred lines and a surveyor wants sentences. */
     @Test
     fun theTraceIsSilentUntilItIsAskedFor() {
         val (session, instrument) = connectedToABric()

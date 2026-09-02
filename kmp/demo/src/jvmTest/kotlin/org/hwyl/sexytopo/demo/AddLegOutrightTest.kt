@@ -23,8 +23,6 @@ class AddLegOutrightTest {
         Survey("Swildons").also { SurveyBuilder.updateWithNewStation(it, Leg(5f, 90f, 0f)) }
 
     /**
-     * The divergence this closes, stated as a test so it cannot come back.
-     *
      * Typed through the field bar, one reading in the default mode is *kept as a splay* — three
      * agreeing ones make a station, which is the rule an instrument's readings are held to and
      * which the dialog says out loud. The Android app's Tools menu does not go through that at
@@ -49,7 +47,6 @@ class AddLegOutrightTest {
         assertEquals(3, outright.getAllStations().size, "the leg should have made its station")
     }
 
-    /** And the new station is where the survey is now, as `addLegFromStation` leaves it. */
     @Test
     fun theSurveyMovesOnToTheNewStation() {
         val survey = cave()
@@ -60,7 +57,6 @@ class AddLegOutrightTest {
         assertTrue(survey.activeStation != from, "the working end did not move on")
     }
 
-    /** The far station takes the name it is given, which is the reason for the field. */
     @Test
     fun theFarStationTakesTheNameItIsGiven() {
         val survey = cave()
@@ -70,7 +66,6 @@ class AddLegOutrightTest {
         assertEquals("AV12", survey.activeStation.name)
     }
 
-    /** A blank name falls back to the one the app would have chosen. */
     @Test
     fun noNameMeansTheNameTheAppWouldHavePicked() {
         val survey = cave()
@@ -81,8 +76,6 @@ class AddLegOutrightTest {
     }
 
     /**
-     * A name already in the survey is advanced rather than duplicated.
-     *
      * `advanceNumberIfNotUnique`, which upstream applies to typed names too. Two stations sharing a
      * name is a survey whose Survex and Therion exports name the wrong end of a passage — and
      * refusing the leg instead would lose a reading somebody has just taken.
@@ -98,8 +91,6 @@ class AddLegOutrightTest {
     }
 
     /**
-     * A name that would break the exports is refused before the leg is added.
-     *
      * The same rule as the rename dialog, and it was missing here: *Add a leg* offers to name the
      * far station, so without this a leg to `sump 2` is accepted and then breaks every Survex and
      * Therion export the survey ever produces. Survex separates its columns with whitespace, so
@@ -130,12 +121,7 @@ class AddLegOutrightTest {
      *
      * The uniqueness check runs on the *typed* string and the survey holds *stored* ones, and
      * `Station` strips newlines on the way in — so `AV\n12` compared against a survey that already
-     * holds `AV12` finds no collision, and then stores `AV12` on top of it. Two stations sharing a
-     * name is a survey whose exports name the wrong end of a passage.
-     *
-     * The first version of this test asserted the stored *name* instead, which cannot fail:
-     * `Station` sanitises on assignment, so both the checked and the unchecked path store `AV12`.
-     * Mutating the code back is what said so.
+     * holds `AV12` finds no collision, and then stores `AV12` on top of it.
      */
     @Test
     fun aNameThatCollidesOnlyOnceStrippedIsStillAdvanced() {
@@ -167,7 +153,6 @@ class AddLegOutrightTest {
         assertEquals("draughting hard", survey.activeStation.comment)
     }
 
-    /** A splay makes no station, takes no name, and leaves the working end where it was. */
     @Test
     fun aSplayIsJustASplay() {
         val survey = cave()
@@ -181,8 +166,6 @@ class AddLegOutrightTest {
     }
 
     /**
-     * The passage size is booked at the station the surveyor is standing at, not the new one.
-     *
      * The same rule as [addTypedReading] and for the same reason: a tape is read from where you
      * are. Worth its own test here because the leg *always* moves the active station on in this
      * path, so reading the LRUDs off the active station afterwards would always be wrong.

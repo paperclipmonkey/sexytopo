@@ -21,13 +21,9 @@ import kotlin.test.assertTrue
 /**
  * The iOS half of the app, executed rather than merely compiled.
  *
- * Everything in `iosMain` had been through a compiler and nothing had been through a *runtime*.
- * That distinction is not academic. `DocumentsFileStore` is hand-written Objective-C interop
- * against `NSFileManager` and `NSString`, and the ways it can be wrong — a selector that silently
- * returns nil, a directory that is never created, a write with the wrong encoding — all compile
- * perfectly. If it is broken, a surveyor loses the trip and finds out on the way home.
- *
- * These run in the iOS simulator on the macOS runner, which costs nothing and answers it.
+ * `DocumentsFileStore` is hand-written Objective-C interop against `NSFileManager` and `NSString`;
+ * a selector that silently returns nil or a write with the wrong encoding compiles perfectly, so
+ * these tests run in the iOS simulator on the macOS runner rather than relying on compilation alone.
  *
  * Every test writes under [TEST_ROOT] and removes it afterwards, so a second run on the same
  * simulator does not inherit the first one's files.
@@ -40,10 +36,6 @@ class IosPlatformTest {
     fun cleanUp() {
         store.delete(TEST_ROOT)
     }
-
-    // -------------------------------------------------------------------------------------
-    // The file store
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun whatIsWrittenCanBeReadBack() {
@@ -64,7 +56,6 @@ class IosPlatformTest {
         assertEquals(text, store.readText(path))
     }
 
-    /** A survey is a directory of files, so writing one has to make its parents. */
     @Test
     fun writingCreatesTheDirectoriesAboveIt() {
         val path = TEST_ROOT + "deep" + "deeper" + "leaf.txt"
@@ -112,14 +103,9 @@ class IosPlatformTest {
         assertEquals("second", store.readText(path))
     }
 
-    // -------------------------------------------------------------------------------------
-    // The thing all of that exists for
-    // -------------------------------------------------------------------------------------
-
     /**
-     * The trip. A survey is saved, listed and reopened through the same code the app runs, on the
-     * same filesystem the phone uses — which is the only check here that would actually have
-     * caught losing a weekend's work.
+     * A survey is saved, listed and reopened through the same code the app runs, on the same
+     * filesystem the phone uses — the only check here that would actually catch losing a weekend's work.
      */
     @Test
     fun aSurveySavesAndReopensWithItsLegsIntact() {
@@ -140,10 +126,6 @@ class IosPlatformTest {
         assertEquals("entrance, in the streamway", reopened.origin.comment)
         assertEquals(5.42f, reopened.origin.onwardLegs.single().distance)
     }
-
-    // -------------------------------------------------------------------------------------
-    // The other two actuals
-    // -------------------------------------------------------------------------------------
 
     /**
      * `NSCalendar` is asked for numeric components precisely so a device set to a non-Gregorian
@@ -166,7 +148,6 @@ class IosPlatformTest {
         assertTrue(parts[2].toInt() in 1..31, today)
     }
 
-    /** The export path: a file the surveyor can find in the Files app afterwards. */
     @Test
     fun anExportLandsSomewhereItCanBeFound() {
         val name = "ios-test-export.svx"
@@ -179,18 +160,13 @@ class IosPlatformTest {
     }
 
     /**
-     * Handing a survey over as one file, on the platform it was written for.
-     *
-     * The other direction of the interop above, and the one with nothing else to catch it.
      * `saveBinaryFile` builds an `NSData` from a pinned Kotlin `ByteArray` — a pointer, a length,
-     * and a copy — and every way that can be wrong compiles perfectly: a length off by one, a
-     * pointer taken of an array that moves, a `writeToFile` whose result is ignored. On Linux the
-     * iOS compile is *skipped* rather than run, so until this test existed the whole path had been
-     * near a compiler on a macOS runner and near a processor nowhere.
+     * and a copy — and every way that can be wrong compiles perfectly, so this is the only thing
+     * that actually runs it.
      *
      * A zip is the right fixture rather than a convenience: it is the thing this actually writes,
-     * its bytes are not text, and the reader at the other end checks a CRC — so a copy that is
-     * subtly wrong fails here rather than in somebody's Files app.
+     * its bytes are not text, and the reader at the other end checks a CRC, so a subtly wrong copy
+     * fails here rather than in somebody's Files app.
      */
     @Test
     fun aWholeSurveySavesAsAZipTheBytesOfWhichSurvive() {
@@ -218,7 +194,6 @@ class IosPlatformTest {
         }
     }
 
-    /** An empty archive is not something to write, and saying so beats writing a broken file. */
     @Test
     fun savingNoBytesAtAllIsRefusedRatherThanWritten() {
         assertNull(saveBinaryFile("ios-test-empty.zip", ByteArray(0)))
@@ -250,18 +225,12 @@ class IosPlatformTest {
     }
 
     /**
-     * The one thing this app reads as bytes rather than text: PocketTopo's binary `.top`.
-     *
      * `readBytes` is hand-written interop — an `NSData`, a pointer reinterpreted as bytes, and a
-     * copy into a Kotlin array — and every way that can be wrong compiles perfectly. An off-by-one
-     * in the length, a pointer read as the wrong width, or a copy that aliases a buffer `NSData` has
-     * already freed all give a file that is *nearly* right, which for a format with length prefixes
-     * in it means everything after the first mistake is rubbish.
+     * copy into a Kotlin array — and an off-by-one or an aliased buffer gives a file that is
+     * *nearly* right.
      *
      * The content is written as text and compared as bytes, so no second piece of interop has to be
-     * correct for this to mean anything. It still spans the awkward range: multi-byte sequences put
-     * high bytes and continuation bytes through the copy, and it is long enough that a length
-     * mistake shows.
+     * correct for this to mean anything, and it spans multi-byte UTF-8 sequences so a length mistake shows.
      */
     @Test
     fun aFilesExactBytesComeBack() {
@@ -293,9 +262,7 @@ class IosPlatformTest {
 
     /**
      * The log's timestamps, which are `Log.Message.FORMAT`'s so that a log file moves between this
-     * app and the Android one intact. `NSDateFormatter` is given `en_US_POSIX` precisely so a
-     * device set to a non-Gregorian calendar cannot write a year nothing can parse; the simulator
-     * is Gregorian, so this checks the shape.
+     * app and the Android one intact. The simulator's calendar is Gregorian, so this checks the shape only.
      */
     @Test
     fun nowIsAnIsoTimestampWithAnOffset() {
@@ -320,20 +287,13 @@ class IosPlatformTest {
         assertTrue(buzz(NEW_STATION_BUZZ_MS))
     }
 
-    // -------------------------------------------------------------------------------------
-    // The manual, which is the first thing this app ships as a Compose *file* resource
-    // -------------------------------------------------------------------------------------
-
     /**
      * The guide is bundled as `composeResources/files/manual.html` and read at runtime with
-     * `Res.readBytes`. The fonts prove that mechanism works on iOS — the app draws text in the
-     * simulator screenshot, and it could not without them — but `files/` is a different directory
-     * from `font/`, and "the same mechanism, one folder along" is inference rather than evidence.
+     * `Res.readBytes`. Fonts already prove that mechanism works on iOS, but `files/` is a different
+     * directory from `font/`, so that is inference rather than evidence for this resource.
      *
-     * It is also the failure that would be invisible until somebody in a cave taps *Manual*: the
-     * resource is looked up in the framework's bundle at runtime, so a packaging mistake compiles,
-     * links, launches and draws a cave perfectly well before failing on the one screen that needs
-     * it. Reading it here is the cheapest possible answer.
+     * The resource is looked up in the framework's bundle at runtime, so a packaging mistake
+     * compiles, links and launches fine before failing only on the one screen that needs it.
      */
     @Test
     fun theManualIsInTheAppsOwnBundle() = runBlocking {
@@ -361,7 +321,6 @@ class IosPlatformTest {
     }
 
     private companion object {
-        /** Everything here is written under one directory so cleanup is one delete. */
         val TEST_ROOT = listOf("ios-platform-test")
     }
 }

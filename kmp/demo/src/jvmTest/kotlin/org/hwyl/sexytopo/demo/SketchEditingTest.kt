@@ -17,32 +17,23 @@ import kotlin.test.assertTrue
 /**
  * The editing layer as the canvas actually drives it.
  *
- * The behaviour under test lives in the shared module — [SketchEditor] and [SketchViewport], ported
- * from the Android app's `GraphView` and `Sketch` — and is covered there in its own right. What
- * these tests are for is the demo's *use* of it: that a drag becomes a simplified stroke, that a tap
- * with the eraser splits rather than deletes, that undo reaches through the same editor the canvas
- * draws from, and that the Compose-side coordinate conversion is its exact inverse. This is the
- * seam where a UI most easily stops agreeing with the model it is showing.
+ * [SketchEditor] and [SketchViewport] are covered in their own right in the shared module; what
+ * these tests are for is the demo's *use* of them — the seam where a UI most easily stops agreeing
+ * with the model it is showing.
  */
 class SketchEditingTest {
 
     private fun straightLine(points: Int, y: Float = 0f): List<Coord2D> =
         (0 until points).map { Coord2D(it.toFloat(), y) }
 
-    /** The viewport a canvas would be in after fitting a 20m survey to an 800x600 view. */
     private fun fittedViewport(): SketchViewport =
         SketchViewport().apply { fitTo(Bounds(-10f, -10f, 10f, 10f), 800f, 600f) }
 
-    /** Replays a drag the way SurveyCanvas does: start, extend, finish. */
     private fun drag(editor: SketchEditor, points: List<Coord2D>): PathDetail? {
         editor.startPath(points.first())
         for (point in points.drop(1)) editor.extendPath(point)
         return editor.finishPath()
     }
-
-    // -------------------------------------------------------------------------------------
-    // Drawing
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun aDragBecomesOneSimplifiedStroke() {
@@ -67,7 +58,7 @@ class SketchEditingTest {
     @Test
     fun aStrokeIsVisibleWhileItIsStillBeingDrawn() {
         // The canvas draws straight from the live sketch, so a partial stroke has to be in it
-        // already - otherwise the line only appears when the finger lifts.
+        // already, or the line only appears when the finger lifts.
         val editor = SketchEditor()
         editor.startPath(Coord2D(0f, 0f))
         editor.extendPath(Coord2D(1f, 1f))
@@ -94,14 +85,8 @@ class SketchEditingTest {
         assertEquals(Colour.BLUE, drag(editor, straightLine(5))!!.colour)
     }
 
-    // -------------------------------------------------------------------------------------
-    // Erasing
-    // -------------------------------------------------------------------------------------
-
     @Test
     fun erasingTheMiddleOfAStrokeLeavesBothEnds() {
-        // The behaviour that makes erasing feel right: rubbing out the middle of a passage wall
-        // leaves the wall either side, rather than deleting the whole stroke.
         val sketch = Sketch()
         sketch.pathDetails.add(PathDetail(straightLine(21), Colour.BLACK))
         val editor = SketchEditor(sketch)
@@ -129,8 +114,7 @@ class SketchEditingTest {
 
     /**
      * The eraser hit-tests through the same visibility rule the renderer uses: you cannot rub out
-     * what is too small to see. The demo used to use a plain radius test, which could silently
-     * delete a detail that was not on screen at all.
+     * what is too small to see. A plain radius test could silently delete a detail not on screen.
      */
     @Test
     fun aDetailTooSmallToSeeCannotBeErased() {
@@ -158,7 +142,6 @@ class SketchEditingTest {
         assertEquals(0, sketch.textDetails.size)
     }
 
-    /** One press removes at most one thing, so two overlapping details take two presses. */
     @Test
     fun onePressErasesOneThing() {
         val sketch = Sketch()
@@ -173,10 +156,6 @@ class SketchEditingTest {
             "the other one should still be there",
         )
     }
-
-    // -------------------------------------------------------------------------------------
-    // Undo / redo
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun undoRemovesTheStrokeAndRedoPutsItBack() {
@@ -193,10 +172,7 @@ class SketchEditingTest {
         assertEquals(Colour.RED, editor.sketch.pathDetails.first().colour)
     }
 
-    /**
-     * The case the demo's old snapshot-based history handled by brute force and the ported model
-     * handles precisely: an erase that turns one stroke into two is a single undoable exchange.
-     */
+    /** An erase that turns one stroke into two is a single undoable exchange. */
     @Test
     fun undoingAnEraseRestoresTheWholeStroke() {
         val sketch = Sketch()
@@ -231,16 +207,11 @@ class SketchEditingTest {
         assertFalse(editor.redo())
     }
 
-    // -------------------------------------------------------------------------------------
-    // Viewport
-    // -------------------------------------------------------------------------------------
-
     private fun assertClose(expected: Float, actual: Float, tolerance: Float = 0.01f) =
         assertTrue(abs(expected - actual) < tolerance, "expected $expected but was $actual")
 
     @Test
     fun screenAndSurveyCoordinatesRoundTrip() {
-        // Drawing depends on this inverse: a touch in pixels must become the right point in metres.
         val viewport = fittedViewport()
 
         for (point in listOf(Coord2D(0f, 0f), Coord2D(7.5f, -3.25f), Coord2D(-9f, 9f))) {
@@ -258,7 +229,6 @@ class SketchEditingTest {
         assertClose(400f, centre.x, tolerance = 1f)
         assertClose(300f, centre.y, tolerance = 1f)
 
-        // The 20m-wide survey fits inside 600px of height with the 48px padding either side.
         val corner = viewport.toScreen(Coord2D(-10f, -10f))
         assertTrue(corner.x >= 0f && corner.y >= 0f, "the whole survey should be on screen")
     }
@@ -289,15 +259,11 @@ class SketchEditingTest {
     }
 
     /**
-     * How fast a mouse wheel or a Chrome/Firefox trackpad pinch zooms the drawing. Reported from
-     * a MacBook - "zooming in browser isn't very fast... a lot of scrolling required" - so this
-     * pins the speed rather than only the shape: a standard 100px wheel notch has to cover a
-     * meaningful fraction of the zoom range, not a barely-perceptible nudge, or the same complaint
-     * comes back the next time somebody tunes this for a different reason.
-     *
-     * Not exact-value-pinned, because the number itself is a judgement call about feel; a range
-     * keeps this from breaking on a reasonable future adjustment while still catching a regression
-     * back to something as timid as the original 0.0015.
+     * How fast a mouse wheel or a Chrome/Firefox trackpad pinch zooms the drawing: a standard 100px
+     * wheel notch has to cover a meaningful fraction of the zoom range, not a barely-perceptible
+     * nudge. Not exact-value-pinned, since the number is a judgement call about feel — a range
+     * catches a regression back to something as timid as the original 0.0015 without breaking on a
+     * reasonable future adjustment.
      */
     @Test
     fun aWheelNotchZoomsByAGenerousAmount() {
@@ -310,7 +276,6 @@ class SketchEditingTest {
 
     @Test
     fun aDegenerateSurveyStillProducesAFiniteScale() {
-        // A survey with one station has no extent; fitting it must not divide by zero.
         val viewport = SketchViewport()
         viewport.fitTo(Bounds.of(listOf(Coord2D(3f, 3f))), 500f, 500f)
         assertTrue(viewport.pixelsPerMetre.isFinite())
@@ -319,7 +284,7 @@ class SketchEditingTest {
 
     @Test
     fun aZeroSizedViewportDoesNotProduceNonsense() {
-        // The first frame, before layout has run: this used to make pixelsPerMetre infinite.
+        // The first frame, before layout has run.
         val viewport = SketchViewport()
         viewport.fitTo(Bounds(-1f, -1f, 1f, 1f), 0f, 0f)
         assertTrue(viewport.pixelsPerMetre.isFinite() && viewport.pixelsPerMetre > 0f)

@@ -7,8 +7,7 @@ import android.content.Context
 /**
  * The system clipboard, so an exported survey can be pasted into an email or a notes app.
  *
- * A share sheet would be better and needs an `Activity` to start one from; [AndroidHost] holds the
- * application context on purpose, so that belongs to whichever host app wants it rather than here.
+ * A share sheet would be better but needs an `Activity`, which [AndroidHost] deliberately avoids holding.
  */
 actual fun copyToClipboard(text: String): Boolean {
     val context = AndroidHost.appContext ?: return false

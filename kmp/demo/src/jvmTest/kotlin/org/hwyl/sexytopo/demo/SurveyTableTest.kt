@@ -14,11 +14,6 @@ import kotlin.test.assertTrue
  */
 class SurveyTableTest {
 
-    // -------------------------------------------------------------------------------------
-    // Going to a station's row, from the sketch's own menu
-    // -------------------------------------------------------------------------------------
-
-    /** 1 -> 2 -> 3, with a splay off 2, which is where a surveyor books the passage size. */
     private fun passageWithASplay(): Survey {
         val survey = Survey("T")
         SurveyBuilder.updateWithNewStation(survey, Leg(5f, 0f, 0f))
@@ -38,7 +33,6 @@ class SurveyTableTest {
 
     @Test
     fun theOriginIsFoundAtTheFirstLegOutOfIt() {
-        // It has no arriving leg, so the first row mentioning it is the only kind it has.
         val rows = asTakenRows(passageWithASplay())
 
         assertEquals(0, rowIndexFor(rows, "1"))
@@ -46,8 +40,7 @@ class SurveyTableTest {
 
     @Test
     fun aStationTheTableDoesNotHaveIsNotScrolledTo() {
-        // Renamed or deleted between the menu opening and the table composing. Returning row zero
-        // would scroll the surveyor to the top of the survey for no reason they could see.
+        // Renamed or deleted between the menu opening and the table composing.
         assertEquals(null, rowIndexFor(asTakenRows(passageWithASplay()), "nowhere"))
         assertEquals(null, rowIndexFor(emptyList(), "1"))
     }
@@ -67,8 +60,7 @@ class SurveyTableTest {
 
     @Test
     fun aBackwardsShotIsShownAsItWasTaken() {
-        // Stored 1 -> 2, but read at station 2 pointing back at 1. The table must show 2 -> 1 with
-        // the reversed bearing, matching the notebook.
+        // Stored 1 -> 2, but read at station 2 pointing back at 1.
         val survey = Survey("T")
         val destination = Station("2")
         val leg = Leg(5f, 90f, 10f, destination, wasShotBackwards = true)
@@ -104,10 +96,6 @@ class SurveyTableTest {
         assertEquals(survey.getAllLegs().size, asTakenRows(survey).size)
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Fixed-decimal formatting (commonMain has no String.format)
-    // ---------------------------------------------------------------------------------------
-
     @Test
     fun formattingMatchesJavaPrecision() {
         assertEquals("5.500", formatFixed(5.5f, 3))
@@ -125,7 +113,7 @@ class SurveyTableTest {
 
     @Test
     fun theSignedFormatAlwaysShowsOne() {
-        // Java's "%+.2f", used for inclination so up and down are unmistakable.
+        // Java's "%+.2f", used for inclination.
         assertEquals("+10.00", formatFixed(10f, 2, alwaysSigned = true))
         assertEquals("-10.00", formatFixed(-10f, 2, alwaysSigned = true))
         assertEquals("+0.00", formatFixed(0f, 2, alwaysSigned = true))
@@ -133,7 +121,7 @@ class SurveyTableTest {
 
     @Test
     fun roundingIsHalfAwayFromZero() {
-        // Matching Java's Formatter HALF_UP, so exported numbers agree with the Android app.
+        // Matching Java's Formatter HALF_UP.
         assertEquals("2.5", formatFixed(2.45f, 1))
         assertEquals("-2.5", formatFixed(-2.45f, 1))
         assertEquals("3", formatFixed(2.5f, 0))
@@ -144,10 +132,6 @@ class SurveyTableTest {
         assertEquals("1.050", formatFixed(1.05f, 3), "trailing zeros are kept, as %.3f does")
         assertEquals("1.005", formatFixed(1.005f, 3))
     }
-
-    // -------------------------------------------------------------------------------------
-    // Which station a cell is about
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun eachCellKnowsTheStationItShows() {
@@ -162,9 +146,7 @@ class SurveyTableTest {
 
     @Test
     fun aBackwardsShotSwapsWhichStationEachCellIsAbout() {
-        // `TableActivity` works this out with `(col == FROM) xor leg.wasShotBackwards()`. The
-        // reading was taken standing at 2, so the From column shows 2 — and a tap on it has to
-        // open station 2's menu, not station 1's.
+        // `TableActivity` works this out with `(col == FROM) xor leg.wasShotBackwards()`.
         val survey = Survey("T")
         SurveyBuilder.updateWithNewStation(survey, Leg(5f, 90f, 0f))
         org.hwyl.sexytopo.shared.survey.SurveyUpdater.reverseLeg(
@@ -181,7 +163,6 @@ class SurveyTableTest {
 
     @Test
     fun aSplayHasNoStationAtItsFarEnd() {
-        // Its To column is a dash, so there is nothing there to open a menu for.
         val survey = Survey("T")
         SurveyBuilder.addSplay(survey, survey.origin, Leg(2f, 10f, 5f))
 

@@ -9,15 +9,12 @@ import kotlin.test.assertTrue
  * actually deployed, and that something is happening while it finds out.
  *
  * Neither is testable from the JVM in the way `field.mjs` tests a running page - there is no
- * browser here, and no second deploy to react to. What *is* testable without one is that the wiring
- * these two fixes depend on has not quietly come apart: the placeholder `sw.js` needs Gradle to
- * fill in, the code path that turns it into an actual cache-namespace bump, and the handful of
- * lines in `index.html` that make a canvas appearing the signal to take the loading screen away and
- * a `controllerchange` the signal to offer a reload. A grep cannot confirm any of this *works* -
- * that is what `verify-loading.mjs` and `verify-cache-busting.mjs` did by hand, screenshots and
- * all, against a real build in a real browser, throttled and then "redeployed" underneath itself -
- * but it can catch the next edit that removes a line one of those two depend on without anyone
- * running a browser to notice.
+ * browser here. What *is* testable without one is that the wiring these two fixes depend on has
+ * not quietly come apart: the placeholder `sw.js` needs Gradle to fill in, the code path that
+ * turns it into an actual cache-namespace bump, and the handful of lines in `index.html` that make
+ * a canvas appearing the signal to take the loading screen away and a `controllerchange` the
+ * signal to offer a reload. A grep cannot confirm any of this *works*, but it can catch the next
+ * edit that removes a line one of those two depend on without anyone running a browser to notice.
  */
 class WasmBootstrapTest {
 
@@ -25,8 +22,6 @@ class WasmBootstrapTest {
     private val serviceWorker = File(resources, "sw.js").readText()
     private val page = File(resources, "index.html").readText()
     private val buildScript = File("build.gradle.kts").readText()
-
-    // --- Complaint 1: a deploy that only a hard refresh would pick up ---
 
     @Test
     fun theCacheNameCarriesAPlaceholderForTheBuild() {
@@ -62,9 +57,7 @@ class WasmBootstrapTest {
 
     @Test
     fun theWorkerStillTakesOverOpenTabsWithoutWaitingForThemToClose() {
-        // index.html's controllerchange handling only ever fires promptly because of these two -
-        // without them the update sits in a 'waiting' worker until every tab closes, which for a
-        // surveyor who never fully quits the app could be a very long wait.
+        // Without these two, the update sits in a 'waiting' worker until every tab closes.
         assertTrue("self.skipWaiting()" in serviceWorker, "sw.js no longer calls skipWaiting()")
         assertTrue("self.clients.claim()" in serviceWorker, "sw.js no longer calls clients.claim()")
     }
@@ -102,12 +95,9 @@ class WasmBootstrapTest {
         )
     }
 
-    // --- Complaint 2: a blank white page while the wasm module loads ---
-
     @Test
     fun theLoadingOverlayIsInTheInitialMarkupNotAddedByScript() {
-        // Has to be literally in the HTML the server sends, not created by JavaScript - the whole
-        // point is that it is on screen before any script, wasm included, has had a chance to run.
+        // Has to be literally in the HTML the server sends, not created by JavaScript.
         val beforeFirstScript = page.substringBefore("<script")
         assertTrue(
             "id=\"loading-overlay\"" in beforeFirstScript,

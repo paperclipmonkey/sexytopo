@@ -38,7 +38,6 @@ class ManualContentTest {
 
     @Test
     fun everyTagInItIsOneTheAppCanDraw() {
-        // parseManual throws on a tag it was not written for, so this is the drift guard itself.
         parseManual(shipped.readText())
     }
 
@@ -73,7 +72,6 @@ class ManualContentTest {
             blocks.filterIsInstance<ManualBlock.Listing>().sumOf { it.items.size },
             "list items were lost between the file and the app",
         )
-        // And the nested list is present as a nested list, not flattened into its parent.
         val nested = blocks.filterIsInstance<ManualBlock.Listing>()
             .flatMap { it.items }
             .filter { it.depth > 0 }
@@ -83,8 +81,6 @@ class ManualContentTest {
     @Test
     fun itHasTheSectionsTheGuidesOwnContentsListWouldHave() {
         val contents = contentsOf(parseManual(shipped.readText()))
-        // The guide builds its own table of contents in JavaScript from the h2s. There is no
-        // JavaScript here, so the app rebuilds it — off the same headings, so it says the same.
         assertEquals(13, contents.size, contents.map { it.text }.toString())
         assertEquals("Overview", contents.first().text)
         assertEquals("Troubleshooting", contents.last().text)
@@ -107,7 +103,6 @@ class ManualContentTest {
         assertEquals(emptyList(), broken, "links in the manual that go nowhere")
     }
 
-    /** Nothing in the manual may be a character the bundled font cannot draw. */
     @Test
     fun everyCharacterInItIsOneTheBundledFontHas() {
         val blocks = parseManual(shipped.readText())

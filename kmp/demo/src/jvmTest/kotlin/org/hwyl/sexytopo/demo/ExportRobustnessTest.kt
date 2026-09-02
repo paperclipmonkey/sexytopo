@@ -15,8 +15,8 @@ import kotlin.test.fail
  * Every export screen, on the shapes of survey that have no shape.
  *
  * The export screen computes its file inside a `remember` block, which means a throw there is a
- * throw *inside a composition* — and that is finding 11: on the web there is no error, no blank
- * page, the last frame simply stays up and the app looks frozen. So the one place an exporter can
+ * throw *inside a composition*: on the web there is no error, no blank page, the last frame
+ * simply stays up and the app looks frozen. So the one place an exporter can
  * fail is the one place nobody would see why.
  *
  * The interesting inputs are the empty ones, because they are what a surveyor has for the first
@@ -141,7 +141,6 @@ class ExportRobustnessTest {
         return survey
     }
 
-    /** And the sketch files the native export writes alongside are written for those shapes too. */
     @Test
     fun theNativeExportsCompanionsSurviveThemToo() {
         for ((description, survey) in shapes()) {

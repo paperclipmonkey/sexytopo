@@ -20,21 +20,19 @@ class SketchStyleTest {
      * The defaults are the ones the app **draws with**, which for four of the eight are not the
      * ones its settings screen shows.
      *
-     * Same cause as the vibration preference: nothing calls `PreferenceManager.setDefaultValues`,
-     * so on a fresh install the key is absent and the getter's own fallback wins. Where the two
-     * disagree, what a surveyor sees on the rock is the getter's. See finding 52.
+     * Nothing calls `PreferenceManager.setDefaultValues`, so on a fresh install the key is absent
+     * and the getter's own fallback wins. Where the two disagree, what a surveyor sees on the rock
+     * is the getter's.
      */
     @Test
     fun theDefaultsAreTheOnesTheAppDrawsWith() {
         val style = SketchStyle.DEFAULT
 
-        // These four agree with the screen.
         assertEquals(1.5f, style.sketchLineWidthDp, "pref_sketch_line_width")
         assertEquals(2.0f, style.legWidthDp, "pref_leg_width")
         assertEquals(1.0f, style.splayWidthDp, "pref_splay_width")
         assertEquals(10.0f, style.stationDiameterDp, "pref_station_diameter")
 
-        // These four do not: the screen says 8, 8, 35 and 50.
         assertEquals(10.0f, style.stationLabelSizeSp, "getStationLabelFontSizeSp, not the screen's 8")
         assertEquals(10.0f, style.legendSizeSp, "getLegendFontSizeSp, not the screen's 8")
         assertEquals(25.0f, style.symbolSizeDp, "getSymbolStartingSizeDp, not the screen's 35")
@@ -44,8 +42,6 @@ class SketchStyleTest {
     @Test
     fun everySizeSurvivesTheAppBeingClosed() {
         val store = InMemoryFileStore()
-        // Each one different from its default, so a value that failed to round-trip and fell back
-        // would be a failure rather than an accident.
         val chosen =
             SketchStyle(
                 sketchLineWidthDp = 3f,
@@ -78,7 +74,6 @@ class SketchStyleTest {
         assertEquals(SketchStyle.LARGEST, parsed.sketchStyle.stationDiameterDp)
     }
 
-    /** And rubbish reads as the default rather than as zero. */
     @Test
     fun anUnreadableSizeReadsAsTheDefault() {
         val parsed = AppPreferencesStore.parse("legWidthDp=fat\nsplayWidthDp=\n")
@@ -117,8 +112,7 @@ class SketchStyleTest {
      * The eraser's own preference, which the engine has always implemented and nothing ever set.
      *
      * `SketchEditor.eraseAt` takes `deletePathFragments` and splits the stroke, and the canvas
-     * never passed it — so the app had the behaviour and not the choice. `pref_delete_path_
-     * fragments` is a checkbox on the Android sketching screen. Finding 53.
+     * never passed it — so the app had the behaviour and not the choice.
      */
     @Test
     fun theEraserRuleIsAChoiceRatherThanAConstant() {

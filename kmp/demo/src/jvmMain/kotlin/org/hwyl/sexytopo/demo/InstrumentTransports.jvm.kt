@@ -9,6 +9,4 @@ actual fun whyNoInstruments(): String = "The desktop build has no Bluetooth. Use
 
 actual fun tickTransport(transport: InstrumentTransport) = Unit
 
-
-/** No radio here at all, so this is never shown; it exists because the expect declares it. */
 actual fun howConnectingWorks(): String = "The desktop build cannot connect to an instrument."

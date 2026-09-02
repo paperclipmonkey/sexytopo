@@ -7,11 +7,10 @@ import java.io.File
 /**
  * A [FileStore] over the app's private files directory.
  *
- * Deliberately not the Storage Access Framework folder the real SexyTopo asks for. That is the
- * right answer for the shipping app — a caver has to get surveys off the phone and into Therion —
- * and it needs a folder-picker `Intent`, a persisted URI permission and `DocumentFile`, which is a
- * platform surface of its own rather than a `FileStore` implementation. This is the part that makes
- * the demo keep a survey across a restart; getting the files out is still Export and the clipboard.
+ * Deliberately not the Storage Access Framework folder the real SexyTopo asks for: that needs a
+ * folder-picker `Intent`, a persisted URI permission and `DocumentFile`, a platform surface of its
+ * own rather than a `FileStore` implementation. This just keeps a survey across a restart; getting
+ * the files out is still Export and the clipboard.
  */
 private class FilesDirFileStore(private val root: File) : FileStore {
 

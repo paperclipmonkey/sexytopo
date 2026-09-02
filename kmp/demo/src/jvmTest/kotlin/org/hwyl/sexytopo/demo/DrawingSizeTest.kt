@@ -22,9 +22,9 @@ import kotlin.test.assertTrue
  * That asking for a heavier line actually draws one.
  *
  * `SketchStyleTest` covers the arithmetic and the file, which is the half that is easy to get
- * right and easy to test. The half that has gone wrong in this port before — twice, in findings 48
- * and 49 — is the *connection*: a value that round-trips perfectly and that nothing on the way to
- * the screen ever reads. A number in a file is not a thicker line.
+ * right and easy to test. The half that has gone wrong in this port before is the *connection*:
+ * a value that round-trips perfectly and that nothing on the way to the screen ever reads. A
+ * number in a file is not a thicker line.
  *
  * So this renders the same survey twice through the same headless Skia the demo PNGs use, once at
  * the app's own leg width and once at three times it, and counts the red. Nothing else about the
@@ -52,11 +52,9 @@ class DrawingSizeTest {
 
     private fun isStation(r: Int, g: Int, b: Int) = r in 100..200 && g < 60 && b < 60
 
-    /** How many pixels of the plan are the app's red centreline, at [style]. */
     @OptIn(ExperimentalComposeUiApi::class)
     private fun redPixels(style: SketchStyle): Long = pixels(style, ::isRed)
 
-    /** How many are the darker red the stations themselves are drawn in. */
     private fun stationPixels(style: SketchStyle): Long = pixels(style, ::isStation)
 
     @OptIn(ExperimentalComposeUiApi::class)

@@ -4,17 +4,11 @@ import org.hwyl.sexytopo.shared.io.store.FileStore
 import java.io.File
 
 /**
- * A [FileStore] over a real directory on disk.
- *
- * The desktop build is not a toy target: it is the quickest way to try the whole app on a Mac
- * before opening Xcode, and the only one that needs no SDK, no simulator and no phone. A survey
- * that vanished when the window closed would make it one.
- *
- * The same shape as the Android store next door, and for the same reason: `SurveyStorage` above it
- * does all the naming and layout, so a platform only has to answer eight questions about files.
+ * A [FileStore] over a real directory on disk — the quickest way to try the whole app on a Mac
+ * before opening Xcode, so a survey vanishing when the window closes would defeat the point.
  *
  * Internal rather than private so the tests can put one over a temporary directory instead of
- * reimplementing it — a duplicate that would drift the first time this changed.
+ * reimplementing it.
  */
 internal class DirectoryFileStore(private val root: File) : FileStore {
 

@@ -22,18 +22,13 @@ import kotlin.test.assertTrue
  * What is drawn beside a station, other than its name.
  *
  * `GraphView.drawStations` lays out a row to the right of every station - the name, then an icon
- * for each thing the station carries - and this port drew the name and stopped. Two of those marks
- * are worth having and were missing:
+ * for each thing the station carries - and this port drew the name and stopped. Two marks were
+ * missing: a **comment**, stored and exported and shown in the table but never drawn, which is the
+ * half a surveyor actually looks at underground; and the **survey's name** in brackets after the
+ * origin's, the only thing on the page saying which cave it is once two surveys are open.
  *
- * - a **comment**, which is where a surveyor writes "sump, not passed" or "loose, do not climb".
- *   The port stored it, exported it and showed it in the table, and put nothing on the drawing -
- *   which is the half a surveyor actually looks at underground.
- * - the **survey's name** in brackets after the origin's, which on one survey is a curiosity and
- *   the moment two are open is the only thing on the page saying which cave this is.
- *
- * Both are checked by rendering and differencing, because both are questions about what reaches
- * the screen. A value that round-trips through the file and never reaches the canvas is the defect
- * this branch has hit most often, and it passes every test written one layer up.
+ * Both are checked by rendering and differencing, since a value that round-trips through the file
+ * and never reaches the canvas passes every test written one layer up.
  */
 class StationMarksTest {
 
@@ -83,9 +78,9 @@ class StationMarksTest {
     /**
      * A comment written at a station shows on the plan.
      *
-     * Nothing about the survey's shape changes when a comment is added - no station moves, no
-     * bounds grow, so the opening zoom is identical - which is what makes a whole-image difference
-     * a fair measurement here rather than a picture shifted a pixel.
+     * Nothing about the survey's shape changes when a comment is added, so the opening zoom is
+     * identical, which is what makes a whole-image difference a fair measurement here rather than
+     * a picture shifted a pixel.
      */
     @Test
     fun aStationWithACommentIsMarked() {

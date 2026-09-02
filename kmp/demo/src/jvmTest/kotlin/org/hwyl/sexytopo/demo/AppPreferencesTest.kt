@@ -18,9 +18,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * The app's own settings, and the one thing they currently control.
- */
 class AppPreferencesTest {
 
     @Test
@@ -39,10 +36,6 @@ class AppPreferencesTest {
         assertFalse(AppPreferencesStore.load(store).buzzOnNewStation)
     }
 
-    /**
-     * The three sketch-movement preferences keep the Android app's own defaults, which are not all
-     * the same: the corners are on, a two-fingered drag is off, and following the survey is off.
-     */
     @Test
     fun theSketchMovementDefaultsAreTheAndroidApps() {
         assertTrue(AppPreferences.DEFAULT.hotCorners, "pref_hot_corners defaults to true")
@@ -111,8 +104,6 @@ class AppPreferencesTest {
     }
 
     /**
-     * And a half-typed window keeps the value that was there rather than resetting it.
-     *
      * The field is a text box, so it passes through every prefix of a number on the way to one.
      * Falling back to the *default* rather than to the current value would quietly overwrite a
      * surveyor's forty minutes with fifteen the moment they cleared the box to retype it.
@@ -164,8 +155,6 @@ class AppPreferencesTest {
     }
 
     /**
-     * The two angle-entry preferences round-trip, and are off by default.
-     *
      * `pref_deg_mins_secs` and `pref_inc_deg_mins_secs`, both false upstream: a DistoX reports a
      * decimal and most surveys are shot with one. They are two switches rather than one, as they
      * are there, because plenty of clinometers read in degrees while the compass beside them
@@ -197,7 +186,6 @@ class AppPreferencesTest {
         assertEquals(AppPreferences.DEFAULT, AppPreferencesStore.load(InMemoryFileStore()))
     }
 
-    /** A corrupt preferences file must not stop the app opening. */
     @Test
     fun rubbishReadsAsTheDefaults() {
         assertEquals(AppPreferences.DEFAULT, AppPreferencesStore.parse("!!! not settings !!!"))
@@ -235,10 +223,6 @@ class AppPreferencesTest {
         assertEquals(2, survey.getAllStations().size)
     }
 
-    // -------------------------------------------------------------------------------------
-    // The last two toggles on the drawing menu
-    // -------------------------------------------------------------------------------------
-
     @Test
     fun theTwoRemainingDrawingMenuDefaultsAreTheAndroidApps() {
         val defaults = AppPreferences.DEFAULT
@@ -265,10 +249,6 @@ class AppPreferencesTest {
         assertFalse(AppPreferences.DEFAULT.legacyCrossSections)
         assertFalse(DisplayOptions().legacyCrossSections)
     }
-
-    // -------------------------------------------------------------------------------------
-    // The six that used not to be preferences at all
-    // -------------------------------------------------------------------------------------
 
     /**
      * Five of these were `mutableStateOf` on [DemoState] until the drawing menu was split, so a
@@ -331,10 +311,6 @@ class AppPreferencesTest {
         assertEquals(8, DISPLAY_TOGGLES.size)
     }
 
-    // -------------------------------------------------------------------------------------
-    // The theme, which was a session-only toggle
-    // -------------------------------------------------------------------------------------
-
     /**
      * Dark mode was a `var` on [DemoState] flipped straight from the menu, so it came back light
      * every time the app was reopened. In a cave that is not cosmetic: the phone is the brightest
@@ -366,8 +342,6 @@ class AppPreferencesTest {
     }
 
     /**
-     * Automatic follows the platform; the other two overrule it.
-     *
      * Which is the reason a checkbox would not have done. Auto on a phone answers "is it evening",
      * and a cave is dark at noon — so a surveyor has to be able to say *dark* at eleven in the
      * morning and have the app believe them.
@@ -380,10 +354,6 @@ class AppPreferencesTest {
         assertTrue(AppTheme.DARK.isDark(systemDark = false), "dark means dark in daylight too")
         assertFalse(AppTheme.LIGHT.isDark(systemDark = true), "light means light at night too")
     }
-
-    // -------------------------------------------------------------------------------------
-    // The four selections, which were the same defect in four more places
-    // -------------------------------------------------------------------------------------
 
     /**
      * Close the app and open it again, for real, over one in-memory store.
@@ -457,7 +427,6 @@ class AppPreferencesTest {
         assertEquals(SketchTool.MOVE, reopen(library).tool)
     }
 
-    /** Every tool the toolbar lights comes back; nothing else does. */
     @Test
     fun theToolsThatComeBackAreTheOnesOnTheToolbar() {
         for (tool in SketchTool.entries) {
@@ -471,8 +440,6 @@ class AppPreferencesTest {
     }
 
     /**
-     * A name this version does not know reads as the default rather than throwing.
-     *
      * `SketchPreferences` reads its three through `valueOf`, so an Android install meeting a file
      * that names a tool it has dropped would throw on the way into the sketch screen. Nothing
      * about a preference should be able to stop the app opening a survey.
@@ -491,8 +458,6 @@ class AppPreferencesTest {
     }
 
     /**
-     * And a tool the caller named beats the saved one.
-     *
      * The headless renderer photographs the drawing tool by asking for it. Without this, the
      * screenshots in this repository would show whichever tool the machine that built them
      * happened to have saved.
@@ -524,7 +489,7 @@ class AppPreferencesTest {
      * to a real survey — new, open, import, delete-the-open-one — goes through `adopt`, which
      * builds a *fresh* `SurveySession`, and a fresh session has no callback. So the buzz and the
      * station counter both worked on the demo cave and stopped the moment the surveyor made a
-     * survey of their own, which is every real use of the app. See finding 50.
+     * survey of their own, which is every real use of the app.
      */
     @Test
     fun theStationCounterSurvivesOpeningASurvey() {
@@ -540,7 +505,6 @@ class AppPreferencesTest {
         )
     }
 
-    /** A theme a later version invented leaves the surveyor on the default, not on no screen. */
     @Test
     fun anUnknownThemeReadsAsTheDefault() {
         assertEquals(AppTheme.AUTO, AppPreferencesStore.parse("theme=solarized").theme)
@@ -566,7 +530,7 @@ class AppPreferencesTest {
      * The calibration algorithm survives, which is the whole reason it moved out of the dialog.
      *
      * It was a chip held in the calibration screen's own state, so it reset to Linear every time
-     * the screen opened — finding 49's shape, in the worst place for it: a surveyor recalibrating
+     * the screen opened — in the worst place for it: a surveyor recalibrating
      * an X310 shoots fifty-six positions and then has to remember to move a chip before pressing
      * Solve, or the fit they get is not the one their instrument wants.
      */
@@ -590,7 +554,6 @@ class AppPreferencesTest {
         assertEquals(LrudMode.SHOT, AppPreferencesStore.load(store).lrudMode)
     }
 
-    /** Both default to what the Android app's getters fall back to. */
     @Test
     fun theTwoLastSettingsDefaultToTheAndroidApps() {
         // getString("pref_calibration_algorithm", "linear")
@@ -599,7 +562,6 @@ class AppPreferencesTest {
         assertEquals(LrudMode.SURVEY, AppPreferences.DEFAULT.lrudMode)
     }
 
-    /** A name a later version invented reads as the default rather than stopping the app. */
     @Test
     fun anUnknownAlgorithmOrDirectionReadsAsTheDefault() {
         val loaded = AppPreferencesStore.parse("calibrationAlgorithm=quartic\nlrudMode=SIDEWAYS\n")
@@ -608,13 +570,7 @@ class AppPreferencesTest {
         assertEquals(LrudMode.SURVEY, loaded.lrudMode)
     }
 
-    // -------------------------------------------------------------------------------------
-    // The surveying tolerances, reaching the session that actually checks readings against them
-    // -------------------------------------------------------------------------------------
-
     /**
-     * A setting the surveyor has already saved reaches the very first session the app opens with.
-     *
      * `SurveySession` used to take `settings` as a constructor-only value, defaulting to
      * [SurveySettings.DEFAULT]. `DemoState.session` is a property initialiser, built before
      * `loadSettings()` — the function that reads the saved tolerances — ever runs, so the first

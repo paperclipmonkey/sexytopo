@@ -32,12 +32,9 @@ import kotlin.test.assertTrue
  * `GraphView.drawCrossSection` calls `drawCrossSectionSubSketch`, which scales the section's own
  * sketch by the plan's cross-section scale, translates it to where the section sits, and draws it
  * with the same routine as the main sketch. This port drew the splay star and a marker dot and
- * never read `CrossSectionDetail.sketch` at all.
- *
- * Which makes the feature's whole point invisible. A surveyor drops a section, taps it, draws the
- * shape of the passage inside it — and comes back to a plan showing the same star of splays it
- * showed before. The drawing is saved, exports correctly, and reopens in the editor; there is
- * simply nothing on the plan to say so, and the reasonable conclusion is that it did not save.
+ * never read `CrossSectionDetail.sketch` at all — which makes the feature's whole point invisible:
+ * the drawing is saved, exports correctly, and reopens in the editor, but there is nothing on the
+ * plan to say so.
  *
  * Rendered rather than reasoned about, because the question is *what is on the screen*: a scene
  * assembled correctly and never drawn would pass any test written one layer up.
@@ -83,7 +80,6 @@ class CrossSectionOnThePlanTest {
         return survey to editor
     }
 
-    /** The plan rendered as a bitmap, for a scene with (or without) a drawing inside the section. */
     @OptIn(ExperimentalComposeUiApi::class)
     private fun plan(
         drawInside: Boolean,
@@ -137,7 +133,6 @@ class CrossSectionOnThePlanTest {
         return r > 230 && g in 100..200 && b in 100..200 && abs(g - b) < 12
     }
 
-    /** How many pixels of the rendered plan are the colour drawn inside the section. */
     private fun purplePixels(drawInside: Boolean): Long =
         plan(drawInside, DisplayOptions(showGrid = false, showStationLabels = false))
             .count(Colour.PURPLE.baseValue)
@@ -257,8 +252,7 @@ class CrossSectionOnThePlanTest {
             // Dropped exactly on its own station rather than beside it. Anywhere else and the
             // section's position widens `SurveyScene.bounds`, the opening zoom changes to take it
             // in, and the two renders then differ by the whole survey shifted a few pixels -
-            // which is a difference, and not the one being measured. The first version of this
-            // check reported the mark as 63 by 579 for that reason.
+            // which is a difference, and not the one being measured.
             val where = Projection2D.PLAN.project(survey).stationMap[station]!!
             editor.addCrossSection(CrossSectioner.section(survey, station), where)
         }

@@ -25,8 +25,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        // The shared code builds its file store before the first composition, so it cannot read
-        // LocalContext. This is the whole of what Android has to hand over.
         AndroidHost.attach(this)
         setContent { App() }
     }

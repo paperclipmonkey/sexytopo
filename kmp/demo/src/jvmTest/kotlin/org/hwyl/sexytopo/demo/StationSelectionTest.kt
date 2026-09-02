@@ -58,7 +58,6 @@ class StationSelectionTest {
         // A point just off the second station, well within reach of the first and third too.
         val target = stations[1]
         val nearby = Coord2D(target.second.x + 0.5f, target.second.y + 0.5f)
-
         assertEquals(target.first, scene.stationNearest(nearby, reach = 30f))
     }
 

@@ -20,16 +20,14 @@ import kotlin.test.assertTrue
  * The station menu the sketch never had.
  *
  * Until it existed the only station a surveyor could name, comment or measure was the *active* one,
- * reached through the chip on the field bar — fine while the survey is being pushed forward, and
- * useless the moment somebody wants to go back and write "sump" on a junction they passed. What is
- * tested here is which actions a station offers, because every wrong answer is invisible until
- * somebody taps it underground: a delete that silently does nothing on the origin, a cross-section
- * offered on the extended elevation where it means nothing, a "make active" on the station that
- * already is one.
+ * reached through the chip on the field bar — useless the moment somebody wants to go back and
+ * write "sump" on a junction they passed. What is tested here is which actions a station offers,
+ * because every wrong answer is invisible until somebody taps it underground: a delete that
+ * silently does nothing on the origin, a cross-section offered on the extended elevation where it
+ * means nothing, a "make active" on the station that already is one.
  */
 class StationMenuTest {
 
-    /** Three stations in a line, with a splay off the middle one. */
     private fun passage(): Survey {
         val survey = Survey("T")
         SurveyBuilder.updateWithNewStation(survey, Leg(10f, 0f, 0f))
@@ -50,10 +48,6 @@ class StationMenuTest {
         editor?.sketch ?: survey.getSketch(projection),
         fromTable,
     )
-
-    // -------------------------------------------------------------------------------------
-    // The table's menu is not the sketch's
-    // -------------------------------------------------------------------------------------
 
     /**
      * `menu_navigate` offers the two views you are *not* looking at, which is the same rule read
@@ -76,8 +70,6 @@ class StationMenuTest {
 
     @Test
     fun theTableDoesNotOfferCrossSectionsAndTheSketchDoes() {
-        // The other half of the same difference: a cross-section is a thing you draw, and the
-        // table has nothing to draw on.
         val survey = passage()
 
         val fromTable = actions(survey, "2", fromTable = true)
@@ -161,7 +153,6 @@ class StationMenuTest {
         assertTrue(StationAction.CROSS_SECTION_EDIT in offered)
         assertTrue(StationAction.CROSS_SECTION_DELETE in offered)
 
-        // And its neighbour, which has none, still offers to make one.
         assertTrue(StationAction.CROSS_SECTION_CREATE in actions(survey, "3", Projection2D.PLAN, editor))
     }
 
@@ -184,8 +175,6 @@ class StationMenuTest {
         val placed = crossSectionPositionFor(survey, two, Projection2D.PLAN)
 
         assertNotNull(placed)
-        // The finger that opened the menu was on the centreline, so a section drawn where it
-        // pressed would cover the passage it describes.
         assertTrue(
             (placed - at).mag() > 1f,
             "expected the section clear of the station, got ${placed.x}, ${placed.y}",
@@ -199,7 +188,6 @@ class StationMenuTest {
         assertNotNull(row)
         assertEquals("2", row.from)
         assertEquals("3", row.to)
-        // The second leg was shot east.
         assertEquals("90.00", row.azimuth)
     }
 

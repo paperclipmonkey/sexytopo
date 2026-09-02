@@ -52,7 +52,6 @@ class LrudEntryTest {
         assertEquals(-90f, splays[3].inclination)
     }
 
-    /** Only the fields that were filled in. */
     @Test
     fun blanksAddNothing() {
         val survey = passage()
@@ -88,15 +87,11 @@ class LrudEntryTest {
     /**
      * The passage size goes on the station the surveyor is standing at, not the one they just made.
      *
-     * This is the rule that would be wrong silently. A reading that promotes moves the active
-     * station to the far end of the shot, so LRUDs attached after the leg would land on the *new*
-     * station — putting the walls of this chamber around the next one. Nothing in the numbers
-     * afterwards says so: they are ordinary splays either way, on a station that really exists, at
-     * a bearing that really was measured. It would come out as a drawing that is subtly the wrong
-     * shape, and nobody would know which trip it happened on.
-     *
-     * Upstream does the same thing more visibly, shuffling `survey.setActiveStation` back to the
-     * from-station around its own LRUD calls and forward again afterwards.
+     * A reading that promotes moves the active station to the far end of the shot, so LRUDs
+     * attached after the leg would silently land on the *new* station — putting the walls of this
+     * chamber around the next one, with nothing in the numbers themselves to say so. Upstream does
+     * the same thing more visibly, shuffling `survey.setActiveStation` back to the from-station
+     * around its own LRUD calls and forward again afterwards.
      */
     @Test
     fun thePassageIsMeasuredWhereTheSurveyorIsStanding() {
@@ -133,7 +128,6 @@ class LrudEntryTest {
         )
     }
 
-    /** A splay takes no passage size with it, as upstream's own splay dialog has no fields. */
     @Test
     fun aSplayBooksNoPassageSize() {
         val survey = passage()
@@ -157,7 +151,6 @@ class LrudEntryTest {
         )
     }
 
-    /** With the fields turned off nothing is passed, and nothing extra is recorded. */
     @Test
     fun noPassageSizeTypedIsNoPassageSizeRecorded() {
         val survey = passage()
@@ -178,10 +171,8 @@ class LrudEntryTest {
     /**
      * The surveyor's choice of reference bearing reaches the splay.
      *
-     * `pref_lrud_direction` in upstream, which reads the key and declares it in no preference
-     * screen — so on Android the choice exists in the code and nobody can make it. Offered here,
-     * which is why the dead-end fallback in [LrudMode.sideAzimuth] had to be added at the same
-     * time: the setting and the hazard it reaches arrive together.
+     * `pref_lrud_direction` in upstream reads the key but declares it in no preference screen, so
+     * on Android the choice exists in the code and nobody can make it. Offered here.
      */
     @Test
     fun theChosenReferenceBearingReachesTheSplay() {

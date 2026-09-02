@@ -68,7 +68,6 @@ fun main() {
         }
     }
 
-    // Desktop / tablet: the wide layout.
     render("plan.png", 1200, 820) { App(survey = survey, initialProjection = Projection2D.PLAN) }
     render("extended-elevation.png", 1200, 820) {
         App(survey = survey, initialProjection = Projection2D.EXTENDED_ELEVATION)
@@ -85,14 +84,10 @@ fun main() {
     }
     render("export.png", 1200, 820) { App(survey = survey, initialScreen = Screen.EXPORT) }
 
-    // A survey built the way the app really builds one: readings decoded from DistoX wire-format
-    // packets, three agreeing readings promoted to a station by the ported survey engine.
     render("live-survey.png", 1200, 820) {
         App(survey = buildSurveyFromInstrument(), initialProjection = Projection2D.PLAN)
     }
 
-    // Phones: the same App() at the two screen sizes it will actually be demonstrated on, in dp,
-    // so the phone layout is exercised rather than the wide one at a small size.
     for ((name, size) in PHONES) {
         val (width, height) = size
         render("$name-plan.png", width, height) { App(survey = survey) }

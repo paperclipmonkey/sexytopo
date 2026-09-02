@@ -7,8 +7,6 @@ import android.os.Vibrator
 import android.os.VibratorManager
 
 /**
- * The same `Vibrator` the Android app uses, reached the same way.
- *
  * Two API levels are handled because minSdk is 23: `VibratorManager` arrived in 31 and the direct
  * service lookup is deprecated there, and `VibrationEffect` arrived in 26. The deprecated
  * `vibrate(long)` is the only route below 26 and is correct there.

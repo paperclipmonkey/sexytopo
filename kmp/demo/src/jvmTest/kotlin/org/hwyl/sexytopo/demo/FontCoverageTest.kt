@@ -19,7 +19,6 @@ import kotlin.test.assertTrue
  */
 class FontCoverageTest {
 
-    /** Every one of these is typed somewhere in the app, and every one of them draws. */
     @Test
     fun theCharactersTheAppTypesAreOnesTheFontHas() {
         // Bullets and chevrons in the About box and the overflow menu; the dash and the ellipsis
@@ -28,7 +27,6 @@ class FontCoverageTest {
         assertEquals("", FontCoverage.missingFrom(typed), "typed in the app and cannot be drawn")
     }
 
-    /** And every mark this app draws by hand is one it genuinely could not type. */
     @Test
     fun theMarksTheAppDrawsAreOnesTheFontHasNot() {
         // MenuMarks.CheckDot stands in for this one.

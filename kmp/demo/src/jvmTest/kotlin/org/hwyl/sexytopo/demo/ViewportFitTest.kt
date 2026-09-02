@@ -59,10 +59,6 @@ class ViewportFitTest {
         )
     }
 
-    /**
-     * The reason the trigger is the centreline's extent and not the whole scene's: a stroke drawn
-     * near the edge enlarges the scene, and re-framing on that would move the paper under the pen.
-     */
     @Test
     fun aFittedViewportShowsTheWholeSurvey() {
         val viewport = SketchViewport()
@@ -87,8 +83,8 @@ class ViewportFitTest {
 
     @Test
     fun aSurveyOfOneStationOpensAtTheAppsDefaultZoom() {
-        // Not fitted: the bounds floor of a millimetre would zoom until the scale bar read
-        // centimetres, and the surveyor's first leg would shoot straight off the screen.
+        // Not fitted: a bounds floor of a millimetre would otherwise zoom until the scale bar read
+        // centimetres.
         val viewport = SketchViewport()
         viewport.fitTo(Bounds.of(listOf(Coord2D(3f, 3f))), 400f, 800f)
         assertTrue(

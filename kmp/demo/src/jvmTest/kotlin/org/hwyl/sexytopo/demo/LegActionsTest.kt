@@ -14,11 +14,6 @@ import kotlin.test.assertTrue
 /**
  * Everything that can be done to a reading once it is in the survey.
  *
- * Three of these — reverse, downgrade and promote — were ported into [SurveyUpdater] months before
- * anything could reach them, because the tests that came with the Java exercised them directly.
- * That is the failure mode being closed here: a survey engine that can do the right thing and a
- * surveyor with no way to ask for it.
- *
  * What is tested is mostly *which* actions are offered, since each wrong answer is a trap that only
  * springs underground: a downgrade offered on a leg with a cave hanging off it throws where the
  * Java greys the item out, and a promotion offered on the first splay of a survey has no leg above
@@ -43,10 +38,6 @@ class LegActionsTest {
 
     private fun splayOff(survey: Survey, station: String): Leg =
         survey.getStationByName(station)!!.onwardLegs.first { !it.hasDestination() }
-
-    // -------------------------------------------------------------------------------------
-    // What is offered
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun aLegWithACaveBeyondItCannotBeMadeIntoASplay() {
@@ -112,16 +103,10 @@ class LegActionsTest {
 
     @Test
     fun aSplayAsksForASplayCommentAndALegForALegOne() {
-        // The Android app switches the same menu item between two strings; getting them the wrong
-        // way round would have a surveyor writing a note about a shot they did not take.
         assertEquals("Splay comment", LegAction.COMMENT.label(isSplay = true))
         assertEquals("Leg comment", LegAction.COMMENT.label(isSplay = false))
         assertEquals("Delete", LegAction.DELETE.label(isSplay = true))
     }
-
-    // -------------------------------------------------------------------------------------
-    // What they do
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun reversingALegPutsTheStationOnTheOtherSideOfItsParent() {
@@ -183,10 +168,6 @@ class LegActionsTest {
         )
     }
 
-    // -------------------------------------------------------------------------------------
-    // Comments
-    // -------------------------------------------------------------------------------------
-
     @Test
     fun commentingALegMarksTheSurveyUnsaved() {
         val survey = passage()
@@ -237,7 +218,7 @@ class LegActionsTest {
     @Test
     fun theMarkerFollowsTheStationTheTableShowsAndNotTheOneTheLegStartsAt() {
         // A backwards leg is stored 1 → 2 and shown 2 → 1, so a comment on station 1 has to come
-        // out in the To column. Marking the stored from-station would put it in the wrong one.
+        // out in the To column, not on the stored from-station.
         val survey = passage()
         SurveyUpdater.reverseLeg(survey, survey.getStationByName("2")!!)
         survey.origin.comment = "entrance"
@@ -266,17 +247,10 @@ class LegActionsTest {
         assertFalse(SurveyUpdater.canDowngradeLeg(splayOff(survey, "2")))
     }
 
-    // -------------------------------------------------------------------------------------
-    // Re-hanging a shot taken from the wrong station
-    // -------------------------------------------------------------------------------------
-
     private fun names(stations: List<org.hwyl.sexytopo.shared.model.survey.Station>) =
         stations.map { it.name }
 
-    /**
-     * The move that matters, and the one the port had no way to make: a leg that should have come
-     * off the junction rather than the end of the passage.
-     */
+    /** The move the port had no way to make: a leg hung off the junction rather than the end. */
     @Test
     fun aLegCanBeHungOffAnyStationThatIsNotBelowIt() {
         val survey = passage()
@@ -289,10 +263,10 @@ class LegActionsTest {
     /**
      * And not onto itself or anything it leads to.
      *
-     * `SurveyUpdater.moveLeg` re-parents without checking - its own note says so, and the Java's
-     * does too - so a leg hung inside its own subtree makes a cycle and the next traversal never
-     * comes back. The Android app refuses the same move in `EditLegForm`, not in the updater,
-     * which is why porting the updater did not bring the guard along. This is the guard.
+     * `SurveyUpdater.moveLeg` re-parents without checking, so a leg hung inside its own subtree
+     * makes a cycle and the next traversal never comes back. The Android app refuses the same move
+     * in `EditLegForm`, not in the updater, which is why porting the updater did not bring the
+     * guard along. This is the guard.
      */
     @Test
     fun aLegCannotBeHungOnTheCaveBelowIt() {
@@ -306,7 +280,6 @@ class LegActionsTest {
         assertTrue(offered.isEmpty(), "so on this survey there is nowhere to put it: $offered")
     }
 
-    /** And when there is nowhere to put it the action is not offered at all. */
     @Test
     fun aLegWithNowhereToGoIsNotOfferedTheMove() {
         val survey = passage()
@@ -333,7 +306,6 @@ class LegActionsTest {
         assertEquals(listOf("3"), names(legMoveTargets(survey, row, "3")))
     }
 
-    /** And the move itself does what it says, through the ported updater. */
     @Test
     fun movingAShotRehangsItAndLeavesTheSurveyWalkable() {
         val survey = passage()
@@ -343,7 +315,6 @@ class LegActionsTest {
 
         assertSame(survey.getStationByName("3"), survey.getOriginatingStation(splay))
         assertFalse(splay in survey.getStationByName("2")!!.onwardLegs)
-        // The traversal terminating is the whole point of the guard above.
         assertEquals(3, survey.getAllStationsInChronoOrder().size)
     }
 }

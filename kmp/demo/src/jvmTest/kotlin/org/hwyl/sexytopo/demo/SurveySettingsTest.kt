@@ -38,7 +38,6 @@ class SurveySettingsTest {
         assertEquals(2, loose.getAllStations().size, "loosened tolerances should promote them")
     }
 
-    /** Two readings instead of three, which is what a solo surveyor in a hurry will want. */
     @Test
     fun theNumberOfRepeatsIsHonoured() {
         val survey = Survey("T")
@@ -49,10 +48,6 @@ class SurveySettingsTest {
         SurveyUpdater.update(survey, Leg(5.01f, 90.1f, 0f), settings = settings)
         assertEquals(2, survey.getAllStations().size)
     }
-
-    // ---------------------------------------------------------------------------------------
-    // Persistence: a surveyor sets these once, at the entrance
-    // ---------------------------------------------------------------------------------------
 
     @Test
     fun settingsSurviveARoundTrip() {
@@ -78,16 +73,12 @@ class SurveySettingsTest {
         assertEquals(settings, SurveySettingsStore.load(store))
     }
 
-    /** No file yet is the normal first-run case, not an error. */
     @Test
     fun anAbsentFileMeansTheDefaults() {
         assertEquals(SurveySettings.DEFAULT, SurveySettingsStore.load(InMemoryFileStore()))
     }
 
-    /**
-     * A file from a later version, or a half-written one, must not stop the app starting. Anything
-     * unreadable falls back to that field's default rather than to nothing.
-     */
+    /** A file from a later version, or a half-written one, must not stop the app starting. */
     @Test
     fun aDamagedFileDegradesToTheDefaults() {
         val parsed =
@@ -104,10 +95,6 @@ class SurveySettingsTest {
         assertEquals(SurveySettings.DEFAULT.maxAngleDelta, parsed.maxAngleDelta)
         assertEquals(0.3f, parsed.maxDistanceDelta)
     }
-
-    // ---------------------------------------------------------------------------------------
-    // What the dialog will accept
-    // ---------------------------------------------------------------------------------------
 
     private fun from(
         distance: String = "0.05",
@@ -128,7 +115,6 @@ class SurveySettingsTest {
         assertEquals(2.5f, assertNotNull(from(angle = "2,5")).maxAngleDelta)
     }
 
-    /** A negative tolerance refuses every reading; neither is recoverable from without knowing why. */
     @Test
     fun nonsenseIsRefusedRatherThanStored() {
         assertNull(from(angle = "-1"))
@@ -136,7 +122,6 @@ class SurveySettingsTest {
         assertNull(from(distance = "wide"))
     }
 
-    /** Switching algorithm to look at it and switching back must not reset the other tolerances. */
     @Test
     fun tolerancesTheChosenAlgorithmIgnoresAreCarriedAcross() {
         val current = SurveySettings.DEFAULT.copy(maxEndpointDelta = 0.42f)

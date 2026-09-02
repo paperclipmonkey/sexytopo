@@ -136,10 +136,6 @@ private fun String.fromHex(): ByteArray =
 
 private const val HEX = "0123456789abcdef"
 
-// ---------------------------------------------------------------------------------------------
-// The JavaScript side. One queue, drained by pump().
-// ---------------------------------------------------------------------------------------------
-
 private fun bleSupported(): Boolean =
     js("typeof navigator !== 'undefined' && !!navigator.bluetooth")
 

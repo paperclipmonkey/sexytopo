@@ -93,7 +93,6 @@ class CalibrationSessionTest {
         assertEquals(CalibrationPositions.ALL[1], session.calibration.next)
     }
 
-    /** A whole calibration, from the first shot to the coefficients going out over the radio. */
     @Test
     fun awholeCalibrationEndsWithCoefficientsOnTheInstrument() {
         val session = session()
@@ -208,7 +207,6 @@ class CalibrationSessionTest {
                 },
             )
         assertEquals(null, fcl.encodeCommand(InstrumentCommand.START_CALIBRATION))
-        // ...while the ones that can, do.
         assertTrue(
             InstrumentDecoder.classicDistoX()
                 .encodeCommand(InstrumentCommand.START_CALIBRATION)!!

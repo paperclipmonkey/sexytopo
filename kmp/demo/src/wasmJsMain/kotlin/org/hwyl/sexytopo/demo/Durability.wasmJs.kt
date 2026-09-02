@@ -16,7 +16,6 @@ actual fun requestDurableStorage() {
 
 actual fun durabilityWarning(): String? =
     when (durableStorageState()) {
-        // Granted, or not yet decided. Nothing useful to say in either case.
         "persisted", "asking" -> null
 
         "unsupported" ->

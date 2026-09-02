@@ -44,10 +44,6 @@ class CrossSectionEditorTest {
                     .addCrossSection(CrossSectioner.section(survey, station), Coord2D(20f, 5f))
         }
 
-    // ------------------------------------------------------------------------------------
-    // The world the editor opens onto
-    // ------------------------------------------------------------------------------------
-
     /**
      * The editor works in the section's own coordinates, not the plan's.
      *
@@ -106,7 +102,6 @@ class CrossSectionEditorTest {
         assertEquals(0f, bounds.centreY, 0.001f)
     }
 
-    /** A station booked with no wall shots still opens onto a passage-sized piece of paper. */
     @Test
     fun aStationWithNoSplaysStillOpensOntoSomething() {
         val bounds = crossSectionFitBounds(emptyList())
@@ -114,10 +109,6 @@ class CrossSectionEditorTest {
         assertEquals(5f, bounds.width, 0.001f)
         assertEquals(5f, bounds.height, 0.001f)
     }
-
-    // ------------------------------------------------------------------------------------
-    // Drawing into it
-    // ------------------------------------------------------------------------------------
 
     /**
      * Cancelling leaves the section alone.
@@ -140,7 +131,6 @@ class CrossSectionEditorTest {
         assertEquals(0, detail.sketch.pathDetails.size, "cancelling must not have kept the stroke")
     }
 
-    /** Done writes the outline back into the live section, in place. */
     @Test
     fun doneWritesTheOutlineIntoTheSection() {
         val (survey, detail) = section()
@@ -248,10 +238,6 @@ class CrossSectionEditorTest {
             "the outline stays station-relative, so it moves with the section",
         )
     }
-
-    // -------------------------------------------------------------------------------------
-    // What the section is drawn with
-    // -------------------------------------------------------------------------------------
 
     /**
      * A surveyor who enlarged everything for a head torch, or turned fragment-erase off, sees the

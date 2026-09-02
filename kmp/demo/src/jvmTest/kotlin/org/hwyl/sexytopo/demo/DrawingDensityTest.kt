@@ -18,7 +18,7 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * Finding 28, made into a test: is every drawn size on the canvas a *dp*?
+ * Is every drawn size on the canvas a *dp*?
  *
  * `DrawScope` measures in physical pixels. A bare `2.5f` passed to `drawLine` is two and a half
  * device pixels whatever the screen, so on a phone at three of them to the dp the centreline comes
@@ -61,7 +61,7 @@ class DrawingDensityTest {
      *
      * The centreline rather than all the ink, and that distinction is the whole difficulty. Most
      * of what is on this canvas is *text* — station names, the scale bar's label, the compass — and
-     * text is in `sp`, which scaled correctly even when finding 28 was live. Counting every dark
+     * text is in `sp`, which scaled correctly even when the bug was live. Counting every dark
      * pixel therefore measures mostly the half that was never broken: with the bug reintroduced
      * the total-ink ratio only fell from 0.98 to 0.77, which a threshold loose enough to tolerate
      * antialiasing would wave through. It did, on the first version of this test.
@@ -122,14 +122,8 @@ class DrawingDensityTest {
 
         // The same picture at three times the resolution: near enough the same fraction of it is
         // centreline. Measured both ways before these thresholds were chosen: **1.09** as the code
-        // stands (0.0050 of the picture at 1x against 0.0054 at 3x), and **0.44** with finding 28
-        // put back — 0.0049 against 0.0022, because the cave is three times longer across the page
-        // and no thicker.
-        //
-        // The 0.44 was measured when the leg width was a constant 2.5 dp rather than a preference
-        // defaulting to the app's own 2. That does not weaken it: this ratio compares one width at
-        // two densities, so the width cancels out of it. The 1x figure moved by a thousandth when
-        // the width changed, which is the size of the effect.
+        // stands, and **0.44** with the bug put back — because the cave is three times longer
+        // across the page and no thicker.
         //
         // It is 1.09 rather than 1.00 because of antialiasing, and in the honest direction: a
         // 2px line at 1x spends much of its width in half-covered edge pixels that are too pale

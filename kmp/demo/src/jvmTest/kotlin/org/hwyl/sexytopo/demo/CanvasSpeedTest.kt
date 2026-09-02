@@ -29,9 +29,7 @@ import kotlin.time.TimeSource
  * `ImageComposeScene` is the same headless renderer `RenderPng` uses, and it rasterises on the
  * **CPU**, where a phone rasterises on its GPU. So the absolute numbers here are not a phone's and
  * are not quoted as though they were: what this guards is the *shape* of the work this code hands
- * the renderer, which is the part the port controls. Measured on this machine, for the record: the
- * whole of a four-thousand-station survey on screen is about 170 ms a frame and one passage of it
- * filling the screen about 14 ms, against 16.6 ms before off-screen legs were culled.
+ * the renderer, which is the part the port controls.
  *
  * Gathering the same segments into one `drawPoints` call per colour instead of one `drawLine` each
  * — twelve thousand calls down to about four — was tried here and measured *no faster at all*, so
@@ -100,16 +98,11 @@ class CanvasSpeedTest {
             repeat(zoomSteps) { canvas.zoomIn() }
             repeat(3) { scene.render() }
 
-            // The *fastest* frame, not the mean of a block of them.
-            //
-            // Load can only ever add time to a frame, so the quickest one is the one least
-            // disturbed by whatever else the machine was doing — which on a shared CI runner is a
-            // great deal. Timing twelve frames as one block and dividing was the original, and it
-            // let a single scheduler preemption inflate the whole measurement; the test below
-            // compares *differences* between two such numbers, so noise in either one moved its
-            // tolerance rather than its subject, and it failed twice in a day on a busy machine
-            // while passing on its own. Everything here is a comparison, so a consistent lower
-            // bound answers the same questions with far less noise.
+            // Timing twelve frames as one block and dividing was the original, and it let a
+            // single scheduler preemption inflate the whole measurement; the test below compares
+            // *differences* between two such numbers, so noise in either one moved its tolerance
+            // rather than its subject, and it failed twice in a day on a busy machine while
+            // passing on its own.
             val clock = TimeSource.Monotonic
             var best = Double.MAX_VALUE
             repeat(frames) {
@@ -127,8 +120,8 @@ class CanvasSpeedTest {
     /**
      * A frame on a real-sized cave finishes, and finishes in a sane time.
      *
-     * A loose ceiling on purpose. What it is guarding against is not slowness but the failure mode
-     * finding 18 was: something in the draw path that is quadratic in the size of the survey, which
+     * A loose ceiling on purpose. What it is guarding against is not slowness but the failure mode:
+     * something in the draw path that is quadratic in the size of the survey, which
      * a demo cave never shows and which turns into an app that cannot be dragged. The threshold is
      * far above what this machine measures and far below what an accident would cost, and the
      * numbers are printed either way so a regression is visible before it trips the assertion.
@@ -149,23 +142,10 @@ class CanvasSpeedTest {
     /**
      * A drawing that is off the screen costs almost nothing, so it is not culled.
      *
-     * The question the centreline cull does not answer. A cave surveyed over many trips carries
-     * thousands of strokes, and each is mapped into screen coordinates and built into a `Path`
-     * every frame whether or not any of it is showing — which looks exactly like the legs did
-     * before they were culled.
-     *
-     * Measured, it is not the same at all. Eight thousand strokes cost **67 ms a frame** with all
-     * of them on screen and **0.4 ms** with almost none of them (best-frame times; see
-     * `timeFrames`) — a third of one per cent of the
-     * frame, inside the noise. Mapping the points and building the path is cheap; what cost the
-     * time was rasterising them, and rasterising is what Skia already skips. So there is no cull
-     * here, and this test is what says so: if a stroke ever becomes expensive to *prepare* rather
-     * than to draw, the second number moves and this fails.
-     *
-     * The first number is worth its own note, because nothing here fixes it: a fully traced cave
-     * with the whole of it on screen is 120 ms a frame in this renderer. That is rasterisation of
-     * eight thousand visible strokes, so no amount of culling touches it — it would want drawing
-     * less of the drawing, which changes what the surveyor sees and is a decision, not a fix.
+     * Mapping the points and building the path is cheap; what costs time is rasterising them,
+     * and rasterising is what Skia already skips. So there is no cull here, and this test is what
+     * says so: if a stroke ever becomes expensive to *prepare* rather than to draw, the second
+     * number moves and this fails.
      */
     @Test
     fun aDrawingThatIsOffTheScreenCostsAlmostNothing() {

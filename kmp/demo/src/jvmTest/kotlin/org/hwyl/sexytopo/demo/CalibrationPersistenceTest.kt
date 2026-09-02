@@ -51,7 +51,6 @@ class CalibrationPersistenceTest {
         val before = SurveyLibrary(store)
         before.saveCalibration(ExampleCalibration.READINGS.take(30))
 
-        // A new app run over the same storage.
         val after = SurveyLibrary(store)
         val restored = after.loadCalibration()
 

@@ -15,7 +15,6 @@ import kotlin.test.assertEquals
  */
 class StatsTest {
 
-    /** 10 m north, then 5 m east, with a two-metre splay at the corner. */
     private fun cave(): Survey {
         val survey = Survey("T")
         SurveyBuilder.updateWithNewStation(survey, Leg(10f, 0f, 0f))
@@ -49,7 +48,6 @@ class StatsTest {
         )
     }
 
-    /** A survey with nothing in it reports zeroes rather than blanks or sentinels. */
     @Test
     fun anEmptySurveyReportsZeroes() {
         val stats = statsOf(Survey("T")).toMap()

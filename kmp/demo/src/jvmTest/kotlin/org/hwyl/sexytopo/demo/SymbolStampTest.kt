@@ -34,7 +34,6 @@ class SymbolStampTest {
         assertNear(45f, bearingOf(Offset(10f, -10f)))
     }
 
-    /** A tap is a drag of no length, and leaves the symbol upright rather than snapping it. */
     @Test
     fun aTapLeavesTheSymbolUpright() {
         assertEquals(0f, bearingOf(Offset.Zero))
@@ -53,7 +52,6 @@ class SymbolStampTest {
         assertEquals(0.8f, stamped.size)
     }
 
-    /** One undo step, like every other sketch item. */
     @Test
     fun aStampCanBeUndone() {
         val editor = SketchEditor()
@@ -64,7 +62,6 @@ class SymbolStampTest {
         assertTrue(editor.sketch.symbolDetails.isEmpty())
     }
 
-    /** Every symbol has artwork the canvas can draw, so none of them stamps as an empty mark. */
     @Test
     fun everySymbolHasADrawablePath() {
         for (symbol in Symbol.entries) {

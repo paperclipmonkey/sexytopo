@@ -18,7 +18,6 @@ import kotlin.test.assertTrue
  */
 class ReconnectionTest {
 
-    /** A radio that can be made to drop out, and counts how many times it was asked to connect. */
     private class Flaky : BaseInstrumentTransport() {
         var attempts = 0
         private var open = false
@@ -42,10 +41,8 @@ class ReconnectionTest {
 
         override fun send(bytes: ByteArray) = Unit
 
-        /** Whether the next [connect] succeeds. A cave decides this, not the app. */
         var openOnConnect = true
 
-        /** The instrument goes away by itself: out of range, switched off, battery flat. */
         fun dropOut() {
             open = false
             emitDisconnected("connection lost")
@@ -57,9 +54,7 @@ class ReconnectionTest {
     private fun session(): Pair<SurveySession, Flaky> {
         val session = SurveySession(Survey("Test"), elapsedMillis = { clock })
         val radio = Flaky()
-        // With a profile, because the simulator is deliberately never chased: it cannot drop, and
-        // `attach` disconnects the outgoing transport, so a session that chased anything would
-        // chase itself every time the surveyor switched instruments.
+        // With a profile: the simulator is deliberately never chased, since it cannot drop.
         session.attachForTest(radio, InstrumentDecoder.classicDistoX(), InstrumentProfile.DISTOX_BLE)
         session.autoReconnect = AutoReconnect(enabled = true, windowMinutes = 15)
         return session to radio
@@ -86,7 +81,6 @@ class ReconnectionTest {
         assertTrue(session.connected, "it came back and the session did not notice")
     }
 
-    /** With the setting off — which is how the Android app ships — nothing is chased. */
     @Test
     fun withTheSettingOffTheInstrumentIsLeftAlone() {
         val (session, radio) = session()
@@ -101,7 +95,6 @@ class ReconnectionTest {
         assertEquals(afterFirst, radio.attempts)
     }
 
-    /** Putting the instrument away by hand means leaving it there. */
     @Test
     fun anInstrumentPutAwayOnPurposeIsNotChased() {
         val (session, radio) = session()
@@ -116,11 +109,8 @@ class ReconnectionTest {
     }
 
     /**
-     * And it gives up, rather than keeping the radio going all the way out of the cave.
-     *
-     * An instrument left behind at the last station is the case this is for: the phone is in a
-     * pocket for two hours, and a retry every three seconds for two hours is a flat battery on the
-     * one device that has the survey on it.
+     * And it gives up, rather than keeping the radio going all the way out of the cave: a retry
+     * every three seconds for two hours is a flat battery on the one device that has the survey.
      */
     @Test
     fun anInstrumentThatNeverComesBackIsGivenUpOn() {
@@ -151,11 +141,8 @@ class ReconnectionTest {
     }
 
     /**
-     * A run that succeeds resets the window, so the second bad patch of a long trip gets its own.
-     *
-     * The failure this prevents is the quiet one: an instrument that dropped once at the entrance
-     * and came back would otherwise be unchaseable four hours later, at the far end of the cave,
-     * with nothing on screen to explain why.
+     * A run that succeeds resets the window, so the second bad patch of a long trip gets its own:
+     * an instrument that dropped once at the entrance would otherwise be unchaseable hours later.
      */
     @Test
     fun anInstrumentThatComesBackGetsAFreshWindow() {

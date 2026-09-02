@@ -43,10 +43,6 @@ class SurveyImportTest {
      * siblings parsed the centreline and dropped both sketches without a word — which is the worst
      * shape a bug can have: it succeeds, it says so, and what is missing is the part nobody can
      * reconstruct from the numbers.
-     *
-     * `SurveyStorage` has read all four for as long as it has existed. It was only the loose-file
-     * path that did not, and the fixture the browser check imports has no drawing in it, so
-     * nothing here could see the loss.
      */
     @Test
     fun aSurveySentWithItsDrawingsKeepsThem() {
@@ -83,14 +79,10 @@ class SurveyImportTest {
      * A survey from the Android app comes in at the station somebody was standing at.
      *
      * The Android app keeps the active station in `<name>.metadata.json` and nowhere else — the
-     * `activeStation` key inside the data file is this port's own. So a survey handed over by an
-     * Android surveyor, mid-trip, imported here at the entrance of the cave: everything was there
-     * and the one thing that says *where you are* was not.
-     *
-     * The fixture is deliberately what Android writes rather than what this port writes: a data
-     * file with no `activeStation` in it at all, so the only copy of the answer is the metadata
-     * file. That way the test fails if the reading is dropped, rather than being carried by the
-     * port's own key.
+     * `activeStation` key inside the data file is this port's own. The fixture is deliberately what
+     * Android writes rather than what this port writes: a data file with no `activeStation` in it
+     * at all, so the only copy of the answer is the metadata file, and the test fails if the
+     * reading is dropped rather than being carried by the port's own key.
      */
     @Test
     fun aSurveyFromTheAndroidAppOpensAtTheStationItWasLeftAt() {
@@ -116,7 +108,6 @@ class SurveyImportTest {
         assertEquals("2", imported.activeStation.name, "the working end did not come with it")
     }
 
-    /** And one with no metadata file beside it imports as it always did. */
     @Test
     fun aSurveyWithNoMetadataFileStillImports() {
         val store = store()
@@ -132,13 +123,10 @@ class SurveyImportTest {
     /**
      * A drawing that is *there* and will not parse is reported, not swallowed.
      *
-     * This is the fix for the dropped-drawings bug committing the same sin one level down: it read
-     * the sketches beside the data file inside a `runCatching` that discarded the failure, so a
-     * survey whose plan file was damaged imported with an empty plan and said nothing. A caver
-     * would conclude the sender had not drawn anything.
-     *
-     * Absent is different from unreadable, and only the second is worth a word: plenty of surveys
-     * are handed over as their data file alone.
+     * The sketches beside the data file were read inside a `runCatching` that discarded the
+     * failure, so a survey whose plan file was damaged imported with an empty plan and said
+     * nothing — a caver would conclude the sender had not drawn anything. Absent is different from
+     * unreadable, and only the second is worth a word.
      */
     @Test
     fun aDrawingThatWillNotParseIsReported() {
@@ -153,7 +141,6 @@ class SurveyImportTest {
         assertTrue("Eastwater.plan.json" in warning, warning)
     }
 
-    /** And a survey with no sketch files at all says nothing, because nothing is wrong. */
     @Test
     fun aSurveyWithNoDrawingIsNotAProblem() {
         val store = store()
@@ -168,11 +155,9 @@ class SurveyImportTest {
      * The likelier damage: a drawing that arrives *short* rather than empty.
      *
      * Each detail is parsed inside its own guard, so one broken stroke costs one stroke and the
-     * rest of the plan comes through — better than `SketchJsonTranslater`, where the loop over
-     * paths sits inside a single try and one bad stroke throws out of it, losing the whole plan.
-     *
-     * But being more forgiving only helps if it is not also quieter, and it was: a drawing three
-     * strokes short looked exactly like a drawing that was drawn three strokes short.
+     * rest of the plan comes through. But being more forgiving only helps if it is not also
+     * quieter, and it was: a drawing three strokes short looked exactly like a drawing that was
+     * drawn three strokes short.
      */
     @Test
     fun aDrawingThatCameInShortSaysSo() {
@@ -197,11 +182,9 @@ class SurveyImportTest {
     }
 
     /**
-     * And the same on *open*, where the consequence is worse than on import.
-     *
-     * The app saves on every change, so a survey opened three strokes short is written back
-     * without them the moment anything is edited. The damaged file was at least still damaged;
-     * after that it is tidily, permanently short. A surveyor who is told can copy the file first.
+     * And the same on *open*, where the consequence is worse than on import: the app saves on
+     * every change, so a survey opened three strokes short is written back without them the moment
+     * anything is edited, making the damage permanent.
      */
     @Test
     fun aSurveyThatOpensShortSaysSoBeforeTheNextSaveMakesItPermanent() {
@@ -224,7 +207,6 @@ class SurveyImportTest {
         assertTrue("could not be read" in warning, warning)
     }
 
-    /** And a good drawing is not reported either. */
     @Test
     fun aDrawingThatReadsIsNotReported() {
         val store = store()
@@ -245,10 +227,9 @@ class SurveyImportTest {
     }
 
     /**
-     * The warning belongs to the survey on screen, not to the session.
-     *
-     * Set once and never cleared it would sit in the app bar long after the surveyor had opened a
-     * different cave — a true sentence about the wrong survey, which is worse than no sentence.
+     * The warning belongs to the survey on screen, not to the session: set once and never cleared,
+     * it would sit in the app bar long after the surveyor had opened a different cave — a true
+     * sentence about the wrong survey, which is worse than no sentence.
      */
     @Test
     fun theWarningGoesWhenAnotherSurveyIsOpened() {
@@ -260,13 +241,11 @@ class SurveyImportTest {
         assertNotNull(SurveyImport.import(library, store, "Eastwater.data.json"))
         assertNotNull(library.lastWarning)
 
-        // A second import that has nothing wrong with it clears the first one's warning.
         store.writeText(listOf("Swildons.data.json"), SurveyJson.write(aSurvey("Swildons")))
         assertNotNull(library.import("Swildons.data.json"))
         assertNull(library.lastWarning, "the warning outlived the survey it was about")
     }
 
-    /** And a survey sent as its data file alone still imports, with nothing drawn. */
     @Test
     fun aSurveySentOnItsOwnStillImports() {
         val store = store()
@@ -280,9 +259,9 @@ class SurveyImportTest {
     }
 
     /**
-     * The other half of the same mistake: every part of a survey ends `.json`, so a rule of "any
-     * `.json` is a survey" offered the drawing as something to import beside the survey. Picking
-     * it would have parsed a sketch as a centreline.
+     * Every part of a survey ends `.json`, so a rule of "any `.json` is a survey" would offer the
+     * drawing as something to import beside the survey — picking it would parse a sketch as a
+     * centreline.
      */
     @Test
     fun thePartsOfASurveyAreNotOfferedAsSurveys() {
@@ -300,8 +279,7 @@ class SurveyImportTest {
      *
      * Unzipping one in the Files app leaves a *folder* named after the cave with the survey's four
      * files inside, and the import list only looked at files — so the app showed an empty list
-     * beside a survey sitting right there. `action_file_import_directory` is the Android app's
-     * name for this.
+     * beside a survey sitting right there.
      */
     @Test
     fun aWholeSurveyFolderCanBeImported() {
@@ -319,7 +297,6 @@ class SurveyImportTest {
         assertEquals(1, imported.planSketch.pathDetails.size, "the drawing came in")
     }
 
-    /** A folder that is not a survey is not offered as one. */
     @Test
     fun aFolderThatIsNotASurveyIsNotOffered() {
         val store = store()
@@ -333,7 +310,6 @@ class SurveyImportTest {
         val store = store()
         store.writeText(listOf("Swildons.data.json"), "{}")
         store.writeText(listOf("notes.txt"), "not a survey")
-        // A folder this app wrote is already in the library; offering it again would duplicate it.
         store.writeText(listOf("surveys", "Eastwater", "Eastwater.data.json"), "{}")
 
         assertEquals(listOf("Swildons.data.json"), SurveyImport.candidates(store))
@@ -345,7 +321,7 @@ class SurveyImportTest {
         store.writeText(listOf("Eastwater.svx"), ";")
         store.writeText(listOf("Eastwater.th"), "#")
         store.writeText(listOf("Eastwater.txt"), POCKET_TOPO)
-        // The drawing, not the centreline. This app writes it but cannot read it back, and
+        // .th2 is the drawing, not the centreline. This app writes it but cannot read it back, and
         // offering something that can only fail is worse than not offering it.
         store.writeText(listOf("Eastwater.th2"), "encoding utf-8")
 
@@ -356,9 +332,8 @@ class SurveyImportTest {
     }
 
     /**
-     * `.txt` belongs to everything, unlike every other extension here. On a phone whose Documents
-     * folder is visible in the Files app, offering every text file as a survey would bury the one
-     * that is.
+     * `.txt` belongs to everything, unlike every other extension here: offering every text file as
+     * a survey would bury the one that is.
      */
     @Test
     fun aTextFileThatIsNotAPocketTopoExportIsNotOffered() {
@@ -371,11 +346,9 @@ class SurveyImportTest {
 
     /**
      * PocketTopo's own binary file, which is what is actually on the phone somebody hands you —
-     * its text export is something they have to know to produce.
-     *
-     * The format itself is tested in the shared module against a real `.top`; what is being checked
-     * here is the plumbing, which is different from every other import: the bytes have to reach the
-     * parser as bytes.
+     * its text export is something they have to know to produce. The format itself is tested in
+     * the shared module against a real `.top`; what is checked here is the plumbing: the bytes have
+     * to reach the parser as bytes.
      */
     @Test
     fun aPocketTopoBinaryFileImportsThroughTheSameFlow() {
@@ -405,7 +378,6 @@ class SurveyImportTest {
         val read = assertNotNull(store.readBytes(listOf("Ceiled Up.top")))
 
         assertTrue(MINIMAL_TOP_FILE.contentEquals(read))
-        // And the same bytes read as text and back are not the same bytes.
         assertFalse(
             MINIMAL_TOP_FILE.contentEquals(
                 assertNotNull(store.readText(listOf("Ceiled Up.top")) ?: "").encodeToByteArray(),
@@ -413,7 +385,6 @@ class SurveyImportTest {
         )
     }
 
-    /** The only import that brings a drawing in as well as a centreline. */
     @Test
     fun aPocketTopoExportBringsItsDrawingToo() {
         val store = store()
@@ -431,7 +402,7 @@ class SurveyImportTest {
     /**
      * The whole point of reading Survex: a club's existing survey of the cave, exported by
      * whatever they used, opened here to be extended. Round-tripping our own export is the closest
-     * this can get to that without a third-party file to hand.
+     * this can get without a third-party file to hand.
      */
     @Test
     fun aSurvexFileFromAnotherToolBecomesASurvey() {
@@ -461,10 +432,6 @@ class SurveyImportTest {
         assertEquals("entrance", imported.origin.comment)
     }
 
-    /**
-     * A file that parses but yields nothing would otherwise arrive in the library as a survey with
-     * no legs, which looks exactly like a successful import of an empty cave.
-     */
     @Test
     fun aFileWithNoCentrelineIsRefusedRatherThanImportedEmpty() {
         val store = store()
@@ -490,7 +457,7 @@ class SurveyImportTest {
 
     /**
      * The case importing exists for: a colleague sends you their copy of a cave you are also
-     * surveying. Overwriting yours with theirs would be the worst possible outcome.
+     * surveying, and overwriting yours with theirs would be the worst possible outcome.
      */
     @Test
     fun anImportNeverOverwritesASurveyAlreadyInTheLibrary() {
@@ -519,7 +486,6 @@ class SurveyImportTest {
         assertNull(SurveyImport.import(SurveyLibrary(store), store, "gone.data.json"))
     }
 
-    /** `Swildons.data.json` is a survey called Swildons, not one called "Swildons.data". */
     @Test
     fun theAppsOwnExtensionsAreStrippedFromTheName() {
         assertEquals("Swildons", SurveyImport.nameFor("Swildons.data.json"))
@@ -531,7 +497,6 @@ class SurveyImportTest {
         assertEquals("Swildons", SurveyImport.nameFor("Swildons.SVX"))
     }
 
-    /** A minimal PocketTopo text export: one splay and one stroke on the plan. */
     private val POCKET_TOPO =
         listOf(
             "TRIP",
@@ -588,9 +553,6 @@ class SurveyImportTest {
             mapping() // the elevation's
             add(0) // and so is that
         }.toByteArray()
-    // -----------------------------------------------------------------------------------------
-    // A Therion project, which is a centreline file and its tracing images
-    // -----------------------------------------------------------------------------------------
 
     private fun tracedCave(): Survey {
         val survey = Survey("Swildons")
@@ -619,11 +581,7 @@ class SurveyImportTest {
      *
      * The Android app reads the `.th` for the numbers and then any `.xvi` beside it for the plan
      * and the extended elevation; this port read the `.th` and stopped, so importing somebody's
-     * Therion project silently threw away the part that took the whole trip. Exactly the loss that
-     * was already fixed for this app's own four-file format, in a format it can also write.
-     *
-     * Written by this app's own exporters, so what is asserted is a real round trip rather than a
-     * fixture somebody typed.
+     * Therion project silently threw away the part that took the whole trip.
      */
     @Test
     fun aTherionProjectBringsItsDrawingsIn() {
@@ -649,7 +607,6 @@ class SurveyImportTest {
         assertNull(library.lastWarning, "nothing was unreadable, so nothing should be reported")
     }
 
-    /** A `.th` on its own still imports, as it always did, with empty drawings and no complaint. */
     @Test
     fun aTherionFileWithNoTracingsBesideItStillImports() {
         val store = store()
@@ -666,11 +623,10 @@ class SurveyImportTest {
     /**
      * A loose tracing image imports as a drawing with nothing under it.
      *
-     * This one nearly did not work, and the reason is worth keeping: `import` refuses a survey
-     * with no legs, because a Therion file that is all `scrap` parses into an empty survey and
-     * importing it looks like success. An `.xvi` has no centreline *by definition*, so that guard
-     * would have thrown away every tracing image ever picked. It is now let through when it
-     * brought a drawing.
+     * `import` refuses a survey with no legs, because a Therion file that is all `scrap` parses
+     * into an empty survey and importing it looks like success. An `.xvi` has no centreline *by
+     * definition*, so that guard would have thrown away every tracing image ever picked — it is
+     * now let through when it brought a drawing.
      */
     @Test
     fun aLooseTracingImageImportsAsADrawing() {
@@ -687,7 +643,6 @@ class SurveyImportTest {
         assertEquals(2, imported.planSketch.pathDetails.size, "but it does have the drawing")
     }
 
-    /** And an empty one is still refused, so the guard has not simply been removed. */
     @Test
     fun aTracingImageWithNothingDrawnInItIsStillRefused() {
         val store = store()
@@ -699,9 +654,9 @@ class SurveyImportTest {
 
     /**
      * A Survex file with an illegal reading used to fail with the same "could not read Cave.svx"
-     * as a file that is not a survey at all - [SurveyImport.import]'s `runCatching { }.getOrNull()`
-     * threw the exception's own message away. `library.lastError` now carries it, so what a
-     * surveyor sees is the line that needs fixing, not just that something went wrong.
+     * as a file that is not a survey at all, since [SurveyImport.import]'s
+     * `runCatching { }.getOrNull()` threw the exception's own message away. `library.lastError`
+     * now carries it, so what a surveyor sees is the line that needs fixing.
      */
     @Test
     fun anIllegalReadingReportsWhichLine() {

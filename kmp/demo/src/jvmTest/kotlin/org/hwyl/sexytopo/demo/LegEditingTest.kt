@@ -59,8 +59,7 @@ class LegEditingTest {
         val destination = Station("2")
         val leg = Leg(5f, 90f, 10f, destination, wasShotBackwards = true)
 
-        // The row for this leg reads 2 -> 1 at 270 degrees, -10. Say the surveyor corrects the
-        // distance and leaves the angles alone.
+        // The row for this leg reads 2 -> 1 at 270 degrees, -10.
         val replacement = inOrientationOf(leg, Leg(5.5f, 270f, -10f))
 
         assertTrue(replacement.wasShotBackwards)
@@ -89,7 +88,6 @@ class LegEditingTest {
         assertEquals("-5.00", withSignFlipped("+5.00"))
         assertEquals("-", withSignFlipped(""))
         assertEquals("", withSignFlipped("-"))
-        // Mid-edit, with nothing after the decimal point yet.
         assertEquals("-12.", withSignFlipped("12."))
     }
 }

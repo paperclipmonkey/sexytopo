@@ -9,6 +9,4 @@ actual fun whyNoInstruments(): String = """This port has no Android Bluetooth dr
 
 actual fun tickTransport(transport: InstrumentTransport) = Unit
 
-
-/** Likewise: this port has no Android transport yet, so the list is never offered. */
 actual fun howConnectingWorks(): String = "This port has no Android Bluetooth driver yet."

@@ -13,8 +13,8 @@ import kotlin.test.assertTrue
  * The seventeen things a surveyor can decide about the drawing that leaves the cave.
  *
  * The exporter has taken all of them since it was ported. What it had never had was a caller that
- * passed anything but the default, which is finding 59 and the reason these checks exist: an
- * option nothing sets is indistinguishable, from the app, from an option that does not work.
+ * passed anything but the default: an option nothing sets is indistinguishable, from the app, from
+ * an option that does not work.
  */
 class SvgExportOptionsTest {
 
@@ -24,9 +24,9 @@ class SvgExportOptionsTest {
         exportText(survey, ExportFormat.SVG, Projection2D.PLAN, today = "2026-01-01", options)
 
     /**
-     * The default export, so that each check below is against a file that *does* contain the thing
-     * it then turns off. Without this, every one of them would pass on an exporter that had
-     * quietly stopped drawing anything at all.
+     * The default export, so each check below is against a file that *does* contain the thing it
+     * then turns off — otherwise every one of them would pass on an exporter that had quietly
+     * stopped drawing anything at all.
      */
     @Test
     fun theDefaultDrawingHasEverythingInIt() {
@@ -69,7 +69,6 @@ class SvgExportOptionsTest {
         }
     }
 
-    /** The three that are text in the legend rather than a group of their own. */
     @Test
     fun theCreditsCanBeTakenOutOfTheLegend() {
         val default = SvgExporter.Options.DEFAULT
@@ -82,7 +81,6 @@ class SvgExportOptionsTest {
         )
     }
 
-    /** Turning the legend off takes the four things inside it with it, however they are set. */
     @Test
     fun theLegendCarriesTheFourThingsInsideIt() {
         val out =
@@ -101,10 +99,8 @@ class SvgExportOptionsTest {
     }
 
     /**
-     * A width the surveyor typed actually reaches the file.
-     *
-     * The centreline at width 9 rather than 2, which is a number that cannot appear in a default
-     * export by accident.
+     * A width the surveyor typed actually reaches the file: the centreline at width 9 rather than
+     * 2, a number that cannot appear in a default export by accident.
      */
     @Test
     fun aChosenLegWidthIsTheOneDrawn() {
@@ -115,8 +111,6 @@ class SvgExportOptionsTest {
     @Test
     fun everySvgOptionSurvivesTheAppBeingClosed() {
         val store = InMemoryFileStore()
-        // Every one flipped away from its default, so a value that failed to round-trip would come
-        // back as the default and fail rather than pass by luck.
         val flipped =
             SvgExporter.Options(
                 whiteBackground = false,
@@ -148,9 +142,7 @@ class SvgExportOptionsTest {
      * `preferences_export_svg.xml` gives the grid `android:defaultValue="false"`, so the checkbox
      * on the settings screen appears unticked; nothing calls `PreferenceManager.setDefaultValues`,
      * so on a fresh install the key is absent and `isExportSvgGridEnabled`'s own fallback of true
-     * decides. The file has a grid in it. Same story for the background, whose fallback is
-     * `"white"` - and `SvgExportOptions` declares both fields false, which is dead code, because
-     * its no-argument constructor is never called.
+     * decides. Same story for the background, whose fallback is `"white"`.
      */
     @Test
     fun theDefaultsAreWhatTheAndroidAppExportsRatherThanWhatItsScreenShows() {
@@ -168,8 +160,8 @@ class SvgExportOptionsTest {
      * A stroke width of zero is not a thinner line, it is no line.
      *
      * The Android app takes it: `getExportSvgStrokeWidth` parses whatever the text box stored and
-     * hands it to the exporter, so typing 0 there produces an SVG whose centreline is invisible -
-     * which looks exactly like an export that lost the survey. This port clamps instead.
+     * hands it to the exporter, so typing 0 there produces an SVG whose centreline is invisible.
+     * This port clamps instead.
      */
     @Test
     fun aWidthThatWouldDrawNothingIsRefused() {
@@ -188,11 +180,9 @@ class SvgExportOptionsTest {
     }
 
     /**
-     * Half-typed rubbish keeps what was there rather than resetting to the app's default.
-     *
-     * These are text boxes, so every value passes through the empty string on the way to being
-     * retyped; falling back to the default there would quietly undo a surveyor's chosen width the
-     * moment they touched a different field and pressed Save.
+     * Half-typed rubbish keeps what was there rather than resetting to the app's default: every
+     * value passes through the empty string on the way to being retyped, and falling back to the
+     * default there would quietly undo a surveyor's chosen width.
      */
     @Test
     fun aHalfTypedWidthKeepsTheValueItHad() {
@@ -201,7 +191,6 @@ class SvgExportOptionsTest {
         assertEquals(7, AppPreferencesStore.strokeWidth("2.5", fallback = 7))
     }
 
-    /** A file written by a version that had never heard of these still opens on its defaults. */
     @Test
     fun aPreferencesFileFromBeforeTheseExistedStillLoads() {
         val loaded = AppPreferencesStore.parse("theme=dark\nshowGrid=false\n")

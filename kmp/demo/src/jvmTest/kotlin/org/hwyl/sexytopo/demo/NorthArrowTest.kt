@@ -65,8 +65,7 @@ class NorthArrowTest {
         val png = image.encodeToData(EncodedImageFormat.PNG) ?: error("Skia would not encode")
         val bitmap = ImageIO.read(ByteArrayInputStream(png.bytes))
 
-        // A box above the scale bar and its label, at the left-hand edge: where the arrow goes and
-        // where nothing else on this survey reaches.
+        // A box above the scale bar and its label, at the left-hand edge: where the arrow goes.
         var ink = 0
         for (y in bitmap.height - 115 until bitmap.height - 55) {
             for (x in 18 until 58) {
@@ -87,8 +86,7 @@ class NorthArrowTest {
 
     @Test
     fun itCanBeTakenOffAgain() {
-        // `buttonShowCompass`, which is on by default in the app and here. The corner of a small
-        // screen is worth something to a surveyor who has already decided which way is north.
+        // `buttonShowCompass`, which is on by default in the app and here.
         val ink =
             inkInTheLegendCorner(
                 Projection2D.PLAN,
@@ -100,8 +98,7 @@ class NorthArrowTest {
 
     @Test
     fun theExtendedElevationIsNot() {
-        // `GraphView.drawCompass` returns immediately unless the projection is the plan, and so
-        // does this: an unrolled section has no north, and an arrow on one would be a lie.
+        // `GraphView.drawCompass` returns immediately unless the projection is the plan.
         assertEquals(
             0,
             inkInTheLegendCorner(Projection2D.EXTENDED_ELEVATION),

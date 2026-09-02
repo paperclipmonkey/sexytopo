@@ -41,10 +41,6 @@ class CentrelineDisplayTest {
     private fun scene(survey: Survey, projection: Projection2D = Projection2D.PLAN) =
         SurveyScene.from(survey, projection)
 
-    // -------------------------------------------------------------------------------------
-    // The leg just taken
-    // -------------------------------------------------------------------------------------
-
     @Test
     fun exactlyOneReadingIsTheLatestOne() {
         val scene = scene(passage())
@@ -78,10 +74,6 @@ class CentrelineDisplayTest {
             Projection2D.PLAN.project(survey).stationMap[survey.getStationByName("4")]
         assertEquals(newStation, latest.end, "the leg that made station 4")
     }
-
-    // -------------------------------------------------------------------------------------
-    // The working end
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun onlyWhatHangsOffTheActiveStationIsAtTheWorkingEnd() {
@@ -131,10 +123,6 @@ class CentrelineDisplayTest {
         assertEquals(1, scene.legs.count { it.attachedToActive })
     }
 
-    // -------------------------------------------------------------------------------------
-    // Legs that go into the page
-    // -------------------------------------------------------------------------------------
-
     @Test
     fun aPitchIsNotInThePlanAndALevelPassageIs() {
         val survey = Survey("T")
@@ -165,10 +153,6 @@ class CentrelineDisplayTest {
         assertTrue(elevation.all { it.inPlane }, "nothing is foreshortened in an unrolled section")
     }
 
-    // -------------------------------------------------------------------------------------
-    // Water
-    // -------------------------------------------------------------------------------------
-
     @Test
     fun aStreamStampedWithABlackBrushComesOutBlue() {
         val editor = SketchEditor(org.hwyl.sexytopo.shared.model.sketch.Sketch())
@@ -183,10 +167,6 @@ class CentrelineDisplayTest {
 
         assertEquals(Colour.BLUE, editor.sketch.symbolDetails.single().colour)
     }
-
-    // -------------------------------------------------------------------------------------
-    // Remembering the choice
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun theDisplayDefaultsAreTheAndroidApps() {

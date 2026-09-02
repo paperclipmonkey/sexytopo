@@ -43,10 +43,6 @@ class CrossSectionDragTest {
             survey to editor.addCrossSection(CrossSectioner.section(survey, middle), at)
         }
 
-    // ------------------------------------------------------------------------------------
-    // Aiming
-    // ------------------------------------------------------------------------------------
-
     /**
      * The bearing is measured from the *station*, not from where the section is parked.
      *
@@ -141,7 +137,6 @@ class CrossSectionDragTest {
         assertFalse(drag.commit(editor))
     }
 
-    /** Committing re-aims the section in place, keeping its station, position and drawing. */
     @Test
     fun aimingReplacesTheSectionInPlace() {
         val editor = SketchEditor()
@@ -198,10 +193,6 @@ class CrossSectionDragTest {
         )
     }
 
-    // ------------------------------------------------------------------------------------
-    // Moving
-    // ------------------------------------------------------------------------------------
-
     @Test
     fun movingTranslatesBySoFarAsTheFingerWent() {
         val editor = SketchEditor()
@@ -236,7 +227,6 @@ class CrossSectionDragTest {
         assertEquals(Coord2D(32f, -8f), editor.sketch.crossSectionDetails.single().position)
     }
 
-    /** A press that never travelled is not an edit, and must not push an undo step. */
     @Test
     fun aDragThatWentNowhereCommitsNothing() {
         val editor = SketchEditor()
@@ -249,7 +239,6 @@ class CrossSectionDragTest {
         assertEquals(undoBefore, editor.canUndo)
     }
 
-    /** Moving is one undo step, and undoing it puts the section back where it was. */
     @Test
     fun aMoveIsOneUndoStep() {
         val editor = SketchEditor()
@@ -264,10 +253,6 @@ class CrossSectionDragTest {
 
         assertEquals(Coord2D(30f, -8f), editor.sketch.crossSectionDetails.single().position)
     }
-
-    // ------------------------------------------------------------------------------------
-    // Grabbing
-    // ------------------------------------------------------------------------------------
 
     /**
      * The preview and the commit are the same computation.
@@ -328,7 +313,6 @@ class CrossSectionDragTest {
         assertNull(findCrossSectionBodyAt(editor.sketch, Coord2D(0f, 0f)))
     }
 
-    /** Two sections on one drawing: the drag has to pick up the one under the finger. */
     @Test
     fun theNearerSectionIsTheOneGrabbed() {
         val editor = SketchEditor()

@@ -27,13 +27,6 @@ import platform.Foundation.writeToURL
  *
  * Paths are lists of names throughout, so nothing here has to agree with any other platform about
  * separators.
- *
- * ## Status
- *
- * Compiled on every push by the macOS CI job, and **never run**. The iOS simulator would exercise
- * it, but nothing in this repository launches one yet. Expect the first device build to find
- * something; the shared [org.hwyl.sexytopo.shared.io.store.SurveyStorage] above it is the part that
- * is tested, and it is deliberately the larger part.
  */
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 class DocumentsFileStore : FileStore {

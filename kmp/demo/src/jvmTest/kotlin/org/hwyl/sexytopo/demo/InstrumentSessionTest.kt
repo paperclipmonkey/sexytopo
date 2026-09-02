@@ -93,7 +93,6 @@ class InstrumentSessionTest {
         assertTrue(instrument.written.single().isNotEmpty())
     }
 
-    /** A garbled frame must not stop the next good one arriving. */
     @Test
     fun anUnreadableFrameIsSurvived() {
         val session = SurveySession(Survey("T"))

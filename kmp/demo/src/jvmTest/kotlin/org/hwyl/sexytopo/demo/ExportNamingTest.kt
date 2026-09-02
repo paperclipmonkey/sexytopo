@@ -50,7 +50,6 @@ class ExportNamingTest {
         )
     }
 
-    /** And no other format grows files it never had. */
     @Test
     fun everyOtherFormatIsStillOneFile() {
         for (format in ExportFormat.entries.filterNot { it == ExportFormat.NATIVE }) {

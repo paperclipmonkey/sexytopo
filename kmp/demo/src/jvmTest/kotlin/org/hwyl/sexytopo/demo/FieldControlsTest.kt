@@ -21,7 +21,6 @@ class FieldControlsTest {
      * instrument silently disconnected while the surveyor carries on shooting into nothing.
      *
      * The button is ten millimetres from *Add reading*, on a phone, in a wet bag, with cold hands.
-     * See finding 58.
      */
     @Test
     fun theSimulatorIsNotOfferedOverARealInstrument() {

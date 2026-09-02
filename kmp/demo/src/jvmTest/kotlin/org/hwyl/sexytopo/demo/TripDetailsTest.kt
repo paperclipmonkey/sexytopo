@@ -50,11 +50,6 @@ class TripDetailsTest {
         assertNull(tripFrom("last Tuesday", emptyList(), "", "", "", ""))
     }
 
-    // -------------------------------------------------------------------------------------
-    // Exploration date
-    // -------------------------------------------------------------------------------------
-
-    /** A trip built with no opinion on the exploration date matches what a brand-new trip has always defaulted to. */
     @Test
     fun withNoExplorationDateGivenTheTripIsLinked() {
         val trip = tripFrom(date = "2026-09-05", team = emptyList(), instrument = "", comments = "", copyrightHolder = "", licence = "")
@@ -64,10 +59,10 @@ class TripDetailsTest {
     }
 
     /**
-     * The bug this fixes: a dialog that always builds a fresh [Trip] on Save has to be told to
-     * carry an unlinked exploration date forward, or it silently reverts to "same day" on every
-     * edit — which is exactly what happened to a date read in from an imported file the moment
-     * anyone opened this dialog and pressed Save without touching anything.
+     * A dialog that always builds a fresh [Trip] on Save has to be told to carry an unlinked
+     * exploration date forward, or it silently reverts to "same day" on every edit — which is
+     * exactly what happened to a date read in from an imported file the moment anyone opened this
+     * dialog and pressed Save without touching anything.
      */
     @Test
     fun anUnlinkedExplorationDateIsKept() {
@@ -90,11 +85,10 @@ class TripDetailsTest {
 
     /**
      * Linked means "the field is not consulted at all" - [Trip.hasExplorationDate]'s own contract
-     * - so whatever text happens to be left in the box, blank, garbage, *or a perfectly valid
-     * date left over from before the surveyor re-linked the checkbox*, must not leak into the
-     * trip. The valid-date case is the one worth a test of its own: a guard that merely happened
-     * to rely on garbage failing to parse would not catch a stale but well-formed date sitting in
-     * a field the surveyor has since said to ignore.
+     * - so whatever text happens to be left in the box, blank, garbage, *or a perfectly valid date
+     * left over from before the surveyor re-linked the checkbox*, must not leak into the trip. A
+     * guard that merely happened to rely on garbage failing to parse would not catch the stale but
+     * well-formed case.
      */
     @Test
     fun aLinkedTripIgnoresAStaleButValidExplorationDate() {
@@ -115,7 +109,6 @@ class TripDetailsTest {
         assertNull(trip.explorationDate)
     }
 
-    /** The exploration date is not decoration: both exporters already write it, so it has to reach them. */
     @Test
     fun anUnlinkedExplorationDateReachesBothExporters() {
         val survey = surveyWithALeg()
@@ -135,7 +128,6 @@ class TripDetailsTest {
         assertContains(SurvexExporter.export(survey, createdOn = "2026-09-05"), "2025.04.12")
     }
 
-    /** An empty name would emit `*team ""`, which Therion accepts and no human can read. */
     @Test
     fun blankPeopleAreDropped() {
         val trip =
@@ -179,17 +171,12 @@ class TripDetailsTest {
         assertContains(survex, "R. Smith")
     }
 
-    /**
-     * The exporters take the whole metadata block from `survey.trip`, and a survey with none at
-     * all still has to export — which is what every survey did before this dialog existed.
-     */
     @Test
     fun aSurveyWithNoTripStillExports() {
         val survex = SurvexExporter.export(surveyWithALeg(), createdOn = "2026-09-05")
         assertTrue(survex.startsWith("*begin Swildons"))
     }
 
-    /** Sentence case in the UI, shouting in the file format. */
     @Test
     fun roleLabelsAreReadable() {
         assertEquals("Instruments", labelFor(Trip.Role.INSTRUMENTS))

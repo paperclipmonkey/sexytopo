@@ -32,8 +32,7 @@ class StationNamingTest {
     fun keepingTheNameIsNotAClash() {
         val survey = twoStations()
         // renameStation rejects a rename to the station's own name, so the dialog must not read
-        // "unchanged" as "taken" — that would make Save unpressable whenever only the comment
-        // changed.
+        // "unchanged" as "taken".
         assertNull(renameProblem(survey, survey.origin, survey.origin.name))
     }
 
@@ -50,15 +49,10 @@ class StationNamingTest {
      *
      * `Station` strips only newlines, faithfully to the Java, and the Android rename form checks
      * only blank, `-` and uniqueness — so *sump 2* is accepted there, and the Survex exporter puts
-     * station names into whitespace-separated columns. That leg comes out as six fields where
+     * station names into whitespace-separated columns: that leg comes out as six fields where
      * `*data normal from to tape compass clino` wants five, and Survex will not read the file. A
-     * semicolon is worse: it starts a comment, so the readings after it are thrown away in
-     * silence.
-     *
-     * A deliberate divergence, and the reason it is worth it is that the alternative is losing a
-     * trip's numbers with nothing said. What this does not do is rewrite an imported name — this
-     * app cannot repair somebody else's file by refusing to open it — so it stops the problem being
-     * made rather than pretending it cannot exist.
+     * semicolon is worse: it starts a comment, so the readings after it are thrown away in silence.
+     * A deliberate divergence from the Android original.
      */
     @Test
     fun aNameThatWouldBreakTheExportIsRefusedWithAReason() {
@@ -76,7 +70,6 @@ class StationNamingTest {
         assertTrue("comment" in semicolon, semicolon)
     }
 
-    /** And the ordinary names a surveyor actually types are still fine. */
     @Test
     fun theNamesPeopleActuallyUseAreStillAccepted() {
         val survey = Survey("Swildons")
@@ -125,7 +118,6 @@ class StationNamingTest {
         assertEquals("draughting", station.comment)
     }
 
-    /** 1 → 2 → 3 → 4, all heading east, so every station starts on the default direction. */
     private fun fourStations(): Survey {
         val survey = Survey("T")
         repeat(3) { SurveyBuilder.updateWithNewStation(survey, Leg(5f, 90f, 0f)) }
@@ -135,12 +127,11 @@ class StationNamingTest {
     /**
      * Sending a station left sends everything beyond it left too.
      *
-     * This is what the direction *means*. An extended elevation unrolls the cave onto a line, and
-     * at a junction the surveyor says which way the next passage is drawn — so the answer applies
-     * to that passage, not to one leg of it. `SurveyUpdater.setExtendedElevationDirection` walks
-     * the subtree for exactly this reason, and the dialog was setting the field on the one station
-     * instead: mark a junction left and the leg into it flipped while everything past it carried
-     * on to the right, which is a drawing that is wrong and does not look wrong.
+     * An extended elevation unrolls the cave onto a line, and at a junction the surveyor says which
+     * way the next passage is drawn — so the answer applies to that passage, not to one leg of it.
+     * The dialog was setting the field on the one station instead: mark a junction left and the leg
+     * into it flipped while everything past it carried on to the right, a drawing that is wrong and
+     * does not look wrong.
      */
     @Test
     fun sendingAStationLeftSendsThePassageBeyondItLeftToo() {
@@ -158,7 +149,6 @@ class StationNamingTest {
         }
     }
 
-    /** And not the passage before it: the surveyor marked a junction, not the whole cave. */
     @Test
     fun theStationsAboveTheJunctionAreLeftAlone() {
         val survey = fourStations()
@@ -173,10 +163,9 @@ class StationNamingTest {
     }
 
     /**
-     * Vertical is the exception, and the model already says so: [ExtendedElevationDirection]
-     * carries a `propagates` flag which is false for it. A pitch is drawn from its height change
-     * alone and says nothing about which way the passage at the bottom goes, so the survey resumes
-     * whatever it was doing.
+     * Vertical is the exception: [ExtendedElevationDirection] carries a `propagates` flag which is
+     * false for it, since a pitch is drawn from its height change alone and says nothing about
+     * which way the passage at the bottom goes.
      */
     @Test
     fun aPitchAppliesToItsOwnLegAndNoFurther() {
@@ -195,13 +184,11 @@ class StationNamingTest {
         }
     }
 
-    /** A direction that has not changed must not quietly re-flood the subtree under it. */
     @Test
     fun leavingTheDirectionAloneLeavesTheSubtreeAlone() {
         val survey = fourStations()
         val junction = survey.getStationByName("2")!!
         val below = survey.getStationByName("3")!!
-        // Somebody sent this one branch the other way earlier in the trip.
         below.extendedElevationDirection = ExtendedElevationDirection.LEFT
 
         applyStationEdit(survey, junction, junction.name, "sump", junction.extendedElevationDirection)
