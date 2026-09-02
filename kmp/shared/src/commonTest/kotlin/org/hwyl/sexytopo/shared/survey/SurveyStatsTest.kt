@@ -16,7 +16,6 @@ import kotlin.test.assertEquals
  */
 class SurveyStatsTest {
 
-    /** A T-junction: 10 m north to 2, then 5 m east to 3 and 4 m west to 4, with one splay. */
     private fun junction(): Survey {
         val survey = Survey("T")
         SurveyBuilder.updateWithNewStation(survey, Leg(10f, 0f, 0f))

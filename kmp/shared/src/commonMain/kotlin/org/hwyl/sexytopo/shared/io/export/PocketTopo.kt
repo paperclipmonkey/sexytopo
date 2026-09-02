@@ -11,34 +11,21 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
 /**
  * Export to PocketTopo's text format.
  *
- * Ported from `control/io/thirdparty/pockettopo/PocketTopoTxtExporter`, which the Android app marks
- * `Experimental`. Unlike the Survex, Therion and Compass exporters, this one is **not** pinned
- * byte-for-byte against the Java, and it cannot be. Two reasons, both worth reading before
- * comparing an exported file with one Android produced.
+ * Ported from `control/io/thirdparty/pockettopo/PocketTopoTxtExporter`. Unlike the Survex,
+ * Therion and Compass exporters, this one is **not** pinned byte-for-byte against the Java, for
+ * two reasons.
  *
- * ## 1. The Java's own output is not reproducible
+ * First, the Java's own output isn't reproducible: `Space` holds stations and legs in a plain
+ * `HashMap`, and neither overrides `hashCode`, so iteration order follows identity hash codes
+ * that differ run to run — verified by building the same survey twice in one JVM and diffing the
+ * shuffled result. This port picks a defined order instead
+ * ([Survey.getAllStationsInChronoOrder] / [Survey.getAllLegsInChronoOrder]), the only deliberate
+ * divergence; everything *defined* in the Java, including its apparent mistakes, is reproduced
+ * exactly — see [exportSketch].
  *
- * `Space` holds its stations and legs in a plain `HashMap`, and neither `Station` nor `Leg`
- * overrides `hashCode`. Iteration order therefore follows identity hash codes, which differ from
- * run to run. Exporting the *same survey twice* produces the STATIONS and SHOTS lines in different
- * orders - verified by building one survey twice in a single JVM and diffing the result, which came
- * out shuffled.
- *
- * Since no caller can depend on an order that is undefined, this port picks a defined one:
- * [Survey.getAllStationsInChronoOrder] and [Survey.getAllLegsInChronoOrder], so a station appears in
- * the order the surveyor created it. That makes exports diffable, reviewable and testable, which
- * the original's are not.
- *
- * This is a deliberate divergence and the only one. Where the Java's behaviour is *defined* it is
- * reproduced exactly, including the parts that look like mistakes - see [exportSketch].
- *
- * ## 2. Coordinates are written with a bare float-to-string
- *
- * The Java writes `coords.x` straight into the file, so a projected coordinate near zero comes out
- * as `1.7484555E-6`. Kotlin's `Float.toString` only agrees with Java's on the JVM; on Kotlin/Wasm
- * the same value is `0.0000017484555`. Real surveys hit this - a level passage gives y-coordinates
- * that are floating-point noise - so PocketTopo files written on iOS will differ textually from
- * Android's even where every number is identical. See `FloatRenderingTest` and the README.
+ * Second, coordinates are a bare float-to-string: the Java writes `coords.x` straight into the
+ * file, and Kotlin's `Float.toString` only agrees with Java's on the JVM — on Kotlin/Wasm the same
+ * small value renders differently. See `FloatRenderingTest` and the README.
  */
 object PocketTopoExporter {
 
@@ -56,9 +43,8 @@ object PocketTopoExporter {
         if (trip != null) {
             builder.append(trip.surveyDate.toString())
         } else {
-            // The Java's own newline placement: this branch supplies one of its own *and* then
-            // gets the shared one below, so a survey with no trip has a blank line here and a
-            // survey with a trip does not. Reproduced rather than tidied.
+            // The Java's own newline placement: this branch adds its own newline *and* the
+            // shared one below, so a survey with no trip gets an extra blank line here.
             builder.append(NO_TRIP_DATE).append('\n')
         }
         builder.append('\n')
@@ -94,12 +80,9 @@ object PocketTopoExporter {
     /**
      * Sketch strokes, one `POLYLINE` per path followed by its points.
      *
-     * Note the sign: the y of a *sketch* point is negated here and the y of a *station* is not, in
-     * [exportStationCoords]. That asymmetry is the Java's, and it looks wrong - SexyTopo's 2D
-     * projections put y downwards, so negating one and not the other should leave the drawing
-     * mirrored against the centreline it belongs to. It is reproduced rather than corrected because
-     * it is defined behaviour affecting a data format, and whether to change it is the maintainer's
-     * call, not a porting decision.
+     * The y of a *sketch* point is negated here but not in [exportStationCoords] — an asymmetry
+     * that's the Java's own and looks like a bug, but is kept as defined format behaviour rather
+     * than a porting decision to fix.
      */
     fun exportSketch(sketch: Sketch): String {
         val lines = mutableListOf<String>()
@@ -113,11 +96,9 @@ object PocketTopoExporter {
     }
 
     /**
-     * Station positions and the lines between them.
-     *
-     * Ordered by the survey's own chronology rather than by hash, for the reason in the class
-     * documentation. A station or leg the projection did not place is skipped rather than written
-     * with a null coordinate.
+     * Station positions and the lines between them, ordered by the survey's own chronology
+     * rather than by hash (see the class doc). A station or leg the projection didn't place is
+     * skipped.
      */
     fun exportStationCoords(survey: Survey, space: Space<Coord2D>): String {
         val lines = mutableListOf<String>()
@@ -143,11 +124,8 @@ object PocketTopoExporter {
     }
 
     /**
-     * A coordinate, exactly as the Java writes it: whatever `Float.toString` produces.
-     *
-     * Not [formatFixed], deliberately. Rounding to a fixed number of places would give tidier files
-     * that no longer match Android's on the JVM at all, where today they do. The cost is the
-     * cross-target difference documented on this class.
+     * A coordinate, exactly as the Java writes it: whatever `Float.toString` produces. Not
+     * [formatFixed] — rounding would give tidier files that no longer match Android's on the JVM.
      */
     private fun renderCoordinate(value: Float): String = value.toString()
 
@@ -172,8 +150,7 @@ object PocketTopoExporter {
         field(builder, toName)
         field(builder, formatDistance(effectiveLeg.distance))
         field(builder, formatAzimuth(effectiveLeg.azimuth))
-        // TableCol.INCLINATION is "%+.2f" — signed, unlike the plain "%.2f" the Survex and Therion
-        // exporters use. This one goes through the *table* formatter, so the sign is written.
+        // TableCol.INCLINATION is signed ("%+.2f"), unlike the plain format Survex/Therion use.
         field(builder, formatFixed(effectiveLeg.inclination, 2, alwaysSigned = true))
 
         if (effectiveLeg.wasPromoted() || to.hasComment()) {

@@ -115,9 +115,7 @@ object Bric4Protocol {
      * ```
      * A reading the survey model rejects — azimuth outside 0..360, inclination outside +-90,
      * negative distance — becomes [EMPTY_LEG] with [Bric4Measurement.isLegal] false, matching the
-     * Java's `catch (IllegalArgumentException)`. The comment there explains why nothing else
-     * happens: a bad shot will also be flagged on the errors characteristic, which suppresses the
-     * whole measurement.
+     * Java's `catch (IllegalArgumentException)`.
      */
     fun parsePrimary(bytes: ByteArray): Bric4Measurement {
         val timestamp =
@@ -212,7 +210,7 @@ object Bric4Protocol {
  * order, and — as the Java comment says — "there doesn't seem to be any way to figure out which
  * characteristic we are currently receiving, so we just cycle between them". So this decoder
  * counts rather than inspects, and one dropped indication desynchronises it until the connection
- * is remade. That risk is inherited, not introduced.
+ * is remade.
  *
  * The shot is only emitted on the third notification, and only if no errors were reported: a shot
  * the instrument is unhappy with never reaches the survey.
@@ -231,7 +229,6 @@ class Bric4Decoder {
     private var currentMeasurement: Bric4Measurement = NO_MEASUREMENT
     private var currentReference: String = UNKNOWN_REFERENCE
 
-    /** Which of the three notifications is expected next, for diagnostics. */
     val expecting: String get() = state.name
 
     /**
@@ -259,11 +256,6 @@ class Bric4Decoder {
     /**
      * Feeds one indication whose *role is known*, which is the whole reason [FrameChannel] carries
      * BRIC's three characteristics separately.
-     *
-     * Android cannot do this — `Bric4Manager`'s own comment says there is no way to tell which
-     * characteristic an indication came from, so it cycles blindly and can desynchronise if one is
-     * dropped. CoreBluetooth reports the characteristic on every callback, so a transport that maps
-     * the profile's [FrameChannel]s can call this instead and the failure mode disappears.
      *
      * [FrameChannel.DEFAULT] means the transport could not tell them apart, so it falls back to the
      * blind cycle.
@@ -350,7 +342,6 @@ class Bric4Decoder {
      */
     private var measurementPending = false
 
-    /** Puts the cycle back to the start; use after reconnecting. */
     fun reset() {
         state = State.MEASUREMENT
         currentMeasurement = NO_MEASUREMENT

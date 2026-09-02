@@ -12,10 +12,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * The simulated instrument is the end-to-end check on this package: a scripted list of legs goes
- * in as real DistoX packets and has to come back out of the real decoder unchanged.
- */
+/** A scripted list of legs goes in as real DistoX packets and must come back out unchanged. */
 class SimulatedInstrumentTest {
 
     private fun assertClose(expected: Float, actual: Float, tolerance: Float = 0.01f) {
@@ -210,7 +207,7 @@ class SimulatedInstrumentTest {
         instrument.observe(recorder)
         instrument.connect()
 
-        while (instrument.emitNextShot()) { /* replay the lot */ }
+        while (instrument.emitNextShot()) { }
 
         assertEquals(SimulatedInstrument.demoScript().size, recorder.legs.size)
         assertClose(5.42f, recorder.legs.first().distance, 0.001f)

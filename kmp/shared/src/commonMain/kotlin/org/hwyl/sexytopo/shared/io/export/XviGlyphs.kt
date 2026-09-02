@@ -3,18 +3,15 @@ package org.hwyl.sexytopo.shared.io.export
 /**
  * A stroke font, for writing a sketch's labels into an XVI.
  *
- * Generated from `io/thirdparty/xvi/TextDetailTranslater`'s glyph table rather than transcribed,
- * for the same reason [org.hwyl.sexytopo.shared.model.sketch.Symbol] and
- * [org.hwyl.sexytopo.shared.model.sketch.Colour] are: forty-five glyphs of coordinate pairs is
- * exactly the sort of data a human copies almost correctly.
+ * Generated from `io/thirdparty/xvi/TextDetailTranslater`'s glyph table rather than transcribed —
+ * forty-five glyphs of coordinate pairs is exactly the sort of data a human copies almost
+ * correctly. The glyphs came to SexyTopo from TopoDroid (its own comment says "thanks, Marco!").
  *
- * The glyphs came to SexyTopo from TopoDroid — its own comment says "thanks, Marco!" — and they are
- * here because an XVI has no text: it is a tracing image made of line segments, so a label has to be
- * drawn as strokes or dropped. Each entry is a flat list of `x1, y1, x2, y2, ...` segment endpoints
- * on a four-unit-high grid, y *down*.
+ * An XVI has no text — it is a tracing image made of line segments — so a label is drawn as
+ * strokes. Each entry is a flat `x1, y1, x2, y2, ...` list on a four-unit-high grid, y *down*.
  *
- * [UNKNOWN] is the glyph for anything not in the table — a box, rather than nothing, so a label
- * with an accent in it comes out visibly wrong instead of silently short.
+ * [UNKNOWN] is the glyph for anything not in the table — a box, so a label with an accent comes
+ * out visibly wrong instead of silently short.
  */
 internal object XviGlyphs {
 
@@ -27,10 +24,8 @@ internal object XviGlyphs {
     const val LINE_SPACING: Float = 1.2f
 
     /**
-     * How a label's size in metres becomes a glyph scale.
-     *
-     * The Java's comment: "Bit of a fudge factor to get text scale to be similar to likely text
-     * scale. More art than science ;)".
+     * How a label's size in metres becomes a glyph scale — the Java's own comment calls it "more
+     * art than science".
      */
     const val SCALE_FACTOR: Float = 0.15f
 

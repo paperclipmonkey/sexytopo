@@ -24,7 +24,6 @@ data class Vector(val x: Float, val y: Float, val z: Float) {
 
     operator fun times(a: Float) = Vector(x * a, y * a, z * a)
 
-    /** Dot product. */
     infix fun dot(other: Vector): Float = x * other.x + y * other.y + z * other.z
 
     infix fun cross(other: Vector): Vector =
@@ -43,21 +42,18 @@ data class Vector(val x: Float, val y: Float, val z: Float) {
 
     fun normalised(): Vector = this * (1 / magnitude)
 
-    /** Rotate about the X axis. */
     fun turnX(a: Float): Vector {
         val s = sinF(a)
         val c = cosF(a)
         return Vector(x, c * y - s * z, c * z + s * y)
     }
 
-    /** Rotate about the Y axis. */
     fun turnY(a: Float): Vector {
         val s = sinF(a)
         val c = cosF(a)
         return Vector(c * x + s * z, y, c * z - s * x)
     }
 
-    /** Rotate about the Z axis. */
     fun turnZ(a: Float): Vector {
         val s = sinF(a)
         val c = cosF(a)
@@ -67,7 +63,6 @@ data class Vector(val x: Float, val y: Float, val z: Float) {
     companion object {
         val ZERO = Vector(0f, 0f, 0f)
 
-        /** The largest absolute difference between corresponding components. */
         fun maxDiff(a: Vector, b: Vector): Float =
             max(abs(a.x - b.x), max(abs(a.y - b.y), abs(a.z - b.z)))
     }

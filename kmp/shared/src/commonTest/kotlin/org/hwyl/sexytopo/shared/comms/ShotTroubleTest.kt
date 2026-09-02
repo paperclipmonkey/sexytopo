@@ -8,13 +8,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Turning the instrument's vocabulary into the surveyor's.
- *
- * Written against a real refusal rather than an imagined one: a BRIC4 on a bench next to an
- * iPhone, beeping high-low at every shot and reporting *magnetometer 1 high magnitude*,
- * *magnetometer 2 high magnitude*, *accelerometer 1 high magnitude* and *azimuth calculation
- * problem* in a run. What the app said about that was the four code descriptions, in a log behind
- * the overflow menu. What the surveyor needed was "move the phone away from it".
+ * Turning the instrument's vocabulary into the surveyor's: written against a real BRIC4 refusal
+ * (four raw code descriptions logged behind the overflow menu) where what was needed was "move the
+ * phone away from it".
  */
 class ShotTroubleTest {
 
@@ -39,11 +35,8 @@ class ShotTroubleTest {
     }
 
     /**
-     * The run this was written for, in the order it arrived.
-     *
-     * Four codes, three of them naming a different sensor, and one answer: something magnetic is
-     * next to the instrument. The accelerometer complaint in the middle must not win — a surveyor
-     * told to hold the instrument stiller will hold it stiller, and it will refuse again.
+     * The run this was written for, in the order it arrived: the accelerometer complaint in the
+     * middle must not win, or a surveyor told to hold the instrument stiller gets refused again.
      */
     @Test
     fun aRealRefusalReadsAsTheMagneticOne() {
@@ -79,13 +72,10 @@ class ShotTroubleTest {
     }
 
     /**
-     * The magnetic advice has to name the two things worth doing, in order.
-     *
-     * Cheap first: move the metal. Only then the expensive one, which is calibrating - and it has
-     * to say *where*, because this app cannot calibrate a BRIC at all: `InstrumentFamily.BRIC4`
-     * has an empty command set, so there is no start-calibration command to send. Telling a
-     * surveyor to calibrate without saying it happens on the instrument sends them into this app's
-     * own calibration screen, which will never receive a reading from a BRIC.
+     * The magnetic advice has to name the two things worth doing, in order: move the metal first,
+     * then calibrate — and say *where*, because this app cannot calibrate a BRIC at all
+     * (`InstrumentFamily.BRIC4` has an empty command set). Advice that omits "on the instrument"
+     * sends a surveyor into this app's own calibration screen, which never hears from a BRIC.
      */
     @Test
     fun theMagneticAdviceSaysWhereCalibrationHappens() {

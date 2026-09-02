@@ -20,11 +20,9 @@ enum class DistoXMemoryRange(val start: Int, val end: Int) {
     RAM(0xC000, 0xDFFF),
     ;
 
-    /** The start address, low byte first. Java: `MemoryRange.asArray`. */
     val addressBytes: ByteArray
         get() = byteArrayOf((start and 0xFF).toByte(), ((start shr 8) and 0xFF).toByte())
 
-    /** Size of the range in bytes, inclusive of both ends. */
     val sizeBytes: Int get() = end - start + 1
 }
 
@@ -59,7 +57,6 @@ object DistoXBleFraming {
     /** Header + length byte + footer. */
     const val FRAME_OVERHEAD = 8
 
-    /** Wraps [payload] in the `data:` frame. Java: `createWritePacket`. */
     fun createWritePacket(payload: ByteArray): ByteArray {
         require(payload.size <= 0xFF) {
             "The length field is one byte; got a ${payload.size}-byte payload"
@@ -72,7 +69,6 @@ object DistoXBleFraming {
         return packet
     }
 
-    /** A framed single-byte command. Java: `createWriteCommandPacket`. */
     fun createWriteCommandPacket(command: Byte): ByteArray = createWritePacket(byteArrayOf(command))
 
     /**
@@ -89,7 +85,6 @@ object DistoXBleFraming {
     fun createWriteMemoryPacket(range: DistoXMemoryRange, payload: ByteArray): ByteArray =
         createWritePacket(createWriteMemoryPayload(range, payload))
 
-    /** The inner memory-write payload, before the `data:` frame goes round it. */
     fun createWriteMemoryPayload(range: DistoXMemoryRange, payload: ByteArray): ByteArray {
         require(payload.size <= 0xFF) {
             "The length field is one byte; got a ${payload.size}-byte payload"

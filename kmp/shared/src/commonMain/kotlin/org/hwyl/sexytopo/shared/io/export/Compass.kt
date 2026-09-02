@@ -7,18 +7,17 @@ import org.hwyl.sexytopo.shared.model.survey.SurveyDate
 /**
  * Export to Compass `.dat`, the format used by Larry Fish's Windows cave-survey suite.
  *
- * Ported from `control/io/thirdparty/compass/CompassExporter`, which the Android app marks
- * `Experimental`. Three things about the format are easy to get wrong and are pinned by tests here:
+ * Ported from `control/io/thirdparty/compass/CompassExporter`. Three format details worth
+ * getting right, pinned by tests here:
  *
- *  - **CRLF, everywhere.** Compass is a DOS-lineage program and the Java writes `\r\n` explicitly
- *    rather than relying on a platform separator.
- *  - **Decimal feet, not metres.** Every length is multiplied by [METRES_TO_FEET]. A survey exported
- *    in metres would be silently wrong by a factor of 3.28 rather than rejected.
- *  - **A form feed terminates the survey.** The trailing FF is not decoration; it is how the format
- *    marks the end of one survey in a file that may hold several.
+ *  - **CRLF, everywhere** — Compass is DOS-lineage; the Java writes `\r\n` explicitly.
+ *  - **Decimal feet, not metres** — every length is multiplied by [METRES_TO_FEET], or a survey
+ *    exported in metres would be silently wrong by 3.28x.
+ *  - **A form feed terminates the survey** — it marks the end of one survey in a file that may
+ *    hold several.
  *
- * LRUD is written as `-9.99` throughout - the sentinel for "not recorded" - because SexyTopo models
- * passage dimensions as splays rather than as per-station left/right/up/down.
+ * LRUD is written as `-9.99` (Compass's "not recorded" sentinel) throughout, since SexyTopo
+ * models passage dimensions as splays rather than per-station left/right/up/down.
  */
 object CompassExporter {
 
@@ -26,26 +25,18 @@ object CompassExporter {
 
     const val FILE_EXTENSION = "dat"
 
-    /** Compass's "no reading" sentinel for a LRUD field. */
     private const val NO_LRUD = "-9.99"
 
-    /**
-     * Excludes a shot from cave-length totals. Splays are wall detail rather than passage, so
-     * counting them would inflate the surveyed length considerably.
-     */
+    /** Excludes a shot from cave-length totals: splays are wall detail, not passage. */
     private const val SPLAY_FLAGS = "#|L#"
 
     private const val CRLF = "\r\n"
 
-    /** ASCII form feed: the end-of-survey marker. */
     const val FORM_FEED = '\u000C'
 
     /**
-     * [fallbackDate] is used when the survey has no trip recorded.
-     *
-     * The Java substitutes `new Date()` - today - which makes the output depend on when it ran, and
-     * is why its exporters have no golden test for that path. Passing it in keeps the behaviour
-     * available to a caller that wants it while leaving this function deterministic.
+     * [fallbackDate] is used when the survey has no trip: the Java substitutes `new Date()`
+     * (today, making output non-deterministic), while this keeps that behaviour available on request.
      */
     fun export(survey: Survey, fallbackDate: SurveyDate? = null): String {
         val date = survey.trip?.surveyDate ?: fallbackDate
@@ -107,16 +98,13 @@ object CompassExporter {
 /**
  * Invents a station name for the far end of a splay, because Compass has no anonymous stations.
  *
- * `A53ss003` is the fourth splay recorded off station A53. The counter resets whenever the *from*
- * station changes, matching the Java - including its consequence: a surveyor who shoots splays off
- * a station, moves on, and later comes back to shoot more gets a second run numbered from zero, so
- * two different splays share a name. That is a defect in the Android app rather than a porting
- * choice, and it is reproduced rather than fixed because changing the naming would change files
- * existing Compass users have already imported.
+ * `A53ss003` is the fourth splay off station A53; the counter resets whenever the *from* station
+ * changes, matching the Java — including its bug: shooting splays off a station, moving on, then
+ * returning gives a second run numbered from zero, so two splays can share a name. Reproduced
+ * rather than fixed, since changing it would change files Compass users have already imported.
  *
- * Unlike the Java's, this state is per-export rather than per-exporter instance. There the fields
- * live on a long-lived exporter and are never reset at the start of a run, so consecutive exports
- * can influence each other's numbering.
+ * Unlike the Java's, this state is per-export: the Java's fields live on a long-lived exporter
+ * and are never reset, so consecutive exports there can influence each other's numbering.
  */
 private class SplayStationNamer {
 
@@ -124,8 +112,7 @@ private class SplayStationNamer {
     private var splayCount = 0
 
     fun nameFor(from: Station): String {
-        // Reference identity, as in the Java: Station has no equals override, and a survey is a
-        // tree of distinct station objects.
+        // Reference identity: Station has no equals override.
         if (from !== currentFrom) {
             currentFrom = from
             splayCount = 0

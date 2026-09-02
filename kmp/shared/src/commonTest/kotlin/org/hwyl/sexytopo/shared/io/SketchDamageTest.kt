@@ -13,16 +13,10 @@ import kotlin.test.assertEquals
 /**
  * Telling a damaged drawing from a drawing that is merely missing something.
  *
- * The reader parses each mark inside its own guard, so a damaged one costs a mark rather than the
- * drawing — and it counts what it lost, so the app can say the file it was handed is short. That
- * count is only useful if it counts the right things.
- *
- * The trap is the cross-section. It names the station it was cut at, and deleting a station does
- * not delete the drawing at it — not here and not in the Android app, deliberately, because the
- * drawing is the surveyor's work rather than a view of the graph. So a sketch file can hold a
- * cross-section whose station is gone, the reader skips it *by design*, and counting that as
- * damage would warn about a broken file on every single open of a perfectly good survey. A warning
- * that cries wolf is worse than no warning at all.
+ * The trap is the cross-section: deleting a station does not delete the drawing cut at it, because
+ * the drawing is the surveyor's work rather than a view of the graph. So a sketch file can hold a
+ * cross-section whose station is gone, the reader skips it *by design*, and counting that as damage
+ * would warn about a broken file on every single open of a perfectly good survey.
  */
 class SketchDamageTest {
 
@@ -45,13 +39,11 @@ class SketchDamageTest {
         assertEquals(1, read.sketch.crossSectionDetails.size)
     }
 
-    /** A cross-section at a station that is no longer in the survey. Skipped, and not a complaint. */
     @Test
     fun aCrossSectionWhoseStationIsGoneIsNotDamage() {
         val survey = survey()
         val text = sketchWithACrossSection(survey)
 
-        // The same drawing, read against a survey that never had that station.
         val elsewhere = Survey("Elsewhere")
         val read = SketchJson.read(text, elsewhere)
 

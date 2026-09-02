@@ -26,7 +26,6 @@ object CavwayX1Protocol {
      */
     const val ANGLE_SCALE: Float = 360.0f / 65535.0f
 
-    /** `CavwayX1Manager` discards any notification shorter than this. */
     const val MIN_PACKET_LENGTH = 64
 
     const val PACKET_TYPE_INDEX = 0
@@ -35,11 +34,7 @@ object CavwayX1Protocol {
     const val INCLINATION_INDEX = 7
     const val ROLL_INDEX = 9
 
-    /**
-     * Decodes a notification, or returns null when it is too short or of an unknown type — the
-     * cases the Java logs and drops. Calibration packets are recognised and acknowledged but not
-     * decoded, exactly as in the Java ("calibration packet received but not handled").
-     */
+    /** Calibration packets are recognised and acknowledged but not decoded, exactly as in the Java. */
     fun decode(packet: ByteArray): InstrumentPacket? {
         if (packet.size < MIN_PACKET_LENGTH) return null
 
@@ -72,7 +67,6 @@ object CavwayX1Protocol {
         )
     }
 
-    /** An unsigned little-endian 16-bit angle scaled by [ANGLE_SCALE]. */
     fun parseAngle(packet: ByteArray, startIndex: Int): Float {
         val combined = (packet.uint8(startIndex + 1) shl 8) or packet.uint8(startIndex)
         return combined * ANGLE_SCALE

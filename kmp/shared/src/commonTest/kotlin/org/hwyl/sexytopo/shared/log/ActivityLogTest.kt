@@ -8,7 +8,7 @@ import kotlin.test.assertTrue
 
 /**
  * The log is what you have instead of a console when the thing that will not work is a metre of
- * cave passage away from a phone with no signal. Worth having tests.
+ * cave passage away from a phone with no signal.
  */
 class ActivityLogTest {
 
@@ -39,10 +39,7 @@ class ActivityLogTest {
         assertEquals("", log.asText())
     }
 
-    /**
-     * A file written by a version with a bigger limit must not leave the log permanently over it,
-     * shedding one line for every line added.
-     */
+    /** A file written by a version with a bigger limit must not leave the log permanently over it. */
     @Test
     fun loadingAnOversizedLogKeepsTheRecentEnd() {
         val log = ActivityLog(LogType.DEVICE)
@@ -70,14 +67,9 @@ class ActivityLogTest {
         )
     }
 
-    // ---------------------------------------------------------------------------------------
-    // The file format
-    // ---------------------------------------------------------------------------------------
-
     /**
-     * `Log.Message.marshal` builds a `Map<String, String>`, so `isError` is written as the string
-     * "true" rather than as a boolean, and `unmarshal` reads it back with `getString`. Writing a
-     * real boolean would make the Android app's own reader throw.
+     * `Log.Message.marshal` writes `isError` as the string "true"; a real boolean would make the
+     * Android reader throw.
      */
     @Test
     fun isErrorIsWrittenAsAStringBecauseTheAndroidAppReadsItAsOne() {
@@ -112,10 +104,6 @@ class ActivityLogTest {
         assertTrue(read[0].isError)
     }
 
-    /**
-     * The log is what you read when something else has already gone wrong. It must not become the
-     * next thing that goes wrong.
-     */
     @Test
     fun aCorruptLogReadsAsAnEmptyOneRatherThanThrowing() {
         assertEquals(0, LogJson.read("this is not JSON at all").size)

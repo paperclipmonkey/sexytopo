@@ -24,9 +24,8 @@ import kotlin.test.assertTrue
  * else — so a label has to be drawn as strokes and a symbol as a polyline, which is why this port
  * carries a stroke font and a second, simplified set of symbol shapes.
  *
- * There is no golden here for the same reason there is none for the SVG: the Java walks a
- * `HashMap` of stations, so two exports of an unchanged survey come out in different orders. This
- * port writes in the survey's own order, which is what these tests pin.
+ * There is no golden here, for the same reason there is none for the SVG: the Java walks a
+ * `HashMap` of stations, so two exports of an unchanged survey come out in different orders.
  */
 class XviExportTest {
 
@@ -71,7 +70,6 @@ class XviExportTest {
     private fun block(xvi: String, name: String): String =
         xvi.substringAfter("$name {\n").lineSequence().takeWhile { it != "}" }.joinToString("\n")
 
-    /** Stations go in by name, which is what makes the traced drawing tie to the survey. */
     @Test
     fun everyStationIsNamedAndPlaced() {
         val stations = block(exportOf(cave()), "set XVIstations")
@@ -141,7 +139,6 @@ class XviExportTest {
         assertTrue(known.isNotEmpty())
     }
 
-    /** Each line of a multi-line label is drawn below the last. */
     @Test
     fun aMultiLineLabelStacksDownwards() {
         val one = XviExporter.textAsPaths(TextDetail(Coord2D.ORIGIN, "A", 1f, Colour.BLACK))
@@ -153,7 +150,6 @@ class XviExportTest {
         assertTrue(secondLineY > firstLineY, "the second line was not below the first")
     }
 
-    /** A symbol becomes its simplified polyline, centred and scaled where it was stamped. */
     @Test
     fun aSymbolIsDrawnAsPolylines() {
         val stamp = SymbolDetail(Coord2D(5f, 5f), "entrance", 2f, 0f, Colour.RED)
@@ -174,7 +170,6 @@ class XviExportTest {
         assertTrue(XviExporter.symbolAsPaths(stamp).isEmpty())
     }
 
-    /** Aiming a symbol turns its strokes, which is the whole point of a directional one. */
     @Test
     fun aimingASymbolRotatesIt() {
         val upright = SymbolDetail(Coord2D.ORIGIN, "water-flow", 1f, 0f, Colour.BLUE)
@@ -211,7 +206,6 @@ class XviExportTest {
         assertContains(lines, "connect")
     }
 
-    /** The grid says where it starts, how big a square is, and how many there are. */
     @Test
     fun theGridIsAnOriginTwoVectorsAndTwoCounts() {
         val xvi = exportOf(cave())

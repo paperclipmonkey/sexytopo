@@ -6,33 +6,28 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
 /**
  * A whole Survex or Therion file, read into a survey.
  *
- * Ported from `SurvexImporter.toSurvey` and `TherionImporter.parseTh`, which do the same four
- * things in the same order and differ only in the format they pass down.
+ * Ported from `SurvexImporter.toSurvey` and `TherionImporter.parseTh`.
  *
- * The order matters and is not obvious: the passage block is read *before* the centreline, because
- * it is keyed on station names that do not exist yet, and merged *after*, once they do.
+ * The order matters and is not obvious: the passage block is read *before* the centreline,
+ * because it is keyed on station names that do not exist yet, and merged *after*, once they do.
  */
 object SurveyImporter {
 
     /**
-     * @param name what to call the survey; the file does not reliably say. Survex has a
-     *   `*begin <name>` and Therion a `survey <name>`, but a file assembled by hand may have
-     *   neither, and the caller usually knows the filename.
+     * @param name what to call the survey; the file does not reliably say (Survex has `*begin
+     *   <name>`, Therion `survey <name>`, but a hand-assembled file may have neither).
      */
     fun read(text: String, format: SurveyFormat, name: String): Survey {
         val survey = Survey(name)
 
-        // Which convention the file was written with. A file with no SexyTopo version header at
-        // all is third-party, and is read the modern way: a trailing comment on a data line means
-        // that leg, which is what a hand-written file means by it too.
+        // A file with no SexyTopo version header is third-party and read the modern way.
         val useLegComments = writtenWithLegComments(text)
 
         val passageComments = SurvexTherionImporter.parsePassageData(text, format)
 
-        // Only the normal data block. A passage row — "2 - - - - junction" — has five fields and
-        // no comment character, so a parser handed the whole file would read it as a shot whose
-        // distance is a hyphen. The Java throws on that; this port would silently skip it, which
-        // is worse, because a skipped row is a station comment nobody notices is missing.
+        // Only the normal data block: a passage row like "2 - - - - junction" has five fields and
+        // no comment character, so parsing the whole file would misread it as a shot and silently
+        // drop what was actually a station comment.
         SurvexTherionImporter.parseCentreline(
             normalDataBlock(text, format),
             survey,
@@ -46,11 +41,7 @@ object SurveyImporter {
         return survey
     }
 
-    /**
-     * Everything under a `data normal` command, up to the next `data` command of any kind.
-     *
-     * Ported from `SurvexImporter.extractNormalDataBlock`.
-     */
+    /** Everything under a `data normal` command, up to the next `data` command of any kind. */
     internal fun normalDataBlock(text: String, format: SurveyFormat): String {
         val dataPrefix = "${format.commandChar}data "
         val normalPrefix = "${format.commandChar}data normal"
@@ -70,11 +61,9 @@ object SurveyImporter {
     }
 
     /**
-     * Whether a trailing comment on a data line belongs to the leg or to the newer station.
-     *
-     * SexyTopo 1.11.3 changed this. Ported from `SexyTopoVersion`: a `SexyTopo X.Y.Z` token in a
-     * *comment* line — data lines are ignored, so a cave called "SexyTopo 1.0.0" cannot be mistaken
-     * for a version stamp — and no token at all means a third-party file, read the modern way.
+     * Whether a trailing comment on a data line belongs to the leg or the newer station (changed
+     * in SexyTopo 1.11.3). A `SexyTopo X.Y.Z` token in a *comment* line decides it; no token at
+     * all means a third-party file, read the modern way.
      */
     internal fun writtenWithLegComments(text: String): Boolean {
         val version = versionOf(text) ?: return true

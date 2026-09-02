@@ -93,11 +93,6 @@ data class FclEnhancedLeg(
 
     fun qualityDescription(): String = FclProtocol.qualityDescription(shotQuality)
 
-    /**
-     * How far the measured field is from what this part of the world should read. A large
-     * deviation usually means iron nearby — a survey tripod, a scaffold bar, or ore in the rock —
-     * and the azimuth from that shot should not be trusted.
-     */
     fun magneticFieldDeviation(): Float = currentMagneticField - expectedMagneticField
 
     fun magneticFieldDescription(): String = describeAnomaly(magneticFieldDeviation())
@@ -116,7 +111,6 @@ data class FclEnhancedLeg(
         else -> "OK"
     }
 
-    /** The survey leg, or null if the instrument reported something out of range. */
     fun toLegOrNull(): Leg? =
         try {
             Leg(distance, azimuth, inclination)
@@ -271,7 +265,6 @@ object FclProtocol {
         )
     }
 
-    /** Parses an extended packet, or returns null if it is the wrong length. */
     fun parseExtended(data: ByteArray): FclExtendedPacket? {
         if (data.size != EXTENDED_PACKET_SIZE) return null
 
@@ -330,10 +323,6 @@ object FclProtocol {
      */
     fun acknowledgementByte(sequenceNumber: Int): Byte = (ACK + (sequenceNumber and 0xFF)).toByte()
 
-    /**
-     * Builds a primary packet with a correct header and CRC. Not in the Java; needed so tests and
-     * simulators can produce packets the real parser accepts.
-     */
     fun encodePrimary(
         sequenceNumber: Int,
         statusFlags: Int,
@@ -356,7 +345,6 @@ object FclProtocol {
         return packet
     }
 
-    /** Builds an extended packet. Not in the Java; the counterpart to [encodePrimary]. */
     fun encodeExtended(
         currentMagneticField: Float,
         expectedMagneticField: Float,
@@ -400,11 +388,6 @@ sealed interface FclDecodeResult {
 /**
  * Reassembles an FCL measurement from its two notifications.
  *
- * The Java runs a four-state machine (IDLE, PRIMARY_RECEIVED, COMPLETE, ERROR) with a one-second
- * Android `Handler` timeout on the extended packet. Scheduling is a platform concern, so here the
- * timeout is [onTimeout], to be called by whatever the platform uses for delayed work;
- * [FclProtocol.PACKET_TIMEOUT_MS] carries the interval.
- *
  * The acknowledgement is only sent once *both* halves have arrived — so a shot whose extended
  * packet goes missing is never acknowledged, and the FCL is free to resend it.
  */
@@ -412,7 +395,6 @@ class FclDecoder {
 
     private var primary: FclPrimaryPacket? = null
 
-    /** Whether a primary packet is waiting for its extended half. */
     val isAwaitingExtended: Boolean get() = primary != null
 
     fun feedPrimary(data: ByteArray): FclDecodeResult {
@@ -444,11 +426,8 @@ class FclDecoder {
     }
 
     /**
-     * Routes a frame by channel.
-     *
-     * A frame on any other channel is rejected rather than guessed at: the Java logs an unexpected
-     * characteristic and ignores it, and treating one as a primary packet would silently discard a
-     * held primary and cost the shot it belonged to.
+     * A frame on any other channel is rejected rather than guessed at: treating one as a primary
+     * packet would silently discard a held primary and cost the shot it belonged to.
      */
     fun feed(channel: FrameChannel, data: ByteArray): FclDecodeResult =
         when (channel) {
@@ -457,7 +436,6 @@ class FclDecoder {
             else -> FclDecodeResult.Error("frame on unexpected channel $channel")
         }
 
-    /** Call when the extended packet has not arrived within [FclProtocol.PACKET_TIMEOUT_MS]. */
     fun onTimeout(): FclDecodeResult {
         primary = null
         return FclDecodeResult.Error("Packet timeout")

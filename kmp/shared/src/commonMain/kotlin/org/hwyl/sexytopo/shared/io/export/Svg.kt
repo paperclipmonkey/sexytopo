@@ -15,23 +15,16 @@ import kotlin.math.pow
 /**
  * What the surveyor actually shows people: the drawing, as a vector file.
  *
- * The fifth and last of the app's selectable exporters, and the only one that is a picture rather
- * than a table of numbers. Ported from `control/io/thirdparty/svg/SvgExporter`.
+ * Ported from `control/io/thirdparty/svg/SvgExporter`. Two deliberate departures from the
+ * original:
  *
- * Two deliberate departures from the original, both for the same reason it keeps coming up in this
- * port:
+ *  - **Output is deterministic.** The Java collects stations, legs and symbols via a `HashSet`
+ *    keyed on identity hash codes, so order changes between runs. Here everything follows the
+ *    survey's own chronological order.
+ *  - **Symbols are emitted from their path data** rather than parsed from the app's SVG asset
+ *    files at runtime; [Symbol] already carries the artwork.
  *
- *  - **Output is deterministic.** The Java walks `projection.getStationMap().keySet()` and collects
- *    the symbols in use into a `HashSet`, so the order of stations, legs and symbol definitions in
- *    the file depends on Java's identity hash codes and changes between runs. Two exports of an
- *    unchanged survey therefore differ, which makes them impossible to diff and impossible to
- *    golden-test. Here everything is written in the survey's own chronological order.
- *  - **Symbols are emitted from their path data** rather than by parsing the app's SVG asset files
- *    at runtime and splicing the markup in between sentinel strings. [Symbol] already carries the
- *    artwork, so a `<symbol>` definition is a `<path>` and needs no escaping dance.
- *
- * The legend, north arrow, scale bar, team block and tagline were left out of the first pass here
- * - they are decoration around the drawing rather than the drawing - and are in [SvgLegend] now.
+ * The legend, north arrow, scale bar, team block and tagline live in [SvgLegend].
  */
 object SvgExporter {
 
@@ -47,24 +40,16 @@ object SvgExporter {
     /**
      * What to draw. The names and meanings are `SvgExportOptions`', and so are the defaults.
      *
-     * They were once documented here as departing from the Java on `whiteBackground` and
-     * `showGrid`, both of which `SvgExportOptions` declares false. That reading was wrong, and
-     * wrong in a way worth recording: those field initialisers belong to a no-argument constructor
-     * **nothing calls**. Every `SvgExportOptions` the app builds comes from `getOrLoadOptions` or
-     * from the export dialog, and both fill all thirteen fields from `GeneralPreferences` - whose
-     * own fallbacks are `"white"` and `true`. So the Java exports a white, gridded drawing on a
-     * fresh install, which is what this does.
+     * `whiteBackground` and `showGrid` default to true here, matching what every real
+     * `SvgExportOptions` ends up with via `GeneralPreferences` fallbacks (`"white"` and `true`) —
+     * not the `false` in its own unused no-arg field initialisers.
      *
-     * The grid is worth a second line, because the Android app disagrees with itself about it:
-     * `preferences_export_svg.xml` says `android:defaultValue="false"`, so its settings screen
-     * shows the box unticked, while `isExportSvgGridEnabled` reads the key with a fallback of
-     * true. Nothing calls `PreferenceManager.setDefaultValues`, so on a fresh install the key is
-     * absent and the fallback wins: the screen says no grid, the export dialog shows the box
-     * ticked, and the file has a grid in it. This port follows the behaviour rather than the
-     * screen, as it does for the vibration preference - see `AppPreferencesStore`.
+     * The grid default is worth noting: the Android settings screen shows the grid box unticked
+     * (`android:defaultValue="false"`), but `isExportSvgGridEnabled` actually falls back to
+     * `true`, so a fresh install exports a grid the screen claims is off. This port follows that
+     * behaviour, not the screen — as it does for the vibration preference (`AppPreferencesStore`).
      *
-     * Stroke widths are in pixels at [SCALE] and are the app's own: sketch lines 1, centreline legs
-     * 2, splays 1.
+     * Stroke widths are in pixels at [SCALE]: sketch lines 1, centreline legs 2, splays 1.
      */
     data class Options(
         val whiteBackground: Boolean = true,
@@ -102,9 +87,8 @@ object SvgExporter {
         val content = exportFrame(survey, projection).scale(SCALE.toFloat())
         var frame = addBorder(exportFrame(survey, projection)).scale(SCALE.toFloat())
 
-        // The legend gets a strip of its own beneath the drawing, and the page grows to hold it,
-        // so it can never end up on top of the cave. Left-aligned with the *content* rather than
-        // with the page edge, which is what makes it look attached to the drawing.
+        // The legend's own strip grows the page so it never overlaps the cave; left-aligned with
+        // the *content*, not the page edge, so it looks attached to the drawing.
         val legend =
             if (options.showLegend) {
                 SvgLegend.of(survey, projection, frame, SCALE, options)
@@ -135,8 +119,7 @@ object SvgExporter {
         survey.trip?.let { trip ->
             if (trip.hasCopyrightHolder() || trip.hasLicence()) {
                 // The same line the legend prints, so a drawing cannot claim one thing in its
-                // metadata and another on its face. It used to be "holder, licence" here, which
-                // was neither the Java's wording nor the legend's.
+                // metadata and another on its face.
                 out.append("  <desc>")
                     .append(escape(SvgLegend.copyrightLine(trip)))
                     .append("</desc>\n")
@@ -186,8 +169,6 @@ object SvgExporter {
                     "red",
                     options.legStrokeWidth,
                 )
-                // The index keeps ids unique even where two stations share a name, which the
-                // model permits.
                 if (index < 0) break
             }
             out.append("    </g>\n")
@@ -237,17 +218,10 @@ object SvgExporter {
         return out.toString()
     }
 
-    // -------------------------------------------------------------------------------------
-    // The legend
-    // -------------------------------------------------------------------------------------
-
     /**
-     * The strip below the drawing: title, date, team, stats, copyright, tagline, scale bar and, in
-     * plan, a north arrow.
-     *
-     * Ported from `SvgExporter.writeLegend` and `writeNorthArrow`; [SvgLegend] does the layout and
-     * this only writes it out. Everything is placed inside one translated group, so the whole
-     * legend moves as a unit and every coordinate below is relative to its top-left corner.
+     * The strip below the drawing: title, date, team, stats, copyright, tagline, scale bar and,
+     * in plan, a north arrow. [SvgLegend] does the layout; everything here sits inside one
+     * translated group, so every coordinate is relative to its top-left corner.
      */
     private fun writeLegend(out: StringBuilder, legend: SvgLegend, left: Double, top: Double) {
         out.append("  <g id=\"legend\" transform=\"translate(")
@@ -366,18 +340,11 @@ object SvgExporter {
     /** What the Android app signs its exports with. */
     private const val TAGLINE = "Surveyed with SexyTopo"
 
-    // -------------------------------------------------------------------------------------
-    // The frame
-    // -------------------------------------------------------------------------------------
-
     /** The union of everything drawn and everything surveyed, from `ExportFrameFactory`. */
     fun exportFrame(survey: Survey, projection: Projection2D): Frame =
         Frame.from(survey.getSketch(projection)).union(Frame.from(projection.project(survey)))
 
-    /**
-     * Padding by size band and then rounding out to whole metres, exactly as the Java does — which
-     * is what puts the grid on round numbers rather than wherever the cave happens to end.
-     */
+    /** Padding by size band, then rounded out to whole metres, so the grid lands on round numbers. */
     fun addBorder(frame: Frame): Frame =
         frame.addPadding(paddingFor(frame.width), paddingFor(frame.height)).expandToNearest(1)
 
@@ -389,9 +356,8 @@ object SvgExporter {
         }
 
     /**
-     * A round number near an eighth of the drawing's width: 1, 2 or 5 times a power of ten.
-     *
-     * Used for both the scale bar and the grid spacing, so they always agree.
+     * A round number near an eighth of the drawing's width (1, 2 or 5 times a power of ten),
+     * used for both the scale bar and grid spacing so they agree.
      */
     fun scaleBarLength(widthInMetres: Double): Double {
         val target = widthInMetres / 8.0
@@ -405,22 +371,14 @@ object SvgExporter {
         return best
     }
 
-    // -------------------------------------------------------------------------------------
-    // Drawing
-    // -------------------------------------------------------------------------------------
-
     /**
      * A faint grid at the scale-bar interval, so the drawing and the bar always agree.
      *
-     * The spacing comes from the *width*, as the Java's does, which bounds the vertical lines to
-     * about eight — and says nothing at all about the horizontal ones. A tall narrow drawing, which
-     * is exactly what a deep shaft series in extended elevation is, therefore asks the Java for as
-     * many horizontal lines as it takes to cross the height at a spacing chosen for the width. A
-     * test with a label a long way off the passage found that here as an out-of-memory error; on a
-     * phone it would be an export that never finishes.
-     *
-     * So the spacing is widened when it would produce more than [MAX_GRID_LINES] in either
-     * direction. For any ordinary survey that is not reached and the output is the Java's.
+     * The spacing comes from the *width* alone, as the Java's does. A tall narrow drawing (a deep
+     * shaft series in extended elevation) can then need far more horizontal lines than vertical —
+     * a test once hit this as an out-of-memory error — so the spacing widens past
+     * [MAX_GRID_LINES] in either direction. Ordinary surveys never reach that and match the
+     * Java's output exactly.
      */
     private fun writeGrid(out: StringBuilder, content: Frame) {
         val widthInMetres = content.width / SCALE.toDouble()
@@ -452,12 +410,7 @@ object SvgExporter {
             .append(" stroke=\"#cccccc\" stroke-width=\"1\"/>\n")
     }
 
-    /**
-     * One `<symbol>` per kind actually used, in enum order.
-     *
-     * The Java collects these into a `HashSet` and writes them in whatever order that yields, which
-     * is one of the two things making its output differ between runs.
-     */
+    /** One `<symbol>` per kind actually used, in enum order (the Java's `HashSet` order varies). */
     private fun writeSymbolDefinitions(out: StringBuilder, sketch: Sketch) {
         val used = sketch.symbolDetails.mapNotNull { Symbol.byTherionName(it.symbolName) }.toSet()
         if (used.isEmpty()) return
@@ -517,11 +470,8 @@ object SvgExporter {
     }
 
     /**
-     * The passage profile at each station, drawn where it was dropped on the plan.
-     *
-     * The rays are the station's splays, rotated onto the section's bearing by
-     * [org.hwyl.sexytopo.shared.model.sketch.CrossSection.getProjection], and the sub-sketch is
-     * whatever was drawn inside the section afterwards.
+     * The passage profile at each station: the station's splays rotated onto the section's
+     * bearing, plus whatever was drawn inside the section afterwards.
      */
     private fun writeCrossSections(out: StringBuilder, sketch: Sketch, options: Options) {
         val sectionScale = sketch.crossSectionScale
@@ -560,20 +510,13 @@ object SvgExporter {
             .append("\" fill=\"none\"/>\n")
     }
 
-    // -------------------------------------------------------------------------------------
-    // Formatting
-    // -------------------------------------------------------------------------------------
-
     private fun point(coord: Coord2D): String =
         number(coord.x * SCALE) + "," + number(coord.y * SCALE)
 
     /**
-     * Numbers, to three decimal places and with no trailing zeros.
-     *
-     * `Float.toString` cannot be used: it renders large and small values in exponent notation, and
-     * it does so *differently* on the JVM and on Kotlin/Wasm — a divergence this port has already
-     * been bitten by once. Exponent notation is also not valid in an SVG path, so the risk is a
-     * file that silently will not open.
+     * Numbers, to three decimal places with no trailing zeros. Not `Float.toString`: it renders
+     * exponent notation differently on the JVM and Kotlin/Wasm, which is invalid inside an SVG
+     * path and would silently produce a file that won't open.
      */
     internal fun number(value: Float): String = formatFixedTrimmed(value, 3)
 

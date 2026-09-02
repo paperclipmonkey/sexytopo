@@ -11,31 +11,15 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
 /**
  * Reads and writes SexyTopo's `<survey>.metadata.json`, the fourth file of a survey directory.
  *
- * Ported from `control/io/basic/MetadataTranslater`. It carries exactly two things: which station
- * the surveyor was working at, and this survey's links to other surveys.
+ * Carries the active station and this survey's links to other surveys.
  *
- * ## Why it is worth having at all
+ * Android reads the active station only from here (this port also writes it into the data file,
+ * as its own extension), so skipping this file leaves an Android-opened survey silently stuck at
+ * the origin. The file is optional to Android, so the reader here is more lenient than the Java,
+ * which throws when the tag is missing.
  *
- * The port already keeps the active station, but writes it as `activeStation` inside the *data*
- * file, which is this port's own extension and not somewhere the Android app looks. `Loader` reads
- * the active station from here and nowhere else, so a survey written by this port and opened on
- * Android came up at the origin - a cave with two hundred stations, opened at the entrance, with no
- * indication that anything had been lost. Nothing was corrupted and nothing warned, which is the
- * kind of divergence that is only ever noticed underground.
- *
- * The file is *optional* to the Android app: `Loader.loadMetadata` is guarded by `exists()` and
- * `IoUtils.isSurveyDirectory` asks only for the data file. So this closes a small loss rather than
- * a failure to open - which is also why the reader here declines to be as strict as the Java one,
- * which throws when the tag is missing. A survey whose metadata file has no active station in it is
- * still a survey; the port keeps whatever the data file said.
- *
- * ## Connections
- *
- * Written as an empty object and ignored on read. Cross-survey links are a documented gap in this
- * port for a reason that is in the model rather than the file format: a connection names the other
- * survey by Android `Uri`, which is a path into one device's document provider and means nothing on
- * another phone. Writing `{}` is honest - it is what the Android app itself writes for a survey
- * with no links - and it keeps the file the shape the other end expects.
+ * Connections are always written as an empty object: they name the other survey by Android
+ * `Uri`, which means nothing on another device, so cross-survey links are a documented gap here.
  */
 object MetadataJson {
 
@@ -62,13 +46,10 @@ object MetadataJson {
     }
 
     /**
-     * Applies what is in [text] to [survey], and says whether the active station was one of them.
+     * Applies what is in [text] to [survey], and says whether the active station was applied.
      *
-     * Every failure is a no-op rather than a throw: unreadable JSON, no active station named, or a
-     * name that is not a station in this survey. The last is the one worth being careful about - a
-     * survey edited on one device and its metadata file edited on another can name a station that
-     * has since been renamed or deleted, and the Java's `setActiveStation(null)` would then leave
-     * the app pointing at nothing.
+     * Every failure is a no-op: unreadable JSON, no active station named, or a name not in this
+     * survey — which can happen when the metadata file was edited elsewhere and the station renamed.
      */
     fun apply(survey: Survey, text: String): Boolean {
         val root = runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return false

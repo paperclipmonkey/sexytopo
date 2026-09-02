@@ -9,12 +9,8 @@ import kotlin.test.assertTrue
 
 /**
  * The connection lifecycle, one test per defect an adversarial review found in the first draft of
- * the iOS transport.
- *
- * Every one of those defects was a lifecycle question rather than a Bluetooth question — what to do
- * about a callback that arrives twice, late, or after the surveyor has given up — which is exactly
- * why they could be moved somewhere testable. None of this needs a radio, a Mac or an instrument;
- * all of it runs on Kotlin/Wasm as well as the JVM.
+ * the iOS transport — a lifecycle question each time, rather than a Bluetooth one, so all of it
+ * runs here with no radio, Mac or instrument needed.
  */
 class GattSessionTest {
 
@@ -37,10 +33,6 @@ class GattSessionTest {
         }
         return session
     }
-
-    // -------------------------------------------------------------------------------------
-    // The happy path
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun aWholeConnectionRunsThroughItsPhasesInOrder() {
@@ -103,15 +95,7 @@ class GattSessionTest {
         assertEquals(GattSession.Phase.SCANNING, session.phase, "still looking")
     }
 
-    // -------------------------------------------------------------------------------------
-    // One defect per test
-    // -------------------------------------------------------------------------------------
-
-    /**
-     * `connect()` twice used to build a second central manager and leave the first scanning, with
-     * nothing holding a reference to it — so the phone went on scanning after the surveyor stopped,
-     * draining the battery they need to get out of the cave.
-     */
+    /** `connect()` twice used to build a second central manager and leave the first scanning. */
     @Test
     fun startingTwiceDoesNotBeginASecondAttempt() {
         val session = session()
@@ -122,11 +106,7 @@ class GattSessionTest {
         assertEquals(generation, session.generation, "and it is still the same attempt")
     }
 
-    /**
-     * A callback already in flight when the surveyor pressed disconnect used to be able to report a
-     * connection afterwards — leaving the app claiming to be connected to an instrument it had just
-     * let go of.
-     */
+    /** A callback already in flight when disconnect was pressed used to still report a connection. */
     @Test
     fun aCallbackFromAnAbandonedAttemptCannotReportAConnection() {
         val session = session()
@@ -149,11 +129,7 @@ class GattSessionTest {
         assertFalse(session.isConnected)
     }
 
-    /**
-     * iOS reports the radio's state asynchronously, and again every time Bluetooth is toggled.
-     * Treating every poweredOn as "scan" meant an app the surveyor had disconnected reconnected
-     * itself the next time they turned Bluetooth off and on.
-     */
+    /** Treating every poweredOn as "scan" meant a disconnected app reconnected itself on its own. */
     @Test
     fun turningBluetoothBackOnDoesNotReviveAStoppedSession() {
         val session = session()
@@ -186,11 +162,7 @@ class GattSessionTest {
         assertTrue(scanning.failure!!.contains("bluetooth unavailable"))
     }
 
-    /**
-     * The subtlest of the six. Reporting a connection when the characteristics were merely *found*
-     * meant a failed subscribe went unnoticed: the surveyor sees "connected" and not one
-     * measurement ever arrives.
-     */
+    /** Reporting a connection when characteristics were merely *found* let a failed subscribe go unnoticed. */
     @Test
     fun aFailedSubscribeIsAFailureRatherThanASilentDeadLink() {
         val session = session()
@@ -216,10 +188,7 @@ class GattSessionTest {
         assertTrue(session.failure!!.contains("could not subscribe"))
     }
 
-    /**
-     * A device missing a characteristic the profile names produced no failure at all — the
-     * transport simply waited: no connection, no error, no explanation.
-     */
+    /** A device missing a characteristic the profile names used to produce no failure at all. */
     @Test
     fun aDeviceMissingACharacteristicFailsWithAReasonRatherThanHanging() {
         val session = session()
@@ -227,7 +196,6 @@ class GattSessionTest {
         val generation = session.generation
         session.peripheralDiscovered("FCL-0001", generation)
         session.peripheralConnected(generation)
-        // Only the write characteristic and one of the two notify ones turn up.
         session.characteristicDiscovered(InstrumentProfile.FCL.writeCharacteristicUuid, generation)
         session.characteristicDiscovered(
             InstrumentProfile.FCL.notifyCharacteristicUuids[0],
@@ -244,10 +212,7 @@ class GattSessionTest {
         )
     }
 
-    /**
-     * Nothing ever timed out, so an instrument that was off, flat or out of range left the app
-     * waiting for ever with no way to tell the surveyor why.
-     */
+    /** Nothing ever timed out, so a missing instrument left the app waiting with no explanation. */
     @Test
     fun anInstrumentThatNeverAppearsTimesOutAndSaysSo() {
         val session = session()
@@ -265,14 +230,8 @@ class GattSessionTest {
     }
 
     /**
-     * When something *was* there, the failure names it instead of asking about the batteries.
-     *
-     * "Is it switched on and in range?" is the right question only when the answer might be no.
-     * An instrument on the table, switched on, advertising under a name this app does not match —
-     * a renamed BRIC, a firmware that drops the underscore, the wrong model picked on the
-     * connection screen — produces exactly the same silence, and sends the surveyor to check
-     * batteries that are fine. Underground that is the difference between a fixed problem and an
-     * abandoned trip.
+     * When something *was* there, the failure names it instead of asking about the batteries — an
+     * instrument advertising under an unmatched name looks identical to a dead one otherwise.
      */
     @Test
     fun aScanThatFoundNothingUsableSaysWhatItDidFind() {
@@ -292,13 +251,7 @@ class GattSessionTest {
         )
     }
 
-    /**
-     * And when one of them is an instrument this app knows, it says which — by name.
-     *
-     * The commonest way to meet this is having the wrong model selected: a BRIC5 and a BRIC4 are
-     * one prefix apart, share a driver, and look identical on a table. Naming the thing that *was*
-     * there turns a dead end into a one-tap fix.
-     */
+    /** And when one of them is an instrument this app knows, it says which — by name. */
     @Test
     fun anInstrumentOfAnotherKindIsNamedAsSuch() {
         val session = session(InstrumentProfile.BRIC5)
@@ -363,10 +316,7 @@ class GattSessionTest {
         assertTrue(session.isConnected)
     }
 
-    /**
-     * A failed connect used to leave the discovered characteristics and the peripheral behind, so
-     * the next attempt started from a half-populated link.
-     */
+    /** A failed connect used to leave discovered characteristics behind for the next attempt. */
     @Test
     fun aFailureClearsWhatWasDiscovered() {
         val session = session()
@@ -386,10 +336,6 @@ class GattSessionTest {
             "the write characteristic it had found should have been forgotten too",
         )
     }
-
-    // -------------------------------------------------------------------------------------
-    // Restarting
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun aFailedSessionCanBeStartedAgain() {

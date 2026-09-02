@@ -18,10 +18,6 @@ class DistoXBleTest {
         assertTrue(abs(expected - actual) < tolerance, "expected $expected but was $actual")
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Outbound framing
-    // -----------------------------------------------------------------------------------------
-
     @Test
     fun aCommandFrameIsNineBytes() {
         // The Java test asserts exactly this length for the stop-calibration command.
@@ -92,10 +88,6 @@ class DistoXBleTest {
         assertNull(DistoXBleFraming.payloadOrNull(byteArrayOf(0x38)))
         assertNull(DistoXBleFraming.payloadOrNull("wrong:".encodeToByteArray() + payload))
     }
-
-    // -----------------------------------------------------------------------------------------
-    // Inbound notifications
-    // -----------------------------------------------------------------------------------------
 
     /** Identifier 0x01, then the flat shot packet from the DistoX test data. */
     private val measurementNotification =

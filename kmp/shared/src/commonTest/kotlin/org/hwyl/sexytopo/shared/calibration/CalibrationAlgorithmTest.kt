@@ -8,18 +8,10 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
- * The Android app's own `CalibrationCalculatorTest`, ported.
- *
- * The iteration counts are the point. A calibration is an iterative fit that stops when the
- * coefficients move by less than 1e-6, so the number of rounds it takes is exquisitely sensitive to
- * the arithmetic: a single unit in the last place of difference, early on, compounds into a
- * different count. Asserting 43, 75 and 53 exactly — against real instrument data, with numbers
- * that came from PocketTopo — is therefore a far stronger check than comparing the coefficients
- * themselves would be.
- *
- * That is also what makes this suite worth running on every target rather than just the JVM. It is
- * the most numerically demanding thing in the port, so it is the best evidence that Kotlin/Native
- * and Kotlin/Wasm compute the same answers the Android app does.
+ * The Android app's own `CalibrationCalculatorTest`, ported. The iteration counts are the point:
+ * the fit stops when coefficients move by less than 1e-6, so a single unit in the last place,
+ * early on, compounds into a different count — asserting 43, 75 and 53 exactly is a far stronger
+ * check than comparing coefficients would be.
  */
 class CalibrationAlgorithmTest {
 
@@ -71,8 +63,7 @@ class CalibrationAlgorithmTest {
         assertEquals(53, linear.iterations)
         assertEqualsWithin(0.6157666f, linear.delta)
 
-        // The Java's own comment: this takes 60 iterations where PocketTopo takes 64, and it
-        // reaches the same answer, so the count is not asserted there and is not asserted here.
+        // The Java's own comment: takes 60 iterations where PocketTopo takes 64, same answer.
         val nonLinear = CalibrationAlgorithm.calibrate(readings, useNonLinearity = true)
         assertEqualsWithin(0.6132727f, nonLinear.delta)
     }
@@ -87,25 +78,16 @@ class CalibrationAlgorithmTest {
         }
     }
 
-    // -------------------------------------------------------------------------------------
-    // The grouped loop
-    // -------------------------------------------------------------------------------------
-
     /**
-     * The first sixteen readings are processed as four groups of four, the rest individually.
-     *
-     * This is the part of the port most likely to be got wrong and least likely to complain: the
-     * Java reassigns its `for` variable from two nested loops and then decrements it, which Kotlin
-     * cannot express directly. Regrouping the samples throws nothing — it just produces a
-     * different, quietly wrong answer. Reordering readings *within* a group must therefore change
-     * nothing that matters, while moving one across a group boundary must.
+     * The Java reassigns its `for` variable from two nested loops and then decrements it, which
+     * Kotlin cannot express directly; regrouping the samples throws nothing, it just produces a
+     * different, quietly wrong answer.
      */
     @Test
     fun readingsAreGroupedInFours() {
         val readings = toReadings(EXAMPLE_ONE)
         val baseline = CalibrationAlgorithm.calibrate(readings, useNonLinearity = false)
 
-        // Swapping two readings across a group boundary (index 3 and 4) changes the fit.
         val acrossBoundary = readings.toMutableList()
         acrossBoundary[3] = readings[4]
         acrossBoundary[4] = readings[3]
@@ -134,10 +116,6 @@ class CalibrationAlgorithmTest {
         }
     }
 
-    // -------------------------------------------------------------------------------------
-    // Encoding for the instrument
-    // -------------------------------------------------------------------------------------
-
     @Test
     fun coefficientsPackToTheExpectedLength() {
         val readings = toReadings(EXAMPLE_ONE)
@@ -164,11 +142,8 @@ class CalibrationAlgorithmTest {
     }
 
     /**
-     * `Math.round` rounds halves towards positive infinity, and so must `roundToInt`.
-     *
-     * The port has already been bitten once by assuming Kotlin rounds the way Java does: elsewhere
-     * `kotlin.math.round` turned out to be ties-to-even where Java's `Formatter` is HALF_UP. Here
-     * the encoding of every coefficient depends on it, so it is pinned rather than assumed.
+     * `Math.round` rounds halves towards positive infinity; elsewhere in the port
+     * `kotlin.math.round` turned out to be ties-to-even where Java's `Formatter` is HALF_UP.
      */
     @Test
     fun roundingMatchesJavaMathRound() {
@@ -177,10 +152,6 @@ class CalibrationAlgorithmTest {
         assertEquals(2, 2.4f.roundToInt())
         assertEquals(3, 2.6f.roundToInt())
     }
-
-    // -------------------------------------------------------------------------------------
-    // Assembling readings from the instrument's two frames
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun anAccumulatorPairsTheTwoFrames() {
@@ -207,8 +178,6 @@ class CalibrationAlgorithmTest {
         accumulator.updateAcceleration(1, 2, 3)
         assertFailsWith<IllegalStateException> { accumulator.updateAcceleration(7, 8, 9) }
     }
-
-    // -------------------------------------------------------------------------------------
 
     private fun assertVectorEquals(expected: Vector, actual: Vector) {
         assertEqualsWithin(expected.x, actual.x)

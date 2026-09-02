@@ -42,14 +42,9 @@ class DegreesMinutesSecondsTest {
     /**
      * The one upstream gets wrong: a shot less than a degree below horizontal.
      *
-     * `EditLegForm.getInclination` takes its sign from `degrees < 0`, and `-0.0f < 0` is false —
-     * verified by running the real Java, which printed `parsed=-0.0 sign=1.0 result=0.5`. So
-     * 0° 30′ *down* is recorded as 0° 30′ *up*, and there is no other way to type that angle,
-     * because minutes and seconds are documented there as always positive.
-     *
-     * Half a degree does not sound like much. It is out in the *wrong direction*, on a shot along
-     * a level passage, which is where nearly-horizontal readings actually come from — and nothing
-     * in the numbers afterwards says which was meant. See finding 54.
+     * `EditLegForm.getInclination` takes its sign from `degrees < 0`, and `-0.0f < 0` is false, so
+     * 0° 30′ *down* is recorded as 0° 30′ *up*, with no other way to type that angle since minutes
+     * and seconds are documented there as always positive. See finding 54.
      */
     @Test
     fun aShotJustBelowHorizontalGoesDownAndNotUp() {
@@ -122,7 +117,6 @@ class DegreesMinutesSecondsTest {
         assertEquals(0, parts.seconds)
     }
 
-    /** Round trip: what is shown is what comes back. */
     @Test
     fun whatIsShownIsWhatComesBack() {
         for (angle in listOf(0f, 0.5f, -0.5f, 123.5125f, -89.9f, 359.99f, -0.0083f)) {

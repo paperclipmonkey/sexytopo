@@ -16,13 +16,8 @@ import org.hwyl.sexytopo.shared.calibration.CalibrationReading
  * Calibration readings as JSON, in the Android app's own format.
  *
  * Ported from `control/io/basic/CalibrationJsonTranslater`: a flat array of objects with six
- * integer fields. The tag names are the app's, so a calibration saved by one and loaded by the
- * other is the same calibration — which matters because a calibration is a twenty-minute job
- * somebody does once and then reuses for every survey that instrument takes.
- *
- * The reason to persist it at all is that twenty minutes: fifty-six shots is long enough for a
- * phone to be dropped, a battery to die, or an app to be killed in a pocket, and losing the run
- * means doing all of it again.
+ * integer fields. Tag names match the app's, so a calibration saved by one loads correctly in
+ * the other.
  */
 object CalibrationJson {
 
@@ -46,10 +41,9 @@ object CalibrationJson {
     /**
      * Reads a calibration file, or returns an empty list if it cannot be read.
      *
-     * Deliberately forgiving where the Java throws: a saved calibration is a convenience, not the
-     * survey, so a corrupt one should leave the screen empty rather than stop the app opening. A
-     * reading missing any of its six fields is skipped rather than defaulted, because a zero
-     * would be a plausible-looking sensor count that quietly spoils the fit.
+     * Deliberately forgiving where the Java throws: a reading missing any of its six fields is
+     * skipped rather than defaulted, since a zero would look like a plausible sensor value and
+     * quietly spoil the fit.
      */
     fun read(text: String): List<CalibrationReading> {
         val array =

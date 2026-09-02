@@ -3,29 +3,15 @@ package org.hwyl.sexytopo.shared.comms
 /**
  * The platform-free half of connecting to a BLE instrument.
  *
- * Every BLE stack — Android's, CoreBluetooth, WebBluetooth — hands you the same sequence of events:
- * a device advertised this name, this service turned up, this characteristic turned up, a value
- * arrived on this characteristic. What to *do* about each of those is decided entirely by the
- * device's [InstrumentProfile], and none of that decision needs a platform type. So it lives here,
- * where it can be tested on the JVM and on Kotlin/Wasm, and the platform transports become
- * translation layers that own no logic of their own.
- *
- * That split is not tidiness for its own sake. The iOS transport cannot be compiled on a machine
- * without Xcode, so every line of logic left inside it is a line nobody can run until someone opens
- * a Mac. Pulling the logic out here is what makes "the iOS Bluetooth layer" a small, boring,
- * reviewable file instead of the riskiest part of the port.
+ * What to do about a discovered service, characteristic or value is decided entirely by the
+ * device's [InstrumentProfile], and none of that decision needs a platform type, so it lives
+ * here rather than in each platform transport.
  */
 class GattLink(val profile: InstrumentProfile) {
 
-    /** What the transport should do with a characteristic it has just discovered. */
     enum class Role {
-        /** Keep it; commands are written here. */
         WRITE,
-
-        /** Subscribe to it; measurements arrive here. */
         NOTIFY,
-
-        /** Not in the profile — every device advertises characteristics we do not want. */
         IGNORED,
     }
 
@@ -36,26 +22,14 @@ class GattLink(val profile: InstrumentProfile) {
     private val notifyFound = mutableSetOf<String>()
     private val notifySubscribed = mutableSetOf<String>()
 
-    /**
-     * The services to ask the peripheral for.
-     *
-     * Usually one; BRIC puts its write characteristic in a second service, hence the profile's
-     * separate [InstrumentProfile.writeServiceUuid] and the de-duplication here.
-     */
+    /** Usually one service; BRIC puts its write characteristic in a second one. */
     val servicesToDiscover: List<String>
         get() = listOf(profile.serviceUuid, profile.writeServiceUuid).distinct()
 
-    /**
-     * Whether an advertised name identifies this instrument.
-     *
-     * Prefix matching, as `InstrumentType.byName` does on Android — the suffix is the unit's serial
-     * number. Case-insensitively, because an advertised name is a firmware string and nothing
-     * normalises it.
-     */
+    /** Prefix matching, case-insensitive: an advertised name is a firmware string nothing normalises. */
     fun matches(advertisedName: String?): Boolean =
         advertisedName != null && advertisedName.startsWith(profile.namePrefix, ignoreCase = true)
 
-    /** What [characteristicUuid] is for, without recording anything. */
     fun roleOf(characteristicUuid: String): Role {
         val uuid = normaliseUuid(characteristicUuid)
         return when {
@@ -66,19 +40,14 @@ class GattLink(val profile: InstrumentProfile) {
     }
 
     /**
-     * Records that a subscribe to [characteristicUuid] was *confirmed* by the device.
-     *
-     * Distinct from [discovered] on purpose. Finding a notify characteristic and successfully
-     * subscribing to it are two different events with two different callbacks, and only the second
-     * one means measurements will arrive. Treating the first as sufficient produces the worst kind
-     * of bug: the app says connected, and nothing is ever recorded.
+     * Distinct from [discovered] on purpose: finding a notify characteristic and subscribing to it
+     * are different events, and only the second means measurements will arrive.
      */
     fun subscribed(characteristicUuid: String) {
         val uuid = normaliseUuid(characteristicUuid)
         if (uuid in notifyUuids) notifySubscribed.add(uuid)
     }
 
-    /** Records a discovered characteristic and returns what the transport must now do with it. */
     fun discovered(characteristicUuid: String): Role {
         val role = roleOf(characteristicUuid)
         when (role) {
@@ -90,36 +59,18 @@ class GattLink(val profile: InstrumentProfile) {
     }
 
     /**
-     * Whether every characteristic the profile needs has been found.
-     *
-     * The transport must not report a connection before this is true. The Android drivers refuse
-     * the device outright when it is not, and announcing a half-configured link is worse than
-     * failing: on an FCL, primary packets would arrive and be held waiting for an extended half
-     * that never came, so the surveyor would watch a connected instrument silently fail to record
-     * a single shot.
-     *
-     * What counts as needed is per device. Every notify characteristic always does. The write one
-     * does for every instrument whose Android driver checks for it — but not for BRIC, whose
-     * `isRequiredServiceSupported` asks only for its three measurement characteristics, because
-     * the write characteristic lives in a separate control service and a BRIC without it still
-     * delivers measurements. See [InstrumentProfile.requiresWriteCharacteristic].
+     * The transport must not report a connection before this is true: on an FCL, primary packets
+     * would arrive and be held waiting for an extended half that never came, so the surveyor would
+     * watch a connected instrument silently fail to record a single shot.
      */
     val isReady: Boolean
         get() = hasFoundEverything && notifySubscribed.size == notifyUuids.size
 
-    /**
-     * Whether every characteristic the profile names has turned up.
-     *
-     * The halfway point: enough to know the device is what it says it is, not yet enough to use it
-     * — see [isReady], which additionally wants the subscriptions confirmed. Service discovery
-     * checks this one, because a device failing it is the wrong device rather than a broken link.
-     */
     val hasFoundEverything: Boolean
         get() =
             (writeFound || !profile.requiresWriteCharacteristic) &&
                 notifyFound.size == notifyUuids.size
 
-    /** What is still missing, for a diagnostic the surveyor can act on. Empty once [isReady]. */
     val missing: List<String>
         get() {
             val outstanding = mutableListOf<String>()
@@ -135,13 +86,6 @@ class GattLink(val profile: InstrumentProfile) {
     /**
      * Which logical stream a frame arrived on.
      *
-     * This is the whole reason [FrameChannel] exists, and the one place iOS can do something
-     * Android cannot. `Bric4Manager` receives three different indications through a single callback
-     * that does not say which characteristic fired, so it cycles blindly through the roles and its
-     * own comment admits the desync risk: drop one indication and every subsequent packet is
-     * misread. CoreBluetooth passes the characteristic to every callback, so the frame can simply
-     * be routed by UUID and that bug cannot occur.
-     *
      * An unrecognised characteristic yields [FrameChannel.DEFAULT] rather than throwing: a stray
      * notification from some other service is not worth dropping the connection over.
      */
@@ -150,7 +94,6 @@ class GattLink(val profile: InstrumentProfile) {
         return if (index >= 0) profile.notifyChannels[index] else FrameChannel.DEFAULT
     }
 
-    /** Forgets everything discovered, for a reconnect. */
     fun reset() {
         writeFound = false
         notifyFound.clear()
@@ -159,12 +102,6 @@ class GattLink(val profile: InstrumentProfile) {
 
     companion object {
 
-        /**
-         * The profile whose advertised-name prefix matches, if any.
-         *
-         * A scanning UI wants this rather than a per-profile [matches]: it is handed a name and has
-         * to work out what it is looking at.
-         */
         fun forAdvertisedName(advertisedName: String?): GattLink? =
             advertisedName
                 ?.let { InstrumentProfile.forAdvertisedName(it) }
@@ -182,15 +119,8 @@ class GattLink(val profile: InstrumentProfile) {
          * and BRIC5 use for all four of their characteristics. `CBUUID.UUIDString` reports whatever
          * width the UUID actually has, so a characteristic the peripheral advertises as 16-bit
          * comes back as `"58D1"`, not as the 128-bit string the profile table stores. Compared
-         * naively, none of BRIC's characteristics match: [isReady] never becomes true, and the
-         * surveyor gets an instrument that pairs and then does nothing at all. Android's
-         * `UUID.toString()` is always 128-bit, which is why the original never had to think about
-         * this — and why the failure would first have appeared on a real BRIC, on a real iPhone,
-         * underground.
-         *
-         * Anything that is not a recognisable 16-, 32- or 128-bit UUID is passed through
-         * lower-cased and otherwise untouched, so a device with a genuinely odd identifier still
-         * compares equal to itself.
+         * naively, none of BRIC's characteristics match, and the surveyor gets an instrument that
+         * pairs and then does nothing at all.
          */
         fun normaliseUuid(uuid: String): String {
             val trimmed = uuid.trim().removeSurrounding("{", "}").lowercase()

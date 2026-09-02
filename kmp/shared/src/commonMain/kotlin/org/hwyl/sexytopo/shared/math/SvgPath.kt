@@ -12,10 +12,7 @@ import kotlin.math.tan
  * One piece of a drawn shape, in the path's own coordinates.
  *
  * Deliberately only three kinds. Every SVG command reduces to a move, a straight line or a cubic
- * Bézier — quadratics widen to cubics exactly, and elliptical arcs approximate to a handful of them
- * — which means a renderer has three cases to handle instead of twenty, and the awkward maths lives
- * here where it can be tested on every target rather than in a platform drawing layer where it
- * cannot be tested at all.
+ * Bézier — quadratics widen to cubics exactly, and elliptical arcs approximate to a handful of them.
  */
 sealed interface SvgSegment {
     data class MoveTo(val x: Float, val y: Float) : SvgSegment
@@ -37,13 +34,11 @@ sealed interface SvgSegment {
 /**
  * Parses SVG path data into segments.
  *
- * Enough of the grammar for the cave symbols this port carries, which is: `M m L l H h V v C c
- * S s Q q T t A a Z z`. That is nearly all of it — what is missing is only the parts no symbol
- * uses.
+ * Enough of the grammar for the cave symbols this port carries: `M m L l H h V v C c S s Q q T t
+ * A a Z z`.
  *
- * Unparseable input yields the segments understood so far rather than throwing. A symbol that draws
- * as half a shape is a cosmetic problem; one that throws takes the sketch down with the survey in
- * it, and this runs on every frame the canvas paints.
+ * Unparseable input yields the segments understood so far rather than throwing: a symbol that
+ * draws as half a shape is a cosmetic problem, one that throws takes the sketch down with it.
  */
 fun parseSvgPath(data: String): List<SvgSegment> {
     val segments = mutableListOf<SvgSegment>()
@@ -222,14 +217,11 @@ fun parseSvgPath(data: String): List<SvgSegment> {
 
 /**
  * The elliptical-arc-to-cubic conversion from the SVG specification's implementation notes
- * (appendix F.6), which is the only genuinely awkward part of the grammar.
- *
- * Three of the cave symbols need it — sand, pebbles and rimstone dam are all drawn from ellipses —
- * and the alternative to doing it properly would be three symbols that are the wrong shape.
+ * (appendix F.6).
  *
  * The out-of-range handling is the specification's, not an invention: zero radii degenerate to a
- * straight line, negative radii take their absolute value, and radii too small to span the endpoints
- * are scaled up until they just reach. All three are reachable from real files.
+ * straight line, negative radii take their absolute value, and radii too small to span the
+ * endpoints are scaled up until they just reach.
  */
 private fun arcToCubics(
     fromX: Float,

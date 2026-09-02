@@ -5,25 +5,6 @@ import org.hwyl.sexytopo.shared.comms.bric.Bric4Error
 /**
  * What an instrument's refusal to take a shot actually means, and what to do about it.
  *
- * A BRIC4 that will not shoot beeps twice - high, then low - and sends a code over its errors
- * characteristic. The Android app toasts the code's own wording and so did this port, which is how
- * a surveyor ends up looking at a list like
- *
- * ```
- * instrument: magnetometer 1 high magnitude
- * instrument: azimuth calculation problem
- * instrument: accelerometer 1 high magnitude
- * ```
- *
- * and knowing exactly as much as they did before reading it. Every line there is the instrument
- * saying *which sensor* it distrusted; none of them says the thing the surveyor needs, which is
- * that something magnetic is next to the BRIC or that the BRIC's own calibration does not fit
- * where they are standing.
- *
- * So this is the translation layer, and it is deliberately in `shared` rather than in the UI: the
- * mapping from a code to a cause is a fact about the instrument, it is the same on every platform,
- * and it is a thing worth having a test for.
- *
  * ## The wording is hedged on purpose
  *
  * A magnetometer reading outside the expected range is *usually* a lump of steel, a head torch

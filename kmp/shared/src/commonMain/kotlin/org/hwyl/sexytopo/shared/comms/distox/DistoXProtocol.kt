@@ -67,7 +67,6 @@ object DistoXProtocol {
     /** Every inbound packet is exactly eight bytes; the Java uses `readFully(packet, 0, 8)`. */
     const val PACKET_SIZE = 8
 
-    /** Index of the admin byte. */
     const val ADMIN = 0
 
     /** Low six bits of the admin byte carry the packet type. */
@@ -121,10 +120,6 @@ object DistoXProtocol {
     /** Four coefficient bytes go out per 0x39 command. */
     const val CALIBRATION_WRITE_CHUNK = 4
 
-    // ---------------------------------------------------------------------------------------
-    // Acknowledgement
-    // ---------------------------------------------------------------------------------------
-
     /**
      * An acknowledgement is a single byte: 0b01010101 with bit 7 copied from the packet being
      * acknowledged. So a packet with the sequence bit clear is acked with 0x55 and one with it set
@@ -133,22 +128,12 @@ object DistoXProtocol {
     fun acknowledgementByteFor(adminByte: Byte): Byte =
         ((adminByte.toInt() and SEQUENCE_BIT_MASK) or ACKNOWLEDGEMENT_PACKET_BASE).toByte()
 
-    /** The one-byte acknowledgement frame for [packet]. Java: `createAcknowledgementPacket`. */
     fun createAcknowledgementPacket(packet: ByteArray): ByteArray =
         byteArrayOf(acknowledgementByteFor(packet[ADMIN]))
 
-    /** Whether [packet]'s sequence bit is set. */
     fun hasSequenceBit(packet: ByteArray): Boolean =
         (packet[ADMIN].toInt() and SEQUENCE_BIT_MASK) != 0
 
-    // ---------------------------------------------------------------------------------------
-    // Reading
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * Reads an unsigned 16-bit field from a low/high index pair (0..65535).
-     * Java: `DistoXProtocol.readDoubleByte`.
-     */
     fun readDoubleByte(packet: ByteArray, lowByteIndex: Int, highByteIndex: Int): Int =
         (packet.uint8(highByteIndex) * 256) + packet.uint8(lowByteIndex)
 
@@ -203,7 +188,6 @@ object DistoXProtocol {
     /** The roll angle byte, which SexyTopo reads but does not use. */
     fun parseRollByte(packet: ByteArray): Int = packet.uint8(ROLL_BYTE)
 
-    /** Java: `CalibrationProtocol.updateAccelerationSensorReading`. */
     fun parseAcceleration(packet: ByteArray): InstrumentPacket.Acceleration =
         InstrumentPacket.Acceleration(
             gx = readSignedDoubleByte(packet, ACCELERATION_GX_LOW_BYTE, ACCELERATION_GX_HIGH_BYTE),
@@ -211,7 +195,6 @@ object DistoXProtocol {
             gz = readSignedDoubleByte(packet, ACCELERATION_GZ_LOW_BYTE, ACCELERATION_GZ_HIGH_BYTE),
         )
 
-    /** Java: `CalibrationProtocol.updateMagneticSensorReading`. */
     fun parseMagnetic(packet: ByteArray): InstrumentPacket.Magnetic =
         InstrumentPacket.Magnetic(
             mx = readSignedDoubleByte(packet, MAGNETIC_MX_LOW_BYTE, MAGNETIC_MX_HIGH_BYTE),
@@ -219,11 +202,10 @@ object DistoXProtocol {
             mz = readSignedDoubleByte(packet, MAGNETIC_MZ_LOW_BYTE, MAGNETIC_MZ_HIGH_BYTE),
         )
 
-    /** True for a measurement packet. Java: `DistoXProtocol.isDataPacket`. */
     fun isDataPacket(packet: ByteArray): Boolean =
         DistoXPacketType.of(packet) == DistoXPacketType.MEASUREMENT
 
-    /** Log rendering: admin byte in binary, the rest as signed decimals. Java: `describePacket`. */
+    /** Log rendering: admin byte in binary, the rest as signed decimals. */
     fun describePacket(packet: ByteArray): String = buildString {
         append("[")
         packet.forEachIndexed { index, byte ->
@@ -233,18 +215,11 @@ object DistoXProtocol {
         append(" (").append(DistoXPacketType.of(packet)).append(")")
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Writing
-    // ---------------------------------------------------------------------------------------
-
     /**
      * Encodes a [Leg] as an eight-byte measurement packet — the exact inverse of
      * [parseMeasurement]. Nothing in the Android app does this; it exists so that
      * [org.hwyl.sexytopo.shared.comms.sim.SimulatedInstrument] and the tests can drive the real
      * decoder with real packets instead of stubbing it out.
-     *
-     * @param sequenceBit sets admin bit 7, so a simulator can alternate it as a device would.
-     * @param rollByte byte 7; the decoder ignores it.
      */
     fun encodeMeasurement(leg: Leg, sequenceBit: Boolean = false, rollByte: Int = 0): ByteArray {
         val millimetres = (leg.distance * 1000f).roundToInt()
@@ -346,7 +321,6 @@ object DistoXProtocol {
         }
     }
 
-    /** The address a write command in [createWriteCalibrationCommands] targets. */
     fun addressOfWriteCommand(command: ByteArray): Int =
         command.uint8(1) or (command.uint8(2) shl 8)
 

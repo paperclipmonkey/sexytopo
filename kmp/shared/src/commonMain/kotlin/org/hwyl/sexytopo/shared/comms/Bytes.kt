@@ -21,7 +21,6 @@ package org.hwyl.sexytopo.shared.comms
 /** Reads one byte as an unsigned 0..255 value. Java: `bytes[index] & 0xFF`. */
 fun ByteArray.uint8(index: Int): Int = this[index].toInt() and 0xFF
 
-/** Reads an unsigned little-endian 16-bit value (0..65535). */
 fun ByteArray.uint16LE(offset: Int): Int = uint8(offset) or (uint8(offset + 1) shl 8)
 
 /** Reads a signed little-endian 16-bit value (-32768..32767). Java: `NumberTools.getUint16`. */
@@ -37,13 +36,11 @@ fun ByteArray.int32LE(offset: Int): Int =
 /** Reads an IEEE-754 little-endian float. Java: `NumberTools.getFloat`. */
 fun ByteArray.floatLE(offset: Int): Float = Float.fromBits(int32LE(offset))
 
-/** Writes the low 16 bits of [value], little-endian. */
 fun ByteArray.putUint16LE(offset: Int, value: Int) {
     this[offset] = (value and 0xFF).toByte()
     this[offset + 1] = ((value shr 8) and 0xFF).toByte()
 }
 
-/** Writes [value] as 32 bits, little-endian. */
 fun ByteArray.putInt32LE(offset: Int, value: Int) {
     this[offset] = (value and 0xFF).toByte()
     this[offset + 1] = ((value shr 8) and 0xFF).toByte()
@@ -51,7 +48,6 @@ fun ByteArray.putInt32LE(offset: Int, value: Int) {
     this[offset + 3] = ((value shr 24) and 0xFF).toByte()
 }
 
-/** Writes [value] as an IEEE-754 little-endian float. */
 fun ByteArray.putFloatLE(offset: Int, value: Float) = putInt32LE(offset, value.toRawBits())
 
 /**

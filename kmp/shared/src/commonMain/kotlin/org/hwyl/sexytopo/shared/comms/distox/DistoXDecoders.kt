@@ -2,23 +2,9 @@ package org.hwyl.sexytopo.shared.comms.distox
 
 import org.hwyl.sexytopo.shared.comms.InstrumentPacket
 
-/**
- * The result of feeding one packet to [DistoXMeasurementDecoder] or [DistoXCalibrationDecoder].
- *
- * The Java protocols do three things per packet — acknowledge, decode, act — and interleave them
- * with the socket. Splitting the decision out means the transport can be told what to write back
- * without the decoder knowing anything about sockets.
- */
 data class DistoXDecodeResult(
-    /** The byte to write back, or null if this packet needs no acknowledgement. */
     val acknowledgement: ByteArray?,
-    /** What was decoded, if anything. */
     val packet: InstrumentPacket?,
-    /**
-     * True when the decoder wants the link torn down. `CalibrationProtocol` closes both streams
-     * after five consecutive duplicates, on the grounds that the device and the app have lost
-     * step and reconnecting is the only way back.
-     */
     val disconnect: Boolean = false,
 ) {
     override fun equals(other: Any?): Boolean =
@@ -36,23 +22,14 @@ data class DistoXDecodeResult(
 }
 
 /**
- * Measurement mode. Ported from `comms/distox/MeasurementProtocol.go`.
- *
- * The device keeps resending a packet until it is acknowledged, and the acknowledgement can be
- * lost, so the same shot often arrives several times. The Java suppresses a repeat by comparing
- * the whole eight bytes with the previous packet — not by the sequence bit — which means two
- * genuinely identical consecutive shots (same distance, azimuth and inclination to the last
- * count) would also be suppressed. That is deliberate: an identical repeat is far more likely to
- * be a retransmission than a real second shot.
- *
- * Order of operations matters and is preserved: every packet is acknowledged, whatever its type;
- * only measurement packets are decoded; and `previousPacket` is updated at the end regardless.
+ * The Java suppresses a repeat by comparing the whole eight bytes with the previous packet — not
+ * by the sequence bit — which means two genuinely identical consecutive shots would also be
+ * suppressed. That is deliberate: an identical repeat is far more likely to be a retransmission.
  */
 class DistoXMeasurementDecoder {
 
     private var previousPacket: ByteArray = ByteArray(0)
 
-    /** Consecutive identical packets seen. Reset on each fresh measurement. */
     var duplicateCount: Int = 0
         private set
 
@@ -83,21 +60,12 @@ class DistoXMeasurementDecoder {
 }
 
 /**
- * Calibration mode. Ported from `comms/distox/CalibrationProtocol.go`.
- *
- * A calibration reading is two packets: acceleration then magnetic, in that order. The decoder
- * holds a half-built reading and only emits once both halves have arrived — the Java models this
- * with `CalibrationReading.State`, whose setters throw if called out of order, so the protocol
- * checks the state before each update rather than letting it throw.
- *
  * A packet of the type we are *not* waiting for is treated as a duplicate rather than an error,
  * because the usual cause is a lost acknowledgement making the device resend the half we already
- * have. After five in a row the Java gives up and closes the streams; [DistoXDecodeResult.disconnect]
- * reports that instead.
+ * have. After five in a row, [DistoXDecodeResult.disconnect] reports that the streams should close.
  */
 class DistoXCalibrationDecoder {
 
-    /** `CalibrationProtocol.checkExcessiveDuplication` closes the streams at five. */
     companion object {
         const val MAX_DUPLICATES = 5
     }
@@ -110,7 +78,6 @@ class DistoXCalibrationDecoder {
     var magneticDuplicated: Int = 0
         private set
 
-    /** Whether the next expected packet is the acceleration half of a reading. */
     val isAwaitingAcceleration: Boolean get() = acceleration == null
 
     fun receive(packet: ByteArray): DistoXDecodeResult {

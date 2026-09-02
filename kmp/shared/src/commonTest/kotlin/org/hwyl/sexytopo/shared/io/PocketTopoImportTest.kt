@@ -25,10 +25,6 @@ class PocketTopoImportTest {
         assertTrue(abs(expected - actual) <= tolerance, "expected $expected but was $actual")
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Building files, exactly as the Android app's test does
-    // ---------------------------------------------------------------------------------------
-
     private class TopFileBuilder {
         private val bytes = mutableListOf<Byte>()
 
@@ -109,10 +105,6 @@ class PocketTopoImportTest {
 
     private fun read(bytes: ByteArray) = PocketTopoImporter.read(bytes, "Test")
 
-    // ---------------------------------------------------------------------------------------
-    // The header
-    // ---------------------------------------------------------------------------------------
-
     @Test
     fun somethingThatIsNotAPocketTopoFileIsRefused() {
         assertFailsWith<PocketTopoFormatException> {
@@ -149,10 +141,6 @@ class PocketTopoImportTest {
         assertFalse(PocketTopoImporter.looksLikeTopFile("not a top file at all".encodeToByteArray()))
         assertFalse(PocketTopoImporter.looksLikeTopFile(ByteArray(2)))
     }
-
-    // ---------------------------------------------------------------------------------------
-    // The centreline
-    // ---------------------------------------------------------------------------------------
 
     @Test
     fun theOriginTakesTheNameOfTheFirstShotsNearEnd() {
@@ -212,10 +200,6 @@ class PocketTopoImportTest {
         assertEquals("1970-01-01", trip.surveyDate.toString())
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Repeated shots
-    // ---------------------------------------------------------------------------------------
-
     /** Three shots between the same pair, as a surveyor actually takes them. */
     private fun tripleShotFile(): ByteArray =
         TopFileBuilder()
@@ -258,10 +242,6 @@ class PocketTopoImportTest {
         assertFalse(leg.wasPromoted())
         assertEquals(0, leg.promotedFrom.size)
     }
-
-    // ---------------------------------------------------------------------------------------
-    // Shots that are not in tree order
-    // ---------------------------------------------------------------------------------------
 
     /**
      * A `.top` file stores shots in the order they were recorded. A surveyor doubling back records
@@ -353,10 +333,6 @@ class PocketTopoImportTest {
         assertEquals(2, survey.getAllLegs().size)
     }
 
-    // ---------------------------------------------------------------------------------------
-    // The drawings
-    // ---------------------------------------------------------------------------------------
-
     @Test
     fun aPolygonBecomesAStrokeInTheRightColourAndPlace() {
         val survey = read(minimalFile())
@@ -417,10 +393,6 @@ class PocketTopoImportTest {
         assertFailsWith<PocketTopoFormatException> { read(file) }
     }
 
-    // ---------------------------------------------------------------------------------------
-    // A real file
-    // ---------------------------------------------------------------------------------------
-
     /**
      * The Android app's own integration fixture, byte for byte. A synthetic file proves the reader
      * agrees with the test that built it; only a real one proves it agrees with PocketTopo.
@@ -429,7 +401,6 @@ class PocketTopoImportTest {
     fun aRealPocketTopoFileReadsIntoASurvey() {
         val survey = PocketTopoImporter.read(CeiledUpTopFile.BYTES, "Ceiled Up")
 
-        // Twelve stations named 1.0 upwards, eleven legs between them, and fifty-seven splays.
         assertEquals(12, survey.getAllStations().size)
         assertEquals("1.0", survey.origin.name)
         assertEquals(11, survey.getAllLegs().count { it.hasDestination() })
@@ -453,8 +424,7 @@ class PocketTopoImportTest {
     fun aRealPocketTopoFileBringsItsDrawingsIn() {
         val survey = PocketTopoImporter.read(CeiledUpTopFile.BYTES, "Ceiled Up")
 
-        // A real drawing: a hundred and sixty-two strokes on the plan and forty-one on the
-        // elevation. This is the assertion that would notice the element loop losing its place.
+        // The assertion that would notice the element loop losing its place.
         assertEquals(162, survey.planSketch.pathDetails.size)
         assertEquals(41, survey.elevationSketch.pathDetails.size)
         for (path in survey.planSketch.pathDetails + survey.elevationSketch.pathDetails) {

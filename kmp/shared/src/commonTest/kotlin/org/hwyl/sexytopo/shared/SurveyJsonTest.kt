@@ -15,9 +15,7 @@ import kotlin.test.assertTrue
 /**
  * The native format is the interop contract: a survey is a folder of plain JSON files, so an iOS
  * app that reads and writes them byte-compatibly exchanges surveys with the Android app for free.
- *
- * The fixture below is written in the Android app's exact shape (tag names from
- * SurveyJsonTranslater, splays carrying the "-" destination sentinel).
+ * The fixture below is written in the Android app's exact shape.
  */
 class SurveyJsonTest {
 
@@ -154,7 +152,6 @@ class SurveyJsonTest {
 
         val survey = SurveyJson.parse(damaged)
         assertEquals("Broken", survey.name)
-        // The illegal azimuth is dropped; the good leg survives.
         assertEquals(1, survey.origin.onwardLegs.size)
     }
 
@@ -241,16 +238,14 @@ class SurveyJsonTest {
         assertEquals(sketch.pathDetails.size, reparsed.pathDetails.size)
         assertEquals(sketch.textDetails.size, reparsed.textDetails.size)
 
-        // Not point-for-point: the loader thins each stroke with Douglas-Peucker, exactly as the
-        // Android loader does, so the first trip through the file loses the redundant samples.
+        // The loader thins each stroke with Douglas-Peucker, as the Android loader does.
         assertTrue(
             reparsed.pathDetails.first().path.size < sketch.pathDetails.first().path.size,
             "the loader should simplify the stroke, as the Android loader does",
         )
 
-        // What must hold is that the loss stops there. If simplification were not idempotent, a
-        // sketch would erode a little on every save/load cycle — which over a season of trips is
-        // how a passage wall quietly turns into a straight line.
+        // If simplification were not idempotent, a sketch would erode a little on every
+        // save/load cycle, quietly turning a passage wall into a straight line over a season.
         val twice = SketchJson.parse(SketchJson.write(reparsed, survey.name))
         assertEquals(
             reparsed.pathDetails.first().path,

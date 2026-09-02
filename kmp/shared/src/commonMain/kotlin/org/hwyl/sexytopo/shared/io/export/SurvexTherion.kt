@@ -9,10 +9,8 @@ import org.hwyl.sexytopo.shared.model.survey.Trip
 import org.hwyl.sexytopo.shared.survey.asBacksight
 
 /**
- * Ported from `control/io/thirdparty/survextherion/`.
- *
- * Survex and Therion take the same survey data in two dialects that differ only in punctuation, so
- * the Android app emits both from one core and this port keeps that shape.
+ * Ported from `control/io/thirdparty/survextherion/`. Survex and Therion take the same survey
+ * data in two dialects differing only in punctuation, so one core emits both.
  */
 enum class SurveyFormat(
     val commentChar: Char,
@@ -38,21 +36,15 @@ enum class SurveyFormat(
  */
 object SurvexTherionWriter {
 
-    // ---------------------------------------------------------------------------------------
-    // Trip metadata
-    // ---------------------------------------------------------------------------------------
-
     /**
      * The metadata block: date, instrument, team, exploration date and team, and trip comments.
      *
-     * Ported from `SurvexTherionUtil.getMetadata`, whose one surprising habit is worth spelling
-     * out: a field the surveyor left blank is written anyway, commented out, rather than omitted.
-     * That is deliberate in the original and useful — the exported file doubles as a form, so
-     * somebody editing it in Survex or Therion afterwards can see the slot and fill it in. It also
-     * means the importer can round-trip a file it wrote.
+     * A field the surveyor left blank is written anyway, commented out, rather than omitted —
+     * the exported file doubles as a form that can be filled in later, and lets the importer
+     * round-trip a file it wrote.
      *
-     * Returns the empty string when there is no trip at all, which is what makes the unconditional
-     * newlines around the call sites correct rather than sloppy.
+     * Returns the empty string when there is no trip, which is what makes the unconditional
+     * newlines around the call sites correct.
      */
     fun metadata(survey: Survey, format: SurveyFormat): String {
         val trip = survey.trip ?: return ""
@@ -71,9 +63,8 @@ object SurvexTherionWriter {
             append(teamLines(trip, format))
             append('\n')
 
-            // Three cases, as in the original: an exploration date linked to the survey date (the
-            // usual "we surveyed it the day we found it"), an explicit earlier date, or nothing
-            // recorded — in which case the keyword is still written, commented out.
+            // Three cases: an exploration date linked to the survey date, an explicit earlier
+            // date, or nothing recorded (keyword still written, commented out).
             val exploredOn =
                 when {
                     trip.explorationDateLinked -> trip.surveyDate
@@ -93,9 +84,8 @@ object SurvexTherionWriter {
             if (trip.comments.isNotEmpty()) {
                 append('\n')
                 append(comment).append("Comment from SexyTopo trip information\n")
-                // dropLastWhile because Java's String.split discards trailing empty strings
-                // and Kotlin's keeps them: a comment ending in a newline would otherwise emit a
-                // bare comment character on a line of its own, once per trailing newline.
+                // dropLastWhile: Kotlin's split keeps trailing empty strings where Java's drops
+                // them, so a comment ending in a newline would otherwise emit a bare marker.
                 for (line in trip.comments.split("\n").dropLastWhile { it.isEmpty() }) {
                     append(comment).append(line).append('\n')
                 }
@@ -104,16 +94,9 @@ object SurvexTherionWriter {
     }
 
     /**
-     * The copyright and licence line, or the empty string when neither is set.
-     *
-     * `*copyright 2026 "Some Caving Club" ;"CC-BY-SA-4.0"` in Survex, the same without the leading
-     * `*` and with `#` for Therion. The holder is always quoted even when blank, and the licence is
-     * appended as a trailing *comment* — which looks odd until you notice neither format has a
-     * licence field, so the only way to keep the information in the file is to write it where a
-     * human will read it and a parser will not choke on it.
-     *
-     * The Java guards against an empty year and omits it; here a trip cannot have an absent
-     * [SurveyDate], so the year is always written and that guard has nothing left to protect.
+     * The copyright and licence line, or the empty string when neither is set:
+     * `*copyright 2026 "Some Caving Club" ;"CC-BY-SA-4.0"` in Survex. The licence is a trailing
+     * *comment*, since neither format has a licence field.
      */
     fun copyrightLine(survey: Survey, format: SurveyFormat): String {
         val trip = survey.trip ?: return ""
@@ -132,16 +115,10 @@ object SurvexTherionWriter {
     }
 
     /**
-     * The `team` lines, which are the one place the two dialects genuinely disagree.
-     *
-     * Survex has a single team list and an `explorer` role, so an explorer is just another team
-     * member. Therion separates the two: `team` is who surveyed it and `explo-team` is who found
-     * it, so the exploration role is stripped out of the team line here and re-emitted by
-     * [exploTeamLines] — and somebody whose *only* role was exploration is left off the team line
-     * altogether rather than being written with a name and no roles.
-     *
-     * A team member with no roles at all is skipped in both dialects: neither format has a way to
-     * say "was there, did nothing".
+     * The `team` lines — the one place the two dialects disagree. Survex has a single team list
+     * with an `explorer` role; Therion separates `team` (surveyed) from `explo-team` (found), so
+     * the exploration role is stripped here and re-emitted by [exploTeamLines]. A member with no
+     * roles at all is skipped in both, since neither format can say "was there, did nothing".
      */
     fun teamLines(trip: Trip, format: SurveyFormat): String = buildString {
         for (entry in trip.team) {
@@ -172,9 +149,8 @@ object SurvexTherionWriter {
     }
 
     /**
-     * Both dialects name the roles the same way, except that Therion has no `explorer` — it says
-     * the same thing with `explo-team`, so [teamLines] has already filtered that role out and this
-     * is never asked about it there.
+     * Both dialects name roles the same way, except Therion has no `explorer` (already filtered
+     * out by [teamLines]).
      */
     private fun roleDescription(role: Trip.Role, format: SurveyFormat): String =
         when (role) {
@@ -193,12 +169,9 @@ object SurvexTherionWriter {
     private fun pad(value: Int, width: Int): String = value.toString().padStart(width, '0')
 
     /**
-     * The centreline data block.
-     *
-     * Every field is followed by a tab, including the last one before the newline — so lines end
-     * `...\t\n`. That looks like a bug and is not: `formatField` in the Java appends a tab after
-     * every value, and a comment (when present) is written straight after it. Trimming it would be
-     * a gratuitous difference from the Android app's output.
+     * The centreline data block. Every field is followed by a tab, including the last one before
+     * the newline — looks like a bug but matches the Java's `formatField`, which always appends a
+     * trailing tab.
      */
     fun centrelineData(survey: Survey, format: SurveyFormat): String = buildString {
         append(format.commandChar)
@@ -213,22 +186,14 @@ object SurvexTherionWriter {
     }
 
     /**
-     * Entries in the order the instrument delivered them.
-     *
-     * Ported from `GraphToListTranslator.toChronoListOfSurveyListEntries`, including its quirk:
-     * ordering is by `indexOf` in the chronological record, so a leg missing from that record
-     * sorts to -1 and lands at the front rather than being dropped.
+     * Entries in the order the instrument delivered them, including the Java's quirk: ordering
+     * is by `indexOf` in the chronological record, so a leg missing from it sorts to -1 (front)
+     * rather than being dropped.
      */
     fun chronologicalEntries(survey: Survey): List<Pair<Station, Leg>> {
-        // The position of each leg in the record, looked up once rather than scanned per leg.
-        //
-        // `indexOfFirst` inside the sort key made this quadratic, and an export is not a small
-        // loop: at thirty thousand stations it took eighteen seconds on a desktop, which on a
-        // phone is a progress bar and a surveyor wondering whether it has hung. `Leg` overrides
-        // neither `equals` nor `hashCode`, so a hash map keyed on it is keyed on identity, which
-        // is exactly the `===` the scan was doing.
-        // `containsKey` rather than `putIfAbsent`, which is a JVM-only extension: first occurrence
-        // wins, which is what `indexOfFirst` meant.
+        // Looked up once via a HashMap rather than scanned per leg with `indexOfFirst` (which
+        // made this quadratic). `Leg` has no equals/hashCode, so the map is identity-keyed — the
+        // same `===` the scan was doing.
         val order = HashMap<Leg, Int>()
         survey.getAllLegsInChronoOrder().forEachIndexed { index, leg ->
             if (!order.containsKey(leg)) order[leg] = index
@@ -241,8 +206,6 @@ object SurvexTherionWriter {
             for (leg in station.getConnectedOnwardLegs()) entries.add(station to leg)
         }
 
-        // Absent from the record sorts to -1 and lands at the front, which is what `indexOfFirst`
-        // did and what the Java does.
         return entries.sortedBy { (_, leg) -> order[leg] ?: -1 }
     }
 
@@ -271,8 +234,7 @@ object SurvexTherionWriter {
             builder.append(flattenComment(reading.comment))
         }
 
-        // A promoted leg carries the readings it was averaged from; they follow as comments so the
-        // original observations survive in the exported file.
+        // A promoted leg's averaged-from readings follow as comments, so the raw observations survive.
         if (leg.wasPromoted()) {
             for (precursor in leg.promotedFrom) {
                 builder.append('\n')
@@ -327,24 +289,19 @@ object SurvexTherionWriter {
     }
 
     /**
-     * The `extend` commands that tell Survex or Therion how to unroll the cave, mirroring the
-     * per-station directions the app's own extended elevation uses.
-     *
-     * A direction that does not propagate (vertical) applies to one leg only, so it is written with
-     * both station names and does not change what the rest of the subtree inherits.
+     * The `extend` commands that tell Survex/Therion how to unroll the cave. A non-propagating
+     * (vertical) direction applies to one leg only, so it names both stations rather than
+     * changing what the rest of the subtree inherits.
      */
     fun extendedElevationExtensions(survey: Survey, format: SurveyFormat): String = buildString {
         appendExtendCommands(this, survey.origin, format.commandChar)
     }
 
     /**
-     * Depth first from the origin, carrying the direction each station inherits.
-     *
-     * A loop rather than a recursion, for the reason set out in `Space3DTransformer`: a passage is
-     * a chain, so a recursion here is as deep as the survey is long, and a large survey overflows
-     * the stack part-way through writing its own export file. The order is unchanged — children are
-     * pushed reversed so they come off in the order they were recorded — because these commands go
-     * into a golden-tested file.
+     * Depth first from the origin, carrying the direction each station inherits. A loop rather
+     * than recursion, since a passage is a chain and a large survey would overflow the stack.
+     * Children are pushed reversed so they come off in recorded order, matching the
+     * golden-tested output.
      */
     private fun appendExtendCommands(builder: StringBuilder, origin: Station, marker: String) {
         val pending = ArrayDeque<Triple<Station, Station?, ExtendedElevationDirection?>>()
@@ -381,11 +338,9 @@ object SurvexTherionWriter {
                 .append('\n')
             inherited = lastDirection
         } else if (!current.propagates) {
-            // The origin with a non-propagating direction — a survey that starts down a pitch.
-            // A non-propagating direction names the *leg* it applies to, and the origin has no
-            // incoming leg, so there is nothing to name. The Java dereferences the null station
-            // here and throws; writing the start command instead keeps the file valid and loses
-            // only a direction that could not have been expressed anyway.
+            // The origin with a non-propagating direction (a survey starting down a pitch) names
+            // no leg, since the origin has none incoming. The Java dereferences a null station
+            // here and throws; writing the start command instead keeps the file valid.
             builder.append(marker).append("extend start ").append(station.name).append('\n')
             inherited = lastDirection
         } else {
@@ -406,21 +361,16 @@ object SurvexTherionWriter {
     }
 
     /**
-     * The "Created with ..." line.
-     *
-     * [createdOn] is passed in rather than read from a clock, because commonMain has none and
-     * because an export whose bytes depend on the wall clock cannot be compared against a golden
-     * file.
+     * The "Created with ..." line. [createdOn] is passed in rather than read from a clock, since
+     * commonMain has none and a wall-clock-dependent export can't be golden-tested.
      */
     fun creationComment(format: SurveyFormat, versionInfo: String, createdOn: String): String =
         "${format.commentChar} Created with $versionInfo on $createdOn"
 
     /**
-     * The `input` lines a `.th` uses to pull its scrap files in. `SurvexTherionUtil.getInputText`.
-     *
-     * Empty for an empty list rather than a blank line, which is the original's behaviour and
-     * matters: `ThExporter` appends two newlines after this regardless, so a survey exported
-     * without scraps and one exported with them differ by exactly these lines.
+     * The `input` lines a `.th` uses to pull its scrap files in. Empty for an empty list rather
+     * than a blank line — `ThExporter` appends two newlines after this regardless, so the two
+     * cases differ by exactly these lines.
      */
     fun inputText(th2Files: List<String>): String =
         th2Files.joinToString("") { "input \"$it\"\n" }
@@ -434,9 +384,8 @@ object SurvexExporter {
             append("*begin ").append(survey.name).append('\n')
             append(SurvexTherionWriter.creationComment(SurveyFormat.SURVEX, versionInfo, createdOn))
             append('\n')
-            // The newlines after the copyright and metadata blocks are unconditional in the
-            // original, so a survey with no trip still gets the two blank lines. Faithful, and
-            // harmless: both are whitespace to the parser.
+            // The newlines after copyright and metadata are unconditional in the original, so a
+            // survey with no trip still gets two blank lines (harmless whitespace to the parser).
             append(SurvexTherionWriter.copyrightLine(survey, SurveyFormat.SURVEX))
             append('\n')
             append(SurvexTherionWriter.metadata(survey, SurveyFormat.SURVEX))
@@ -450,24 +399,17 @@ object SurvexExporter {
 }
 
 /**
- * Emits the `.thconfig` that makes the rest of the Therion export buildable. `ThconfigExporter`.
+ * Emits the `.thconfig` that makes the rest of the Therion export buildable.
  *
- * Therion does not compile a `.th`; it compiles a *project*, and the project file is this. Without
- * one, everything else this app exports for Therion — the centreline, both scraps, both tracing
- * images — is a pile of files somebody has to write a config for before they can look at any of
- * it. It is thirty lines of boilerplate that never varies except for the survey's name, which is
- * exactly the sort of thing an app should write for you.
+ * Therion compiles a *project*, not a `.th` directly — without this file, the centreline,
+ * scraps and tracing images have nothing to build them.
  *
- * The four blank-line-separated blocks are the original's, in its order: the encoding, a layout
- * with everything commented out, the source, and three exports — a Survex 3D model and a PDF of
- * each projection.
+ * The four blocks are the original's, in order: encoding, a layout with everything commented
+ * out, the source, and three exports (a Survex 3D model and a PDF of each projection).
  */
 object ThconfigExporter {
 
-    /**
-     * `# symbol-hide group cave-centreline` is left commented out, as it is in the original, with
-     * the original's reason: with it on, Therion can fail to compile the survey.
-     */
+    /** `symbol-hide group cave-centreline` stays commented out: with it on, Therion can fail to compile. */
     const val DEFAULT_LAYOUT =
         "layout local\n" +
             "  debug off\n" +
@@ -490,13 +432,9 @@ object ThconfigExporter {
 }
 
 /**
- * Emits a Therion `.th` file. Ported from `ThExporter`.
- *
- * [th2Files] are the scrap files to pull in — `Name.plan.th2` and `Name.ee.th2` as the Android app
- * names them. It defaults to none, because the `.th` is a valid file without them and the earliest
- * version of this port had no `.th2` exporter to name; it is not optional in practice, though. A
- * `.th` with no `input` lines compiles to a centreline and no drawing, which is a survey with the
- * survey taken out of it.
+ * Emits a Therion `.th` file. [th2Files] are the scrap files to pull in — `Name.plan.th2` and
+ * `Name.ee.th2`. Defaults to none, though a `.th` with no `input` lines compiles to a centreline
+ * with no drawing.
  */
 object TherionExporter {
 

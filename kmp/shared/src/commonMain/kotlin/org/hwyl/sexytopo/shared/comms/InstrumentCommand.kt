@@ -8,15 +8,8 @@ package org.hwyl.sexytopo.shared.comms
  * same byte in a `data:` frame (`DistoXBleManager.createWriteCommandPacket`), and SAP6 and FCL
  * write it as a single-octet GATT characteristic value (`CaveBLE.sendCommand`, `FCLBLE`).
  *
- * Codes are drawn from, and agree across, `StartCalibrationProtocol` (0x31),
- * `StopCalibrationProtocol` (0x30), `DistoXOffProtocol` (0x34), `LaserOnProtocol` (0x36),
- * `LaserOffProtocol` (0x37), `TakeShotProtocol` (0x38) and the
- * `CUSTOM_COMMAND_TO_COMMAND_BYTE` maps in `DistoXBleManager` and `CavwayX1Manager`.
- *
  * Not every instrument accepts every command: the classic DistoX and Cavway have no silent mode
- * exposed, and FCL exposes no calibration commands at all (`FCLCommunicator` offers only laser
- * on/off, shot and power off). [supportedBy] records that, so a UI can offer the right buttons
- * without hard-coding per-device lists.
+ * exposed, and FCL exposes no calibration commands at all.
  */
 enum class InstrumentCommand(val code: Int) {
     /** Leave calibration mode and resume sending measurement packets. */
@@ -46,7 +39,6 @@ enum class InstrumentCommand(val code: Int) {
 
     val byte: Byte get() = code.toByte()
 
-    /** Whether [instrument] is driven with this command anywhere in the Android app. */
     fun supportedBy(instrument: InstrumentFamily): Boolean = this in instrument.commands
 
     companion object {
@@ -59,8 +51,7 @@ enum class InstrumentCommand(val code: Int) {
  * The instrument families whose byte-level protocols live in this package.
  *
  * Bluetooth name prefixes are taken from `org.hwyl.sexytopo.comms.InstrumentType`; matching is
- * case-insensitive `startsWith`, and DISTOX_BLE is checked before DISTOX because "DistoXBLE-"
- * also starts with "DistoX".
+ * case-insensitive `startsWith`.
  */
 enum class InstrumentFamily(
     val bluetoothNamePrefix: String,
@@ -108,11 +99,7 @@ enum class InstrumentFamily(
     ;
 
     companion object {
-        /**
-         * Matches a Bluetooth advertised name to a family, in declaration order so that
-         * DISTOX_BLE wins over DISTOX for names beginning "DistoXBLE-", exactly as
-         * `InstrumentType.byName` does. Returns null for an unrecognised or absent name.
-         */
+        /** In declaration order, so DISTOX_BLE wins over DISTOX for names beginning "DistoXBLE-". */
         fun fromBluetoothName(name: String?): InstrumentFamily? {
             if (name == null) return null
             val lowered = name.lowercase()
@@ -121,11 +108,7 @@ enum class InstrumentFamily(
     }
 }
 
-/**
- * The BRIC4/BRIC5 control vocabulary, which is ASCII text rather than single bytes: see
- * `Bric4Manager.COMMAND_ID_TO_COMMAND_STRING` and `sendCustomCommand`, which writes
- * `command.getBytes()` to the 58e1 device-control characteristic.
- */
+/** The BRIC4/BRIC5 control vocabulary, which is ASCII text rather than single bytes. */
 enum class Bric4Command(val text: String) {
     SCAN("scan"),
     TAKE_SHOT("shot"),

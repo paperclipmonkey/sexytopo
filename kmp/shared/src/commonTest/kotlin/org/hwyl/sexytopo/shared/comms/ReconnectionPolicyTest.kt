@@ -6,10 +6,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * The Java's `ReconnectionPolicy` owns a `Handler` and posts its own retries, so there is no way to
- * make time pass in a test and none of this is covered upstream. Splitting the decision from the
- * scheduling is what makes it checkable — and what it decides is whether a surveyor gets their
- * instrument back after walking round a corner with the phone.
+ * The Java's `ReconnectionPolicy` owns a `Handler` and posts its own retries, so none of this is
+ * covered upstream; splitting the decision from the scheduling is what makes it checkable.
  */
 class ReconnectionPolicyTest {
 
@@ -46,18 +44,14 @@ class ReconnectionPolicyTest {
     }
 
     /**
-     * The window is measured from the *first* failure of a run, not the last.
-     *
-     * That is the whole design: an instrument left behind at the last station must not keep the
-     * radio going all the way out of the cave. Measured from the last failure, three-second retries
-     * would push the deadline back for ever.
+     * The window is measured from the *first* failure of a run, not the last: measured from the
+     * last, three-second retries would push the deadline back for ever.
      */
     @Test
     fun attemptsStopFifteenMinutesAfterTheFirstFailureAndNotTheLast() {
         val policy = policy()
         policy.onUnexpectedDisconnection()
 
-        // Fourteen minutes of failing every few seconds: still trying.
         minutes(14)
         assertEquals(
             ReconnectionPolicy.Decision.Retry(3_000L),
@@ -72,11 +66,8 @@ class ReconnectionPolicyTest {
     }
 
     /**
-     * A run that succeeds resets the clock, so the next bad patch gets its own full window.
-     *
-     * Without this, an hour of ordinary surveying with one reconnection in it would leave the
-     * policy unwilling to try again — which is the state a surveyor would meet exactly when they
-     * had stopped thinking about it.
+     * A run that succeeds resets the clock, so the next bad patch gets its own full window rather
+     * than the remains of an hour-old one.
      */
     @Test
     fun anInstrumentThatComesBackStartsTheWindowAgain() {
@@ -104,14 +95,9 @@ class ReconnectionPolicyTest {
     }
 
     /**
-     * And pressing Connect part way through a losing run gets a fresh window rather than the
-     * remains of the old one.
-     *
-     * This is what the Java's `retrying` flag exists to protect: its own retries go through the
-     * same entry point the button does, so it has to tell them apart. Here they are separate
-     * entry points and the flag is unnecessary — but the behaviour it was protecting is still
-     * worth a test, because it is the behaviour a surveyor relies on when they give up waiting and
-     * press the button themselves.
+     * Pressing Connect part way through a losing run gets a fresh window rather than the remains
+     * of the old one — what the Java's `retrying` flag exists to protect, unnecessary here since
+     * a manual connect and a scheduled retry are separate entry points.
      */
     @Test
     fun pressingConnectByHandStartsTheWindowAgain() {
@@ -142,11 +128,8 @@ class ReconnectionPolicyTest {
     }
 
     /**
-     * A window of zero still buys one attempt.
-     *
-     * The Java sets the deadline on the first failure and only *checks* it on the next one, so the
-     * first drop of a run is always retried whatever the window says. Kept deliberately: the
-     * commonest drop of all is a single blip, and one attempt fixes it.
+     * A window of zero still buys one attempt: the Java sets the deadline on the first failure and
+     * only *checks* it on the next one, so the first drop of a run is always retried.
      */
     @Test
     fun aWindowOfZeroStillTriesOnce() {
@@ -160,12 +143,7 @@ class ReconnectionPolicyTest {
         assertEquals(ReconnectionPolicy.Decision.GaveUp, policy.onUnexpectedDisconnection())
     }
 
-    /**
-     * Turning the setting on mid-trip works without reconnecting first.
-     *
-     * The settings are read at each decision rather than captured, because the surveyor who wants
-     * this is the one who has just been annoyed by not having it.
-     */
+    /** Settings are read at each decision rather than captured, so turning it on mid-trip works. */
     @Test
     fun theSettingIsReadWhenItMattersRatherThanRemembered() {
         settings = AutoReconnect(enabled = false)

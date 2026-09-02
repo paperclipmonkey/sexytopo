@@ -11,13 +11,7 @@ import org.hwyl.sexytopo.shared.comms.distox.DistoXProtocol
  * Ported from the parts of `DistoXCalibrationActivity` and `SurveyManager` that are not Android —
  * the reading list, the position checklist, and the step from a full set of readings to the bytes
  * that get written back to the instrument. The solver underneath is
- * [CalibrationAlgorithm.optimise], which was ported and tested against the Android app's own two
- * 56-shot datasets long before anything could feed it.
- *
- * Why calibrating matters at all: an uncalibrated DistoX can be several degrees out, and a survey
- * is a chain of bearings, so the error accumulates along the passage. A cave surveyed on an
- * uncalibrated instrument comes back not quite the same shape as the cave, and nothing in the
- * numbers says so.
+ * [CalibrationAlgorithm.optimise].
  */
 class CalibrationRun {
 
@@ -40,10 +34,8 @@ class CalibrationRun {
      */
     val next: CalibrationPosition? get() = CalibrationPositions.next(taken.size)
 
-    /** Whether a full set has been taken. */
     val isComplete: Boolean get() = CalibrationPositions.isComplete(taken.size)
 
-    /** Whether the solver would accept what has been taken so far. */
     val canSolve: Boolean get() = taken.size >= CalibrationAlgorithm.MINIMUM_READINGS
 
     fun add(reading: CalibrationReading) {

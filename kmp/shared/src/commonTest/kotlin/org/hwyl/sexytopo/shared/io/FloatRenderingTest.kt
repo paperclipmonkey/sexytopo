@@ -16,37 +16,20 @@ import kotlin.test.assertTrue
  *
  * `Float.toString()` is **not** the same function on every Kotlin target. Java (and therefore
  * Kotlin/JVM, and therefore the Android app) switches to scientific notation outside roughly
- * 1e-3..1e7; Kotlin/Wasm does not:
+ * 1e-3..1e7; Kotlin/Wasm does not (`1e-5f` is `1.0E-5` on the JVM, `0.00001` on Wasm). Ordinary
+ * survey magnitudes agree, so this is an edge case - but worth knowing about before somebody diffs
+ * a survey file written on an iPhone against the same survey written on Android.
  *
- * | value   | JVM       | Wasm         |
- * | ------- | --------- | ------------ |
- * | `1e-5f` | `1.0E-5`  | `0.00001`    |
- * | `1e7f`  | `1.0E7`   | `10000000.0` |
- *
- * Ordinary survey magnitudes agree, so this is an edge case - but it is a real one, and worth
- * knowing about before somebody diffs a survey file written on an iPhone against the same survey
- * written on Android and concludes the port is broken.
- *
- * Two consequences, and the tests below pin both:
- *
- *  - **The exporters are safe.** Every number in a Survex, Therion or Compass file goes through
- *    [formatFixed], which builds its output from integers and never calls `Float.toString`. Those
- *    formats are byte-identical across targets, and their golden tests would catch it if that
- *    changed.
- *  - **The JSON is value-safe but not byte-safe.** The survey and sketch writers hand raw `Float`s
- *    to kotlinx.serialization, which stringifies them - so an extreme coordinate can be spelled
- *    differently on different platforms. Both spellings are valid JSON for the same number, and the
- *    Android app parses with `getDouble`, so nothing is lost; the file just is not byte-identical.
- *
- * Making the JSON byte-identical too would mean reimplementing Java's shortest-round-trip
- * `Float.toString`, which is a real piece of work for a case no surveyor will hit. Documented and
- * guarded is the proportionate answer.
+ * Two consequences, and the tests below pin both: every number in a Survex, Therion or Compass file
+ * goes through [formatFixed], which builds its output from integers and is byte-identical across
+ * targets; but the survey and sketch JSON hands raw `Float`s to kotlinx.serialization, which can
+ * spell an extreme coordinate differently per platform - value-safe (the Android app parses with
+ * `getDouble`) but not byte-safe.
  */
 class FloatRenderingTest {
 
     @Test
     fun exportFormattingNeverUsesScientificNotation() {
-        // The values that diverge under Float.toString must not diverge here.
         assertEquals("0.00001", formatFixed(1e-5f, 5))
         assertEquals("10000000.00", formatFixed(1e7f, 2))
         assertEquals("0.00", formatFixed(1e-5f, 2))

@@ -26,17 +26,12 @@ import kotlin.test.assertTrue
  */
 class ExportTest {
 
-    /** 1 -> 2 with one splay hanging off 2. */
     private fun simpleSurvey(): Survey {
         val survey = Survey("Test")
         SurveyBuilder.updateWithNewStation(survey, Leg(5f, 90f, 10f))
         SurveyBuilder.addSplay(survey, survey.activeStation, Leg(1.5f, 180f, 0f))
         return survey
     }
-
-    // -------------------------------------------------------------------------------------
-    // Number formatting — the part most likely to diverge silently
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun fieldsUseTheAndroidPrecision() {
@@ -49,8 +44,7 @@ class ExportTest {
     @Test
     fun inclinationIsNotSignedInExports() {
         // TableCol.INCLINATION is "%+.2f" for the on-screen table, but
-        // SurvexTherionUtil.formatInclination is plain "%.2f". Writing a leading + into the file
-        // would be a difference from the Android app's output.
+        // SurvexTherionUtil.formatInclination is plain "%.2f".
         assertEquals("10.00", formatInclination(10f))
         assertEquals("-10.00", formatInclination(-10f))
         assertEquals("0.00", formatInclination(0f))
@@ -71,10 +65,6 @@ class ExportTest {
         assertTrue(formatDistance(1.5f).contains('.'))
         assertTrue(!formatDistance(1.5f).contains(','))
     }
-
-    // -------------------------------------------------------------------------------------
-    // Survex
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun survexOutputIsExact() {
@@ -101,10 +91,6 @@ class ExportTest {
         val output = SurvexExporter.export(simpleSurvey(), createdOn = "x")
         assertTrue(output.contains("2\t..\t"), "Survex writes an absent destination as '..'")
     }
-
-    // -------------------------------------------------------------------------------------
-    // Therion
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun therionOutputIsExact() {
@@ -203,10 +189,6 @@ class ExportTest {
         assertTrue(output.contains("\ndata normal "), "Therion has no leading * on commands")
     }
 
-    // -------------------------------------------------------------------------------------
-    // Semantics that must survive export
-    // -------------------------------------------------------------------------------------
-
     @Test
     fun aBackwardsShotIsExportedAsItWasTaken() {
         val survey = Survey("B")
@@ -284,10 +266,6 @@ class ExportTest {
         assertEquals("*extend start 1\n*extend vertical 1 2\n", output)
     }
 
-    // -------------------------------------------------------------------------------------
-    // Trip metadata
-    // -------------------------------------------------------------------------------------
-
     /** A fully filled-in trip, of the kind a club would actually publish from. */
     private fun documentedSurvey(): Survey {
         val survey = simpleSurvey()
@@ -356,7 +334,6 @@ class ExportTest {
         assertTrue(output.contains("\n#Comment from SexyTopo trip information\n"))
     }
 
-    /** Somebody whose only role was exploring is not on the survey team at all. */
     @Test
     fun anExplorerOnlyMemberIsLeftOffTherionsTeamLine() {
         val survey = simpleSurvey()
@@ -388,9 +365,7 @@ class ExportTest {
         val output = SurvexExporter.export(survey, createdOn = "x")
         assertTrue(output.contains("\n;*instrument insts \"\"\n"), "was:\n$output")
         assertTrue(output.contains("\n;*date explored \n"), "was:\n$output")
-        // Neither a copyright holder nor a licence, so no copyright line at all.
         assertTrue(!output.contains("copyright"), "was:\n$output")
-        // And no comment block, since there are no comments.
         assertTrue(!output.contains("Comment from SexyTopo"), "was:\n$output")
     }
 

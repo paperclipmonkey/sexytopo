@@ -14,14 +14,10 @@ import org.hwyl.sexytopo.shared.log.LogMessage
 /**
  * The log as JSON, in the Android app's own format.
  *
- * Ported from `Log.marshal` and `Log.Message.marshal`. Note what that does: it builds a
- * `Map<String, String>` and hands it to `new JSONObject(map)`, so `isError` is written as the
- * *string* `"true"`, not as a JSON boolean, and read back with `getString`. Reproduced rather than
- * corrected, because a log file is meant to be interchangeable and a boolean here would make the
- * Android app's own reader throw.
- *
- * Reading is forgiving in the other direction: a real boolean is accepted too, so a file this port
- * had written more sensibly would still load.
+ * Ported from `Log.marshal`: `isError` is written as the *string* `"true"`, not a JSON boolean,
+ * because the Java builds a `Map<String, String>` and hands it to `new JSONObject(map)`.
+ * Reproduced rather than corrected, since a boolean here would make the Android reader throw.
+ * Reading also accepts a real boolean, so a more sensibly-written file still loads.
  */
 object LogJson {
 
@@ -55,10 +51,8 @@ object LogJson {
     /**
      * Reads a log file, or returns an empty list if it cannot be read.
      *
-     * Nothing here is worth failing over. A log is what you look at when something else has gone
-     * wrong, so a corrupt one must not become the thing that goes wrong next; a line missing its
-     * text is dropped, and one missing its timestamp is kept with an empty one, because the text is
-     * the part somebody needs.
+     * A line missing its text is dropped, but one missing its timestamp is kept with an empty
+     * one, since the text is the part that matters.
      */
     fun read(text: String): List<LogMessage> {
         val array =
@@ -73,7 +67,6 @@ object LogJson {
         return LogMessage(
             timestamp = json.stringOrNull(TIMESTAMP_TAG) ?: "",
             text = text,
-            // The Android app writes "true"; something more sensible would write true.
             isError = json.stringOrNull(IS_ERROR_TAG)?.equals("true", ignoreCase = true) == true,
         )
     }

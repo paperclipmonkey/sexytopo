@@ -23,7 +23,6 @@ class Matrix4(internal val m: FloatArray) {
 
     operator fun get(row: Int, column: Int): Float = m[column * 4 + row]
 
-    /** `this * other`, in the sense `Matrix.multiplyMM(result, this, other)` does. */
     operator fun times(other: Matrix4): Matrix4 {
         val result = FloatArray(16)
         for (column in 0 until 4) {
@@ -64,15 +63,7 @@ class Matrix4(internal val m: FloatArray) {
         return Matrix4(result)
     }
 
-    /**
-     * The inverse, or null if there isn't one.
-     *
-     * `Matrix.invertM` does this with an unrolled cofactor expansion; this is the same expansion
-     * written out through [get] instead, so the column-major layout is stated once rather than
-     * baked into sixteen hand-indexed expressions. The view matrix it is used on is always
-     * invertible — it is a rotation and a translation — but a general routine is easier to test
-     * than a special-cased one: a matrix times its inverse is the identity, whatever the matrix.
-     */
+    /** The inverse, or null if there isn't one. */
     fun inverted(): Matrix4? {
         var determinant = 0f
         for (column in 0 until 4) {
@@ -91,7 +82,6 @@ class Matrix4(internal val m: FloatArray) {
         return Matrix4(result)
     }
 
-    /** The signed determinant of the 3x3 left when [row] and [column] are struck out. */
     private fun cofactor(row: Int, column: Int): Float {
         val rows = (0 until 4).filter { it != row }
         val columns = (0 until 4).filter { it != column }
@@ -143,12 +133,7 @@ class Matrix4(internal val m: FloatArray) {
             return Matrix4(m)
         }
 
-        /**
-         * A camera at [eye] looking at [centre], from `Matrix.setLookAtM`.
-         *
-         * The survey's world is z-up, so the up vector the renderer passes is `(0, 0, 1)` rather
-         * than OpenGL's usual `(0, 1, 0)`.
-         */
+        /** The survey's world is z-up, so the up vector passed here is `(0, 0, 1)`. */
         @Suppress("LongParameterList")
         fun lookAt(
             eyeX: Float,

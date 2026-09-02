@@ -23,7 +23,6 @@ import kotlin.test.assertTrue
  */
 class PocketTopoExportTest {
 
-    /** 1 -> 2, a splay off 2, then 2 -> 3 where 3 carries a two-line comment. */
     private fun survey(): Survey {
         val survey = Survey("Unsaved Survey")
         val origin = survey.activeStation
@@ -73,10 +72,6 @@ class PocketTopoExportTest {
         assertTrue(data.contains("wet\\ncrawl"), "newlines collapse to a literal backslash-n")
         assertTrue(!data.contains("wet\ncrawl"), "a raw newline would break the one-line record")
     }
-
-    // -------------------------------------------------------------------------------------
-    // The parts the Java cannot be compared against
-    // -------------------------------------------------------------------------------------
 
     /**
      * The Java shuffles these; this port must not.

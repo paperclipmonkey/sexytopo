@@ -12,15 +12,11 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * A calibration from the first shot to the coefficients going back on the instrument.
- *
- * The solver underneath has been tested against the Android app's own datasets since early in the
- * port — iteration counts and all, on three targets. What is new is everything around it: the
- * checklist of 56 positions, the reading list, the assessment, and the step to memory writes.
- *
- * Why it matters: an uncalibrated DistoX can be several degrees out, and a survey is a chain of
- * bearings, so the error accumulates along the passage. The cave comes back the wrong shape and
- * nothing in the numbers says so.
+ * A calibration from the first shot to the coefficients going back on the instrument: the
+ * checklist of 56 positions, the reading list, the assessment, and the step to memory writes —
+ * everything around the solver itself, which is tested elsewhere against the Android app's data.
+ * An uncalibrated DistoX can be several degrees out, and a survey is a chain of bearings, so the
+ * error accumulates along the passage with nothing in the numbers to say so.
  */
 class CalibrationRunTest {
 
@@ -30,16 +26,10 @@ class CalibrationRunTest {
         return run
     }
 
-    // ------------------------------------------------------------------------------------
-    // The checklist
-    // ------------------------------------------------------------------------------------
-
     /**
-     * Fourteen directions rolled through four orientations each.
-     *
-     * Not presentation: Beat Heeb's algorithm fits sensor errors to readings that between them
-     * point the instrument every way and roll it about each one. A calibration taken in a different
-     * set of positions is not a worse calibration, it is a wrong one.
+     * Fourteen directions rolled through four orientations each — not presentation: Beat Heeb's
+     * algorithm fits sensor errors to readings that point the instrument every way and roll it
+     * about each one, so a calibration taken in different positions is not worse, it is wrong.
      */
     @Test
     fun thereAreFiftySixPositionsAndTheyAreAllDistinct() {
@@ -79,10 +69,6 @@ class CalibrationRunTest {
         )
     }
 
-    // ------------------------------------------------------------------------------------
-    // The readings
-    // ------------------------------------------------------------------------------------
-
     @Test
     fun readingsAccumulateAndCanBeUndone() {
         val run = run(3)
@@ -107,10 +93,9 @@ class CalibrationRunTest {
     }
 
     /**
-     * The solver's floor is 16, well below the 56 a proper calibration takes.
-     *
-     * Worth pinning because it is a trap: the fit will happily run on 16 readings and report a
-     * number. It is the *positions* that make the answer meaningful, not the count.
+     * The solver's floor is 16, well below the 56 a proper calibration takes: a trap, since the fit
+     * will happily run on 16 readings and report a number even though it is the *positions*, not
+     * the count, that make the answer meaningful.
      */
     @Test
     fun theSolverWillRunOnFarFewerReadingsThanACalibrationNeeds() {
@@ -119,20 +104,10 @@ class CalibrationRunTest {
         assertFalse(run(16).isComplete)
     }
 
-    // ------------------------------------------------------------------------------------
-    // The fit
-    // ------------------------------------------------------------------------------------
-
     /**
-     * The full dataset converges to the answer it is known to produce — and the Android app would
-     * call that answer *poor*.
-     *
-     * Both of the app's own reference calibrations fit at about 0.60, and its own threshold for a
-     * good one (`DistoXCalibrationActivity.MAX_ERROR`) is 0.50. So the data the algorithm is
-     * verified against would, if a surveyor had just taken it, be reported as a calibration to do
-     * again. That is not a bug in this port — the deltas match the Java's to six figures — but it
-     * is worth knowing before reading anything into the number: either the threshold is optimistic
-     * or those two datasets are mediocre calibrations, and nothing in the app says which.
+     * The full dataset converges to the answer it is known to produce — and the Android app's own
+     * threshold for a good calibration (`DistoXCalibrationActivity.MAX_ERROR` = 0.50) would call
+     * that answer *poor*. Not a bug in this port — the deltas match the Java's to six figures.
      */
     @Test
     fun theFullDatasetConvergesToTheAnswerItIsKnownToProduce() {
@@ -145,7 +120,6 @@ class CalibrationRunTest {
             result.delta > 0.60f && result.delta < 0.61f,
             "expected the known delta of about 0.603, got ${result.delta}",
         )
-        // Above 0.5, so the app's own assessment of its own test data is "poor".
         assertEquals(CalibrationQuality.POOR, run.assess(result))
     }
 
@@ -179,29 +153,18 @@ class CalibrationRunTest {
         )
     }
 
-    // ------------------------------------------------------------------------------------
-    // Writing it back
-    // ------------------------------------------------------------------------------------
-
-    /**
-     * The step that actually changes anything: until the coefficients are written, the instrument
-     * is still using the ones it had.
-     *
-     * Four bytes per command from address 0x8010, which is `WriteCalibrationProtocol.go`.
-     */
+    /** Four bytes per command from address 0x8010, which is `WriteCalibrationProtocol.go`. */
     @Test
     fun theCoefficientsGoBackAsFourByteMemoryWrites() {
         val run = run(56)
         val commands = run.writeCommands(run.solve())
 
-        // 48 coefficient bytes, four at a time.
         assertEquals(12, commands.size)
         assertTrue(commands.all { it.size == 7 })
         assertEquals(
             DistoXProtocol.CALIBRATION_COEFFICIENTS_ADDRESS,
             DistoXProtocol.addressOfWriteCommand(commands.first()),
         )
-        // Addresses advance by four, with no gaps.
         val addresses = commands.map { DistoXProtocol.addressOfWriteCommand(it) }
         assertEquals(
             (0 until 12).map { DistoXProtocol.CALIBRATION_COEFFICIENTS_ADDRESS + it * 4 },
@@ -217,11 +180,9 @@ class CalibrationRunTest {
     }
 
     /**
-     * DistoX-BLE and Cavway X1 do not speak the classic protocol at all: they expect the whole
-     * coefficient block in one `data:`-framed memory write, and send no reply to check, unlike the
-     * per-four-byte dance above. Sending the classic shape to one of these was the actual defect —
-     * twelve unframed packets a BLE instrument has no reason to recognise as anything, so nothing
-     * would reject them and the app would report success while the coefficients never changed.
+     * DistoX-BLE and Cavway X1 expect the whole coefficient block in one `data:`-framed memory
+     * write, not the per-four-byte dance above. Sending the classic shape to one of these was the
+     * actual defect: twelve packets a BLE instrument has no reason to recognise, silently ignored.
      */
     @Test
     fun bleFamiliesGetOneFramedMemoryWriteInstead() {
@@ -241,8 +202,6 @@ class CalibrationRunTest {
                 commands.single().contentEquals(expected),
                 "$family's single frame should be the real BLE memory-write packet",
             )
-            // Unwrappable by the same framing the simulator and a real link both understand, and
-            // carrying every coefficient byte, not a truncated prefix of them.
             val unwrapped = DistoXBleFraming.payloadOrNull(commands.single())
             assertTrue(unwrapped != null && unwrapped.size == result.toBytes().size + 4)
         }

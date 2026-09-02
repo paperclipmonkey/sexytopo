@@ -8,27 +8,18 @@ import org.hwyl.sexytopo.shared.comms.distox.DistoXProtocol
 import org.hwyl.sexytopo.shared.model.survey.Leg
 
 /**
- * A DistoX that lives entirely in software.
+ * A DistoX that lives entirely in software: it replays a scripted list of shots as real
+ * eight-byte DistoX packets, so everything downstream runs exactly the code that runs against
+ * real hardware.
  *
- * It replays a scripted list of shots as real eight-byte DistoX packets, so everything downstream
- * — [org.hwyl.sexytopo.shared.comms.distox.DistoXMeasurementDecoder], acknowledgement handling,
- * duplicate suppression, the survey engine, the UI — runs exactly the code that runs against real
- * hardware. That makes it useful for three things at once: demos without a cave, deterministic
- * tests, and reproducing a reported bug from a captured shot list.
- *
- * It is deliberately, boringly deterministic: no clocks, no randomness, no threads. A shot is
- * emitted only when something asks for one, either by writing [InstrumentCommand.TAKE_SHOT] or by
- * calling [emitNextShot]. The sequence bit alternates from `false`, as a real device's does, so
- * the acknowledgements a client sends back alternate 0x55, 0xD5, 0x55...
+ * Deliberately, boringly deterministic: no clocks, no randomness, no threads.
  *
  * Commands are understood both bare (classic DistoX over RFCOMM) and wrapped in the `data:` frame
- * DistoX BLE uses, so the same simulator can stand in for either. Outbound packets are always raw
- * eight-byte DistoX packets; wrap them with [DistoXBleFraming] if a BLE-shaped stream is wanted.
+ * DistoX BLE uses. Outbound packets are always raw eight-byte DistoX packets; wrap them with
+ * [DistoXBleFraming] if a BLE-shaped stream is wanted.
  */
 class SimulatedInstrument(
-    /** The shots to replay, in order. */
     val script: List<Leg> = demoScript(),
-    /** Whether to start again from the first shot once the script runs out. */
     val loop: Boolean = false,
 ) : BaseInstrumentTransport() {
 
@@ -38,21 +29,16 @@ class SimulatedInstrument(
 
     private val sentCommands = mutableListOf<Byte>()
 
-    /** Every command byte written to this instrument, oldest first — handy in assertions. */
     val commandsReceived: List<Byte> get() = sentCommands.toList()
 
-    /** Whether the laser has been asked to switch on. */
     var isLaserOn: Boolean = false
         private set
 
-    /** Whether the instrument has been put into calibration mode. */
     var isCalibrating: Boolean = false
         private set
 
-    /** How many shots of [script] have been replayed. */
     val shotsEmitted: Int get() = nextShotIndex
 
-    /** Whether there is another shot to emit. */
     val hasMoreShots: Boolean
         get() = (loop && script.isNotEmpty()) || nextShotIndex < script.size
 
@@ -78,10 +64,7 @@ class SimulatedInstrument(
         }
     }
 
-    /**
-     * Emits the next scripted shot, returning false when the script is exhausted and [loop] is
-     * off. Public so a demo can step through shots on a button press.
-     */
+    /** Returns false when the script is exhausted and [loop] is off. */
     fun emitNextShot(): Boolean {
         if (script.isEmpty()) return false
         if (nextShotIndex >= script.size) {
@@ -95,10 +78,7 @@ class SimulatedInstrument(
         return true
     }
 
-    /**
-     * Emits one calibration reading as the two packets a real DistoX sends: acceleration first,
-     * magnetic second. Values are raw sensor counts, not physical units.
-     */
+    /** Acceleration first, magnetic second, as raw sensor counts. */
     fun emitCalibrationReading(
         acceleration: InstrumentPacket.Acceleration,
         magnetic: InstrumentPacket.Magnetic,
@@ -111,20 +91,14 @@ class SimulatedInstrument(
         sequenceBit = !sequenceBit
     }
 
-    /**
-     * Re-sends the packet a real device would resend when its acknowledgement goes astray. Useful
-     * for exercising duplicate suppression: the decoder should swallow the repeat.
-     */
     fun repeatLastShot(): Boolean {
         if (nextShotIndex == 0) return false
         val leg = script[(nextShotIndex - 1) % script.size]
-        // The sequence bit is deliberately *not* toggled: a retransmission carries the same bit,
-        // and the decoder compares the whole packet, not the bit.
+        // The sequence bit is deliberately *not* toggled: a retransmission carries the same bit.
         emitFrame(DistoXProtocol.encodeMeasurement(leg, !sequenceBit))
         return true
     }
 
-    /** Rewinds the script and clears the recorded commands. */
     fun reset() {
         nextShotIndex = 0
         sequenceBit = false
@@ -148,11 +122,6 @@ class SimulatedInstrument(
 
     companion object {
 
-        /**
-         * A short passage with a side lead: five shots that make a recognisable shape when drawn,
-         * with the fourth branching left. Distances are metres, azimuths degrees clockwise from
-         * north, inclinations degrees above horizontal.
-         */
         fun demoScript(): List<Leg> = listOf(
             Leg(5.42f, 12.5f, -3.0f),
             Leg(8.13f, 15.0f, 1.5f),

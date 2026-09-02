@@ -22,13 +22,10 @@ import org.hwyl.sexytopo.shared.sketch.simplify
 /**
  * Reads and writes SexyTopo's `<survey>.plan.json` / `<survey>.ext-elevation.json` sketch files.
  *
- * Ported from `control/io/basic/SketchJsonTranslater`.
- *
- * Cross-sections live in the `x-sections` array. Each entry names the station it belongs to by
- * name (`station-id`) rather than by any id, so a sketch can only be read back against the survey
- * it belongs to — hence the [Survey] parameter on [parse]. Its own drawn content is a nested
- * sketch object under `sketch`, holding the same `paths`/`labels`/`symbols` arrays as the top
- * level (but never a further `x-sections`: cross-sections do not nest).
+ * Cross-sections live in the `x-sections` array, each naming its station by name (`station-id`)
+ * rather than by id, so a sketch can only be read back against its survey — hence the [Survey]
+ * parameter on [parse]. Its drawn content is a nested sketch under `sketch`, with the same
+ * `paths`/`labels`/`symbols` arrays as the top level (never a further `x-sections`).
  */
 @OptIn(ExperimentalSerializationApi::class)
 /** A sketch as it was read, and how much of it could not be. */
@@ -57,27 +54,15 @@ object SketchJson {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val pretty = Json { prettyPrint = true; prettyPrintIndent = "  " }
 
-    /**
-     * @param survey the survey the sketch belongs to, needed to resolve `station-id` back to a
-     *   station object. Cross-sections are skipped when it is absent (or names a station the survey
-     *   does not have) — see [toCrossSectionDetail].
-     */
+    /** @param survey needed to resolve `station-id`; cross-sections are skipped without it. */
     fun parse(text: String, survey: Survey? = null): Sketch = read(text, survey).sketch
 
     /**
      * The same read, and how much of the drawing it had to leave behind.
      *
      * Every detail is parsed inside its own `runCatching`, so one damaged stroke costs one stroke
-     * rather than the drawing — which is a deliberate divergence from
-     * `SketchJsonTranslater.populateSketch`, where the loop over paths sits *inside* a single try:
-     * one bad stroke there throws out of the loop, `setPathDetails` is never reached, and the whole
-     * plan is lost. (Its symbols loop has an inner try and does not behave that way; its paths,
-     * labels and cross-sections do.)
-     *
-     * Being more forgiving is only an improvement if it is not also quieter. The Java logs each of
-     * those failures; this said nothing at all, so a drawing that arrived three strokes short
-     * looked exactly like a drawing that was drawn three strokes short. [dropped] is what the
-     * importer needs to say so.
+     * rather than the whole drawing — unlike `SketchJsonTranslater.populateSketch`, where one bad
+     * stroke throws out before `setPathDetails` is reached, losing the entire plan.
      */
     fun read(text: String, survey: Survey? = null): SketchRead {
         val root = json.parseToJsonElement(text).jsonObject
@@ -90,14 +75,8 @@ object SketchJson {
             val detail = entry?.let { runCatching { toCrossSectionDetail(it, survey) }.getOrNull() }
             when {
                 detail != null -> sketch.crossSectionDetails.add(detail)
-                // An *orphan* is not damage. A cross-section names the station it was cut at, and
-                // deleting a station does not delete the drawing at it — neither here nor in the
-                // Android app, and deliberately, because the drawing is the surveyor's work and
-                // not a view of the graph. So a sketch file can legitimately hold a cross-section
-                // whose station is gone, [toCrossSectionDetail] returns null for it by design, and
-                // counting that as a mark that "could not be read" would warn about damage on
-                // every single open of a perfectly good survey. A warning that cries wolf is worse
-                // than no warning.
+                // An orphan (station since deleted) is not damage: warning here would fire on
+                // every open of a perfectly good survey.
                 entry != null && isOrphanedCrossSection(entry, survey) -> Unit
                 else -> dropped++
             }
@@ -127,16 +106,9 @@ object SketchJson {
         return pretty.encodeToString(JsonObject.serializer(), root)
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Cross-sections
-    // -----------------------------------------------------------------------------------------
-
     /**
-     * One `x-sections` entry: which station, where on the sketch, at what bearing, and — only if
-     * anything has been drawn in it — the nested sub-sketch.
-     *
-     * The empty-sub-sketch check is the original's: paths, symbols and labels only. A sub-sketch
-     * carrying nothing but (impossible) nested cross-sections still counts as empty.
+     * One `x-sections` entry: station, position, bearing, and the nested sub-sketch if anything
+     * was drawn in it (paths, symbols and labels only — matching the original's empty check).
      */
     fun toJson(detail: CrossSectionDetail): JsonObject = buildJsonObject {
         put(STATION_ID_TAG, detail.station.name)
@@ -148,23 +120,18 @@ object SketchJson {
         }
     }
 
-    /**
-     * Rebuilds a cross-section, or returns null if it cannot be attached to a real station.
-     *
-     * Deliberate divergence: the Java looks the station up and stores whatever comes back, so a
-     * sketch referring to a since-deleted station yields a detail with a null station that throws
-     * the moment anything draws or re-saves it. Skipping is the safer equivalent, and the only
-     * cost is that a dangling section is dropped on load rather than on crash.
-     */
-    /**
-     * Whether this cross-section was skipped because its station is gone rather than because the
-     * entry is broken: it names a station, and the survey does not have one by that name.
-     */
+    /** Whether this was skipped for a deleted station rather than a broken entry. */
     private fun isOrphanedCrossSection(entry: JsonObject, survey: Survey?): Boolean {
         val stationName = entry.stringOrNull(STATION_ID_TAG) ?: return false
         return survey == null || survey.getStationByName(stationName) == null
     }
 
+    /**
+     * Deliberate divergence: the Java looks the station up and stores whatever comes back, so a
+     * sketch referring to a since-deleted station yields a detail with a null station that throws
+     * the moment anything draws or re-saves it. Returning null here is the safer equivalent — a
+     * dangling section is dropped on load rather than on crash.
+     */
     fun toCrossSectionDetail(entry: JsonObject, survey: Survey?): CrossSectionDetail? {
         val stationName = entry.stringOrNull(STATION_ID_TAG) ?: return null
         val station = survey?.getStationByName(stationName) ?: return null
@@ -189,10 +156,6 @@ object SketchJson {
     /** The original's `isSketchEmpty`, inverted: cross-section details deliberately don't count. */
     private fun Sketch.hasDrawnDetails(): Boolean =
         pathDetails.isNotEmpty() || symbolDetails.isNotEmpty() || textDetails.isNotEmpty()
-
-    // -----------------------------------------------------------------------------------------
-    // Paths, labels and symbols — shared by the top-level sketch and by every sub-sketch
-    // -----------------------------------------------------------------------------------------
 
     /** Returns how many details could not be read. */
     private fun readDrawnDetails(root: JsonObject, sketch: Sketch): Int {
@@ -273,13 +236,9 @@ object SketchJson {
     }
 
     /**
-     * One stroke, thinned on the way in.
-     *
-     * The simplification is not an optimisation this port added — it is in the original's loader,
-     * and leaving it out would be a fidelity bug in the other direction: an old file whose strokes
-     * were saved raw (several hundred touch samples per wall) would render and export with far more
-     * points here than on Android, and would grow rather than shrink each time it was re-saved. The
-     * tolerance is relative to the stroke's own bounding box, so it is resolution-independent.
+     * One stroke, thinned on the way in — mirrors the original loader rather than an optimisation
+     * this port added, since an old file's raw strokes would otherwise render with far more
+     * points here than on Android and grow on every re-save.
      */
     private fun toPathDetail(entry: JsonObject): PathDetail {
         val colour = colourOf(entry)

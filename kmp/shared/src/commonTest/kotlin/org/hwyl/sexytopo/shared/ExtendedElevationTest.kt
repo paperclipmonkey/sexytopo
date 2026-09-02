@@ -62,7 +62,6 @@ class ExtendedElevationTest {
 
     @Test
     fun verticalLegDoesNotExtendAlongSection() {
-        // The section is laid out along y, so a vertical leg must not travel along it.
         val survey = surveyWithOneLeg(45f, 60f, ExtendedElevationDirection.VERTICAL)
         val station2 = transformer.transformTo3D(survey).stationMap[survey.getStationByName("2")]!!
         assertTrue(abs(station2.y) < DELTA, "y should be zero, was ${station2.y}")

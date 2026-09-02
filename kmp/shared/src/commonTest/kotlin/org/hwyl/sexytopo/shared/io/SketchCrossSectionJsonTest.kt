@@ -93,8 +93,7 @@ class SketchCrossSectionJsonTest {
     @Test
     fun aSectionNamingAnUnknownStationIsDropped() {
         // The Java stores a null station here and crashes later; dropping it is the safe
-        // equivalent. Reached when a station has been renamed or deleted since the sketch was
-        // saved.
+        // equivalent, reached when a station has been renamed or deleted since the sketch was saved.
         val survey = surveyWithTwoStations()
         val plan = Sketch()
         plan.crossSectionDetails.add(

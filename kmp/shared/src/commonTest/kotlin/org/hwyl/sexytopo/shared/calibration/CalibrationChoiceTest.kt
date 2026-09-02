@@ -8,19 +8,14 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Which calibration fit runs: `pref_calibration_algorithm`'s three values.
- *
- * The interesting one is *Auto*, because the right answer is a property of the instrument rather
- * than of the surveyor. `DistoX.prefersNonLinearCalibration` is a four-row table upstream — X310
- * and DistoX-BLE yes, A3 no, anything unrecognised no — and it lives on [InstrumentProfile] here
- * so the device matrix stays in one place.
+ * Which calibration fit runs: `pref_calibration_algorithm`'s three values. *Auto* is the
+ * interesting one, since the right answer is a property of the instrument, not the surveyor.
  */
 class CalibrationChoiceTest {
 
     @Test
     fun theDefaultIsTheSaferFit() {
-        // `getString("pref_calibration_algorithm", "linear")`, and the Java's own comment on the
-        // variable it feeds: "linear probably safer as default".
+        // The Java's own comment on the variable it feeds: "linear probably safer as default".
         assertEquals(CalibrationChoice.LINEAR, CalibrationChoice.DEFAULT)
     }
 
@@ -32,7 +27,6 @@ class CalibrationChoiceTest {
         }
     }
 
-    /** Auto asks the device, and the DistoX-BLE is one that wants the extra terms. */
     @Test
     fun autoAsksTheInstrument() {
         assertTrue(CalibrationChoice.AUTO.useNonLinearity(InstrumentProfile.DISTOX_BLE))
@@ -40,12 +34,8 @@ class CalibrationChoiceTest {
     }
 
     /**
-     * And with nothing attached it is linear, rather than a crash.
-     *
-     * Upstream reaches the same answer by accident: `getDistox()` throws when nothing is
-     * connected, the whole switch is wrapped in a `try`, and the comment says "just return false
-     * and deal with issues elsewhere". Arriving there on purpose is the same behaviour without the
-     * exception.
+     * With nothing attached it is linear, rather than a crash — upstream reaches the same answer
+     * by accident, since `getDistox()` throws and the whole switch is wrapped in a `try`.
      */
     @Test
     fun nothingAttachedIsLinear() {

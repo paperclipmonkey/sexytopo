@@ -18,22 +18,14 @@ import kotlin.math.sin
 /**
  * The drawing as an XVI: the tracing image a surveyor draws over in xtherion.
  *
- * Ported from `io/thirdparty/xvi/XviExporter` and the two translaters beside it. An XVI is
- * Therion's own background-image format and it is made of nothing but line segments — stations,
- * shot lines, and the sketch itself — which is why labels and symbols have to be rendered as
- * strokes rather than referred to. That is what [XviGlyphs] and [XviSymbolPaths] are for.
+ * An XVI is Therion's own background-image format, made of nothing but line segments —
+ * stations, shot lines, and the sketch — so labels and symbols are rendered as strokes rather
+ * than referred to; see [XviGlyphs] and [XviSymbolPaths]. The `.th2` scrap file is the other
+ * half, carrying the *semantic* content and positioning this image behind it.
  *
- * This is half of getting a drawing into Therion. The other half is the `.th2` scrap file, which
- * carries the *semantic* content — stations by name, cross-section anchors, symbols as Therion
- * points — and positions this image behind it.
- *
- * ## Coordinates
- *
- * Everything arrives in survey-frame metres with y north-positive, and Therion's canvas has y
- * down, so every emit helper flips y. That flip happens in exactly one layer, here, and nowhere
- * else — which is worth stating because a second flip anywhere upstream is invisible until a
- * drawing comes out mirrored, and mirrored is not obviously wrong when you are looking at a cave
- * you have not surveyed before.
+ * Survey space is y north-positive; Therion's canvas is y down, so every emit helper flips y —
+ * in exactly one layer, here, and nowhere else, since a second flip upstream would be invisible
+ * until a drawing came out mirrored.
  */
 object XviExporter {
 
@@ -59,9 +51,8 @@ object XviExporter {
 
         add(stations, shots, sketchLines, space, sketch, scale)
 
-        // Then each cross-section, placed where it sits on the drawing. A section is drawn in its
-        // own station-relative coordinates, so both its splay star and anything drawn inside it
-        // have to be scaled by the sketch's cross-section scale and moved into place.
+        // Each cross-section, placed where it sits on the drawing: both its splay star and
+        // anything drawn inside it are scaled by the sketch's cross-section scale and moved into place.
         val sectionScale = sketch.crossSectionScale
         for (detail in sketch.crossSectionDetails) {
             val sectionSpace =
@@ -159,20 +150,11 @@ object XviExporter {
         ).joinToString(" ") { plainFloat(it) }
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Labels and symbols, as strokes
-    // ---------------------------------------------------------------------------------------
-
     /**
-     * A label as line segments, ported from `TextDetailTranslater.getPathDetailsForText`.
-     *
-     * Upper case only, because the glyph table has no lower case — the original upper-cases the
-     * text before looking anything up, so "sump" comes out "SUMP" rather than as four unknown
-     * boxes.
-     *
-     * The per-character advance is the widest stroke in the glyph, floored at one space: some
-     * glyphs — "1", "I" — are a single vertical line and have no width at all, and without the
-     * floor every character after one of them would be drawn on top of it.
+     * A label as line segments. Upper case only, since the glyph table has none — "sump" becomes
+     * "SUMP" rather than four unknown boxes. Per-character advance is the widest stroke in the
+     * glyph, floored at one space, since some glyphs ("1", "I") are a single line with no width
+     * and would otherwise draw the next character on top.
      */
     internal fun textAsPaths(detail: TextDetail): List<PathDetail> {
         val paths = mutableListOf<PathDetail>()
@@ -233,11 +215,8 @@ object XviExporter {
     }
 
     /**
-     * A stamped symbol as line segments, ported from `SymbolDetailTranslater.asPathDetails`.
-     *
-     * Centred on the symbol's own grid, scaled to the size it was stamped at, rotated if the
-     * surveyor aimed it, and moved to where it sits. A symbol the table has no polyline for
-     * contributes nothing, as in the original.
+     * A stamped symbol as line segments: centred on its own grid, scaled to the stamped size,
+     * rotated if aimed, moved into place. A symbol with no polyline contributes nothing.
      */
     internal fun symbolAsPaths(detail: SymbolDetail): List<PathDetail> {
         // A SymbolDetail carries the Therion name rather than the enum, so that a sketch from a
@@ -271,27 +250,16 @@ object XviExporter {
         return paths
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Formatting
-    // ---------------------------------------------------------------------------------------
-
     /**
-     * Two decimal places with a dot, from `TextTools.formatTo2dpWithDot`.
-     *
-     * One knowing divergence: the Java's `DecimalFormat` rounds halves to even, while this — like
-     * everything else in the port, and like Java's own `Formatter` — rounds them up. It shows only
-     * when a coordinate lands exactly on a half-hundredth of a pixel, and the difference is 0.01 px
-     * in a tracing image.
+     * Two decimal places with a dot. Rounds halves up, not to even, matching this port's other
+     * formatting and Java's own `Formatter` — the difference from `DecimalFormat` is at most 0.01px.
      */
     private fun number(value: Float): String = formatFixed(value, 2)
 
     /**
-     * The grid line writes floats the way Java's `String.valueOf(float)` does — "50.0", not "50".
-     *
-     * Not `Float.toString()`, though, which is the port's finding about non-JVM targets: Kotlin/Wasm
-     * and Kotlin/Native render exponent notation differently from the JVM, and "5.0E-4" in an XVI
-     * grid line is a file xtherion will not read. A whole number keeps its ".0" and anything else
-     * is written at fixed precision, which is the same string on every target.
+     * Writes floats the way Java's `String.valueOf(float)` does — "50.0", not "50" — and not
+     * `Float.toString()`, whose exponent notation differs between the JVM and Kotlin/Wasm/Native
+     * and would produce a grid line xtherion can't read.
      */
     private fun plainFloat(value: Float): String =
         if (value == value.toInt().toFloat()) {

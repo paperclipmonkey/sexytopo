@@ -8,21 +8,11 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * The BLE connection logic, tested without a radio.
- *
- * This is the point of pulling [GattLink] out of the iOS transport. The transport itself cannot be
- * compiled on a machine without Xcode, so anything left inside it is unverifiable until someone
- * opens a Mac; everything asserted here is logic that would otherwise have been discovered wrong on
- * an iPhone, underground, with a BRIC in one hand.
- *
- * These run on Kotlin/Wasm as well as the JVM, which is the standing proof that none of it depends
- * on `java.*`.
+ * The BLE connection logic, tested without a radio — the point of pulling [GattLink] out of the
+ * iOS transport, since the transport itself cannot be compiled without Xcode. Runs on Kotlin/Wasm
+ * as well as the JVM, proof that none of it depends on `java.*`.
  */
 class GattLinkTest {
-
-    // -----------------------------------------------------------------------------------------
-    // UUID normalisation — the bug this extraction found
-    // -----------------------------------------------------------------------------------------
 
     /**
      * CoreBluetooth hands back the *short* form of an assigned-number UUID. BRIC4 and BRIC5 use
@@ -60,10 +50,7 @@ class GattLinkTest {
         )
     }
 
-    /**
-     * The whole point, end to end: a BRIC reporting its characteristics the way CoreBluetooth does
-     * must reach a connectable state.
-     */
+    /** End to end: a BRIC reporting its characteristics the way CoreBluetooth does must connect. */
     @Test
     fun aBricAdvertisingShortFormUuidsStillConnects() {
         val link = GattLink(InstrumentProfile.BRIC4)
@@ -85,15 +72,9 @@ class GattLinkTest {
         assertTrue(link.isReady)
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Readiness
-    // -----------------------------------------------------------------------------------------
-
     /**
-     * A link is not ready until every characteristic is present. Reporting a connection early is
-     * worse than failing: on an FCL, primary packets would arrive and be held forever waiting for
-     * an extended half that never came, so the surveyor sees a connected instrument that silently
-     * records nothing.
+     * On an FCL, reporting a connection before every characteristic is present would leave primary
+     * packets held forever waiting for an extended half that never came — connected, and silent.
      */
     @Test
     fun aLinkMissingOneNotifyCharacteristicIsNotReady() {
@@ -110,13 +91,11 @@ class GattLinkTest {
     }
 
     /**
-     * Per-device, from the Android drivers, and invisible without a real instrument: writing with a
-     * response to a characteristic that only advertises write-without-response fails, and the
-     * command never arrives. That would look exactly like a broken instrument.
+     * Writing with a response to a characteristic that only advertises write-without-response
+     * fails silently and looks exactly like a broken instrument.
      */
     @Test
     fun theWriteTypeMatchesEachDevicesAndroidDriver() {
-        // CavwayX1Manager, Bric4Manager and DistoXBleManager all pass WRITE_TYPE_DEFAULT.
         for (profile in
             listOf(
                 InstrumentProfile.DISTOX_BLE,
@@ -128,7 +107,6 @@ class GattLinkTest {
             assertEquals(WriteType.WITH_RESPONSE, profile.writeType, profile.name)
         }
 
-        // CaveBLE.kt and FCLBLE.kt both set WRITE_TYPE_NO_RESPONSE.
         for (profile in
             listOf(InstrumentProfile.SAP6, InstrumentProfile.DISCOX, InstrumentProfile.FCL)
         ) {
@@ -136,11 +114,7 @@ class GattLinkTest {
         }
     }
 
-    /**
-     * `Bric4Manager.isRequiredServiceSupported` checks its three measurement characteristics and
-     * not the control one, which lives in a separate service. Requiring it here would have made
-     * this port refuse a device the Android app is happy with.
-     */
+    /** `Bric4Manager.isRequiredServiceSupported` checks only the three measurement characteristics. */
     @Test
     fun aBricIsUsableWithoutItsControlCharacteristic() {
         val link = GattLink(InstrumentProfile.BRIC4)
@@ -223,15 +197,7 @@ class GattLinkTest {
         assertEquals(2, link.missing.size)
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Channel routing — what iOS can do and Android cannot
-    // -----------------------------------------------------------------------------------------
-
-    /**
-     * `Bric4Manager` on Android receives three different indications through one callback that does
-     * not say which characteristic fired, so it cycles blindly through the roles and its own
-     * comment admits the desync risk. Routing by UUID is why an iOS build cannot have that bug.
-     */
+    /** `Bric4Manager` on Android cycles blindly through the roles; routing by UUID cannot desync. */
     @Test
     fun bricFramesAreRoutedByCharacteristicRatherThanCycled() {
         val link = GattLink(InstrumentProfile.BRIC4)
@@ -260,10 +226,6 @@ class GattLinkTest {
         assertEquals(FrameChannel.DEFAULT, link.channelFor("2a19"))
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Discovery
-    // -----------------------------------------------------------------------------------------
-
     @Test
     fun advertisedNamesAreMatchedByPrefixIgnoringCase() {
         val link = GattLink(InstrumentProfile.SAP6)
@@ -282,10 +244,7 @@ class GattLinkTest {
         assertNull(GattLink.forAdvertisedName(null))
     }
 
-    /**
-     * BRIC keeps its write characteristic in a second service, which is the only reason the profile
-     * has a separate write service at all — and the reason this must not be de-duplicated away.
-     */
+    /** BRIC keeps its write characteristic in a second service; must not be de-duplicated away. */
     @Test
     fun bricAsksForBothOfItsServices() {
         val services = GattLink(InstrumentProfile.BRIC4).servicesToDiscover

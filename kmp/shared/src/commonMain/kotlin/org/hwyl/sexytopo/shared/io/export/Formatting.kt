@@ -6,17 +6,15 @@ import kotlin.math.floor
 /**
  * Fixed-decimal formatting, reproducing Java's `String.format(Locale.UK, "%.Nf", value)`.
  *
- * commonMain has no `String.format`, and this is not a detail that can be approximated: these
- * numbers go into Therion and Survex files that must match what the Android app writes, or a
- * survey exported from one and re-imported into the other will disagree.
+ * commonMain has no `String.format`, and these numbers go into Therion and Survex files that
+ * must match the Android app's output exactly.
  *
- * Two traps, both of which a naive port falls into:
+ * Two traps a naive port falls into:
  *
- *  - **Rounding mode.** `kotlin.math.round` is ties-to-even (it maps to `Math.rint`), while Java's
- *    `Formatter` is HALF_UP. `round(2.5)` gives 2, not 3. Hence `floor(x + 0.5)` on the magnitude.
- *  - **Locale.** The Java pins `Locale.UK` precisely so a device set to a comma-decimal locale does
- *    not write `1,50` into a file a parser expects `1.50` in. Building the string by hand from
- *    integers has the same effect.
+ *  - **Rounding mode.** `kotlin.math.round` is ties-to-even (maps to `Math.rint`); Java's
+ *    `Formatter` is HALF_UP — `round(2.5)` gives 2, not 3. Hence `floor(x + 0.5)`.
+ *  - **Locale.** `Locale.UK` stops a comma-decimal device writing `1,50` where a parser expects
+ *    `1.50`. Building the string from integers has the same effect.
  */
 fun formatFixed(value: Float, decimalPlaces: Int, alwaysSigned: Boolean = false): String =
     formatFixed(value.toDouble(), decimalPlaces, alwaysSigned)
@@ -32,9 +30,8 @@ fun formatFixed(value: Double, decimalPlaces: Int, alwaysSigned: Boolean = false
     val whole = scaled / scale
     val fraction = scaled % scale
 
-    // The sign comes from the input, not from the rounded result: -0.001 at two decimal places
-    // is "-0.00" in Java, not "0.00". Negative zero needs the reciprocal test, because -0.0 < 0
-    // is false in IEEE arithmetic while Java's Formatter still writes it with a minus sign.
+    // The sign comes from the input, not the rounded result: -0.001 at two decimal places is
+    // "-0.00" in Java. Negative zero needs the reciprocal test since -0.0 < 0 is false in IEEE.
     val isNegative = value < 0 || (value == 0.0 && 1.0 / value < 0)
     val sign =
         when {
@@ -57,30 +54,22 @@ fun formatDistance(metres: Float): String = formatFixed(metres, 3)
 fun formatAzimuth(degrees: Float): String = formatFixed(degrees, 2)
 
 /**
- * Inclination as the *exporters* write it: plain `%.2f`.
- *
- * Note this is NOT `TableCol.INCLINATION`'s `%+.2f`. The leading plus is a table-display choice;
- * `SurvexTherionUtil.formatInclination` deliberately omits it, and putting it in the file would be
- * a difference from the Android app's output.
+ * Inclination as the *exporters* write it: plain `%.2f`, not `TableCol.INCLINATION`'s signed
+ * `%+.2f` (a table-display choice that would diverge from the Android app's file output).
  */
 fun formatInclination(degrees: Float): String = formatFixed(degrees, 2)
 
 /**
- * Fixed-point with the trailing zeros taken off, for SVG attributes.
- *
- * SVG is verbose enough without "100.000" everywhere, and a coordinate written as "1.0E-4" — which
- * is what `Float.toString` produces for small values, differently on the JVM and on Kotlin/Wasm —
- * is not valid inside a path and makes a file that silently will not open.
+ * Fixed-point with trailing zeros removed, for SVG attributes: exponent notation like "1.0E-4"
+ * (which `Float.toString` renders differently on the JVM and Kotlin/Wasm) is not valid inside an
+ * SVG path and would silently produce a file that will not open.
  */
 fun formatFixedTrimmed(value: Float, decimalPlaces: Int): String =
     trimTrailingZeroes(formatFixed(value, decimalPlaces))
 
 /**
- * The same for a Double.
- *
- * The SVG legend lays itself out in Double arithmetic — the Java's `LegendModel` does, and the
- * layout is reproduced exactly — so its coordinates would otherwise round through Float on the way
- * out.
+ * The same for a Double: the SVG legend lays itself out in Double arithmetic (matching the
+ * Java's `LegendModel`), so its coordinates would otherwise round through Float on the way out.
  */
 fun formatFixedTrimmed(value: Double, decimalPlaces: Int): String =
     trimTrailingZeroes(formatFixed(value, decimalPlaces))

@@ -5,15 +5,11 @@ import org.hwyl.sexytopo.shared.model.sketch.Symbol
 /**
  * The UIS symbols as polylines, for drawing into an XVI.
  *
- * Generated from `io/thirdparty/xvi/SymbolDetailTranslater`'s table rather than transcribed — the
- * same treatment [Symbol] and [org.hwyl.sexytopo.shared.model.sketch.Colour] got, and for the same
- * reason.
+ * Generated from `io/thirdparty/xvi/SymbolDetailTranslater`'s table rather than transcribed.
  *
- * These are *not* the same shapes as [Symbol.paths], which are the app's SVG drawables and carry
- * curves and arcs. An XVI is a tracing image made of straight line segments and nothing else, so
- * each symbol has a second, simplified form: a stalactite is three strokes rather than a filled
- * outline. Deriving one from the other would be a different drawing, and a survey drawn up against
- * a background that does not match the app's own symbols is worse than one that does.
+ * Not the same shapes as [Symbol.paths] (the app's SVG drawables, which carry curves and arcs):
+ * an XVI is straight line segments only, so each symbol has a second, simplified form — a
+ * stalactite is three strokes rather than a filled outline.
  *
  * Each entry is a list of polylines; each polyline is a flat `x1, y1, x2, y2, ...` on the symbol's
  * own forty-unit grid, y *down*, origin at the top left.
@@ -21,13 +17,8 @@ import org.hwyl.sexytopo.shared.model.sketch.Symbol
 internal object XviSymbolPaths {
 
     /**
-     * The grid the coordinates are on.
-     *
-     * *Is* [Symbol.VIEWPORT] rather than a second forty beside it. The Java keeps its own
-     * `SVG_VIEWBOX_SIZE = 40.0f` in `SymbolDetailTranslater`, which is correct today and is two
-     * places to change if a symbol is ever redrawn on a different grid; the shapes below were
-     * authored on the same grid as the app's drawables precisely so they line up, so the equality
-     * is the point rather than a coincidence.
+     * The grid the coordinates are on: *is* [Symbol.VIEWPORT] rather than a second 40 beside it,
+     * so the shapes below (authored on the same grid as the app's drawables) line up with them.
      */
     const val VIEWBOX: Float = Symbol.VIEWPORT
 

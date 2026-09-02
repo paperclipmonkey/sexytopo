@@ -27,10 +27,6 @@ class DistoXProtocolTest {
     // "i for ignore", as the Java test puts it.
     private val i: Byte = 0
 
-    // -----------------------------------------------------------------------------------------
-    // Measurement packets
-    // -----------------------------------------------------------------------------------------
-
     /** A real flat shot captured from a DistoX; the Java test asserts 2.017 m / 71.2 / 4.5. */
     private val flatShotPacket = byteArrayOf(1, -31, 7, -94, 50, 58, 3, -5)
 
@@ -101,10 +97,6 @@ class DistoXProtocolTest {
         assertEquals(DistoXPacketType.UNKNOWN, DistoXPacketType.of(byteArrayOf(0x1F)))
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Acknowledgements
-    // -----------------------------------------------------------------------------------------
-
     @Test
     fun acknowledgementIs0x55WhenTheSequenceBitIsClear() {
         val packet = byteArrayOf(0b0000_0001, i, i, i, i, i, i, i)
@@ -130,10 +122,6 @@ class DistoXProtocolTest {
         val packet = byteArrayOf(0b0000_0010, i, i, i, i, i, i, i)
         assertEquals(0x55.toByte(), DistoXProtocol.createAcknowledgementPacket(packet)[0])
     }
-
-    // -----------------------------------------------------------------------------------------
-    // Calibration packets
-    // -----------------------------------------------------------------------------------------
 
     /** From `CalibrationProtocolTest`; byte 0 is ignored by the field readers. */
     private val accelerationPacket = byteArrayOf(0, -102, -1, 86, -3, -52, 96, 11)
@@ -184,10 +172,6 @@ class DistoXProtocolTest {
         assertEquals(0x1234, DistoXProtocol.readDoubleByte(packet, 1, 2))
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Encoding round trip
-    // -----------------------------------------------------------------------------------------
-
     @Test
     fun encodedMeasurementsSurviveTheRoundTrip() {
         // One count is 90/16384 degrees, so half a count of rounding is the tightest bound here.
@@ -226,10 +210,6 @@ class DistoXProtocolTest {
         assertEquals(0x55.toByte(), DistoXProtocol.createAcknowledgementPacket(withoutBit)[0])
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Measurement decoder
-    // -----------------------------------------------------------------------------------------
-
     @Test
     fun everyPacketIsAcknowledgedEvenWhenItIsNotDecoded() {
         val decoder = DistoXMeasurementDecoder()
@@ -255,10 +235,6 @@ class DistoXProtocolTest {
         assertNotNull(next.packet)
         assertEquals(0, decoder.duplicateCount)
     }
-
-    // -----------------------------------------------------------------------------------------
-    // Calibration decoder
-    // -----------------------------------------------------------------------------------------
 
     @Test
     fun aCalibrationReadingNeedsBothHalves() {
@@ -289,10 +265,6 @@ class DistoXProtocolTest {
         assertTrue(decoder.receive(repeated).disconnect)
         assertEquals(5, decoder.accelerationDuplicated)
     }
-
-    // -----------------------------------------------------------------------------------------
-    // Calibration writing
-    // -----------------------------------------------------------------------------------------
 
     @Test
     fun calibrationIsWrittenFourBytesAtATimeFrom0x8010() {

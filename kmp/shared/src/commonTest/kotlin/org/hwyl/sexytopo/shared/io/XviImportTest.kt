@@ -21,15 +21,10 @@ import kotlin.test.assertTrue
  * Reading a Therion tracing image, checked against the one thing that can check it: this app's own
  * writer.
  *
- * The port could write an `.xvi` and not read one. That is worse than a missing importer, because
- * it means the app's own export does not come back — send a Therion project to somebody and get it
- * returned and the drawing is gone, silently. The Android app has read them all along.
- *
- * A round trip is the strongest check available here and it is only available because both halves
- * now exist in the same codebase: export a drawing, read the file back, and the strokes have to
- * land where they started. Anything wrong with the scale, the sign of y, the token order or the
- * brace scanning shows up as coordinates that do not match, rather than as a file that merely
- * parses.
+ * A round trip is the strongest check available here: export a drawing, read the file back, and the
+ * strokes have to land where they started. Anything wrong with the scale, the sign of y, the token
+ * order or the brace scanning shows up as coordinates that do not match, rather than as a file that
+ * merely parses.
  */
 class XviImportTest {
 
@@ -59,7 +54,6 @@ class XviImportTest {
         )
     }
 
-    /** The check that matters: a drawing survives being written out and read back. */
     @Test
     fun aTracedDrawingComesBackWhereItWasDrawn() {
         val survey = cave()
@@ -168,8 +162,7 @@ class XviImportTest {
     @Test
     fun anEntryThisAppCannotReadIsSkippedRatherThanFatal() {
         // "chartreuse" would have passed: SexyTopo's palette is the 144-name CSS list, so an
-        // unknown colour has to be a word that really is not one. The first version of this check
-        // used it and failed, which is the check doing its job on the test rather than the code.
+        // unknown colour has to be a word that really is not one.
         assertNull(XviImporter.pathFrom(1f, "limestone 1 2"), "an unknown colour")
         assertNull(XviImporter.pathFrom(1f, "black 1 2 3"), "an odd coordinate left over")
         assertNull(XviImporter.pathFrom(1f, "black"), "a colour and no points")

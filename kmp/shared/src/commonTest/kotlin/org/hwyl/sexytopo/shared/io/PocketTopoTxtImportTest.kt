@@ -55,10 +55,6 @@ class PocketTopoTxtImportTest {
         assertTrue(abs(expected - actual) <= tolerance, "expected $expected but was $actual")
     }
 
-    // ---------------------------------------------------------------------------------------
-    // The three the Android app asserts itself
-    // ---------------------------------------------------------------------------------------
-
     @Test
     fun aSectionIsItsHeaderUpToTheNextBlankLine() {
         assertEquals(
@@ -87,17 +83,11 @@ class PocketTopoTxtImportTest {
         assertClose(55.180f, brown.path[0].y)
     }
 
-    // ---------------------------------------------------------------------------------------
-    // The rest of the file
-    // ---------------------------------------------------------------------------------------
-
     @Test
     fun theCentrelineComesIn() {
         val survey = PocketTopoTxtImporter.read(fakeText, "Fake")
 
-        // The origin takes the name the first row shot from.
         assertEquals("1.0", survey.origin.name)
-        // Both rows have an empty destination column, so both are splays off it.
         assertEquals(2, survey.origin.onwardLegs.size)
         assertTrue(survey.origin.onwardLegs.none { it.hasDestination() })
 
@@ -125,7 +115,6 @@ class PocketTopoTxtImportTest {
 
         assertEquals(2, survey.planSketch.pathDetails.size)
         assertEquals(1, survey.elevationSketch.pathDetails.size)
-        // The elevation's single polyline has two points, so it is a line rather than a dot.
         assertEquals(2, survey.elevationSketch.pathDetails[0].path.size)
     }
 
@@ -164,10 +153,6 @@ class PocketTopoTxtImportTest {
         assertEquals(Colour.BLACK, PocketTopoTxtImporter.interpretColour("CHARTREUSE"))
         assertEquals(Colour.BLACK, PocketTopoTxtImporter.interpretColour(""))
     }
-
-    // ---------------------------------------------------------------------------------------
-    // The four crashes this port does not reproduce
-    // ---------------------------------------------------------------------------------------
 
     /**
      * `getSection` calls `matcher.find()` without checking it matched and then `matcher.group(1)`,

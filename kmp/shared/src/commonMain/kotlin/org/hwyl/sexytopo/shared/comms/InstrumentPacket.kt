@@ -3,16 +3,11 @@ package org.hwyl.sexytopo.shared.comms
 import org.hwyl.sexytopo.shared.model.survey.Leg
 
 /**
- * What a decoder makes of one inbound frame, whatever the instrument.
- *
- * Every protocol in this package ultimately produces one of these, so the app layer can consume
- * shots and calibration readings without knowing which device is on the other end — which is what
- * the Android app's `SurveyManager.updateSurvey(Leg)` / `addCalibrationReading` pair does today,
- * only there each `*Manager` reaches for the manager directly.
+ * What a decoder makes of one inbound frame, whatever the instrument: the app layer can consume
+ * shots and calibration readings without knowing which device is on the other end.
  */
 sealed interface InstrumentPacket {
 
-    /** A completed survey shot. */
     class Measurement(
         val leg: Leg,
         val detail: ShotDetail = ShotDetail.NONE,
@@ -20,21 +15,12 @@ sealed interface InstrumentPacket {
         override fun toString(): String = "Measurement($leg, $detail)"
     }
 
-    /**
-     * Half of a DistoX calibration reading: raw accelerometer counts.
-     *
-     * These are unscaled 16-bit sensor counts, not physical units; the calibration algorithm
-     * normalises them itself, which is why the Java model (`model.calibration.CalibrationReading`)
-     * stores plain ints.
-     */
+    /** Raw accelerometer counts, unscaled: the calibration algorithm normalises them itself. */
     data class Acceleration(val gx: Int, val gy: Int, val gz: Int) : InstrumentPacket
 
-    /** The other half of a DistoX calibration reading: raw magnetometer counts. */
     data class Magnetic(val mx: Int, val my: Int, val mz: Int) : InstrumentPacket
 
     /**
-     * A matched acceleration + magnetic pair — one usable calibration reading.
-     *
      * The DistoX always sends the acceleration packet first and the magnetic packet second; a
      * reading is only complete once both have arrived.
      */
@@ -57,12 +43,7 @@ sealed interface InstrumentPacket {
         override fun hashCode(): Int = 31 * address + payload.contentHashCode()
     }
 
-    /**
-     * The device reported a problem with a shot rather than a reading.
-     *
-     * Only BRIC4/BRIC5 do this (over the 58d3 errors characteristic). [showToUser] mirrors
-     * `Bric4Manager.reportError`, which toasts the first error of a pair but only logs the second.
-     */
+    /** Only BRIC4/BRIC5 report this, over the 58d3 errors characteristic. */
     data class DeviceFailure(
         val code: Int,
         val description: String,
@@ -71,7 +52,6 @@ sealed interface InstrumentPacket {
         val showToUser: Boolean,
     ) : InstrumentPacket
 
-    /** A frame whose type byte matched nothing known; kept whole so it can be logged. */
     class Unrecognised(val raw: ByteArray) : InstrumentPacket {
         override fun toString(): String = "Unrecognised(${raw.toHex()})"
 

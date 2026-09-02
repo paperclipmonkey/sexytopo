@@ -1,11 +1,8 @@
 package org.hwyl.sexytopo.shared.log
 
 /**
- * One line in the log: when, what, and whether it was a problem.
- *
- * Ported from `Log.Message`. The timestamp is a formatted string rather than a date, because this
- * module has no clock — the same decision the exporters make, and for the same reason: a value that
- * is passed in can be asserted on, and a value read from a clock cannot.
+ * The timestamp is a formatted string rather than a date, because this module has no clock: a
+ * value that is passed in can be asserted on, and a value read from a clock cannot.
  */
 class LogMessage(
     /** ISO 8601 with an offset, as `Log.Message.FORMAT` writes it: `2026-08-30T14:05:11+0000`. */
@@ -31,22 +28,16 @@ enum class LogType(val limit: Int, val fileName: String) {
 }
 
 /**
- * A bounded log of what has happened, kept so that it can be read *on the phone*.
- *
- * Ported from `control/Log`, minus the parts that cannot travel: the Android `Log` proxy, the
- * `LocalBroadcastManager` events, and Firebase crash reporting. What is left is the part that
- * matters underground — when an instrument will not connect in a cave there is no logcat, no Xcode
- * console and no signal, and the difference between "it didn't work" and a fixable bug report is
- * whether the app kept what it saw.
+ * A bounded log of what has happened, kept so that it can be read *on the phone*: when an
+ * instrument will not connect in a cave there is no logcat, no Xcode console and no signal.
  *
  * An instance rather than the Java's statics: statics are why the Android app needs a `Context`
- * handed to the logger before anything can be logged, and why its own tests cannot exercise it.
+ * handed to the logger before anything can be logged.
  */
 class ActivityLog(val type: LogType) {
 
     private val messages = ArrayDeque<LogMessage>()
 
-    /** Oldest first, as the Java's queue iterates. */
     val entries: List<LogMessage> get() = messages.toList()
 
     val size: Int get() = messages.size
@@ -76,6 +67,5 @@ class ActivityLog(val type: LogType) {
         for (message in loaded.takeLast(type.limit)) messages.addLast(message)
     }
 
-    /** The whole log as text, which is the form somebody can paste into a bug report. */
     fun asText(): String = messages.joinToString("\n") { it.toString() }
 }

@@ -8,11 +8,9 @@ import kotlin.test.assertEquals
 /**
  * What a Therion export is called, which is what decides whether the project builds.
  *
- * The naming rule is `TherionExporter.buildExtension` and `SurveyFile.withExtension` together — one
- * rule written across two files, carried between them by a `"|"` marker prepended to a string and
- * stripped three files away. The marker is an implementation detail; the answers are not, and a
- * surveyor who has typed `P` rather than `.plan` into that box has a project that either resolves
- * or does not.
+ * The naming rule is `TherionExporter.buildExtension` and `SurveyFile.withExtension` together, one
+ * rule written across two files and carried between them by a `"|"` marker prepended to a string
+ * and stripped three files away.
  */
 class TherionExportTest {
 
@@ -40,10 +38,8 @@ class TherionExportTest {
      * A surveyor who empties both boxes gets one name for two drawings.
      *
      * Worth asserting rather than assuming, because it is the case where this app would overwrite
-     * the plan with the elevation — the same loss the port already had once, when both projections
-     * were exported under one name before the suffixes were noticed at all. The Android app has
-     * the same hole; it is recorded here so that the next person to touch this knows the check
-     * describes upstream's behaviour and not a bug introduced here.
+     * the plan with the elevation. The Android app has the same hole; recorded here so the next
+     * person to touch this knows the check describes upstream's behaviour, not a bug introduced here.
      */
     @Test
     fun emptyingBothSuffixesGivesTwoDrawingsOneName() {
@@ -55,7 +51,6 @@ class TherionExportTest {
         )
     }
 
-    /** With no folder set, the scrap names the image beside it. */
     @Test
     fun theImageIsNamedBesideTheScrapUnlessAFolderIsGiven() {
         assertEquals(

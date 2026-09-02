@@ -16,14 +16,7 @@ import kotlin.math.tan
  * Where you are standing, looking at the cave.
  *
  * Ported from the camera half of `SurveyRenderer`: an eye on a sphere around the survey's centre,
- * given by two angles and a distance, plus a pan that slides the whole thing sideways. The Java
- * keeps this as mutable fields on the renderer; here it is a value, so the view can hold it in
- * state and a test can assert on it without standing up an OpenGL context.
- *
- * The other half of `SurveyRenderer` — vertex buffers, shaders, `glDrawArrays` — is not ported at
- * all. A cave centreline is a few hundred lines, which any 2D canvas draws without noticing, and
- * projecting the points here rather than in a vertex shader is what lets the same view run on iOS,
- * Android, the desktop and the web instead of only where GLES is.
+ * given by two angles and a distance, plus a pan that slides the whole thing sideways.
  */
 data class Camera3D(
     /** Angle down from the z axis, in radians. Clamped away from the poles, where the view flips. */
@@ -36,7 +29,6 @@ data class Camera3D(
     val panZ: Float = 0f,
 ) {
 
-    /** The eye, in world coordinates, on a sphere of [distance] around the origin. */
     val eye: Coord3D
         get() =
             Coord3D(
@@ -70,10 +62,7 @@ data class Camera3D(
      * Drag to slide the cave about.
      *
      * The screen-space delta is turned into a world-space one through the inverse of the view
-     * matrix, so that dragging right moves the cave right whichever way it is currently facing. The
-     * w of 0 makes it a direction rather than a point, so the camera's own translation drops out
-     * and only its rotation applies. Scaled by the distance, so a drag covers the same fraction of
-     * the screen whether you are inside the cave or looking at all of it.
+     * matrix, so that dragging right moves the cave right whichever way it is currently facing.
      */
     fun pannedBy(dx: Float, dy: Float): Camera3D {
         val inverseView = view.inverted() ?: return this
@@ -124,7 +113,6 @@ data class Camera3D(
                 INITIAL_DISTANCE
             }
 
-        /** Half the vertical field of view, in radians — the angle every fit is measured against. */
         internal val HALF_FIELD_OF_VIEW: Float = FIELD_OF_VIEW * (PI.toFloat() / 360f)
 
         /**
@@ -160,10 +148,8 @@ class Wireframe(
     val size: Coord3D,
 ) {
 
-    /** Whether there is anything to draw. A survey with one station and no legs has not. */
     val hasNothingToDraw: Boolean get() = legs.isEmpty() && splays.isEmpty()
 
-    /** The longest side of the bounding box, which is what the Java chooses its zoom from. */
     val extent: Float get() = max(size.x, max(size.y, size.z))
 
     /**
@@ -174,20 +160,10 @@ class Wireframe(
         get() = 0.5f * sqrt(size.x * size.x + size.y * size.y + size.z * size.z)
 
     /**
-     * How far back [camera] has to be for every station to be on a viewport of this [aspect].
-     *
-     * Measures what the cave actually projects to from where the camera is standing, rather than
-     * bounding it by something that holds from every angle. A cave is long and thin and a phone is
-     * tall and narrow, and the sphere that contains the cave from *any* angle is so much bigger
-     * than the cave seen from *this* one that fitting it leaves the screen two-thirds empty.
-     *
      * Three half-extents in the camera's own frame — across the screen, up the screen, and along
      * the view — and then the distance at which the first two fit inside the frustum. The third is
      * added rather than ignored because perspective is measured from the eye, not from the middle
      * of the cave: the near end is closer than the centre and so spreads wider.
-     *
-     * A cave with no extent at all — the single station a live survey starts with — has nothing to
-     * fit, and gets the distance the Android app opens at.
      */
     fun distanceToFit(camera: Camera3D, aspect: Float, margin: Float = FIT_MARGIN): Float {
         if (stations.isEmpty()) return Camera3D.INITIAL_DISTANCE
@@ -225,8 +201,6 @@ class Wireframe(
         val (tanHorizontal, tanVertical) = Camera3D.halfAngleTangents(aspect)
         val needed =
             max(acrossHalf / tanHorizontal, upHalf / tanVertical) * margin + alongHalf
-        // A survey with one station and no legs has nothing to fit. Fitting it would be
-        // arithmetically valid and visually absurd: the camera would end up a metre from a dot.
         if (needed <= NOTHING_TO_FIT) return Camera3D.INITIAL_DISTANCE
         return min(Camera3D.MAX_DISTANCE, max(Camera3D.MIN_DISTANCE, needed))
     }
@@ -246,15 +220,9 @@ class Wireframe(
     }
 
     /**
-     * Where a leg lands on the viewport, clipped at the near plane, or null if all of it is behind
-     * the camera.
-     *
-     * Needed because a line is not a point. Rejecting a whole leg because one end is behind the
-     * camera makes passages vanish the moment you zoom into the cave; keeping it and dividing by a
-     * negative `w` folds that end back onto the screen mirrored, which is worse. OpenGL clips the
-     * segment against the near plane and draws what is left, and this does the same by hand. In
-     * this projection `w` *is* the distance in front of the camera, so the near plane is simply
-     * where `w` reaches [Camera3D.NEAR].
+     * Rejecting a whole leg because one end is behind the camera makes passages vanish the moment
+     * you zoom into the cave; keeping it and dividing by a negative `w` folds that end back onto
+     * the screen mirrored, which is worse. This clips the segment at the near plane by hand.
      */
     fun projectSegment(
         transform: Matrix4,
@@ -273,7 +241,6 @@ class Wireframe(
         return toScreen(a, width, height) to toScreen(b, width, height)
     }
 
-    /** The point on the segment from [behind] to [inFront] where it passes the near plane. */
     private fun crossingNearPlane(behind: FloatArray, inFront: FloatArray): FloatArray {
         val t = (Camera3D.NEAR - behind[3]) / (inFront[3] - behind[3])
         return FloatArray(4) { behind[it] + (inFront[it] - behind[it]) * t }
@@ -337,7 +304,6 @@ class Wireframe(
             )
         }
 
-        /** A little air around the cave, so it does not touch the edges of the screen. */
         const val FIT_MARGIN = 1.12f
 
         /** Below this the survey has no extent worth pointing a camera at. A millimetre. */

@@ -3,12 +3,6 @@ package org.hwyl.sexytopo.shared.manual
 /**
  * The user manual, turned from the HTML the Android app ships into something Compose can draw.
  *
- * `GuideActivity` puts `assets/guide/index.html` in a `WebView`, which is three implementations
- * away on this side: a `WKWebView` behind a UIKit interop on iOS, an iframe over the canvas on the
- * web, and nothing at all on the desktop. The alternative is to read the HTML, and it is only
- * eight tags wide — headings, paragraphs, two kinds of list, bold, italic, code and links — so
- * that is what happens here.
- *
  * The obvious objection to reading it is drift: upstream edits the guide, adds a table, and the
  * app quietly drops it. So [parseManual] does not skip what it does not know — it throws, naming
  * the tag, and a test parses the shipped file on every build. Adding a tag upstream turns into a
@@ -19,7 +13,6 @@ sealed interface ManualBlock {
     /** `<h1>`, `<h2>` or `<h3>`. [id] is the anchor other sections link to, when it has one. */
     data class Heading(val level: Int, val id: String?, val text: String) : ManualBlock
 
-    /** `<p>`. */
     data class Paragraph(val spans: List<ManualSpan>) : ManualBlock
 
     /** `<ul>` or `<ol>`, flattened: one entry per `<li>`, each knowing how deep it sits. */
@@ -31,10 +24,7 @@ sealed interface ManualBlock {
  *
  * [depth] is 0 for a top-level item and 1 for one inside a nested list — the guide has exactly one
  * of those, under *Import*, and the first version of this reader lost the eleven items that came
- * after it without a word. A nested list is flattened with a depth rather than nested in the model
- * because the renderer only has to indent, and a tree would be three more shapes to get wrong.
- *
- * [numbered] is per item, not per list, so an ordered list inside a bulleted one still reads right.
+ * after it without a word.
  */
 data class ManualItem(
     val spans: List<ManualSpan>,
@@ -45,8 +35,7 @@ data class ManualItem(
 /**
  * A run of text with one set of marks on it.
  *
- * [link] is the raw `href`. Every link in the shipped guide is an internal `#anchor`; an external
- * one would be a decision about opening a browser from a cave, and there are none to make it for.
+ * [link] is the raw `href`. Every link in the shipped guide is an internal `#anchor`.
  */
 data class ManualSpan(
     val text: String,

@@ -6,10 +6,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * The BLE device matrix. These UUIDs are the contract with real hardware, so they are pinned
- * against the Android drivers they were read from.
- */
+/** The BLE device matrix; these UUIDs are pinned against the Android drivers they were read from. */
 class InstrumentProfileTest {
 
     @Test

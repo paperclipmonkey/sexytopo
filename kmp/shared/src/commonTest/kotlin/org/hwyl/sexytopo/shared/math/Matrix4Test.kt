@@ -9,11 +9,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * The 4x4 maths the 3D view stands on, checked against `android.opengl.Matrix`'s definitions.
- *
- * Worth testing properly rather than eyeballing the picture: a sign error here does not crash, it
- * draws a cave that is subtly wrong, and the only person who would notice is the one who knows what
- * the cave looks like.
+ * The 4x4 maths the 3D view stands on, checked against `android.opengl.Matrix`'s definitions: a
+ * sign error here does not crash, it draws a cave that is subtly wrong.
  */
 class Matrix4Test {
 
@@ -53,7 +50,7 @@ class Matrix4Test {
         val point = translate.transform(1f, 2f, 3f, 1f)
         assertEquals(listOf(11f, 22f, 33f, 1f), point.toList())
 
-        // w of 0 is a direction, which a translation must not change - the whole basis of panning.
+        // w of 0 is a direction, which a translation must not change.
         val direction = translate.transform(1f, 2f, 3f, 0f)
         assertEquals(listOf(1f, 2f, 3f, 0f), direction.toList())
     }
@@ -133,10 +130,7 @@ class Matrix4Test {
         assertClose(-10f, target[2])
     }
 
-    /**
-     * Up is up. The survey's world is z-up, so a point above the target must come out above the
-     * middle of the screen - this is the check that catches the whole cave being drawn upside down.
-     */
+    /** Up is up: the survey's world is z-up, so a point above the target draws above the middle. */
     @Test
     fun theUpVectorDecidesWhichWayIsUp() {
         val view = Matrix4.lookAt(0f, -10f, 0f, 0f, 0f, 0f, 0f, 0f, 1f)

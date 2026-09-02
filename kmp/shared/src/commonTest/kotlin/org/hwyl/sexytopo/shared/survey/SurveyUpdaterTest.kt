@@ -20,10 +20,6 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
  */
 class SurveyUpdaterTest {
 
-    // -------------------------------------------------------------------------------------
-    // Adding readings
-    // -------------------------------------------------------------------------------------
-
     @Test
     fun updateWithOneLegAddsOneLegToSurvey() {
         val survey = Survey()
@@ -143,10 +139,6 @@ class SurveyUpdaterTest {
         assertFalse(SurveyUpdater.areLegsAboutTheSame(listOf(leg, Leg(5f, 0f, 0f))))
     }
 
-    // -------------------------------------------------------------------------------------
-    // Input modes
-    // -------------------------------------------------------------------------------------
-
     @Test
     fun updateWithBackwardModeCreatesStationFromTripleShot() {
         val survey = Survey()
@@ -253,10 +245,6 @@ class SurveyUpdaterTest {
         assertEquals(1, survey.getAllLegs().size)
     }
 
-    // -------------------------------------------------------------------------------------
-    // updateWithNewStation
-    // -------------------------------------------------------------------------------------
-
     @Test
     fun updateWithNewStationCreatesNewStation() {
         val survey = Survey()
@@ -282,10 +270,6 @@ class SurveyUpdaterTest {
         assertSame(customStation, survey.activeStation)
         assertEquals("Custom", survey.activeStation.name)
     }
-
-    // -------------------------------------------------------------------------------------
-    // upgradeSplay
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun upgradeSplayInForwardMode() {
@@ -321,10 +305,6 @@ class SurveyUpdaterTest {
         assertEquals(225f, upgraded.azimuth, 0.01f)
     }
 
-    // -------------------------------------------------------------------------------------
-    // Renaming
-    // -------------------------------------------------------------------------------------
-
     @Test
     fun renameStationSuccess() {
         val survey = TestSurveys.createStraightNorth()
@@ -357,10 +337,6 @@ class SurveyUpdaterTest {
         assertEquals("START", origin.name)
         assertSame(origin, survey.getStationByName("START"))
     }
-
-    // -------------------------------------------------------------------------------------
-    // Deletion
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun deleteStationRemovesStation() {
@@ -441,10 +417,6 @@ class SurveyUpdaterTest {
             survey.getAllLegsInChronoOrder().all { survey.getOriginatingStation(it) != null }
         )
     }
-
-    // -------------------------------------------------------------------------------------
-    // Downgrading
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun downgradeLegSuccess() {
@@ -571,10 +543,6 @@ class SurveyUpdaterTest {
         return survey
     }
 
-    // -------------------------------------------------------------------------------------
-    // promoteToAboveLeg
-    // -------------------------------------------------------------------------------------
-
     @Test
     fun canPromoteToAboveLegIsFalseWhenNoLegHasBeenTakenYet() {
         val survey = Survey()
@@ -657,10 +625,6 @@ class SurveyUpdaterTest {
         assertFalse(SurveyUpdater.promoteToAboveLeg(loneSurvey, splay))
     }
 
-    // -------------------------------------------------------------------------------------
-    // Reversal and backsights
-    // -------------------------------------------------------------------------------------
-
     @Test
     fun reverseLegChangesDirection() {
         val survey = Survey()
@@ -741,10 +705,6 @@ class SurveyUpdaterTest {
         assertTrue(averaged.azimuth >= 44.5f && averaged.azimuth <= 46f)
         assertTrue(averaged.inclination >= 9.5f && averaged.inclination <= 10.5f)
     }
-
-    // -------------------------------------------------------------------------------------
-    // Extended elevation direction
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun setDirectionOfSubtreeOnSingleStation() {

@@ -105,14 +105,6 @@ class Th2ExportTest {
         assertContains(th2, "point 0.0 500.0 station -name 2")
     }
 
-    // ------------------------------------------------------------------------------------
-    // Cross-sections
-    // ------------------------------------------------------------------------------------
-
-    // -------------------------------------------------------------------------------------
-    // Splitting a drawing into scraps
-    // -------------------------------------------------------------------------------------
-
     /**
      * A big cave is drawn up as several scraps, and the app makes the empty ones.
      *
@@ -249,10 +241,6 @@ class Th2ExportTest {
         assertEquals("-plan", Th2Exporter.expandHashes("-plan", "7"))
     }
 
-    // ------------------------------------------------------------------------------------
-    // Sketch content
-    // ------------------------------------------------------------------------------------
-
     @Test
     fun labelsAndSymbolsBecomeTherionPoints() {
         val survey = cave()
@@ -303,10 +291,6 @@ class Th2ExportTest {
         assertEquals("xl", Th2Exporter.therionSize(1.5f))
     }
 
-    // ------------------------------------------------------------------------------------
-    // The tracing image
-    // ------------------------------------------------------------------------------------
-
     /**
      * The XVI block is written only when there is an XVI to write about.
      *
@@ -333,10 +317,6 @@ class Th2ExportTest {
 
         assertContains(withImage, "xth_me_image_insert {0.0 1 1.0} {0.0 1}")
     }
-
-    // ------------------------------------------------------------------------------------
-    // Metadata
-    // ------------------------------------------------------------------------------------
 
     /** The copyright sits on the line straight after the scrap header, as in the original. */
     @Test

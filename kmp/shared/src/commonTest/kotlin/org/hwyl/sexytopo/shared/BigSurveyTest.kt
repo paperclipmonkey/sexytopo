@@ -32,39 +32,22 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * A cave the size of a real one.
- *
- * Every walk of the survey tree in this port was a recursion, one stack frame per station — which
- * is how the Java does it. A cave is not a bushy tree: a passage is a *chain*, so the recursion is
- * as deep as the survey is long. Somewhere between one and three thousand stations, on a desktop
- * JVM with a generous stack, the whole thing fell over — and the first thing that touches it is the
- * plan view, so opening a club's survey crashed the app before it drew anything.
- *
- * A phone's stack is smaller than a desktop's, and Kotlin/Wasm's is smaller still, which is why
- * this runs on every target rather than on the JVM alone.
- *
- * Four thousand stations is comfortably past where it used to break and small enough that the test
- * stays quick. The chain is built by attaching legs directly rather than through the survey engine,
- * because the engine's station naming scans the survey for each new name and that would make
- * building the fixture cost more than the thing being tested.
+ * A cave the size of a real one: a passage is a *chain*, so walking the survey tree recursively
+ * overflowed the stack between one and three thousand stations, crashing the app on the plan view
+ * before it drew anything. Legs are attached directly rather than through the survey engine, whose
+ * station naming scans the whole survey per name and would make the fixture cost more than the
+ * thing being tested.
  */
 class BigSurveyTest {
 
     private val stationCount = 4000
 
-    /**
-     * One long passage with two wall shots at every station: 4,000 stations, 3,999 legs and 8,000
-     * splays. A real cave is branchier, and branches make the recursion *shallower*.
-     */
+    /** A real cave is branchier than one long passage, and branches make the recursion *shallower*. */
     private fun aLongPassage(): Survey {
         val survey = Survey("Long")
         var previous = survey.origin
-        // From 2, because the origin is already called 1 — and two stations of the same name make
-        // a survey that cannot round-trip through a format that names a leg's far end.
         for (i in 2..stationCount) {
             val station = Station("$i")
-            // Not straight: a real passage wanders, and a straight one would make the bounding box
-            // degenerate in two dimensions and hide anything that divides by it.
             val leg = Leg(5f, (i * 11f) % 360f, ((i % 15) - 7).toFloat(), station)
             previous.addOnwardLeg(leg)
             survey.addLegRecord(leg)
@@ -85,14 +68,12 @@ class BigSurveyTest {
         assertEquals(stationCount - 1 + (stationCount - 1) * 2, survey.getAllLegs().size)
     }
 
-    /** The plan, which is the screen a surveyor opens the survey onto. */
     @Test
     fun aLongPassageProjectsToAPlan() {
         val space = Projection2D.PLAN.project(aLongPassage())
         assertEquals(stationCount, space.stationMap.size)
     }
 
-    /** The extended elevation, whose walk carries an extra accumulator down the chain. */
     @Test
     fun aLongPassageUnrollsToAnExtendedElevation() {
         val space = Projection2D.EXTENDED_ELEVATION.project(aLongPassage())
@@ -115,19 +96,13 @@ class BigSurveyTest {
         assertTrue(SurveyStats.numberOfLegsUnder(survey.origin) > 0)
     }
 
-    /**
-     * The export, whose `extend` commands walk the tree of their own accord — and which used to
-     * overflow part-way through writing the file rather than before starting it.
-     */
+    /** The `extend` commands used to overflow part-way through writing the file, not before starting it. */
     @Test
     fun aLongPassageExportsToSurvexAndTherion() {
         val survey = aLongPassage()
 
         val svx = SurvexExporter.export(survey)
         assertTrue(svx.contains("*begin Long"))
-        // One `*extend start` and nothing else: every station inherits the same direction, so
-        // there is nothing to change along the way. What is being checked is that the walk that
-        // writes these finished at all.
         assertEquals(1, svx.lines().count { it.startsWith("*extend ") })
 
         val th = TherionExporter.export(survey)
@@ -135,12 +110,8 @@ class BigSurveyTest {
     }
 
     /**
-     * And to everything else, which is where a surveyor's weekend actually goes.
-     *
-     * All of these were measured as well as run: at four thousand stations with eight thousand
-     * strokes on the drawing, the SVG takes about six hundred milliseconds and the rest are under
-     * a tenth of a second, all linear. Nothing here needed fixing — but the Survex export did, and
-     * it looked exactly like these until it was measured.
+     * Measured as well as run: the SVG takes about 600ms at this size and the rest under a tenth
+     * of a second, all linear.
      */
     @Test
     fun aLongPassageExportsToEveryOtherFormat() {
@@ -177,7 +148,6 @@ class BigSurveyTest {
         assertTrue(PocketTopoExporter.export(survey).isNotEmpty())
     }
 
-    /** And comes back in, which is the other end of the same trip. */
     @Test
     fun aLongPassageRoundTripsThroughSurvex() {
         val survey = aLongPassage()
@@ -193,7 +163,6 @@ class BigSurveyTest {
         assertEquals(survey.getAllLegs().size, reread.getAllLegs().size)
     }
 
-    /** Setting a whole subtree's extended-elevation direction walks it too. */
     @Test
     fun aLongPassageCanHaveItsDirectionSetThroughout() {
         val survey = aLongPassage()
@@ -207,17 +176,14 @@ class BigSurveyTest {
     }
 
     /**
-     * A survey read from a file can contain a cycle, unlike one the app built: the formats name a
-     * leg's far end, and a file with two stations of the same name collapses them into a leg that
-     * points at its own source. Walking that has to *stop*, because the check that would report the
-     * file as broken begins by walking it.
+     * A file with two stations of the same name collapses them into a leg pointing at its own
+     * source; walking that has to *stop*, because the check that reports it broken walks it first.
      */
     @Test
     fun aSurveyThatPointsAtItselfStillFinishesBeingWalked() {
         val survey = Survey("Looped")
         val second = Station("2")
         survey.origin.addOnwardLeg(Leg(5f, 0f, 0f, second))
-        // Back to where it started, which no edit in the app can produce and a file can.
         second.addOnwardLeg(Leg(5f, 180f, 0f, survey.origin))
 
         val stations = survey.getAllStations()
@@ -226,18 +192,9 @@ class BigSurveyTest {
         assertEquals(setOf("1", "2"), stations.map { it.name }.toSet())
     }
 
-    // ---------------------------------------------------------------------------------------
-    // The drawing on top of it
-    // ---------------------------------------------------------------------------------------
-
     /**
-     * A cave that size has a drawing to match: thousands of strokes, drawn over many trips.
-     *
-     * Nothing here was broken when this was written — every operation is linear in the number of
-     * details, and the worst of them costs a couple of milliseconds on eight thousand strokes. The
-     * test exists so it stays that way, because the ones that would not be linear are easy to
-     * write: a hit test that measures bounds it has already measured, an erase that rebuilds the
-     * list, an undo that copies the sketch.
+     * Every operation here is linear in the number of details. Easy ways to lose that: a hit test
+     * that re-measures bounds, an erase that rebuilds the list, an undo that copies the sketch.
      */
     @Test
     fun aBigDrawingCanStillBeDrawnOnAndRubbedOut() {
@@ -252,7 +209,6 @@ class BigSurveyTest {
         }
 
         assertNotNull(boundsOf(sketch))
-        // A tap lands on the stroke it is nearest to, out of eight thousand.
         assertNotNull(findNearestVisibleItemWithin(sketch, Coord2D(0.2f, 0.1f), 1f, 50f))
 
         val editor = SketchEditor(sketch)
@@ -265,7 +221,6 @@ class BigSurveyTest {
         assertEquals(strokes, sketch.pathDetails.size, "undo did not put the drawing back")
     }
 
-    /** And so does looking for something in it. */
     @Test
     fun aLongPassageCanBeTraversed() {
         val survey = aLongPassage()

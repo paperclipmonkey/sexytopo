@@ -49,7 +49,6 @@ class SvgExportTest {
         assertEquals(countOf(svg, "<g "), countOf(svg, "</g>"), "unbalanced groups")
     }
 
-    /** Every station, leg and splay reaches the file, named the way the survey names them. */
     @Test
     fun everythingSurveyedIsDrawn() {
         val svg = exportOf(cave())
@@ -60,16 +59,11 @@ class SvgExportTest {
         for (name in listOf("1", "2", "3")) assertContains(svg, "id=\"$name\"")
     }
 
-    /** Two exports of an unchanged survey must be identical, or a diff is meaningless. */
     @Test
     fun theSameSurveyExportsIdenticallyEveryTime() {
         val survey = cave()
         assertEquals(exportOf(survey), exportOf(survey))
     }
-
-    // -------------------------------------------------------------------------------------
-    // The sketch
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun strokesLabelsAndSymbolsAreDrawn() {
@@ -91,7 +85,6 @@ class SvgExportTest {
         assertContains(svg, "href=\"#blocks\"")
     }
 
-    /** A directional symbol carries its bearing; an upright one must not carry a rotate at all. */
     @Test
     fun onlyDirectionalSymbolsAreRotated() {
         val survey = cave()
@@ -116,7 +109,6 @@ class SvgExportTest {
         assertContains(exportOf(survey), "id=\"x-section-2\"")
     }
 
-    /** Text a surveyor typed goes into XML, so it has to be escaped or the file will not parse. */
     @Test
     fun textIsEscaped() {
         val survey = cave()
@@ -127,10 +119,6 @@ class SvgExportTest {
         assertContains(svg, "tight &lt;2m &amp; wet")
         assertTrue("tight <2m" !in svg)
     }
-
-    // -------------------------------------------------------------------------------------
-    // Options
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun eachLayerCanBeTurnedOff() {
@@ -159,10 +147,6 @@ class SvgExportTest {
         assertEquals(countOf(bare, "<g "), countOf(bare, "</g>"))
     }
 
-    // -------------------------------------------------------------------------------------
-    // The frame and its arithmetic
-    // -------------------------------------------------------------------------------------
-
     /** Padding by size band, then rounding out to whole metres, exactly as the Java does. */
     @Test
     fun theBorderIsPaddedByBandAndRoundedOut() {
@@ -190,10 +174,6 @@ class SvgExportTest {
 
         assertTrue(frame.right >= 100f, "the sketch did not widen the frame")
     }
-
-    // -------------------------------------------------------------------------------------
-    // Numbers
-    // -------------------------------------------------------------------------------------
 
     /**
      * Exponent notation is invalid in a path and is rendered differently by the JVM and by

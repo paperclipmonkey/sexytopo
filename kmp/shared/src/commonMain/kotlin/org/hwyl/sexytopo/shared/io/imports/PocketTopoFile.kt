@@ -9,12 +9,9 @@ class PocketTopoFormatException(message: String) : Exception(message)
 /**
  * A cursor over a byte array, reading the primitives PocketTopo's `.top` format is made of.
  *
- * Ported from `PocketTopoFile`'s stream methods. An array with a position rather than the Java's
- * `InputStream`: there is no such thing in `commonMain`, and a whole `.top` file is a few hundred
- * kilobytes, so there is nothing to stream. It also makes the reader rewindable, which the format's
- * one ambiguous decision — the drawing element type byte — is easier to reason about with.
- *
- * Everything is little-endian, because the format is a .NET `BinaryWriter` dump.
+ * An array with a position rather than the Java's `InputStream`, since `commonMain` has none and
+ * a `.top` file is a few hundred kilobytes — nothing to stream. Everything is little-endian,
+ * because the format is a .NET `BinaryWriter` dump.
  */
 internal class ByteReader(private val bytes: ByteArray) {
 
@@ -62,9 +59,8 @@ internal class ByteReader(private val bytes: ByteArray) {
             length = length or ((b and 0x7F) shl shift)
             if ((b and 0x80) == 0) break
             shift += 7
-            // A 32-bit length needs five 7-bit groups at most. More than that is a corrupt file
-            // being read as a length, and without this the loop shifts past the width of an Int and
-            // produces a plausible-looking small number - the Java's loop has no such guard.
+            // Five 7-bit groups is the most a 32-bit length needs; more means a corrupt file, and
+            // without this guard the shift runs past Int's width into a plausible-looking number.
             if (shift > 28) throw PocketTopoFormatException("String length is not a valid length")
         }
         if (length == 0) return ""
@@ -103,11 +99,9 @@ object PocketTopoFile {
     private const val MILLISECONDS_PER_DAY = 86400000L
 
     /**
-     * A raw station id as a name.
-     *
-     * Three cases, from the format specification: the undefined id is a splay's missing far end;
-     * a negative value is a plain number offset by `0x80000001`; anything else is `major.minor`
-     * packed into the two halves of the word.
+     * A raw station id as a name: the undefined id is a splay's missing far end, a negative value
+     * is a plain number offset by `0x80000001`, and anything else is `major.minor` packed into
+     * the two halves of the word.
      */
     fun idToName(value: Int): String? =
         when {
@@ -126,11 +120,8 @@ object PocketTopoFile {
     fun distanceToMetres(millimetres: Int): Float = millimetres / 1000.0f
 
     /**
-     * A .NET `DateTime` as a calendar date.
-     *
-     * The Java hands the milliseconds to `new Date()` and lets the platform do the calendar; there
-     * is no platform here, so this is the civil-from-days conversion written out. Proleptic
-     * Gregorian, which is what .NET ticks are.
+     * A .NET `DateTime` as a calendar date: no platform `Date` here, so this is civil-from-days
+     * written out by hand. Proleptic Gregorian, matching .NET ticks.
      */
     fun ticksToDate(ticks: Long): SurveyDate {
         val millis = (ticks - TICKS_AT_EPOCH) / TICKS_PER_MILLISECOND
@@ -144,10 +135,8 @@ object PocketTopoFile {
     }
 
     /**
-     * Howard Hinnant's `civil_from_days`, which turns a count of days since 1970-01-01 into a
-     * year, month and day with no lookup tables and no leap-year special cases.
-     *
-     * The trick is to shift the era so that March is the first month: leap days then fall at the
+     * Howard Hinnant's `civil_from_days`: days since 1970-01-01 to year/month/day with no lookup
+     * tables. The trick is shifting the era so March is the first month, so leap days fall at the
      * end of the year and every 400-year era has exactly 146097 days.
      */
     private fun civilFromDays(days: Long): SurveyDate {

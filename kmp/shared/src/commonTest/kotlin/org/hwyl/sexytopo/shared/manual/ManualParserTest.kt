@@ -6,11 +6,8 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
- * The manual reader, on the shapes the guide actually contains.
- *
- * The drift guard — the real file, every tag in it — is `ManualContentTest` in the demo module,
- * where the shipped resource can be read off disk. This is the reader itself, and it runs on all
- * three targets because the app draws the manual on all three.
+ * The manual reader, on the shapes the guide actually contains. `ManualContentTest` in the demo
+ * module is the drift guard against the real shipped file.
  */
 class ManualParserTest {
 
@@ -42,10 +39,7 @@ class ManualParserTest {
         assertEquals(".", spans[4].text)
     }
 
-    /**
-     * The space either side of a tag has to survive, or every emphasised word joins the one before
-     * it. This is the whole reason whitespace is collapsed rather than trimmed.
-     */
+    /** The space either side of a tag has to survive, or every emphasised word joins the one before it. */
     @Test
     fun itDoesNotRunWordsTogetherAtATagBoundary() {
         val blocks = parseManual("<p>known as <strong>legs</strong> (or <strong>shots</strong>)</p>")
@@ -84,10 +78,8 @@ class ManualParserTest {
     }
 
     /**
-     * The guide has one nested list, under *Import*, and the first version of this reader treated
-     * the inner `</ul>` as the end of the outer one — so the eleven items after it vanished with
-     * no error at all. Silently losing content is the exact failure this whole approach exists to
-     * avoid, so it gets its own test and a count assertion against the real file.
+     * The guide has one nested list, under *Import*; the first version of this reader treated the
+     * inner `</ul>` as the end of the outer one, so the eleven items after it vanished silently.
      */
     @Test
     fun aListInsideAListKeepsEverythingAroundIt() {
@@ -125,10 +117,7 @@ class ManualParserTest {
         assertEquals(listOf(ManualBlock.Heading(1, null, "Manual")), blocks)
     }
 
-    /**
-     * The point of the whole exercise. Upstream adds a table to the guide; this build fails, and
-     * somebody adds a table to the renderer. It does not silently lose a section.
-     */
+    /** Upstream adds a table to the guide, this build fails, and it does not silently lose a section. */
     @Test
     fun itRefusesToQuietlyDropSomethingItCannotDraw() {
         val thrown = assertFailsWith<ManualParseException> {

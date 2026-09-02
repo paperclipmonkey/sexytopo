@@ -3,12 +3,6 @@ package org.hwyl.sexytopo.shared.comms
 /**
  * A link to an instrument, with no platform types in sight.
  *
- * The Android app fuses transport and protocol: `DistoXThread` owns an RFCOMM socket *and* parses
- * packets; each `*Manager` extends Nordic's `BleManager` *and* decodes characteristics. Splitting
- * them lets the decoders in this package be exercised byte-for-byte in commonTest, and lets an
- * Android `BleManager`, a CoreBluetooth `CBPeripheral` and [SimulatedInstrument] all feed the same
- * code.
- *
  * Implementations are expected to be called from a single thread (the platform's callback thread
  * in practice) and to deliver frames on that same thread; nothing here is synchronised.
  */
@@ -41,7 +35,6 @@ interface InstrumentTransport {
     fun observe(listener: InstrumentTransportListener): TransportSubscription
 }
 
-/** Handle returned by [InstrumentTransport.observe]. */
 fun interface TransportSubscription {
     fun cancel()
 }
@@ -52,20 +45,12 @@ fun interface TransportSubscription {
  * Most instruments have exactly one inbound stream ([DEFAULT]). FCL genuinely has two, told apart
  * by characteristic UUID (`...c504` primary, `...c505` extended), so its decoder needs to know
  * which is which. BRIC4 also has three, and `Bric4Manager` notes in a comment that Android gives it
- * no way to tell them apart, so the Android driver cycles blindly through the roles. CoreBluetooth
- * *does* report the characteristic, so BRIC's profile maps its three to [PRIMARY], [EXTENDED] and
- * [TERTIARY] and [org.hwyl.sexytopo.shared.comms.bric.Bric4Decoder.feed] can route by role.
+ * no way to tell them apart, so the Android driver cycles blindly through the roles.
  */
 enum class FrameChannel {
     DEFAULT,
     PRIMARY,
     EXTENDED,
-
-    /**
-     * A third distinct stream. Only BRIC needs it: its measurement, metadata and error
-     * characteristics are three separate notify sources that Android cannot tell apart but
-     * CoreBluetooth can.
-     */
     TERTIARY,
 }
 

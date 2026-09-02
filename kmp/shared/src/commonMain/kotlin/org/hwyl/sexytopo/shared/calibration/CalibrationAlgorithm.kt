@@ -7,19 +7,6 @@ import kotlin.math.roundToInt
  * The DistoX calibration solver: Beat Heeb's algorithm as written for PocketTopo, ported here from
  * the Android app's Java, which was itself translated from C#.
  *
- * Kindly made available for use in SexyTopo by Beat Heeb. That provenance is why this file is
- * called out separately in the licensing discussion: an App Store release needs a GPL-3 Section 7
- * exception from every copyright holder, and he is one of them.
- *
- * ## What it does
- *
- * A surveyor points the instrument in 56 directions — fourteen groups of four, each group nominally
- * the same direction rotated about the instrument's own axis — and reads off raw accelerometer and
- * magnetometer triples. This finds the linear correction (a matrix and an offset for each sensor)
- * that best explains those readings, by alternating between "given the current correction, what
- * would the ideal vectors be" and "given those ideal vectors, what correction fits them best",
- * until the correction stops moving.
- *
  * ## Two deliberate departures from the Java
  *
  * **The results are returned, not stored.** The original keeps `aG`, `aM`, `bG`, `bM` and `nl` in
@@ -298,14 +285,12 @@ object CalibrationAlgorithm {
         )
     }
 
-    /** Turns raw readings into the algorithm's units, dividing by [FV]. */
     fun readingsToVectors(readings: List<CalibrationReading>): Pair<List<Vector>, List<Vector>> {
         val g = readings.map { Vector(it.gx / FV, it.gy / FV, it.gz / FV) }
         val m = readings.map { Vector(it.mx / FV, it.my / FV, it.mz / FV) }
         return g to m
     }
 
-    /** Solves directly from readings. */
     fun calibrate(
         readings: List<CalibrationReading>,
         useNonLinearity: Boolean,
@@ -340,7 +325,6 @@ data class CalibrationResult(
     val useNonLinearity: Boolean,
 ) {
 
-    /** True if the fit ran to the iteration ceiling without converging. */
     val converged: Boolean
         get() = iterations < CalibrationAlgorithm.MAX_IT
 

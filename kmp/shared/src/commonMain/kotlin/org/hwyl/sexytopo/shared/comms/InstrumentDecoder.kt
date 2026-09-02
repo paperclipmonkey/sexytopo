@@ -13,55 +13,31 @@ import org.hwyl.sexytopo.shared.comms.sap6.Sap6Protocol
 /**
  * What to do with one frame from an instrument: what it means, and what to write back.
  *
- * The missing middle of this port. Every protocol here was translated and tested byte for byte
- * from the Android drivers, and every one of them was unreachable, because each `*Manager` in the
- * app fuses three jobs — Bluetooth, decoding, and deciding when to acknowledge — and only the
- * middle one had been pulled out. A transport that has a frame and a profile still had no way to
- * ask "is this a measurement, and does the instrument expect a reply".
- *
  * Acknowledgement is the part that is easy to miss and impossible to diagnose in a cave. Four of
  * these instruments will not send the next shot until the last one is acknowledged, so a decoder
  * that quietly skipped the write would take exactly one reading and then look like a flat battery.
- *
- * Stateful, because BRIC needs to be: its three characteristics are one logical stream and its
- * decoder assembles across them. One decoder per connection, discarded with it.
  */
 abstract class InstrumentDecoder {
 
-    /**
-     * Which driver this is, for the connection log and for tests.
-     *
-     * A surveyor who can see "DistoX-BLE driver" in the log knows the app recognised what it is
-     * talking to, which is the first thing to check when readings are not arriving.
-     */
     abstract val driverName: String
 
     /** Everything the frame contained. Usually zero or one packets; BRIC can emit several. */
     abstract fun decode(channel: FrameChannel, bytes: ByteArray): List<InstrumentPacket>
 
     /**
-     * What to write back, or null if this instrument does not expect anything.
-     *
      * Called with the same frame [decode] was given, whether or not it decoded to anything: an
      * instrument waiting for an acknowledgement is waiting whether or not this port understood
      * what it sent.
      */
     open fun acknowledgementFor(channel: FrameChannel, bytes: ByteArray): ByteArray? = null
 
-    /** Forget any part-assembled state. Called when a link drops. */
     open fun reset() = Unit
 
     /**
-     * Whether the instrument has been put into calibration mode.
-     *
-     * The Android app models this by swapping protocol objects — `MeasurementProtocol` for shots,
-     * `CalibrationProtocol` for calibration readings — because on the classic DistoX the *same*
-     * packet types mean different things in the two modes, and nothing in a frame says which mode
-     * the device is in. Setting this is the equivalent of that swap, and it discards any
-     * part-assembled state, since a half-read shot is not the first half of a calibration reading.
-     *
-     * Most drivers ignore it: DistoX-BLE, Cavway, BRIC, SAP6 and FCL all tag their frames, so they
-     * can tell a calibration reading from a shot without being told.
+     * On the classic DistoX the *same* packet types mean different things in measurement and
+     * calibration mode, and nothing in a frame says which mode the device is in. Setting this
+     * discards any part-assembled state, since a half-read shot is not the first half of a
+     * calibration reading.
      */
     var calibrating: Boolean = false
         set(value) {
@@ -71,17 +47,15 @@ abstract class InstrumentDecoder {
             }
         }
 
-    /** Which family this driver speaks for, so a caller can ask what commands it accepts. */
     abstract val family: InstrumentFamily
 
     /**
      * The bytes that carry [command] to this instrument, or null if it has no such command.
      *
      * The command byte itself is the same everywhere — the DistoX defined the vocabulary and the
-     * clones adopted it — but the wrapping is not, and that is the whole reason this lives on the
-     * decoder rather than in a constant. The classic DistoX writes the bare byte to an RFCOMM
-     * socket, SAP6 and FCL write it as a single-octet GATT value (`CaveBLE.sendCommand`), and
-     * DistoX-BLE and Cavway wrap it in a `data:` frame — see the override.
+     * clones adopted it — but the wrapping is not. The classic DistoX writes the bare byte to an
+     * RFCOMM socket, SAP6 and FCL write it as a single-octet GATT value (`CaveBLE.sendCommand`),
+     * and DistoX-BLE and Cavway wrap it in a `data:` frame — see the override.
      *
      * Null rather than a byte for an unsupported command, so a screen can grey out a button
      * instead of writing something the instrument will ignore. FCL, for instance, has no
@@ -92,8 +66,6 @@ abstract class InstrumentDecoder {
 
     companion object {
         /**
-         * The decoder for an instrument, by profile.
-         *
          * Matched on the profile's own name prefix rather than on identity, so [InstrumentProfile]
          * copies — `BRIC5` is `BRIC4.copy`, `DiscoX` is `SAP6.copy` — resolve to the driver the
          * Android app uses for them, which is the same one.
@@ -115,13 +87,10 @@ abstract class InstrumentDecoder {
          * Not reachable by [forProfile], and deliberately: [InstrumentProfile] describes BLE
          * devices, and no phone this port runs on can open an RFCOMM socket — iOS has no public
          * API for Bluetooth Classic at all, and neither has any browser. It is here because
-         * [org.hwyl.sexytopo.shared.comms.sim.SimulatedInstrument] emits genuine classic packets,
-         * so the simulated instrument and a real one now decode through exactly the same layer
-         * rather than through two code paths that can drift.
+         * [org.hwyl.sexytopo.shared.comms.sim.SimulatedInstrument] emits genuine classic packets.
          */
         fun classicDistoX(): InstrumentDecoder = ClassicDistoXDecoder()
 
-        /** [InstrumentDecoder.driverName] for a profile this port has no driver for. */
         const val UNKNOWN_DRIVER = "unknown"
     }
 }
@@ -179,17 +148,12 @@ private class DistoXBleDecoder : InstrumentDecoder() {
 
     override val family = InstrumentFamily.DISTOX_BLE
 
-    /**
-     * `DistoXBleManager.createWriteCommandPacket`: the command byte inside a `data:` frame rather
-     * than written raw, because this device's write characteristic carries framed packets.
-     */
     override fun encodeCommand(command: InstrumentCommand): ByteArray? =
         if (command.supportedBy(family)) {
             DistoXBleFraming.createWriteCommandPacket(command.byte)
         } else {
             null
         }
-
 
     override val driverName = "DistoX-BLE"
 
@@ -211,10 +175,6 @@ private class CavwayDecoder : InstrumentDecoder() {
 
     override val family = InstrumentFamily.CAVWAY_X1
 
-    /**
-     * `DistoXBleManager.createWriteCommandPacket`: the command byte inside a `data:` frame rather
-     * than written raw, because this device's write characteristic carries framed packets.
-     */
     override fun encodeCommand(command: InstrumentCommand): ByteArray? =
         if (command.supportedBy(family)) {
             DistoXBleFraming.createWriteCommandPacket(command.byte)
@@ -238,14 +198,7 @@ private class CavwayDecoder : InstrumentDecoder() {
         }
 }
 
-/**
- * BRIC4 and BRIC5: three notify characteristics that are one logical stream.
- *
- * The channel matters here and nowhere else. Android cannot tell BRIC's three indications apart,
- * so `Bric4Manager` cycles blindly through the roles and its own comment admits the desync risk;
- * CoreBluetooth and Web Bluetooth both report which characteristic fired, so passing the channel
- * through means this port simply does not have that bug.
- */
+/** BRIC4 and BRIC5: three notify characteristics that are one logical stream. */
 private class BricDecoder : InstrumentDecoder() {
 
     override val family = InstrumentFamily.BRIC4
@@ -335,7 +288,6 @@ private class FclDecoderAdapter : InstrumentDecoder() {
     }
 }
 
-/** A profile with no driver: frames are surfaced as-is rather than silently dropped. */
 private object UnknownDecoder : InstrumentDecoder() {
 
     override val family = InstrumentFamily.DISTOX
@@ -346,6 +298,5 @@ private object UnknownDecoder : InstrumentDecoder() {
         listOf(InstrumentPacket.Unrecognised(bytes))
 }
 
-/** Every [Leg] in a batch of packets, which is what the survey engine wants. */
 fun List<InstrumentPacket>.measurements(): List<org.hwyl.sexytopo.shared.model.survey.Leg> =
     filterIsInstance<InstrumentPacket.Measurement>().map { it.leg }

@@ -11,21 +11,13 @@ import kotlin.math.roundToLong
 /**
  * What turns an exported drawing into a survey somebody else can read.
  *
- * Ported from `SvgExporter`'s `LegendModel`, `buildLegendModel`, `writeLegend` and
- * `writeNorthArrow`. A plan with no scale, no north and no date is a picture; the legend is what
- * makes it evidence — and it is the difference between an export a caving club will accept and one
- * they will ask you to redo.
+ * The layout is arithmetic on a cursor running down a strip below the drawing, with every
+ * constant matching the Java's exactly, so the two apps' exports stay comparable.
  *
- * The layout is arithmetic on a cursor running down a strip below the drawing, and every constant
- * is the Java's. It is reproduced exactly rather than improved because a legend that laid itself
- * out differently would make the two apps' exports impossible to compare, which is the one thing
- * this port is for.
- *
- * The one place it cannot be exact is the date. `DateFormat.MEDIUM` in the device's own locale
- * gives "12 Apr 2026" here and "Apr 12, 2026" there, which is a drawing that changes depending on
- * whose phone exported it; and this port's [org.hwyl.sexytopo.shared.model.survey.SurveyDate] is
- * deliberately zoneless and locale-free. So the legend writes the ISO date, which is what the
- * Survex and Therion exporters already write and what sorts correctly everywhere.
+ * The one place it cannot be exact is the date: `DateFormat.MEDIUM` renders differently by
+ * locale, and this port's [org.hwyl.sexytopo.shared.model.survey.SurveyDate] is deliberately
+ * zoneless and locale-free — so the legend writes the ISO date instead, matching the Survex and
+ * Therion exporters.
  */
 internal class SvgLegend(
     val title: String,
@@ -120,12 +112,7 @@ internal class SvgLegend(
 
     companion object {
 
-        /**
-         * The legend for a survey, or null when there is nothing to measure.
-         *
-         * Null for a zero-width drawing, as in the Java: the scale bar is chosen from the drawing's
-         * width, and a survey of one station has none.
-         */
+        /** The legend for a survey, or null for a zero-width drawing (a one-station survey). */
         fun of(
             survey: Survey,
             projection: Projection2D,
@@ -170,10 +157,8 @@ internal class SvgLegend(
                 .joinToString(", ")
 
         /**
-         * "© 2026 Caver Jane — CC BY 4.0", with either half omitted when it is not set.
-         *
-         * The © and the year are added here, so the trip's copyright holder is just a name — which
-         * is why a survey exported twice in different years still says the year of the *trip*.
+         * "© 2026 Caver Jane — CC BY 4.0", either half omitted when unset. The year comes from
+         * the trip, not the export date, so re-exporting later doesn't change it.
          */
         fun copyrightLine(trip: Trip?): String {
             if (trip == null) return ""
@@ -192,11 +177,9 @@ internal class SvgLegend(
         }
 
         /**
-         * "L: 120 m, H: 14 m" — surveyed length and vertical range, both to the nearest metre.
-         *
-         * `roundToLong` rather than `round`: Kotlin's `round` is ties-to-even, and every number the
-         * Android app has ever written is `Math.round`'s ties-up. Both values are non-negative
-         * here, so `roundToLong` is exactly `Math.round`.
+         * "L: 120 m, H: 14 m", to the nearest metre. `roundToLong` rather than `round`, which is
+         * ties-to-even where Android's `Math.round` is ties-up; both values here are
+         * non-negative, so the two agree.
          */
         fun statsLine(survey: Survey): String {
             val length = SurveyStats.totalLength(survey).roundToLong()

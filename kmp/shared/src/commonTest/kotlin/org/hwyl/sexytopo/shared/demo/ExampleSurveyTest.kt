@@ -11,11 +11,9 @@ import kotlin.test.assertTrue
 import kotlin.random.Random
 
 /**
- * The demo cave is the first thing a visitor with no survey of their own sees, and its whole job
- * is to sell the cross-section feature. See finding 88: a cross-section used to be a bare star of
- * splay rays, offset from its station in one fixed direction regardless of which way the passage
- * ran, which on plenty of stations put it right back on top of the centreline it was meant to
- * illustrate. These pin the fix down as behaviour rather than trusting the screenshot alone.
+ * Finding 88: a cross-section used to be a bare star of splay rays, offset from its station in one
+ * fixed direction regardless of which way the passage ran, which on plenty of stations put it back
+ * on top of the centreline it was meant to illustrate. These pin the fix down as behaviour.
  */
 class ExampleSurveyTest {
 
@@ -41,11 +39,7 @@ class ExampleSurveyTest {
         )
     }
 
-    /**
-     * A cross-section's sub-sketch used to be left empty — `CrossSectioner.section` only ever
-     * built the splay star, and nothing traced a wall around it. Every section here should now
-     * carry a closed outline drawn around its own LRUD tips.
-     */
+    /** A cross-section's sub-sketch used to be left empty; every section here now carries a closed outline. */
     @Test
     fun everyCrossSectionHasAWallDrawnAroundItsLruds() {
         assertTrue(drawnSections.isNotEmpty(), "the demo cave should have cross-sections at all")
@@ -60,21 +54,18 @@ class ExampleSurveyTest {
             val path = sketch.pathDetails.first().path
             val tips = drawn.detail.crossSection.getProjection().legMap.size
 
-            // More points than splay tips: the outline is hand-drawn wobble between them
-            // (freehandTo), not a bare connect-the-dots polygon.
+            // More points than splay tips: hand-drawn wobble, not a connect-the-dots polygon.
             assertTrue(
                 path.size > tips,
                 "an outline traced by hand should have more points than the ${tips} tips it runs around",
             )
-            // Closed: the traced wall comes back to where it started.
             assertEquals(path.first(), path.last(), "the outline should close back on itself")
         }
     }
 
     /**
-     * The heart of finding 88: a section has to land clear of the centreline, the wall lines
-     * either side of it, and every other section — not just clear of its own station, which the
-     * old fixed `(0, offset)` direction only achieved for passages that happened to run east-west.
+     * A section has to land clear of the centreline, the wall lines, and every other section — not
+     * just its own station, which the old fixed `(0, offset)` direction only achieved east-west.
      */
     @Test
     fun crossSectionsAreClearOfTheRestOfTheSurvey() {
@@ -114,11 +105,7 @@ class ExampleSurveyTest {
         )
     }
 
-    /**
-     * [ExampleSurvey.chooseSectionStations] in isolation: the old random selection could, and on
-     * plenty of seeds did, land every cross-section on the entrance series and never touch one of
-     * the cave's four side branches.
-     */
+    /** The old random selection could, and on plenty of seeds did, never touch a side branch. */
     @Test
     fun chosenStationsAlwaysIncludeABranchWhenOneIsOffered() {
         val random = Random(1)

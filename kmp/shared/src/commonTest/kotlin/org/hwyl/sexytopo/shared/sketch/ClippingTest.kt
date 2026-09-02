@@ -45,10 +45,9 @@ class ClippingTest {
 
     @Test
     fun aLineNearACornerIsDrawnRatherThanRiskedEvenIfItMissesIt() {
-        // One end above, the other to the left: no shared bit, so this is drawn although it in
-        // fact passes outside the corner. Conservative in the only direction that is safe - the
-        // cost of drawing a line nobody sees is a draw call, and the cost of hiding one that
-        // should be there is a passage missing from the survey on screen.
+        // No shared bit, so this is drawn although it in fact passes outside the corner:
+        // conservative in the only direction that is safe, since hiding a line that should be
+        // there loses a passage from the survey on screen.
         assertFalse(outside(10f, -10f, -10f, 10f))
     }
 
@@ -67,10 +66,6 @@ class ClippingTest {
             "bitcode takes min and max of the two corners, so which is which does not matter",
         )
     }
-
-    // -------------------------------------------------------------------------------------
-    // Stations, which are points that draw more than a point
-    // -------------------------------------------------------------------------------------
 
     private fun pointOutside(x: Float, y: Float, margin: Float = 0f) =
         whollyOutside(Coord2D(x, y), topLeft, bottomRight, margin)

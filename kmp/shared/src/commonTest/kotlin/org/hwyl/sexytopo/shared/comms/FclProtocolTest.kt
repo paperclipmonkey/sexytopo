@@ -57,10 +57,6 @@ class FclProtocolTest {
         id,
     )
 
-    // -----------------------------------------------------------------------------------------
-    // CRC
-    // -----------------------------------------------------------------------------------------
-
     @Test
     fun theCrcIsCcittFalse() {
         // The canonical check value for CRC-16/CCITT-FALSE (init 0xFFFF, poly 0x1021, MSB-first,
@@ -80,10 +76,6 @@ class FclProtocolTest {
         val packet = primary()
         assertEquals(FclProtocol.crc16Ccitt(packet, 18), packet.uint16LE(18))
     }
-
-    // -----------------------------------------------------------------------------------------
-    // Primary packet
-    // -----------------------------------------------------------------------------------------
 
     @Test
     fun theHeaderCarriesMagicVersionAndSequence() {
@@ -145,10 +137,6 @@ class FclProtocolTest {
         assertFalse(FclProtocol.isMeasurementInRange(360.1f, 0f, 1f, 1f))
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Extended packet
-    // -----------------------------------------------------------------------------------------
-
     @Test
     fun extendedFieldsUseDifferentScalesAndSigns() {
         val parsed = FclProtocol.parseExtended(extended())!!
@@ -168,10 +156,6 @@ class FclProtocolTest {
         assertNull(FclProtocol.parseExtended(ByteArray(13)))
         assertNull(FclProtocol.parseExtended(ByteArray(15)))
     }
-
-    // -----------------------------------------------------------------------------------------
-    // Split-packet state machine
-    // -----------------------------------------------------------------------------------------
 
     @Test
     fun bothHalvesAreNeededBeforeAnythingIsEmitted() {
@@ -239,10 +223,6 @@ class FclProtocolTest {
         decoder.feed(FrameChannel.PRIMARY, primary())
         assertIs<FclDecodeResult.Complete>(decoder.feed(FrameChannel.EXTENDED, extended()))
     }
-
-    // -----------------------------------------------------------------------------------------
-    // Derived judgements
-    // -----------------------------------------------------------------------------------------
 
     @Test
     fun magneticAnomaliesAreDescribedByDeviation() {

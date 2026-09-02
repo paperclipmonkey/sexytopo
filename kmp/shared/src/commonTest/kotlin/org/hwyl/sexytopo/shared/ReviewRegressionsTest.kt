@@ -18,10 +18,7 @@ import kotlin.test.assertTrue
  */
 class ReviewRegressionsTest {
 
-    // -------------------------------------------------------------------------------------
-    // Survey names are used as folder names, so the Java strips path characters
-    // -------------------------------------------------------------------------------------
-
+    // Survey names are used as folder names, so the Java strips path characters.
     @Test
     fun surveyNamesAreSanitised() {
         assertEquals("CaveSystem", Survey("Cave:System").name)
@@ -52,15 +49,11 @@ class ReviewRegressionsTest {
 
     @Test
     fun aNameLoadedFromFileIsSanitisedOnTheWayIn() {
-        // An imported .data.json could carry anything.
         val survey = SurveyJson.parse("""{"name": "bad/name", "stations": []}""")
         assertEquals("badname", survey.name)
     }
 
-    // -------------------------------------------------------------------------------------
-    // BRIC: "tell the surveyor" is bound to the slot, not to list position
-    // -------------------------------------------------------------------------------------
-
+    // BRIC: "tell the surveyor" is bound to the slot, not to list position.
     /** An errors frame: code at offset 0 (slot 1) and offset 9 (slot 2), floats between. */
     private fun errorsFrame(firstCode: Int, secondCode: Int): ByteArray {
         val bytes = ByteArray(18)
@@ -99,17 +92,12 @@ class ReviewRegressionsTest {
         assertTrue(!failures[1].showToUser)
     }
 
-    // -------------------------------------------------------------------------------------
-    // BRIC: routing by role rather than cycling blindly
-    // -------------------------------------------------------------------------------------
-
     @Test
     fun routingByRoleSurvivesADroppedIndication() {
-        // Android cycles measurement -> metadata -> errors and desynchronises if one is lost.
-        // Routing by characteristic cannot: an errors frame is an errors frame whenever it lands.
+        // Android cycles measurement -> metadata -> errors and desynchronises if one is lost;
+        // routing by characteristic cannot, since an errors frame is one whenever it lands.
         val decoder = Bric4Decoder()
         val measurement = ByteArray(32)
-        // Deliberately skip the metadata indication.
         decoder.feed(FrameChannel.PRIMARY, measurement)
         val out = decoder.feed(FrameChannel.TERTIARY, errorsFrame(0, 0))
 
@@ -117,10 +105,7 @@ class ReviewRegressionsTest {
         assertIs<InstrumentPacket.Measurement>(out.single())
     }
 
-    // -------------------------------------------------------------------------------------
-    // FCL: an unexpected channel must not be guessed at
-    // -------------------------------------------------------------------------------------
-
+    // FCL: an unexpected channel must not be guessed at.
     @Test
     fun anFclFrameOnAnUnknownChannelIsRejectedNotGuessed() {
         // Treating it as a primary packet would discard a held primary and cost the shot.

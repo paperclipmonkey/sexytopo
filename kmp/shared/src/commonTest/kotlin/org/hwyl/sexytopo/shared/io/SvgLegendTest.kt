@@ -18,9 +18,8 @@ import kotlin.test.assertTrue
 /**
  * The strip under the drawing: what turns an exported plan into a survey somebody else can read.
  *
- * A drawing with no scale, no north and no date is a picture. Every caving club that accepts survey
- * data expects the other thing, so this is not decoration — and the Java lays it out with two dozen
- * arithmetic constants, which is exactly the sort of thing a port gets subtly wrong.
+ * The Java lays it out with two dozen arithmetic constants, which is exactly the sort of thing a
+ * port gets subtly wrong.
  */
 class SvgLegendTest {
 
@@ -47,10 +46,6 @@ class SvgLegendTest {
         return survey
     }
 
-    // ------------------------------------------------------------------------------------
-    // What reaches the file
-    // ------------------------------------------------------------------------------------
-
     @Test
     fun theLegendCarriesEverythingASurveyNeedsToBeReadable() {
         val svg = SvgExporter.export(tripped())
@@ -72,10 +67,6 @@ class SvgLegendTest {
         assertFalse("<g id=\"scale-bar\"" in svg)
     }
 
-    /**
-     * Each part is separately switchable, as in `SvgExportOptions` — a club that wants the drawing
-     * without the tagline, or a survey whose team would rather not be named, gets that.
-     */
     @Test
     fun eachPartOfTheLegendCanBeTurnedOffOnItsOwn() {
         val bare =
@@ -155,10 +146,6 @@ class SvgLegendTest {
 
     private fun heightOf(svg: String): Double =
         svg.substringAfter(" height=\"").substringBefore('"').toDouble()
-
-    // ------------------------------------------------------------------------------------
-    // The lines themselves
-    // ------------------------------------------------------------------------------------
 
     /** "© 2026 Wessex Cave Club — CC BY 4.0": the © and the year are added, the holder is a name. */
     @Test

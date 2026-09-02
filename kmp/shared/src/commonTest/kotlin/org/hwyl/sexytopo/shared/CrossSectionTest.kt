@@ -29,10 +29,6 @@ class CrossSectionTest {
     private fun assertClose(expected: Float, actual: Float, tolerance: Float = allowedDelta) =
         assertTrue(abs(expected - actual) < tolerance, "expected $expected but was $actual")
 
-    // ---------------------------------------------------------------------------------------
-    // The angle heuristic — ported cases
-    // ---------------------------------------------------------------------------------------
-
     @Test
     fun straightNorthCrossSection() {
         val survey = TestSurveys.createStraightNorth()
@@ -54,10 +50,6 @@ class CrossSectionTest {
         val s2 = assertNotNull(survey.getStationByName("2"))
         assertClose(0f, CrossSectioner.angleOfSection(survey, s2))
     }
-
-    // ---------------------------------------------------------------------------------------
-    // The angle heuristic — the branches the Java tests do not reach
-    // ---------------------------------------------------------------------------------------
 
     @Test
     fun midPassageTheSectionBisectsTheCorner() {
@@ -120,10 +112,6 @@ class CrossSectionTest {
         assertClose(0f, CrossSectioner.angleOfSection(survey, station))
     }
 
-    // ---------------------------------------------------------------------------------------
-    // The projection
-    // ---------------------------------------------------------------------------------------
-
     /** Station "2" of an eastward passage, with wall, wall and roof splays hung off it. */
     private fun eastwardPassageWithSplays(): Pair<Survey, Station> {
         val survey = Survey("X")
@@ -178,10 +166,6 @@ class CrossSectionTest {
         assertEquals(Coord2D.ORIGIN, projection.legMap.values.single().end)
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Horizontal radius
-    // ---------------------------------------------------------------------------------------
-
     @Test
     fun horizontalRadiusIgnoresVerticalSplays() {
         val survey = Survey("X")
@@ -213,10 +197,6 @@ class CrossSectionTest {
     fun aStationWithNoSplaysHasNoRadius() {
         assertClose(0f, CrossSectioner.horizontalRadius(Survey("X").origin))
     }
-
-    // ---------------------------------------------------------------------------------------
-    // The detail on the sketch
-    // ---------------------------------------------------------------------------------------
 
     @Test
     fun theDetailProjectionIsRelativeToWhereItWasDropped() {

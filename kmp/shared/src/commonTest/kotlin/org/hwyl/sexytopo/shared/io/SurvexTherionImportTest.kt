@@ -23,12 +23,8 @@ import kotlin.test.assertTrue
  *
  * The strongest check available is a round trip, because this port already exports both formats
  * byte-identically against the Android app's own goldens: whatever the exporter writes, the
- * importer has to read back into the same cave. That covers the fiddly parts — which end a leg was
- * shot from, where the repeated readings went, whose comment is whose — in the exact shapes the app
- * actually produces.
- *
- * The rest of these use hand-written files, because a colleague's `.svx` is not something SexyTopo
- * wrote and is the other reason to have an importer at all.
+ * importer has to read back into the same cave. The rest of these use hand-written files, because a
+ * colleague's `.svx` is not something SexyTopo wrote and is the other reason to have an importer.
  */
 class SurvexTherionImportTest {
 
@@ -48,10 +44,6 @@ class SurvexTherionImportTest {
             }
         return SurveyImporter.read(text, format, survey.name)
     }
-
-    // ------------------------------------------------------------------------------------
-    // Round trips
-    // ------------------------------------------------------------------------------------
 
     @Test
     fun aSurveyExportedAsSurvexComesBackTheSameShape() {
@@ -77,7 +69,6 @@ class SurvexTherionImportTest {
         assertEquals(1, imported.getAllLegs().count { !it.hasDestination() })
     }
 
-    /** The numbers have to survive, not just the shape. */
     @Test
     fun theReadingsThemselvesSurvive() {
         val imported = roundTrip(cave(), SurveyFormat.SURVEX)
@@ -139,8 +130,6 @@ class SurvexTherionImportTest {
     @Test
     fun aVerticalDirectionAppliesOnlyToItsOwnLegOnEitherFormat() {
         val original = cave()
-        // Station 2 goes vertical; station 1 (its parent) must not inherit it, and there is
-        // nothing beyond station 2 in this fixture to accidentally inherit it either.
         original.getStationByName("2")!!.extendedElevationDirection =
             ExtendedElevationDirection.VERTICAL
 
@@ -263,10 +252,6 @@ class SurvexTherionImportTest {
         )
     }
 
-    // ------------------------------------------------------------------------------------
-    // Files somebody else wrote
-    // ------------------------------------------------------------------------------------
-
     private val handWritten =
         """
         *begin swildons
@@ -362,7 +347,6 @@ class SurvexTherionImportTest {
         assertEquals(listOf("1", "2", "3"), survey.getAllStations().map { it.name }.sorted())
     }
 
-    /** A passage row is not a shot, and must not be read as one. */
     @Test
     fun aPassageRowIsNotMistakenForAShot() {
         val text =
@@ -404,7 +388,6 @@ class SurvexTherionImportTest {
         )
     }
 
-    /** A file with no metadata at all leaves the survey's trip alone rather than blanking it. */
     @Test
     fun aFileWithNoMetadataHasNoTrip() {
         val text =
@@ -417,7 +400,6 @@ class SurvexTherionImportTest {
         assertNull(SurveyImporter.read(text, SurveyFormat.SURVEX, "T").trip)
     }
 
-    /** Inline promoted legs, in the format the exporter writes them. */
     @Test
     fun inlinePromotedLegsAreRead() {
         val text =
@@ -435,7 +417,6 @@ class SurvexTherionImportTest {
         assertEquals("", leg.comment)
     }
 
-    /** Promoted legs written on comment lines below the leg. */
     @Test
     fun commentedPrecursorLinesAreRead() {
         val text =
@@ -451,7 +432,6 @@ class SurvexTherionImportTest {
         assertEquals(2, survey.getAllLegs().single().promotedFrom.size)
     }
 
-    /** A comment line about something else below a leg is not one of its readings. */
     @Test
     fun anUnrelatedCommentBelowALegIsNotAReading() {
         val text =

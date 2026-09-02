@@ -27,10 +27,6 @@ class PocketTopoFileTest {
         assertTrue(abs(expected - actual) <= tolerance, "expected $expected but was $actual")
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Reading numbers
-    // ---------------------------------------------------------------------------------------
-
     @Test
     fun aByteIsUnsigned() {
         assertEquals(0xAB, reader(0xAB).readByte())
@@ -63,10 +59,6 @@ class PocketTopoFileTest {
             reader(0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00).readInt64(),
         )
     }
-
-    // ---------------------------------------------------------------------------------------
-    // Reading strings
-    // ---------------------------------------------------------------------------------------
 
     @Test
     fun anEmptyStringIsOneZeroByte() {
@@ -111,10 +103,6 @@ class PocketTopoFileTest {
         }
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Station ids
-    // ---------------------------------------------------------------------------------------
-
     @Test
     fun theUndefinedIdIsASplaysMissingFarEnd() {
         assertNull(PocketTopoFile.idToName(0x80000000.toInt()))
@@ -136,10 +124,6 @@ class PocketTopoFileTest {
         assertEquals("1.2", PocketTopoFile.idToName(0x00010002))
         assertEquals("1.0", reader(0x00, 0x00, 0x01, 0x00).readId())
     }
-
-    // ---------------------------------------------------------------------------------------
-    // Units
-    // ---------------------------------------------------------------------------------------
 
     /** The same sixteen bits, read unsigned. North is 0, east is 0x4000. */
     @Test
@@ -176,10 +160,6 @@ class PocketTopoFileTest {
         assertEquals(Colour.ORANGE, PocketTopoFile.topoColourToColour(7))
         assertEquals(Colour.BLACK, PocketTopoFile.topoColourToColour(99))
     }
-
-    // ---------------------------------------------------------------------------------------
-    // Dates
-    // ---------------------------------------------------------------------------------------
 
     /**
      * The Java hands the milliseconds to `new Date()` and lets the platform do the calendar. There

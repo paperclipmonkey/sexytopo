@@ -62,7 +62,6 @@ data class Matrix(val x: Vector, val y: Vector, val z: Vector) {
             return adjugate * (1 / (t.x dot adjugate.x))
         }
 
-        /** The largest absolute difference between corresponding elements. */
         fun maxDiff(a: Matrix, b: Matrix): Float =
             max(
                 Vector.maxDiff(a.x, b.x),

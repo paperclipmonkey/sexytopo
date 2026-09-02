@@ -15,9 +15,7 @@ import kotlin.test.assertTrue
  *
  * The expected string here is not a reading of the Java: it was produced by *running*
  * `CompassExporter.getContent` from `app/` on this exact survey, under the Android module's JVM
- * unit-test variant, and copying what came out. That distinction earned its keep elsewhere in this
- * port - twice today a careful reading of Java produced a fix the compiler then rejected - so where
- * an oracle can be executed rather than inferred, it is.
+ * unit-test variant, and copying what came out.
  */
 class CompassExportTest {
 
@@ -59,7 +57,6 @@ class CompassExportTest {
     @Test
     fun everyLineEndsWithCrlf() {
         val content = CompassExporter.export(survey())
-        // Split on LF; every part but the last (which holds only the form feed) must end in CR.
         val parts = content.split("\n")
         for (part in parts.dropLast(1)) {
             assertTrue(part.endsWith("\r"), "line without CR: ${part.replace("\r", "<CR>")}")
@@ -79,7 +76,6 @@ class CompassExportTest {
         val content = CompassExporter.export(survey())
         assertTrue(content.contains("2ss000"), "first splay off station 2")
         assertTrue(content.contains("2ss001"), "second splay off station 2")
-        // The real leg must not carry the exclude-from-length flag.
         val legLine = content.lines().first { it.startsWith("1\t2\t") }
         assertTrue(!legLine.contains("#|L#"), "a real leg must count towards cave length")
     }

@@ -12,30 +12,20 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
 /**
  * The drawing as a Therion scrap file.
  *
- * Ported from `io/thirdparty/therion/Th2Exporter`. This is the other half of getting a survey into
- * Therion: [XviExporter] writes the tracing image, and this writes the `.th2` that positions it and
- * carries the parts Therion understands as *data* rather than as pixels — stations by name, the
- * anchors that link a cross-section scrap to the station it belongs to, labels, and symbols as
- * Therion points.
+ * [XviExporter] writes the tracing image; this writes the `.th2` that positions it and carries
+ * what Therion treats as *data* rather than pixels — stations by name, cross-section anchors,
+ * labels, and symbols as Therion points. The passage walls themselves are deliberately not in
+ * here: they're traced by the surveyor in xtherion, into Therion's own line objects.
  *
- * Which is to say the passage walls are deliberately not in here. They are in the XVI, because that
- * is what an XVI is for: the surveyor traces them in xtherion, where the result is Therion's own
- * line objects rather than a phone's polylines. A `.th2` that tried to guess which strokes were
- * walls and which were annotation would be guessing.
- *
- * ## Coordinates
- *
- * Survey space is y north-positive; Therion's canvas is y down. Every point emitted here is flipped
- * once, in the same place, for the same reason the XVI exporter flips once — see its note.
+ * Survey space is y north-positive; Therion's canvas is y down, so every point emitted here is
+ * flipped once, in the same place — see the XVI exporter's note.
  */
 object Th2Exporter {
 
     /**
-     * What to write, from the app's `pref_therion_*` preferences with their own defaults.
-     *
-     * The `#` in a cross-section suffix is where the station's name goes; `##` and `###` zero-pad a
-     * numeric one, so station 7 becomes `PX07` rather than `PX7` and a list of scraps sorts the way
-     * a surveyor expects.
+     * What to write, from the app's `pref_therion_*` preferences. `#` in a cross-section suffix
+     * is where the station's name goes; `##`/`###` zero-pad it, so scraps sort the way a
+     * surveyor expects.
      */
     data class Options(
         val planScrapSuffix: String = "-plan",
@@ -46,27 +36,17 @@ object Th2Exporter {
         val labels: Boolean = true,
         val symbols: Boolean = true,
         /**
-         * How many scraps this drawing is written as.
-         *
-         * One is a drawing; more is a set of containers to divide it into. Only the first carries
-         * anything — the stations, the labels, the symbols; the rest are empty scraps with the same
-         * projection and the same header, pre-named and ready to be drawn into.
-         *
-         * That sounds like nothing and is the way a large cave gets drawn up. Therion is slow on
-         * one enormous scrap and a survey is worked on by several people, so a project is split
-         * into scraps by area: one per chamber, one per level. Making them by hand means typing a
-         * `scrap` header, remembering the projection, and keeping the names in step with the ones
-         * the app generated — which is exactly the kind of copying that puts a plan scrap into an
-         * elevation.
+         * How many scraps this drawing is written as. Only the first carries content —
+         * stations, labels, symbols; the rest are empty, pre-named scraps ready to be drawn
+         * into, since Therion is slow on one enormous scrap and large caves are usually split
+         * by area between surveyors.
          */
         val scrapCount: Int = 1,
         /**
-         * Whether the station points go in the first scrap.
-         *
-         * Off is for a project where the stations are their own scrap, so a change to the
-         * centreline does not mean re-exporting a drawing somebody has since worked on. The cross-
-         * section anchors travel with the stations, because a `-scrap` reference is written at the
-         * station it belongs to.
+         * Whether the station points go in the first scrap. Off when the stations are their own
+         * scrap, so a centreline change doesn't mean re-exporting a drawing someone has worked
+         * on. Cross-section anchors travel with the stations either way, since a `-scrap`
+         * reference sits at its station.
          */
         val stationsInFirstScrap: Boolean = true,
         /** The XVI to show behind the drawing; omitted when there is none. */
@@ -89,9 +69,8 @@ object Th2Exporter {
         val sections = mutableListOf<String>()
         sections.add(ENCODING)
 
-        // Only when there is an image to place: a th2 referring to an xvi that was not exported
-        // opens in xtherion with a missing-file complaint and no background at all, which is worse
-        // than a scrap with no image.
+        // Only when there is an image to place: a th2 referring to a missing xvi opens in
+        // xtherion with a missing-file complaint rather than just having no background.
         options.xviFileName?.let { sections.add(xviBlock(survey, space, it, outerFrame)) }
 
         val sketch = survey.getSketch(projection)
@@ -106,7 +85,6 @@ object Th2Exporter {
 
         val total = if (options.scrapCount < 1) 1 else options.scrapCount
         for (index in 1..total) {
-            // Everything is in the first one. The others exist to be drawn into.
             val first = index == 1
             val stations = first && options.stationsInFirstScrap
             sections.add(
@@ -117,8 +95,6 @@ object Th2Exporter {
                     sketch = sketch,
                     space = space,
                     scale = scale,
-                    // Only alongside the stations they anchor to: a `-scrap` reference is written
-                    // at its station, so with the stations left out there is nothing to hang it on.
                     sectionScrapNames = if (stations) sectionScrapNames else emptyMap(),
                     includeStations = stations,
                     includeSketchContent = first,
@@ -136,17 +112,7 @@ object Th2Exporter {
         return sections.joinToString("\n\n")
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Names
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * A survey name safe to use as a scrap name.
-     *
-     * Ported from `TextTools.intelligentlySanitise`: spaces, tabs, newlines and colons become a
-     * joining character — an underscore if the name already contains one, otherwise a hyphen, so a
-     * name that was written `Swildons_Hole` does not come back half-hyphenated.
-     */
+    /** A survey name safe to use as a scrap name: spaces, tabs, newlines and colons become `_`/`-`. */
     fun scrapBaseName(survey: Survey): String = sanitise(survey.name)
 
     internal fun sanitise(text: String): String {
@@ -173,11 +139,8 @@ object Th2Exporter {
         }
 
     /**
-     * A scrap name per cross-section, in the order the sections are held.
-     *
-     * A map rather than a computed name, because the main scrap and the section scraps have to
-     * agree: the `-scrap` argument on a section point must name a scrap that exists further down
-     * the file, or Therion reports a dangling reference.
+     * A scrap name per cross-section. A map, not a computed name, since the main scrap and
+     * section scraps must agree on names Therion can find further down the file.
      */
     private fun crossSectionScrapNames(
         sketch: Sketch,
@@ -206,10 +169,6 @@ object Th2Exporter {
         val number = stationName.toIntOrNull() ?: return stationName
         return number.toString().padStart(width, '0')
     }
-
-    // ---------------------------------------------------------------------------------------
-    // Scraps
-    // ---------------------------------------------------------------------------------------
 
     private fun scrap(
         survey: Survey,
@@ -242,12 +201,9 @@ object Th2Exporter {
     }
 
     /**
-     * What one scrap of a drawing is called.
-     *
-     * The suffix is a *pattern* once there is more than one scrap: `#` takes the number, `##`
-     * zero-pads it to two, so `-plan-##` gives `Name-plan-01`, `Name-plan-02`. A suffix with no
-     * placeholder gets the number appended, and a single unnumbered scrap keeps the plain name it
-     * has always had — so an existing project's file does not change because this option arrived.
+     * What one scrap of a drawing is called. The suffix is a *pattern* once there's more than
+     * one scrap (`#`/`##` take the number); a single unnumbered scrap keeps its plain name, so
+     * existing projects don't change.
      */
     internal fun scrapName(baseName: String, suffix: String, index: Int, total: Int): String {
         if (total == 1 && '#' !in suffix) return baseName + suffix
@@ -268,10 +224,7 @@ object Th2Exporter {
             else -> ""
         }
 
-    /**
-     * The `scrap ...` line, with the copyright line on the very next physical line rather than
-     * separated by a blank one, as the Java does.
-     */
+    /** The `scrap ...` line, with the copyright line on the next physical line, as the Java does. */
     private fun startLines(startLine: String, survey: Survey): String {
         val copyright = SurvexTherionWriter.copyrightLine(survey, SurveyFormat.THERION)
         if (copyright.isEmpty()) return startLine
@@ -295,8 +248,8 @@ object Th2Exporter {
             val point = at.flipVertically().scale(scale)
             commands.add(point(point, "station", "-name", station.name))
 
-            // The anchor that ties a cross-section scrap to its station. Without it the section is
-            // a drawing on its own with nothing saying where in the cave it was taken.
+            // The anchor tying a cross-section scrap to its station, so it isn't a drawing
+            // floating in space.
             val scrapName = sectionScrapNames[station.name] ?: continue
             val detail = sketch.crossSectionDetails.firstOrNull { it.station == station } ?: continue
             val sectionAt = detail.position.flipVertically().scale(scale)
@@ -328,12 +281,9 @@ object Th2Exporter {
     }
 
     /**
-     * A cross-section as its own scrap.
-     *
-     * Empty, deliberately: the Java writes the scrap header and `endscrap` with nothing between,
-     * because the section's *drawing* is in the XVI for the surveyor to trace. The scrap exists so
-     * that the anchor in the main scrap has something to point at, and so xtherion opens it as a
-     * page to draw on.
+     * A cross-section as its own empty scrap: the Java writes header and `endscrap` with
+     * nothing between, since the drawing lives in the XVI. Exists so the main scrap's anchor has
+     * something to point at.
      */
     private fun crossSectionScraps(
         survey: Survey,
@@ -341,8 +291,7 @@ object Th2Exporter {
         sectionScrapNames: Map<String, String>,
         scale: Float,
     ): List<String> {
-        // Sorted by the order the stations were surveyed, so the file reads in the order somebody
-        // walked the cave rather than in whatever order the sections were drawn.
+        // Sorted by survey order, so the file reads in the order the cave was walked.
         val order = survey.getAllStationsInChronoOrder()
         val sections =
             sketch.crossSectionDetails.sortedBy { detail ->
@@ -361,8 +310,8 @@ object Th2Exporter {
         scale: Float,
         sectionScale: Float,
     ): String {
-        // Therion's -scale takes two reference points: [px1 py1 px2 py2 rx1 ry1 rx2 ry2 unit].
-        // Ten metres in the world against the same ten metres in picture units.
+        // Therion's -scale takes two reference points: ten world metres against the same in
+        // picture units.
         val realWorld = 10.0f
         val picture = realWorld * scale * sectionScale
         val scaleArgument =
@@ -371,15 +320,7 @@ object Th2Exporter {
         return listOf(start, "endscrap").joinToString("\n\n")
     }
 
-    // ---------------------------------------------------------------------------------------
-    // The XVI block
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * The `##XTHERION##` lines that put the tracing image behind the scrap.
-     *
-     * Not part of the Therion language: these are comments that xtherion, its editor, reads back.
-     */
+    /** The `##XTHERION##` lines that put the tracing image behind the scrap (xtherion reads these back as comments). */
     internal fun xviBlock(
         survey: Survey,
         space: Space<Coord2D>,
@@ -414,10 +355,6 @@ object Th2Exporter {
         return lines.joinToString("\n")
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Bits and pieces
-    // ---------------------------------------------------------------------------------------
-
     private fun point(at: Coord2D, name: String, vararg arguments: String): String =
         point(at, name, arguments.toList())
 
@@ -425,10 +362,8 @@ object Th2Exporter {
         "point ${at.x} ${at.y} $name " + arguments.joinToString(" ")
 
     /**
-     * A size in metres as one of Therion's five point sizes.
-     *
-     * The Java's comment: "These numbers were determined by creating some stal in Therion at
-     * different scales and seeing how big they came out."
+     * A size in metres as one of Therion's five point sizes. The Java's comment: "determined by
+     * creating some stal in Therion at different scales and seeing how big they came out."
      */
     internal fun therionSize(sizeInMetres: Float): String =
         when {

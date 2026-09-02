@@ -13,10 +13,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Looking at a cave from the outside.
- *
- * The Java's camera lives on the OpenGL renderer, where nothing about it can be tested without a
- * GL context and a screenshot. Split out as a value, every one of these is a plain assertion.
+ * The Java's camera lives on the OpenGL renderer, untestable without a GL context and a
+ * screenshot; split out as a value, every one of these is a plain assertion.
  */
 class Camera3DTest {
 
@@ -36,10 +34,6 @@ class Camera3DTest {
 
     private fun wireframeOf(survey: Survey) = Wireframe.of(Space3DTransformer().transformTo3D(survey))
 
-    // ---------------------------------------------------------------------------------------
-    // The camera itself
-    // ---------------------------------------------------------------------------------------
-
     @Test
     fun theEyeStartsAboveAndToTheSide() {
         val eye = Camera3D().eye
@@ -56,11 +50,7 @@ class Camera3DTest {
         assertEquals(Camera3D.INITIAL_ANGLE, spun.angleX)
     }
 
-    /**
-     * At either pole the view direction and the up vector line up, their cross product is zero, and
-     * every entry of the view matrix comes out NaN - a cave that vanishes rather than one that
-     * flips.
-     */
+    /** At either pole the view and up vectors line up, and the view matrix comes out all NaN. */
     @Test
     fun theCameraStopsShortOfLookingStraightDown() {
         val overhead = Camera3D().rotatedBy(0f, -10_000f)
@@ -79,17 +69,12 @@ class Camera3DTest {
         assertEquals(25f, Camera3D(distance = 50f).zoomedBy(0.5f).distance)
     }
 
-    /**
-     * Panning has to follow the screen, not the world: dragging right moves the cave right whichever
-     * way the camera is currently pointing. The check is that the pan lands on the camera's own
-     * right-hand axis, whatever that is.
-     */
+    /** Panning has to follow the screen, not the world, whichever way the camera is pointing. */
     @Test
     fun panningMovesTheCaveTheWayTheFingerWent() {
         val camera = Camera3D(angleY = 1.3f, angleX = 1.1f, distance = 40f)
         val panned = camera.pannedBy(100f, 0f)
 
-        // The pan, seen from the camera, is purely sideways and to the right.
         val inView = camera.view.transform(panned.panX, panned.panY, panned.panZ, 0f)
         assertTrue(inView[0] > 0f, "dragging right moved the cave left")
         assertClose(0f, inView[1])
@@ -103,7 +88,6 @@ class Camera3DTest {
             val panned = camera.pannedBy(0f, 100f)
             view.transform(panned.panX, panned.panY, panned.panZ, 0f)
         }
-        // Dragging down the screen moves the cave down the screen.
         assertTrue(inView[1] < 0f, "dragging down moved the cave up")
     }
 
@@ -117,11 +101,8 @@ class Camera3DTest {
     }
 
     /**
-     * The whole cave, on the shape of screen it is actually being looked at on, with room to spare.
-     *
-     * A portrait phone is the case that matters and the one a naive fit gets wrong: the field of
-     * view is vertical, so the horizontal one is much narrower, and a cave fitted to the height
-     * hangs off both sides.
+     * A portrait phone is the case a naive fit gets wrong: the field of view is vertical, so the
+     * horizontal one is much narrower, and a cave fitted to the height hangs off both sides.
      */
     @Test
     fun theWholeCaveIsOnScreenWhenTheViewOpens() {
@@ -146,10 +127,9 @@ class Camera3DTest {
     }
 
     /**
-     * And it fills that screen rather than sitting in the middle of it. This is the assertion that
-     * fails if the fit goes back to bounding the cave by a sphere that holds from every angle: a
-     * cave is long and thin, and that sphere is so much bigger than what is actually on screen that
-     * two thirds of a phone is left empty.
+     * Fails if the fit goes back to bounding the cave by a sphere that holds from every angle: a
+     * cave is long and thin, and that sphere is so much bigger that two thirds of the phone is left
+     * empty.
      */
     @Test
     fun theCaveFillsTheScreenItIsFittedTo() {
@@ -179,10 +159,7 @@ class Camera3DTest {
         assertTrue(portrait > square, "a portrait screen fitted the cave closer than a square one")
     }
 
-    /**
-     * A live survey starts with one station and no legs. There is nothing to fit, and fitting it
-     * anyway would be arithmetically valid and visually absurd — a camera a metre from a dot.
-     */
+    /** A live survey starts with nothing to fit; fitting it anyway would put a camera a metre from a dot. */
     @Test
     fun aSurveyWithNoExtentStillGetsAUsableCamera() {
         val empty = wireframeOf(Survey("Empty"))
@@ -192,15 +169,10 @@ class Camera3DTest {
     @Test
     fun theStartingDistanceFitsTheCave() {
         assertEquals(150f, Camera3D.fittingExtent(100f))
-        // A survey with one station has no extent, and would otherwise put the camera on top of it.
         assertEquals(Camera3D.INITIAL_DISTANCE, Camera3D.fittingExtent(0f))
         // A cave longer than the far clip plane would otherwise disappear entirely.
         assertEquals(Camera3D.MAX_DISTANCE, Camera3D.fittingExtent(100_000f))
     }
-
-    // ---------------------------------------------------------------------------------------
-    // What gets drawn
-    // ---------------------------------------------------------------------------------------
 
     @Test
     fun legsAndSplaysAreSeparated() {
@@ -242,9 +214,8 @@ class Camera3DTest {
     }
 
     /**
-     * The same survey has to draw the same way twice. `Space` keys its maps on `Station` and `Leg`,
-     * neither of which overrides `hashCode`, so iterating it directly is in identity-hash order and
-     * differs between runs.
+     * `Space` keys its maps on `Station` and `Leg`, neither of which overrides `hashCode`, so
+     * iterating it directly is in identity-hash order and differs between runs.
      */
     @Test
     fun theSameSurveyDrawsInTheSameOrderEveryTime() {
@@ -254,10 +225,6 @@ class Camera3DTest {
         assertEquals(first.legs.map { it.toString() }, second.legs.map { it.toString() })
         assertEquals(first.stations.map { it.toString() }, second.stations.map { it.toString() })
     }
-
-    // ---------------------------------------------------------------------------------------
-    // Projection
-    // ---------------------------------------------------------------------------------------
 
     @Test
     fun theMiddleOfTheCaveIsInTheMiddleOfTheScreen() {
@@ -331,8 +298,8 @@ class Camera3DTest {
     }
 
     /**
-     * A passage running past the camera has to keep being drawn. Dropping the whole leg because one
-     * end is behind you is what makes a cave disappear as you zoom into it.
+     * Dropping the whole leg because one end is behind you is what makes a cave disappear as you
+     * zoom in.
      */
     @Test
     fun aLegWithOneEndBehindTheCameraIsClippedRatherThanDropped() {
@@ -350,7 +317,6 @@ class Camera3DTest {
 
         val drawn = assertNotNull(wireframe.projectSegment(transform, centre, behind, width, height))
 
-        // The end that was in front is where it always was.
         val alone = assertNotNull(wireframe.project(transform, centre, width, height))
         assertClose(alone.x, drawn.first.x, 0.01f)
         assertClose(alone.y, drawn.first.y, 0.01f)

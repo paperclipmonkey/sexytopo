@@ -3,28 +3,22 @@ package org.hwyl.sexytopo.shared.io.store
 /**
  * The whole of the filesystem, as this port needs it.
  *
- * Deliberately tiny. The Android app reaches the filesystem through `DocumentFile`, an abstraction
- * over the Storage Access Framework, and the temptation when porting is to reproduce that shape.
- * There is no reason to: the entire 8,000-line `control/io` package uses ten `DocumentFile` methods
- * and exactly two byte-level operations, `IoUtils.slurpFile` and `IoUtils.saveToFile`. Everything
- * else is naming and orchestration, which is why almost all of this layer can live in `commonMain`.
+ * Deliberately tiny: `control/io` uses ten `DocumentFile` methods and exactly two byte-level
+ * operations, `IoUtils.slurpFile` and `IoUtils.saveToFile`; everything else is naming and
+ * orchestration.
  *
  * Paths are lists of names rather than strings, so no implementation has to agree with any other
  * about separators, escaping, or what a leading slash means.
  *
- * ## Why this is an interface rather than an expect/actual
- *
- * So that tests can use [InMemoryFileStore]. That is not a convenience: the Android app's own
- * `MetadataTranslaterTest` has to Mockito-mock `Uri` and `DocumentFile`, and its one real
- * round-trip test is `@Ignore`d with the note "To mock static methods, need to use inline mocks,
- * which breaks other tests". Behind an interface with a fake, that test runs - on three platforms.
+ * An interface rather than an expect/actual so tests can use [InMemoryFileStore]: the Android
+ * app's own `MetadataTranslaterTest` has to Mockito-mock `Uri` and `DocumentFile`, and its one
+ * real round-trip test is `@Ignore`d with "To mock static methods, need to use inline mocks,
+ * which breaks other tests".
  */
 interface FileStore {
 
-    /** Whether anything exists at [path]. */
     fun exists(path: List<String>): Boolean
 
-    /** Whether [path] names a directory rather than a file. */
     fun isDirectory(path: List<String>): Boolean
 
     /**
@@ -36,10 +30,8 @@ interface FileStore {
      */
     fun list(path: List<String>): List<String>
 
-    /** Reads a file as UTF-8 text, or null if it is absent. */
     fun readText(path: List<String>): String?
 
-    /** Writes UTF-8 text, creating the file and any missing parent directories. */
     fun writeText(path: List<String>, content: String)
 
     /**
@@ -47,15 +39,12 @@ interface FileStore {
      *
      * Here for exactly one caller: PocketTopo's `.top` file is binary, and reading it as text
      * mangles it in a way that is silent — a lost byte in a length prefix moves everything after
-     * it. Everything else this app touches is text, which is why this is the only binary operation
-     * on the interface and why there is no `writeBytes` to go with it: nothing writes one.
+     * it. There is no `writeBytes` to go with it because nothing writes one.
      */
     fun readBytes(path: List<String>): ByteArray?
 
-    /** Creates a directory and any missing parents. Succeeds if it already exists. */
     fun createDirectory(path: List<String>)
 
-    /** Deletes a file, or a directory and everything under it. Returns false if it was absent. */
     fun delete(path: List<String>): Boolean
 }
 
@@ -127,7 +116,6 @@ class InMemoryFileStore : FileStore {
         val target = key(path)
         val removedFile = files.remove(target) != null || binaries.remove(target) != null
         val removedDirectory = directories.remove(target)
-        // A directory takes its contents with it.
         val prefix = "$target/"
         files.keys.filter { it.startsWith(prefix) }.forEach { files.remove(it) }
         binaries.keys.filter { it.startsWith(prefix) }.forEach { binaries.remove(it) }

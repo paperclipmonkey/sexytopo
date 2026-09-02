@@ -9,12 +9,8 @@ import kotlin.test.assertTrue
 /**
  * Calibration readings on disk.
  *
- * A calibration is a twenty-minute job — fifty-six shots, each with the instrument held a
- * particular way — that a surveyor does once and reuses for every survey that instrument takes.
- * Losing a part-finished one to a flat battery means doing all of it again, in the same cave.
- *
- * The format is the Android app's, so a calibration saved by one and loaded by the other is the
- * same calibration.
+ * Losing a part-finished calibration to a flat battery means redoing it in the same cave, so the
+ * format is the Android app's: a calibration saved by one and loaded by the other is the same one.
  */
 class CalibrationJsonTest {
 
@@ -37,7 +33,6 @@ class CalibrationJsonTest {
         }
     }
 
-    /** A file written by the Android app, loaded here. */
     @Test
     fun aFileFromTheAndroidAppLoads() {
         val fromTheApp =

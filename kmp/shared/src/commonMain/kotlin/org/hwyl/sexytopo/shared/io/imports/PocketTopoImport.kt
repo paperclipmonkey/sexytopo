@@ -14,33 +14,26 @@ import org.hwyl.sexytopo.shared.model.survey.Trip
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 
 /**
- * PocketTopo's own binary `.top` file, version 3.
- *
- * Ported from `PocketTopoImporter`. The file its Save writes, rather than the text its Export
- * writes — which matters because the text one is something a caver has to know to produce, and this
- * one is simply what is on the phone or the card they hand you.
+ * PocketTopo's own binary `.top` file, version 3: the file Save writes, not the text Export
+ * writes, so it's simply what's on the phone or card someone hands you.
  *
  * ## Why the shots are read in passes
  *
- * A `.top` file stores shots in the order they were recorded, which is not the order a tree can be
- * built in: a surveyor doubling back records a leg whose *from* station has not been created yet.
- * So the reader sweeps the list repeatedly, taking whichever shots it can attach, until a whole
- * sweep attaches nothing. That also handles the backsight case — a shot whose *to* end already
- * exists — by reversing it into the forward direction this app stores legs in.
+ * A `.top` file stores shots in recording order, not tree order: a surveyor doubling back
+ * records a leg whose *from* station doesn't exist yet. So the reader sweeps repeatedly,
+ * attaching whatever it can, until a sweep attaches nothing — which also handles a backsight (a
+ * shot whose *to* end already exists) by reversing it into this app's forward direction.
  *
- * Legs are attached directly rather than through `SurveyUpdater.update`, deliberately and as the
- * Java does: the triple-shot rule would see a file's repeated shots as fresh readings and invent
- * auto-named stations in the middle of an import.
+ * Legs are attached directly rather than through `SurveyUpdater.update`, as the Java does: the
+ * triple-shot rule would see a file's repeated shots as fresh readings and invent auto-named
+ * stations mid-import.
  */
 object PocketTopoImporter {
 
     /** `Top` and a version byte. Only version 3 is described by the specification. */
     private val HEADER = byteArrayOf('T'.code.toByte(), 'o'.code.toByte(), 'p'.code.toByte(), 3)
 
-    /**
-     * @param name what to call it. The file's trip block has a comment and a date but no name, so
-     *   the caller's — which is the filename — is all there is.
-     */
+    /** @param name what to call it — the trip block has no name field. */
     fun read(bytes: ByteArray, name: String): Survey {
         val reader = ByteReader(bytes)
         verifyHeader(reader)
@@ -74,10 +67,6 @@ object PocketTopoImporter {
             )
         }
     }
-
-    // ---------------------------------------------------------------------------------------
-    // The blocks
-    // ---------------------------------------------------------------------------------------
 
     internal class TripData(val date: SurveyDate, val comment: String, val declination: Float)
 
@@ -135,11 +124,8 @@ object PocketTopoImporter {
         }
 
     /**
-     * A count, checked before it is used to size anything.
-     *
-     * The Java hands a corrupt count straight to `new ArrayList<>(count)` and then loops that many
-     * times, so four bad bytes are an `OutOfMemoryError` or a very long wait. There cannot be more
-     * records than there are bytes left to hold them.
+     * A count, checked before it sizes anything: the Java hands a corrupt one straight to
+     * `new ArrayList<>(count)`, so four bad bytes are an `OutOfMemoryError`.
      */
     private fun readCount(reader: ByteReader, what: String): Int {
         val count = reader.readInt32()
@@ -162,9 +148,8 @@ object PocketTopoImporter {
             when (val elementId = reader.readByte()) {
                 0 -> return polygons
                 1 -> polygons.add(readPolygon(reader))
-                // A cross-section marker. This app has its own cross-sections, drawn from splays,
-                // and a PocketTopo one carries no outline to put in them - so it is skipped rather
-                // than turned into an empty section on the plan.
+                // A cross-section marker: this app's own cross-sections are drawn from splays,
+                // and a PocketTopo one has no outline for them, so it's skipped rather than left empty.
                 3 -> skipCrossSection(reader)
                 else ->
                     throw PocketTopoFormatException("Unknown drawing element type: $elementId")
@@ -187,10 +172,6 @@ object PocketTopoImporter {
         reader.readId() // the station it hangs off
         reader.readInt32() // which way it faces
     }
-
-    // ---------------------------------------------------------------------------------------
-    // Turning it into a survey
-    // ---------------------------------------------------------------------------------------
 
     private fun buildSurvey(
         name: String,
@@ -273,11 +254,9 @@ object PocketTopoImporter {
     }
 
     /**
-     * Makes the station at the far end of [shot] and hangs it off [anchor].
-     *
-     * A backsight is stored the way this app stores every leg — pointing away from the station it
-     * hangs off — so the bearing is turned round and the inclination negated, and the leg is flagged
-     * as having been shot backwards so the table can show it as the surveyor read it.
+     * Makes the station at the far end of [shot] and hangs it off [anchor]. A backsight is
+     * stored pointing away from its station like every leg, so the bearing is turned round and
+     * the inclination negated, flagged as shot backwards for the table to show it as read.
      */
     private fun connect(
         survey: Survey,
@@ -316,10 +295,8 @@ object PocketTopoImporter {
     }
 
     /**
-     * Every unprocessed shot between the same pair of stations, marked off as it goes.
-     *
-     * A surveyor shoots each leg two or three times; PocketTopo keeps all of them, and this app
-     * keeps the average with the originals attached, exactly as it does for a leg taken live.
+     * Every unprocessed shot between the same pair of stations: PocketTopo's repeats become the
+     * average, with the originals attached, as for a leg taken live.
      */
     private fun collectRepeats(
         shots: List<ShotData>,

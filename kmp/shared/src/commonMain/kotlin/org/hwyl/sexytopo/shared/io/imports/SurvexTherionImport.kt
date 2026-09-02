@@ -11,27 +11,20 @@ import org.hwyl.sexytopo.shared.model.survey.Trip
 /**
  * Reading a Survex or Therion file back into a survey.
  *
- * Ported from `io/thirdparty/survextherion/SurvexTherionImporter`. Both formats share one parser
- * because SexyTopo writes them with the same shape: they differ in a comment character, a command
- * prefix, and the name a splay's absent destination takes.
- *
- * Two workflows depend on this, and neither is the drawing-up stage. A caver is handed a
- * colleague's `.svx` and wants to carry on surveying from the end of it; and a survey exported from
- * one phone has to open on another — which, since this port already exports both formats
- * byte-identically, is the round trip its tests assert.
+ * Both formats share one parser, since SexyTopo writes them in the same shape, differing only
+ * in comment character, command prefix, and the name a splay's absent destination takes.
  *
  * ## What the parser has to work out that the file does not say
  *
- * **Which end was shot from.** SexyTopo has no loop closures, so a leg naming a station not seen
- * before *in the from position* was shot backwards. That is positional, not by name: station
- * numbers say nothing about direction.
+ * **Which end was shot from.** SexyTopo has no loop closures, so a leg naming a station not
+ * seen before *in the from position* was shot backwards — positional, not by name.
  *
- * **Where the repeated shots went.** A station is promoted from three agreeing readings, and the
- * exporter keeps those precursors either inline in a `{from: d a i, d a i}` comment or on comment
- * lines under the leg. Both come back, because losing them turns three readings into one and
- * discards the evidence a surveyor would use to check a suspicious leg.
+ * **Where the repeated shots went.** A station promoted from three agreeing readings has those
+ * precursors either inline in a `{from: d a i, d a i}` comment or on comment lines below; both
+ * come back, since losing them discards the evidence a surveyor would use to check a suspicious
+ * leg.
  *
- * **Where a comment belongs.** Files written by SexyTopo 1.11.3 and later put a trailing comment on
+ * **Where a comment belongs.** Files from SexyTopo 1.11.3 and later put a trailing comment on
  * the *leg*; older ones meant it for the newer *station*. `useLegComments` chooses.
  */
 object SurvexTherionImporter {
@@ -39,20 +32,15 @@ object SurvexTherionImporter {
     /** The Java's `COMMENT_INSTRUCTION_REGEX`: the `{...}` holding inline promoted legs. */
     private val COMMENT_INSTRUCTION = Regex("([{].*?[}])")
 
-    /**
-     * `copyright {year} "{holder}" [;#]"{licence}"`, the licence half optional — matching what
-     * `SurvexTherionWriter.copyrightLine` emits.
-     */
+    /** `copyright {year} "{holder}" [;#]"{licence}"`, matching `SurvexTherionWriter.copyrightLine`. */
     private val COPYRIGHT_LINE = Regex("""copyright\s+\S+\s+"([^"]*)"(?:\s*[;#]"([^"]*)")?""")
 
     private val WHITESPACE = Regex("\\s+")
 
     /**
-     * The date given to a trip whose file states metadata but no date.
-     *
-     * The Java's no-argument `Trip()` dates it today, which makes an import unreproducible; this
-     * port's date is mandatory, so an obviously-unset value is used rather than a plausible wrong
-     * one.
+     * The date given to a trip whose file states metadata but no date. The Java's `Trip()`
+     * dates it today (unreproducible); this port's date is mandatory, so an obviously-unset
+     * value is used instead.
      */
     val UNDATED = SurveyDate(1, 1, 1)
 
@@ -71,10 +59,8 @@ object SurvexTherionImporter {
             if (trimmed.isEmpty()) continue
 
             // Survex marks this a command with a leading `*`; Therion writes it bare. Checked
-            // before the general `*`-command skip below, because that skip would otherwise throw
-            // Survex's own `*extend ...` lines away with every other command line, which is
-            // exactly what was happening: `handleElevationDirection` never ran on a Survex file
-            // at all, and on a Therion one only because Therion has no marker to strip.
+            // before the general `*`-command skip below, or Survex's own `*extend ...` lines
+            // would be thrown away with every other command — which is exactly what was happening.
             val withoutMarker = trimmed.removePrefix("*")
             if (withoutMarker.startsWith("extend ")) {
                 applyExtendCommand(survey, stations, withoutMarker)
@@ -98,12 +84,8 @@ object SurvexTherionImporter {
 
             val precursors = commentedPrecursors(lines, index, tokens[0], tokens[1], useLegComments)
 
-            // The only way this throws is `Leg`'s own range checks — a distance, azimuth or
-            // inclination the file wrote as a number but not a legal one. Ported from the Java's
-            // `catch (Exception exception) { throw new Exception("Error importing this line: " +
-            // line) }`, which is what turns "could not read Cave.svx" into a message a surveyor
-            // can act on: which line, and the numbers as written, not as this parser understood
-            // them.
+            // The only way this throws is `Leg`'s own range checks. Rethrown with the line, so
+            // "could not read Cave.svx" becomes a message naming which line and the numbers as written.
             try {
                 addLeg(survey, stations, tokens, comment, precursors, useLegComments)
             } catch (exception: IllegalArgumentException) {
@@ -114,24 +96,16 @@ object SurvexTherionImporter {
 
     /**
      * `extend <direction> [<fromStation>] <station>`, mirroring `TherionImporter`'s
-     * `handleElevationDirectionData` — the one half of this the Java only ever did for Therion,
-     * not for Survex, though nothing in either file's shape makes it Therion-only. Applied to
-     * both here, since a direction round-tripped through a Survex file is no less real than one
-     * round-tripped through a Therion one.
+     * `handleElevationDirectionData` — which the Java only ever ran for Therion, though nothing
+     * about the format makes it Therion-only, so it's applied to both here.
      *
-     * `extend start <station>` is a no-op marker the exporter writes when there is nothing to say
-     * - RIGHT is already the default - and is skipped rather than resolved as a direction name.
+     * `extend start <station>` is a no-op marker and is skipped. A propagating direction
+     * (LEFT/RIGHT) names one station, since the exporter only writes one such line per run of
+     * stations sharing a direction. A non-propagating one (VERTICAL) names a from/to pair and
+     * applies only to the *destination* — the station whose incoming leg is the pitch.
      *
-     * A propagating direction (LEFT/RIGHT) names one station, and setting it there is enough: the
-     * exporter only ever writes one such line per run of stations sharing a direction, exactly
-     * because [SurveyUpdater.setExtendedElevationDirection] already carried it down the subtree
-     * when the surveyor set it, so every station under this one already agrees. A non-propagating
-     * one (VERTICAL) names a from/to pair and applies only to the *destination* — the station
-     * whose incoming leg is the pitch - matching where the app itself puts it.
-     *
-     * A station named in the file that this survey does not have is skipped rather than aborting
-     * the import: the rest of the centreline is worth keeping even if one direction line does not
-     * resolve.
+     * A station named in the file that this survey does not have is skipped rather than
+     * aborting the import.
      */
     private fun applyExtendCommand(
         survey: Survey,
@@ -140,9 +114,6 @@ object SurvexTherionImporter {
     ) {
         val tokens = withoutMarker.split(WHITESPACE)
         if (tokens.size < 2) return
-        // "start" is a no-op marker rather than a direction name, and needs no separate check for
-        // it: no `ExtendedElevationDirection` is called that, so the lookup below already fails
-        // safely on it the same way it would on any other word that is not a direction.
         val direction =
             ExtendedElevationDirection.entries.firstOrNull {
                 it.name.equals(tokens[1], ignoreCase = true)
@@ -190,14 +161,13 @@ object SurvexTherionImporter {
             // `station left right up down ignoreall`: the comment is the sixth column onwards,
             // not everything after the station name.
             //
-            // A deliberate fix rather than a faithful port. The Java splits on the first whitespace
-            // run and keeps the rest, so the four LRUD placeholders come back as part of the
-            // comment — "junction" reads back as "- - - - junction" — and it compounds: export and
-            // import twice and there are eight of them. That is a round trip corrupting data, which
-            // is the one class of divergence this port treats as worth breaking compatibility over.
+            // A deliberate fix, not a faithful port: the Java splits on the first whitespace run
+            // and keeps the rest, so "junction" reads back as "- - - - junction" and compounds on
+            // every export/import cycle — a round trip corrupting data, the one divergence this
+            // port treats as worth breaking compatibility over.
             //
-            // A row with only two fields is still read as `station comment`, so a hand-written
-            // block that omits the dimensions works as it did.
+            // A row with only two fields is still read as `station comment`, for a hand-written
+            // block that omits the dimensions.
             val parts = trimmed.split(WHITESPACE)
             val comment =
                 when {
@@ -212,11 +182,8 @@ object SurvexTherionImporter {
     }
 
     /**
-     * Put passage comments onto their stations, joining rather than overwriting.
-     *
-     * A station can have a comment from the passage block *and* one from its leg line; the original
-     * combines them as `passage :: leg` rather than losing either, because they came from different
-     * places and mean different things.
+     * Put passage comments onto their stations, joining rather than overwriting: a station
+     * comment from the passage block and one from its leg line combine as `passage :: leg`.
      */
     fun mergePassageComments(survey: Survey, passageComments: Map<String, String>) {
         for ((name, passageComment) in passageComments) {
@@ -342,10 +309,6 @@ object SurvexTherionImporter {
         return trip
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Legs
-    // ---------------------------------------------------------------------------------------
-
     private fun addLeg(
         survey: Survey,
         stations: MutableMap<String, Station>,
@@ -420,12 +383,9 @@ object SurvexTherionImporter {
     }
 
     /**
-     * Whether the shot was taken from the far end.
-     *
-     * By *position*, not by station name: a leg whose from-station has not been seen before is one
-     * shot back towards the survey. Both new, or both known, means something this app cannot
-     * represent — a disconnected leg or a loop closure — and the original assumes forward for
-     * either rather than guessing.
+     * Whether the shot was taken from the far end, by *position* not name: a from-station not
+     * seen before means shot backwards. Both new or both known (a disconnected leg or loop
+     * closure) is something this app can't represent, so forward is assumed.
      */
     private fun isBackwards(
         fromName: String,
@@ -507,10 +467,6 @@ object SurvexTherionImporter {
         return legs.toTypedArray()
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Metadata bits
-    // ---------------------------------------------------------------------------------------
-
     private fun parseTeamLine(line: String, team: MutableMap<String, MutableList<Trip.Role>>) {
         val afterTeam = line.substring(5).trim()
         if (!afterTeam.startsWith("\"")) return
@@ -530,11 +486,9 @@ object SurvexTherionImporter {
     }
 
     /**
-     * Survex and Therion role names, which are not this app's own.
-     *
-     * "notes" is the book, and both "assistant" and "dog" mean the role SexyTopo calls DOG — which
-     * is a joke in the original, and preserved rather than tidied, because a file written by the
-     * Android app uses those words.
+     * Survex and Therion role names, not this app's own: "notes" is the book, and both
+     * "assistant" and "dog" mean DOG — a joke in the original, preserved because Android-written
+     * files use it.
      */
     private fun parseRole(word: String): Trip.Role? =
         when (word.lowercase()) {

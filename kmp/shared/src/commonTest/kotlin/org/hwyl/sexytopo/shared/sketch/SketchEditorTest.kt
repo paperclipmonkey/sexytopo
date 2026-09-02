@@ -21,7 +21,6 @@ class SketchEditorTest {
 
     private fun editor() = SketchEditor()
 
-    /** A straight stroke along y = 0 from (0,0) to (10,0), one point per metre. */
     private fun drawHorizontalWall(editor: SketchEditor): PathDetail {
         editor.startPath(Coord2D(0f, 0f))
         for (x in 1..10) {
@@ -243,7 +242,6 @@ class SketchEditorTest {
         assertSame(symbol, editor.sketch.symbolDetails[0])
     }
 
-    /** A symbol too small to see at the current zoom cannot be erased either. */
     @Test
     fun invisiblyTinyDetailsAreNotSelectable() {
         val editor = editor()

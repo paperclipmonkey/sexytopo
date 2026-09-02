@@ -95,18 +95,12 @@ class LrudTest {
     /**
      * A dead end falls back to the passage bearing rather than throwing.
      *
-     * This assertion used to be the opposite. The original indexes the first connected onward leg
-     * directly — `getConnectedOnwardLegs().get(0)` — and this port reproduced the
-     * `IndexOutOfBoundsException` faithfully, which was safe for exactly as long as nothing could
-     * *select* [LrudMode.SHOT]: the Android app reads `pref_lrud_direction` and declares it in no
-     * preference screen, so on Android the value is always `"survey"`.
-     *
-     * Offering the choice makes it reachable, and reachable at the worst moment: passage size is
-     * booked at the station the surveyor is standing at, which at the working end of a survey is a
-     * station with nothing beyond it yet. The first person to choose this setting and measure a
-     * wall would have met it — and on Kotlin/Native an uncaught throw is not an exception, it is
-     * the process ending. So the behaviour changed with the setting that made it reachable, and
-     * this test changed with it rather than being deleted.
+     * This assertion used to be the opposite: the original indexes the first connected onward leg
+     * directly and this port reproduced its `IndexOutOfBoundsException`, which was safe only because
+     * the Android app never lets anyone select [LrudMode.SHOT] — `pref_lrud_direction` is read from
+     * a preference screen that does not declare it. Offering the choice makes the crash reachable at
+     * the worst moment, a dead end, where passage size is booked with nothing beyond it yet, and on
+     * Kotlin/Native an uncaught throw ends the process rather than being caught.
      */
     @Test
     fun shotModeAtADeadEndFallsBackToThePassage() {

@@ -15,11 +15,10 @@ import kotlin.test.assertTrue
 /**
  * The loader's structural guarantees, each one a bug this port had and a review caught.
  *
- * These are not round-trip smoke tests — [SurveyJsonTest] covers that. Every case here is a
- * malformed or awkwardly-ordered file of the kind that actually reaches a caver's phone: written
- * by an older version, half-written when the battery died, or edited by hand. The question each
- * asks is the same one: when the file cannot be read as written, does the loader lose *only* the
- * unreadable part, or does it silently take a branch of the cave with it?
+ * These are not round-trip smoke tests — [SurveyJsonTest] covers that. Each case here is a
+ * malformed or awkwardly-ordered file, and the question is the same one: when it cannot be read as
+ * written, does the loader lose *only* the unreadable part, or does it silently take a branch of
+ * the cave with it?
  */
 class SurveyLoaderFidelityTest {
 
@@ -249,10 +248,6 @@ class SurveyLoaderFidelityTest {
         assertEquals(emptyList(), result.problems)
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Trip metadata
-    // -----------------------------------------------------------------------------------------
-
     /**
      * Trip metadata used to be neither read nor written, so loading a survey on iOS and saving it
      * again would strip the date, the team, the instrument and — the one with legal consequences —
@@ -359,10 +354,6 @@ class SurveyLoaderFidelityTest {
         val text = SurveyJson.write(Survey("Undocumented Cave"))
         assertFalse(text.contains("\"trip\""), "was:\n$text")
     }
-
-    // -----------------------------------------------------------------------------------------
-    // Writing
-    // -----------------------------------------------------------------------------------------
 
     /**
      * The origin must be written first, because the reader takes the first entry as the root and

@@ -18,10 +18,6 @@ import kotlin.math.sqrt
  * moves across unchanged.
  */
 
-// ---------------------------------------------------------------------------------------------
-// 2D
-// ---------------------------------------------------------------------------------------------
-
 fun getDistanceFromLine(point: Coord2D, lineStart: Coord2D, lineEnd: Coord2D): Float {
     val a = point.x - lineStart.x
     val b = point.y - lineStart.y
@@ -92,10 +88,6 @@ fun averageAzimuths(vararg azimuths: Float): Float {
     }
     return (total / azimuths.size) % 360
 }
-
-// ---------------------------------------------------------------------------------------------
-// 3D
-// ---------------------------------------------------------------------------------------------
 
 /**
  * Spherical to cartesian, in the survey's frame: y is north, x is east, z is up.

@@ -98,7 +98,6 @@ class GeometryTest {
         val start = Coord2D(0f, 0f)
         val end = Coord2D(10f, 0f)
         assertClose(5f, getDistanceFromLine(Coord2D(5f, 5f), start, end))
-        // Beyond the end of the segment, distance is measured to the endpoint.
         assertClose(5f, getDistanceFromLine(Coord2D(15f, 0f), start, end))
     }
 

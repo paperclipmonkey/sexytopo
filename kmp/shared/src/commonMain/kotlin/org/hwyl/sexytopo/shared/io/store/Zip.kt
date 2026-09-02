@@ -3,26 +3,16 @@ package org.hwyl.sexytopo.shared.io.store
 /**
  * A minimal ZIP writer, so a whole survey can be handed over as one file.
  *
- * Ported in intent from `control/io/share/SurveyZipSharer`, which builds a zip of the survey's
- * files and gives it to Android's share sheet. This port could read what somebody had unzipped and
- * could not produce the zip, so handing a survey to a caving partner meant exporting four files and
- * hoping they arrived together.
+ * Written out longhand because Kotlin/Native and Kotlin/Wasm have no `java.util.zip`, and the
+ * archive needed is the simplest one the format allows.
  *
- * ## Why it is written out longhand
+ * Everything is **stored, not deflated**: a survey is four small text files, so DEFLATE would
+ * save a few kilobytes at the cost of an implementation on three platforms. `STORED` is part of
+ * the format, not a shortcut round it — every unzipper reads it.
  *
- * Java has `java.util.zip` and Kotlin/Native and Kotlin/Wasm do not, so a shared implementation is
- * either a dependency on every platform or a hundred lines here. A hundred lines here, because the
- * archive this needs is the simplest one the format allows.
- *
- * Everything is **stored, not deflated**. A survey is four small text files; the compression would
- * save a few kilobytes and cost a DEFLATE implementation on three platforms, which is the wrong
- * trade by a wide margin. `STORED` is part of the format rather than a shortcut round it - every
- * unzipper reads it, including the Files app, Finder and Windows Explorer.
- *
- * Only what this needs is implemented: no directories, no Zip64, no encryption, no timestamps
- * (every entry is stamped with the same fixed date, so the same survey zips to the same bytes and
- * a test can compare them). Names are UTF-8 with the language-encoding flag set, which is how a
- * cave called `Šumava` survives the trip.
+ * Only what this needs is implemented: no directories, no Zip64, no encryption, and a fixed
+ * timestamp on every entry so the same survey zips to the same bytes. Names are UTF-8 with the
+ * language-encoding flag set, so `Šumava` survives the trip.
  */
 object Zip {
 
@@ -43,11 +33,9 @@ object Zip {
     private const val UTF8_NAME_FLAG = 1 shl 11
 
     /**
-     * A fixed MS-DOS timestamp: 1 January 1980, the earliest the format can express.
-     *
-     * Deliberate. A clock in here would make the same survey produce different bytes every time,
-     * which is the defect this port already reports in the Android app's PocketTopo exporter - an
-     * archive nobody can diff, compare or test. The date a survey was *taken* is inside the files.
+     * A fixed MS-DOS timestamp: 1 January 1980, the earliest the format can express. Deliberate
+     * — a real clock would make the same survey zip to different bytes every time, and the date
+     * a survey was *taken* is inside the files anyway.
      */
     private const val DOS_TIME = 0
     private const val DOS_DATE = 0x0021
@@ -114,12 +102,7 @@ object Zip {
         return out.toByteArray()
     }
 
-    /**
-     * CRC-32, the checksum the format requires, computed on the fly rather than from a table.
-     *
-     * A table would be faster and this runs over a few tens of kilobytes once, when somebody taps
-     * share, so the loop is the honest choice: no table to get wrong and nothing to initialise.
-     */
+    /** CRC-32, computed on the fly rather than from a table — this runs once over a few kilobytes. */
     internal fun crc32(bytes: ByteArray): Int {
         var crc = 0xFFFFFFFFu
         for (byte in bytes) {

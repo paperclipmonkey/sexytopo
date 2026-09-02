@@ -40,10 +40,6 @@ class SurveyStorageTest {
 
     private fun directory(name: String = "Swildons") = home + name
 
-    // -------------------------------------------------------------------------------------
-    // Naming
-    // -------------------------------------------------------------------------------------
-
     @Test
     fun filesAreNamedAfterTheSurvey() {
         assertEquals("Swildons.data.json", SurveyFileType.DATA.filenameFor("Swildons"))
@@ -82,10 +78,6 @@ class SurveyStorageTest {
         assertEquals("Swildons.th2", SurveyFileType.withExtension("Swildons", ".th2"))
         assertEquals("SwildonsP", SurveyFileType.withExtension("Swildons", "|P"))
     }
-
-    // -------------------------------------------------------------------------------------
-    // Round trip
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun aSavedSurveyLoadsBackWithItsLegsAndSketch() {
@@ -154,10 +146,6 @@ class SurveyStorageTest {
 
         assertEquals(listOf("Eastwater", "Swildons"), SurveyStorage.listSurveys(store, home))
     }
-
-    // -------------------------------------------------------------------------------------
-    // Autosave
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun anAutosaveDoesNotDisturbTheSavedFiles() {
@@ -232,10 +220,6 @@ class SurveyStorageTest {
         val restored = SurveyStorage.load(store, directory(), restoreAutosave = true)
         assertTrue(restored.planSketch.pathDetails.isNotEmpty(), "fell back to the saved plan")
     }
-
-    // -------------------------------------------------------------------------------------
-    // The store itself
-    // -------------------------------------------------------------------------------------
 
     @Test
     fun deletingADirectoryTakesItsContents() {

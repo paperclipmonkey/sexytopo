@@ -15,13 +15,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * The whole surveying pipeline, end to end: an instrument emits DistoX wire-format packets, the
- * ported protocol decodes them, and the ported survey engine turns three agreeing readings into a
- * station.
- *
- * Every layer here is real ported code — only the radio is simulated. If this passes, the parts an
- * iOS port would sit on top of are working; what remains platform-specific is a CoreBluetooth
- * implementation of `InstrumentTransport`.
+ * The whole surveying pipeline, end to end, with only the radio simulated: an instrument emits
+ * DistoX packets, the ported protocol decodes them, and the ported survey engine turns three
+ * agreeing readings into a station.
  */
 class SurveyingEndToEndTest {
 
@@ -67,8 +63,7 @@ class SurveyingEndToEndTest {
     fun readingsThatDisagreeStaySplays() {
         val survey = Survey("Test")
         val recorder = Recorder(survey)
-        // Three readings pointing in genuinely different directions: a surveyor shooting the walls,
-        // not the same leg. Nothing should be promoted.
+        // Genuinely different directions: a surveyor shooting the walls, not the same leg.
         val instrument =
             SimulatedInstrument(
                 script =
@@ -112,7 +107,6 @@ class SurveyingEndToEndTest {
         assertEquals(5, survey.getAllStations().size, "origin plus four")
         assertEquals(listOf("1", "2", "3", "4", "5"), survey.getAllStations().map { it.name })
 
-        // And the result projects, which is what the canvas needs.
         val plan = Projection2D.PLAN.project(survey)
         assertEquals(5, plan.stationMap.size)
         assertTrue(plan.legMap.isNotEmpty())

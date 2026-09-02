@@ -16,20 +16,13 @@ import kotlin.test.assertTrue
 
 /**
  * Byte-level tests for the three BLE instruments that do not speak DistoX packets: BRIC4/BRIC5,
- * SAP6/DiscoX and the Cavway X1.
- *
- * The Android project has no tests for any of these, so the packets here are built from the field
- * layouts documented in the managers and asserted against values computed by hand.
+ * SAP6/DiscoX and the Cavway X1. The Android project has no tests for any of these.
  */
 class BleInstrumentsTest {
 
     private fun assertClose(expected: Float, actual: Float, tolerance: Float = 0.001f) {
         assertTrue(abs(expected - actual) < tolerance, "expected $expected but was $actual")
     }
-
-    // =========================================================================================
-    // BRIC4 / BRIC5
-    // =========================================================================================
 
     private fun bricPrimary(
         distance: Float,
@@ -182,10 +175,6 @@ class BleInstrumentsTest {
         assertEquals(-1, Bric4Protocol.parseMetadata(packet).reference)
     }
 
-    // =========================================================================================
-    // SAP6 / DiscoX
-    // =========================================================================================
-
     private fun sap6Packet(
         seed: Byte,
         azimuth: Float,
@@ -235,10 +224,6 @@ class BleInstrumentsTest {
         assertClose(90f, packet.detail.roll!!)
         assertNull(Sap6Protocol.decodeToPacket(sap6Packet(0, 999f, 0f, 0f, 3f)))
     }
-
-    // =========================================================================================
-    // Cavway X1
-    // =========================================================================================
 
     private fun cavwayPacket(millimetres: Int, azimuth: Int, inclination: Int, roll: Int): ByteArray {
         val packet = ByteArray(64)

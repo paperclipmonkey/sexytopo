@@ -8,12 +8,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * SVG path data, which the cave symbols are drawn from.
- *
- * The grammar is terse on purpose — separators are optional wherever the next character cannot
- * continue the current number, and a command repeats when more numbers follow it — so most of what
- * can go wrong here is a shape that is subtly wrong rather than a crash. Hence the coordinates are
- * checked rather than the segment count.
+ * SVG path data, which the cave symbols are drawn from. The grammar is terse on purpose, so most
+ * of what can go wrong is a shape that is subtly wrong rather than a crash — coordinates are
+ * checked here rather than the segment count.
  */
 class SvgPathTest {
 
@@ -46,10 +43,7 @@ class SvgPathTest {
         )
     }
 
-    /**
-     * A command letter followed by more numbers than it needs repeats. `symbol_uis_helictite` is
-     * one path with a second moveto in the middle, so getting this wrong loses half the symbol.
-     */
+    /** `symbol_uis_helictite` has a second moveto mid-path; getting a repeat wrong loses half the symbol. */
     @Test
     fun aRepeatedCommandDoesNotNeedItsLetterAgain() {
         assertEquals(
@@ -108,15 +102,7 @@ class SvgPathTest {
         )
     }
 
-    // -------------------------------------------------------------------------------------
-    // Arcs, which three of the symbols need
-    // -------------------------------------------------------------------------------------
-
-    /**
-     * A quarter circle, checked by where it ends and by every approximating curve's endpoints
-     * staying on the circle. Getting the endpoint right and the middle wrong is the characteristic
-     * arc bug, and it draws a symbol that is the wrong shape rather than one that fails.
-     */
+    /** Getting the endpoint right and the middle wrong is the characteristic arc bug, checked here. */
     @Test
     fun aQuarterCircleArcStaysOnTheCircle() {
         val cubics = parseSvgPath("M10,0A10,10 0 0 1 0,10").filterIsInstance<SvgSegment.CubicTo>()
@@ -147,15 +133,7 @@ class SvgPathTest {
         assertNear(0f, last.y, 0.01f)
     }
 
-    // -------------------------------------------------------------------------------------
-    // The symbols themselves
-    // -------------------------------------------------------------------------------------
-
-    /**
-     * Every symbol parses to something drawable, and every coordinate lands on the grid the artwork
-     * was drawn for. A path that parsed to nothing, or that wandered off the viewport, would be a
-     * symbol that is invisible or enormous — and neither shows up in a compile.
-     */
+    /** A path that parsed to nothing, or wandered off the viewport, would be invisible or enormous. */
     @Test
     fun everySymbolParsesOntoItsGrid() {
         for (symbol in Symbol.entries) {

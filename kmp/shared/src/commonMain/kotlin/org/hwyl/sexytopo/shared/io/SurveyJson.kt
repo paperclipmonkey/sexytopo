@@ -24,41 +24,26 @@ import org.hwyl.sexytopo.shared.model.survey.Trip
 /**
  * Reads and writes SexyTopo's native `<survey>.data.json` format.
  *
- * Ported from `control/io/basic/SurveyJsonTranslater`, keeping the tag names and the two-pass load
- * (create every station first, then wire the legs) so that files written by the Android app load
- * here unchanged — that byte-level compatibility is what would give Android and iOS lossless
- * survey interchange.
+ * Ported from `control/io/basic/SurveyJsonTranslater`, keeping the tag names and the two-pass
+ * load (stations first, then legs) so files the Android app writes load here unchanged.
  *
- * Parsing is tolerant in the same shape as the original: a survey that is partly unreadable loads
- * as far as it can rather than failing outright. Where it differs is in *reporting* that. The Java
- * sets a static `errors` flag and pops a Toast from inside the parser, which is both a global and
- * a UI call buried in IO code; here [load] returns a [LoadResult] carrying the same fact plus the
- * specific reasons, and [parse] is the convenience wrapper for callers that do not care.
+ * Parsing is tolerant like the original but differs in *reporting*: [load] returns a
+ * [LoadResult] with the specific reasons instead of a Toast; [parse] discards them.
  *
- * The one thing that is deliberately *not* tolerated, exactly as in the original, is a leg whose
- * destination station is not in the file: see [MissingStationException]. Quietly rewriting it as a
- * splay would silently detach a whole branch of the cave and lose every station beyond it.
+ * The one thing not tolerated is a leg whose destination is not in the file: see
+ * [MissingStationException] — rewriting it as a splay would silently detach a whole branch.
  */
 @OptIn(ExperimentalSerializationApi::class)
 object SurveyJson {
 
-    // From JsonTranslaterConstants, and not guessable: the survey name is written under "name",
-    // not "surveyName", and the version tags carry the app's own name. Getting these wrong is
-    // invisible in a round trip through this port alone - it writes and reads its own spelling
-    // quite happily - and total when a file crosses to or from the Android app.
+    // From JsonTranslaterConstants: the survey name is written under "name", not "surveyName".
     const val VERSION_NAME_TAG = "sexyTopoVersionName"
     const val VERSION_CODE_TAG = "sexyTopoVersionCode"
 
     /**
-     * The survey's name at the root of the file.
-     *
-     * The Java writes it for provenance and then ignores it on load, taking the name from the
-     * directory instead. This port reads it, because a name in the file is better than a name in a
-     * path that a platform's file picker may not even expose - but it writes the same tag, so an
-     * Android app reading this file sees exactly what it expects to see and ignores it as usual.
-     *
-     * Note it collides in spelling, though not in scope, with [STATION_NAME_TAG]: both are "name",
-     * one at the root and one inside a station object.
+     * The survey's name at the root of the file. The Java writes it for provenance and ignores
+     * it on load, taking the name from the directory instead; this port reads it, since a name
+     * in the file is more portable.
      */
     const val SURVEY_NAME_TAG = "name"
 
@@ -103,11 +88,9 @@ object SurveyJson {
     /**
      * A leg pointed at a station the file does not contain.
      *
-     * The Java throws `JSONException("Survey file corrupted: station X missing or out of order")`
-     * for this, and the surrounding per-leg catch turns it into "skip this leg, flag the load as
-     * partial". Both halves matter: dropping the leg loses one shot, whereas the alternative the
-     * port previously had — resolving the missing name to `Station.NULL_STATION` — turns a
-     * connecting leg into a splay, so every station beyond it silently vanishes from the tree.
+     * The Java throws; the per-leg catch skips the leg and flags the load partial. Resolving the
+     * missing name to a null station instead would silently turn a connecting leg into a splay,
+     * vanishing everything beyond it — so the leg is dropped instead.
      */
     class MissingStationException(val stationName: String) :
         Exception("Survey file corrupted: station $stationName missing or out of order")
@@ -115,19 +98,14 @@ object SurveyJson {
     /**
      * A survey and an honest account of what could not be read.
      *
-     * [hadPartialErrors] is the Java's `errors` static, which it uses to decide whether to Toast
-     * "Partial errors encountered; survey load was incomplete". [problems] is new: the Java only
-     * writes the detail to logcat, which is no use to a user on a phone in a cave.
+     * [hadPartialErrors] mirrors the Java's `errors` static. [problems] is new: the Java only
+     * logs the detail.
      */
     data class LoadResult(
         val survey: Survey,
         val hadPartialErrors: Boolean,
         val problems: List<String>,
     )
-
-    // -----------------------------------------------------------------------------------------
-    // Reading
-    // -----------------------------------------------------------------------------------------
 
     /** Loads a survey, discarding the record of anything that could not be read. */
     fun parse(text: String): Survey = load(text).survey
@@ -138,10 +116,8 @@ object SurveyJson {
         val root = json.parseToJsonElement(text).jsonObject
         val survey = Survey(root.stringOrNull(SURVEY_NAME_TAG) ?: Survey.DEFAULT_NAME)
 
-        // Trips first, as in the original, so that stations could refer to one. A trip that will
-        // not parse is dropped and the rest of the survey still loads — the Java lets a malformed
-        // date escape as a ParseException and abort the whole load, which loses far more than it
-        // protects.
+        // Trips first, so stations could refer to one; a trip that fails to parse is dropped and
+        // the rest of the survey still loads.
         root[TRIP_TAG]?.let { element ->
             val trip = runCatching { toTrip(element.jsonObject) }.getOrNull()
             if (trip == null) {
@@ -161,12 +137,9 @@ object SurveyJson {
     }
 
     /**
-     * The two-pass load, ported from `loadSurveyData`.
-     *
-     * Pass one creates every station, so pass two can resolve a destination that appears later in
-     * the file than the leg pointing at it. Pass two then hangs the legs off their stations while
-     * enforcing the two structural invariants a survey tree has: no station is the destination of
-     * more than one leg, and the origin is whichever station nothing leads to.
+     * The two-pass load: pass one creates every station so pass two can resolve a destination
+     * named before it appears; pass two then hangs the legs off their stations, enforcing the
+     * tree's two invariants — one destination per leg, origin is whatever nothing leads to.
      */
     private fun loadSurveyData(
         survey: Survey,
@@ -197,8 +170,7 @@ object SurveyJson {
         // Second pass: attach legs, recording the chronological index so the record can be rebuilt.
         val indexedLegs = mutableListOf<Pair<Int, Leg>>()
         val unindexedLegs = mutableListOf<Leg>()
-        // Identity, not name: two stations can share a name only if the duplicate check above let
-        // them through, which it does not — but the tree invariant is about objects either way.
+        // Identity, not name: duplicate names were already rejected above.
         val connectedDestinations = mutableListOf<Station>()
 
         for (element in stationEntries) {
@@ -233,11 +205,8 @@ object SurveyJson {
                     }
                     connectedDestinations.add(leg.destination)
 
-                    // Files are normally written origin-first, but a leg arriving at what we
-                    // currently believe is the origin proves it is not: the station this leg
-                    // starts from is further up the tree. Re-rooting here is what lets a survey
-                    // written in some other order still load with the right origin, and without
-                    // it the stations above the assumed origin would be unreachable.
+                    // A leg arriving at what we believe is the origin proves it isn't; re-rooting
+                    // here lets a survey written in any order still load with the right origin.
                     if (leg.destination === survey.origin) {
                         survey.origin = station
                     }
@@ -254,8 +223,7 @@ object SurveyJson {
             }
         }
 
-        // Unindexed legs first, then the indexed ones in index order — the Java's ordering, and
-        // the only sane one: a leg with no index predates the version that started writing them.
+        // Unindexed legs first, then indexed ones in order — a leg with no index predates versioning.
         for (leg in unindexedLegs) {
             survey.addLegRecord(leg)
         }
@@ -264,8 +232,7 @@ object SurveyJson {
             survey.addLegRecord(leg)
         }
 
-        // Prunes record entries for anything the re-rooting or the skips left unreachable, and
-        // re-homes the active station if it went with them.
+        // Prunes unreachable record entries and re-homes the active station if it went with them.
         survey.checkSurveyIntegrity()
     }
 
@@ -281,8 +248,7 @@ object SurveyJson {
     /**
      * One leg, or null if its numbers are missing or out of range.
      *
-     * @throws MissingStationException if it names a destination the file does not define, which is
-     *   corruption rather than a merely unreadable field.
+     * @throws MissingStationException if it names a destination the file does not define.
      */
     private fun toLeg(legObject: JsonObject, stationsByName: Map<String, Station>): Leg? {
         val distance = legObject.floatOrNull(DISTANCE_TAG) ?: return null
@@ -299,8 +265,8 @@ object SurveyJson {
         val wasShotBackwards = legObject.booleanOrNull(WAS_SHOT_BACKWARDS_TAG) ?: false
         val destinationName = legObject.stringOrNull(DESTINATION_TAG)
 
-        // A splay: no destination, and — as in the original — no promotedFrom either, since only
-        // a connecting leg is ever promoted from a set of splays.
+        // A splay: no destination and no promotedFrom either, since only connecting legs are
+        // ever promoted from a set of splays.
         if (destinationName == null || destinationName == BLANK_STATION_NAME) {
             val splay = Leg(distance, azimuth, inclination, wasShotBackwards = wasShotBackwards)
             splay.comment = legObject.stringOrNull(COMMENT_TAG) ?: ""
@@ -310,9 +276,8 @@ object SurveyJson {
         val destination =
             stationsByName[destinationName] ?: throw MissingStationException(destinationName)
 
-        // The promotedFrom splays are the raw shots this leg was averaged from. They are nested
-        // inside the leg rather than hung off a station, and losing them only costs the audit
-        // trail, so a malformed one is dropped rather than failing the leg.
+        // The promotedFrom splays are the raw shots this leg was averaged from; losing a
+        // malformed one only costs the audit trail, so it is dropped rather than failing the leg.
         val promotedFrom =
             runCatching {
                 legObject[PROMOTED_FROM_TAG]
@@ -331,9 +296,9 @@ object SurveyJson {
     /**
      * The trip block, or null if it has no usable survey date.
      *
-     * Handles the format's one piece of backwards compatibility, exactly as the Java does: in old
-     * files `tripDate` *is* the survey date, whereas in new ones `surveyDate` is the survey date
-     * and `tripDate` has been repurposed as the (optional, earlier) exploration date.
+     * Handles the format's one backwards-compatibility case: in old files `tripDate` *is* the
+     * survey date; in new ones `surveyDate` is the survey date and `tripDate` is the (optional)
+     * exploration date.
      */
     fun toTrip(entry: JsonObject): Trip? {
         val hasNewFormat = entry[SURVEY_DATE_TAG] != null
@@ -375,18 +340,11 @@ object SurveyJson {
         return trip
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Writing
-    // -----------------------------------------------------------------------------------------
-
     fun write(survey: Survey, versionName: String = "kmp-port", versionCode: Int = 0): String {
         val chrono = survey.getAllLegsInChronoOrder()
 
-        // The chronological index of each leg, precomputed. Neither Leg nor Station overrides
-        // equals, so a HashMap keyed on them is identity-keyed — which is exactly the semantics
-        // wanted (two identical readings are two different legs) and turns what the Java does with
-        // a linear `chronoList.indexOf` per leg into one lookup. On a survey with ten thousand legs
-        // that is the difference between a hundred million comparisons and ten thousand.
+        // Precomputed once: Leg has no equals/hashCode, so this HashMap is identity-keyed —
+        // exactly what's wanted — turning the Java's linear `indexOf` per leg into one lookup.
         val chronoIndices = HashMap<Leg, Int>(chrono.size)
         for ((index, leg) in chrono.withIndex()) {
             chronoIndices.putIfAbsentCompat(leg, index)
@@ -416,18 +374,11 @@ object SurveyJson {
     }
 
     /**
-     * The stations to write, origin first.
+     * The stations to write, origin first — load-bearing, not cosmetic: the reader takes the
+     * first entry as the origin, so any other order moves the root of the cave.
      *
-     * Origin-first is load-bearing, not cosmetic: the reader takes the first entry as the origin
-     * (and only re-roots if a leg contradicts it), so writing them in any other order would move
-     * the root of the cave.
-     *
-     * The Java writes exactly the origin plus each chronologically-recorded leg's destination.
-     * This adds a third step — any remaining station reachable in the tree — which is normally
-     * empty, because every leg that creates a station is also recorded. It is not always empty:
-     * a leg whose record entry was lost still has its station hanging in the tree, and the Java
-     * silently drops that station and everything beyond it on the next save. Writing the tail is
-     * byte-identical in the normal case and lossless in the abnormal one.
+     * Beyond the Java's origin-plus-recorded-legs, this also writes any station still reachable
+     * but missing its record entry, which the Java would otherwise silently drop on the next save.
      */
     private fun stationsToWrite(survey: Survey, chrono: List<Leg>): List<Station> {
         val ordered = mutableListOf(survey.origin)
@@ -510,18 +461,11 @@ object SurveyJson {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Tolerant accessors, mirroring the original's "load what you can" behaviour
-// ---------------------------------------------------------------------------------------------
-
 /**
  * A string field, or null when it is absent or JSON `null`.
  *
- * Note what is *not* treated as absent: the four-character string `"null"`. An earlier version
- * compared `content` against `"null"`, which is how kotlinx renders the JSON null literal — and
- * also how it renders a perfectly ordinary string somebody typed. A station called "null" is
- * unlikely; a survey called "null" is not, and neither is a trip comment. [JsonNull] is the
- * unambiguous test, and it is what the JSON literal actually parses to.
+ * Deliberately not a check against the string `"null"`, which is also a perfectly ordinary value
+ * someone typed. [JsonNull] is the unambiguous test.
  */
 internal fun JsonObject.stringOrNull(key: String): String? =
     when (val element = this[key]) {

@@ -80,10 +80,6 @@ object ExampleSurvey {
         return trip
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Centreline
-    // -----------------------------------------------------------------------------------------
-
     private fun createBranch(survey: Survey, numStations: Int, random: Random): List<Station> {
         val created = mutableListOf<Station>()
         repeat(numStations) {
@@ -111,15 +107,6 @@ object ExampleSurvey {
         SurveyBuilder.addSplay(survey, station, Leg(1f + random.nextInt(2), passageAzimuth, -89f))
     }
 
-    /**
-     * Places a slice through the passage at a handful of stations, the way a surveyor records
-     * passage shape, and traces a wall outline around each one's LRUD splays so it reads as a
-     * drawn passage rather than a mathematical star of measurement rays.
-     *
-     * Chosen generously rather than at the old one-in-five: this cave exists to sell the feature,
-     * so a first-time visitor should notice cross-sections without hunting for them, and at least
-     * one is guaranteed to fall on a side branch rather than only the entrance series.
-     */
     private fun addCrossSections(survey: Survey, random: Random, branchStations: Set<Station>) {
         val plan = survey.getSketch(Projection2D.PLAN)
         val space = Projection2D.PLAN.project(survey)
@@ -134,9 +121,6 @@ object ExampleSurvey {
         val count = maxOf(4, candidates.size / 3)
         val chosen = chooseSectionStations(candidates, branchStations, count, random)
 
-        // Everything a new section has to clear: every station, both wall lines, and (as the loop
-        // below places each one) every section already put down — otherwise stations picked close
-        // together could park their sections on top of each other.
         val centroid = centroidOf(positions.values)
         val obstacles = collectObstacles(plan, positions.values, space.legMap.values)
 
@@ -163,11 +147,7 @@ object ExampleSurvey {
         }
     }
 
-    /**
-     * [count] stations, at least one of which is on a side branch. The old random-fifth could
-     * (and, on plenty of seeds, did) land every section on the entrance series, which rather
-     * undersells a cave with four branches off it.
-     */
+    /** [count] stations, at least one of which is on a side branch. */
     internal fun chooseSectionStations(
         candidates: List<Station>,
         branchStations: Set<Station>,
@@ -193,11 +173,6 @@ object ExampleSurvey {
      * Everything a cross-section has to be placed clear of, as a point cloud with a clearance
      * radius each: stations and wall points need none of their own, but a section added by the
      * caller afterwards carries its own footprint so the next one does not overlap it.
-     *
-     * Wall points stand in for the wall lines themselves: [freehandTo]'s sub-segments put enough
-     * of them down that a candidate clearing every point clears the line between them too. Leg
-     * midpoints fill the one gap that leaves — a long, dead-straight leg has no wall jitter near
-     * its middle to trip over, so without this a section could still land on the centreline.
      */
     private fun collectObstacles(
         plan: Sketch,
@@ -218,17 +193,10 @@ object ExampleSurvey {
     private class Obstacle(val point: Coord2D, val radius: Float)
 
     /**
-     * Where to park a cross-section so it reads as a separate drawing rather than ink on the
-     * passage.
-     *
      * Offset perpendicular to the local passage bearing ([sectionAngle], the same bearing the
-     * section is sliced at) rather than in a fixed direction: offsetting *along* the passage would
-     * draw the section over the very shot it is a cutaway of, on a passage running any way other
-     * than the one fixed direction the old offset assumed. Of the two perpendicular sides, the one
-     * that actually clears every obstacle wins; if neither does at the first distance, both step
-     * further out together until one does. A tie between two clear sides goes to whichever ends up
-     * further from the middle of the cave, so a section drifts into open space rather than towards
-     * the bulk of the rest of the survey.
+     * section is sliced at). Of the two perpendicular sides, the one that actually clears every
+     * obstacle wins; if neither does at the first distance, both step further out together until
+     * one does.
      */
     private fun crossSectionOffset(
         stationPosition: Coord2D,
@@ -279,10 +247,6 @@ object ExampleSurvey {
     private const val MAX_CLEARANCE_STEPS = 6
 
     /**
-     * A closed wall traced around the four LRUD splay tips, the way a surveyor closes a
-     * cross-section by joining the shots into the shape of the passage instead of leaving a bare
-     * star of rays. Drawn hand-drawn-wobbly with [freehandTo], the same as the plan's own walls.
-     *
      * Ordered by angle around the station rather than by which splay is which, because
      * [CrossSection.getProjection] deliberately does not preserve that identity (see its own doc
      * comment) — sorting by angle recovers a walk around the outside without needing it, and works
@@ -300,15 +264,6 @@ object ExampleSurvey {
         return sketch
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Sketch
-    // -----------------------------------------------------------------------------------------
-
-    /**
-     * Draws left- and right-hand passage walls that follow the survey tree, so the plan looks like
-     * a cave survey rather than a stick diagram. Each wall is a freehand polyline offset from the
-     * centreline by that station's LRUD splay on that side.
-     */
     private fun addWallLines(survey: Survey, random: Random) {
         val plan = survey.getSketch(Projection2D.PLAN)
         val positions = Projection2D.PLAN.project(survey).stationMap

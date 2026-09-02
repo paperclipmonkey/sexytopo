@@ -20,13 +20,9 @@ data class Sap6Reading(
     val roll: Float,
     val distance: Float,
 ) {
-    /**
-     * The survey leg. Throws if the reading is out of range, as `SAP6Communicator.legCallback`
-     * does — it constructs a `Leg` with no guard at all, unlike the BRIC handler.
-     */
+    /** Throws if the reading is out of range, as `SAP6Communicator.legCallback` does. */
     fun toLeg(): Leg = Leg(distance, azimuth, inclination)
 
-    /** The leg, or null if the instrument reported something the survey model will not accept. */
     fun toLegOrNull(): Leg? =
         try {
             toLeg()
@@ -59,7 +55,6 @@ object Sap6Protocol {
     const val ROLL_OFFSET = 9
     const val DISTANCE_OFFSET = 13
 
-    /** The DistoX acknowledgement base, 0b01010101. */
     const val ACK = 0x55
 
     fun decode(bytes: ByteArray): Sap6Reading {
@@ -75,13 +70,7 @@ object Sap6Protocol {
         )
     }
 
-    /**
-     * Decodes to a generic packet, or null when the reading is out of range.
-     *
-     * The Java would throw here rather than return; the survey model's own validation is the only
-     * thing standing between a garbled notification and a corrupt survey, so a caller that wants
-     * the Java's exact behaviour should use [Sap6Reading.toLeg] instead.
-     */
+    /** The Java throws here rather than returning null; use [Sap6Reading.toLeg] for that behaviour. */
     fun decodeToPacket(bytes: ByteArray): InstrumentPacket? {
         val reading = decode(bytes)
         val leg = reading.toLegOrNull() ?: return null
@@ -100,7 +89,6 @@ object Sap6Protocol {
      */
     fun acknowledgementByte(seed: Byte): Byte = (ACK + seed.toInt()).toByte()
 
-    /** The one-byte frame to write to the command characteristic. */
     fun acknowledgementFor(bytes: ByteArray): ByteArray =
         byteArrayOf(acknowledgementByte(bytes[ACKNOWLEDGEMENT_SEED_INDEX]))
 }
