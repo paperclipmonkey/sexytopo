@@ -16,12 +16,15 @@ struct ComposeView: UIViewControllerRepresentable {
 struct ContentView: View {
     var body: some View {
         ComposeView()
-            // `App()` (see its `Modifier.windowInsetsPadding(WindowInsets.safeDrawing)`) already
-            // reserves space for the status bar, notch and home indicator itself. Ignoring the
-            // safe area on every edge here, not just the bottom, hands Compose the whole screen
-            // as a single source of truth for that padding — leaving SwiftUI to also reserve the
-            // top double-counts it, showing as a blank band above the app's own header where
-            // nothing draws.
-            .ignoresSafeArea(.all, edges: .all)
+            // Ignoring the top safe area here too (not just the bottom) once fixed a blank grey
+            // band above the app's own header - `App()` (see its
+            // `Modifier.windowInsetsPadding(WindowInsets.safeDrawing)`) already reserves that
+            // space itself, so SwiftUI reserving it as well was double-counting it. But on a real
+            // device that change broke the on-screen keyboard again: UIKit logged a runaway
+            // "Conversion error" loop while positioning the keyboard and never showed it, which
+            // stopped as soon as this went back to bottom-only. The core keyboard fix matters far
+            // more than the cosmetic band, so this reverts to bottom-only until a fix for the band
+            // is found that does not touch the top safe area SwiftUI itself owns.
+            .ignoresSafeArea(.all, edges: .bottom)
     }
 }
