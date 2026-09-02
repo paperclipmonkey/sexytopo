@@ -11,6 +11,7 @@ import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.sketch.CrossSection
 import org.hwyl.sexytopo.shared.model.sketch.PathDetail
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
+import org.hwyl.sexytopo.shared.model.sketch.Symbol
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -53,10 +54,13 @@ object ExampleSurvey {
             branchStations += createBranch(survey, 3, random)
         }
 
+        val pitch = addPitch(survey, random)
+        pitch?.let { branchStations += it.stations }
+
         survey.activeStation = survey.origin
         addWallLines(survey, random)
         addCrossSections(survey, random, branchStations)
-        addAnnotations(survey)
+        addAnnotations(survey, random, pitch)
         survey.trip = exampleTrip()
         return survey
     }
@@ -88,7 +92,7 @@ object ExampleSurvey {
             val inclination = (-20 + random.nextInt(40)).toFloat()
             val newStation =
                 SurveyBuilder.updateWithNewStation(survey, Leg(distance, azimuth, inclination))
-            addLruds(survey, newStation, azimuth, random)
+            addLruds(survey, newStation, azimuth, distance, random)
             created.add(newStation)
         }
         return created
@@ -96,16 +100,86 @@ object ExampleSurvey {
 
     /**
      * Left/right/up/down splays relative to the passage direction. The Android app derives these
-     * through LRUD.createSplay; this is the same idea in miniature.
+     * through LRUD.createSplay; this is the same idea in miniature. [legDistance] is the shot that
+     * just reached [station] - see [addWallDetailSplays] for what it is used for.
      */
-    private fun addLruds(survey: Survey, station: Station, passageAzimuth: Float, random: Random) {
+    private fun addLruds(
+        survey: Survey,
+        station: Station,
+        passageAzimuth: Float,
+        legDistance: Float,
+        random: Random,
+    ) {
         val left = adjustAngle(passageAzimuth, -90f)
         val right = adjustAngle(passageAzimuth, 90f)
         SurveyBuilder.addSplay(survey, station, Leg(1f + random.nextInt(3), left, 0f))
+        // Between the L and R splays deliberately - see wallPoint, which relies on the leftmost
+        // and rightmost horizontal splay in this station's own list being exactly these two.
+        addWallDetailSplays(survey, station, passageAzimuth, legDistance, random)
         SurveyBuilder.addSplay(survey, station, Leg(1f + random.nextInt(3), right, 0f))
         SurveyBuilder.addSplay(survey, station, Leg(1f + random.nextInt(2), passageAzimuth, 89f))
         SurveyBuilder.addSplay(survey, station, Leg(1f + random.nextInt(2), passageAzimuth, -89f))
     }
+
+    /**
+     * Extra shots along the wall, not just the four cardinal LRUDs — what a surveyor actually
+     * does when the next station is far enough away that a bare LRUD box would leave whoever is
+     * drawing the passage guessing at everything in between. Scaled by how far the shot that
+     * reached this station travelled: a short hop needs nothing extra, a long one gets up to four,
+     * angled progressively further from square-on so each reaches further along the wall than the
+     * last rather than clustering right by the station the way the cardinal ones do.
+     */
+    private fun addWallDetailSplays(
+        survey: Survey,
+        station: Station,
+        passageAzimuth: Float,
+        legDistance: Float,
+        random: Random,
+    ) {
+        val extraCount = ((legDistance - 5f) / 3f).toInt().coerceIn(0, 4)
+        if (extraCount == 0) return
+        val side = if (random.nextBoolean()) -1f else 1f
+        for (i in 1..extraCount) {
+            val bearingOffset = side * (85f - i * 15f)
+            val angle = adjustAngle(passageAzimuth, bearingOffset)
+            val distance = 1f + random.nextFloat() * (1.5f + i * 0.8f)
+            SurveyBuilder.addSplay(survey, station, Leg(distance, angle, 0f))
+        }
+    }
+
+    /**
+     * A pitch down to a short length of further passage, hung off an existing station the way the
+     * side branches are - but with its first leg steep enough (see [Projection2D.isLegInPlane])
+     * to draw dashed on the plan, which is the only thing a plan drawing has to tell a pitch apart
+     * from a crawl.
+     */
+    private fun addPitch(survey: Survey, random: Random): Pitch? {
+        val candidates = survey.getAllStations().filter { !survey.isOrigin(it) }
+        if (candidates.isEmpty()) return null
+        survey.activeStation = candidates[random.nextInt(candidates.size)]
+
+        val dropMetres = 6 + random.nextInt(5)
+        val pitchAzimuth = random.nextInt(360).toFloat()
+        val head =
+            SurveyBuilder.updateWithNewStation(
+                survey,
+                Leg(dropMetres.toFloat(), pitchAzimuth, -60f - random.nextInt(16)),
+            )
+        addLruds(survey, head, pitchAzimuth, dropMetres.toFloat(), random)
+
+        val footDistance = 4 + random.nextInt(6)
+        val foot =
+            SurveyBuilder.updateWithNewStation(
+                survey,
+                Leg(footDistance.toFloat(), adjustAngle(pitchAzimuth, 20f), -5f),
+            )
+        addLruds(survey, foot, pitchAzimuth, footDistance.toFloat(), random)
+
+        return Pitch(listOf(head, foot), head, "$dropMetres m pitch")
+    }
+
+    /** [stations] is every station the pitch added, [head] the one straight below the top of it. */
+    private class Pitch(val stations: List<Station>, val head: Station, val label: String)
 
     private fun addCrossSections(survey: Survey, random: Random, branchStations: Set<Station>) {
         val plan = survey.getSketch(Projection2D.PLAN)
@@ -350,7 +424,7 @@ object ExampleSurvey {
         path.lineTo(to)
     }
 
-    private fun addAnnotations(survey: Survey) {
+    private fun addAnnotations(survey: Survey, random: Random, pitch: Pitch?) {
         val plan = survey.getSketch(Projection2D.PLAN)
         val positions = Projection2D.PLAN.project(survey).stationMap
         positions[survey.origin]?.let { plan.addTextDetail(it.add(1f, -1f), "Entrance", 1.2f, Colour.BLUE) }
@@ -362,6 +436,35 @@ object ExampleSurvey {
             positions[deepest.key]?.let {
                 plan.addTextDetail(it.add(1f, -1f), "Sump", 1.2f, Colour.BLUE)
             }
+        }
+
+        pitch?.let { positions[it.head]?.let { at -> plan.addTextDetail(at.add(-2.5f, 2.5f), it.label, 1f, Colour.BLACK) } }
+
+        addFormations(plan, positions, survey, random)
+
+        // A find worth marking on the sketch as much as in the trip comments. There is no UIS
+        // symbol for a bone deposit, so - like Entrance and Sump - it is text, not a stamp.
+        val boneCandidates = positions.keys.filter { !survey.isOrigin(it) && it !== deepest?.key }
+        if (boneCandidates.isNotEmpty()) {
+            val station = boneCandidates[random.nextInt(boneCandidates.size)]
+            positions[station]?.let { plan.addTextDetail(it.add(1f, 1f), "bones", 1f, Colour.BLACK) }
+        }
+    }
+
+    /** A few UIS formation symbols, stamped just off stations that have room to spare for one. */
+    private fun addFormations(
+        plan: Sketch,
+        positions: Map<Station, Coord2D>,
+        survey: Survey,
+        random: Random,
+    ) {
+        val formations = listOf(Symbol.STALACTITE, Symbol.STALAGMITE, Symbol.COLUMN, Symbol.CURTAIN)
+        val candidates = positions.keys.filter { !survey.isOrigin(it) }.shuffled(random)
+        for ((symbol, station) in formations.zip(candidates)) {
+            val position = positions[station] ?: continue
+            val dx = 0.6f - random.nextFloat() * 1.2f
+            val dy = 0.6f - random.nextFloat() * 1.2f
+            plan.addSymbolDetail(position.add(dx, dy), symbol.therionName, 1f, 0f, Colour.BLACK)
         }
     }
 }
