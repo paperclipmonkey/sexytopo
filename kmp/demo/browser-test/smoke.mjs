@@ -101,12 +101,22 @@ if (rendered.length < 20000) {
 
 // Text is the specific thing that used to throw here, because Skia ships no system fonts on the
 // web. If the bundled font were not loading, the survey would draw and the labels would not.
-const drewText = await page.evaluate(() => {
-  const c = document.querySelector('canvas')
-  const ctx = c.getContext('webgl2') ?? c.getContext('webgl')
-  return ctx != null
-})
-if (drewText) {
+//
+// ComposeViewport briefly swaps in a fresh <canvas> of its own early on - typically once it sees
+// the container's real size - so the element `page.$('canvas')` found above can already be
+// detached by the time this runs. Re-querying a few times rather than once is what makes this
+// robust to that, the same reasoning as the startup poll above.
+let hasWebGl = false
+for (let i = 0; i < 10 && !hasWebGl; i++) {
+  hasWebGl = await page.evaluate(() => {
+    const c = document.querySelector('canvas')
+    if (!c) return false
+    const ctx = c.getContext('webgl2') ?? c.getContext('webgl')
+    return ctx != null
+  })
+  if (!hasWebGl) await page.waitForTimeout(200)
+}
+if (hasWebGl) {
   pass('WebGL context is live')
 } else {
   fail('no WebGL context')
