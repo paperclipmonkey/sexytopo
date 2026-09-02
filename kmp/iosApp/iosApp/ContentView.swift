@@ -16,6 +16,12 @@ struct ComposeView: UIViewControllerRepresentable {
 struct ContentView: View {
     var body: some View {
         ComposeView()
-            .ignoresSafeArea(.all, edges: .bottom)
+            // `App()` (see its `Modifier.windowInsetsPadding(WindowInsets.safeDrawing)`) already
+            // reserves space for the status bar, notch and home indicator itself. Ignoring the
+            // safe area on every edge here, not just the bottom, hands Compose the whole screen
+            // as a single source of truth for that padding — leaving SwiftUI to also reserve the
+            // top double-counts it, showing as a blank band above the app's own header where
+            // nothing draws.
+            .ignoresSafeArea(.all, edges: .all)
     }
 }
