@@ -144,14 +144,18 @@ if (!zoomedIn) {
 // in through the DevTools protocol and never reaches Chromium's own page-zoom path. Dispatching a
 // real WheelEvent from inside the page and reading `defaultPrevented` back tests the mechanism
 // itself.
-const pinchPrevented = await page.evaluate(() => {
-  const canvas = document.querySelector('canvas')
+// Handed in as an ElementHandle rather than looked up with document.querySelector inside the
+// evaluate callback: Compose Multiplatform 1.12.0's wasm target mounts its canvas inside a shadow
+// root, which the native querySelector cannot see (it returned null, and dispatchEvent on that
+// crashed the whole script). Playwright's own page.$ pierces shadow DOM, same fix as field.mjs.
+const canvasHandle = await page.$('canvas')
+const pinchPrevented = await page.evaluate((canvas) => {
   const e = new WheelEvent('wheel', {
     deltaY: -100, ctrlKey: true, bubbles: true, cancelable: true,
   })
   canvas.dispatchEvent(e)
   return e.defaultPrevented
-})
+}, canvasHandle)
 if (!pinchPrevented) {
   fail('the app lets the browser have the pinch, so the page will zoom instead of the survey')
 } else {
