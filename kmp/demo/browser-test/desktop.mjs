@@ -148,10 +148,17 @@ if (!zoomedIn) {
 // evaluate callback: Compose Multiplatform 1.12.0's wasm target mounts its canvas inside a shadow
 // root, which the native querySelector cannot see (it returned null, and dispatchEvent on that
 // crashed the whole script). Playwright's own page.$ pierces shadow DOM, same fix as field.mjs.
+//
+// `composed: true` is the other half of the same change: the app's own listener is on `window`,
+// outside that shadow root, and only a composed event's bubbling crosses a shadow boundary at
+// all. A real trackpad pinch is composed by default - only a hand-built one needs telling - so
+// this was silently testing nothing rather than testing the app: the event fired and nobody who
+// could call preventDefault ever saw it, `defaultPrevented` was false either way, and the check
+// would have passed just as emptily with the app's own listener deleted.
 const canvasHandle = await page.$('canvas')
 const pinchPrevented = await page.evaluate((canvas) => {
   const e = new WheelEvent('wheel', {
-    deltaY: -100, ctrlKey: true, bubbles: true, cancelable: true,
+    deltaY: -100, ctrlKey: true, bubbles: true, cancelable: true, composed: true,
   })
   canvas.dispatchEvent(e)
   return e.defaultPrevented

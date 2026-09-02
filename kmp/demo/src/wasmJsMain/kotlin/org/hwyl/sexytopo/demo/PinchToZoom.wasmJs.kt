@@ -31,10 +31,33 @@ internal fun keepPinchesInsideTheApp(wheelPixelsPerLogScale: Double): Unit =
                 if (e.ctrlKey) { e.preventDefault(); }
             }, { passive: false, capture: true });
 
+            // Compose Multiplatform 1.12.0's wasm target mounts its canvas inside a shadow root,
+            // which document.querySelector cannot see - so this walks into every shadow root it
+            // finds instead of assuming the canvas is in the light DOM, and caches the result
+            // since a pinch calls this on every frame of the gesture and the canvas does not move
+            // once Compose has mounted it.
+            var cachedCanvas = null;
+            var findCanvas = function (root) {
+                var found = root.querySelector('canvas');
+                if (found) { return found; }
+                var all = root.querySelectorAll('*');
+                for (var i = 0; i < all.length; i++) {
+                    if (all[i].shadowRoot) {
+                        var inShadow = findCanvas(all[i].shadowRoot);
+                        if (inShadow) { return inShadow; }
+                    }
+                }
+                return null;
+            };
+            var getCanvas = function () {
+                if (!cachedCanvas || !cachedCanvas.isConnected) { cachedCanvas = findCanvas(document); }
+                return cachedCanvas;
+            };
+
             var startScale = 1;
             var pinch = function (e) {
                 e.preventDefault();
-                var canvas = document.querySelector('canvas');
+                var canvas = getCanvas();
                 if (!canvas || !e.scale || !startScale) { return; }
                 var step = Math.log(e.scale / startScale) * wheelPixelsPerLogScale;
                 startScale = e.scale;
