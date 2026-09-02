@@ -646,7 +646,15 @@ const menuBox = async () => {
 
 /** The nth row of a menu with `rows` rows, wherever Compose has put it. */
 async function menuRowAt(index, rows, x) {
-  const menu = await menuBox()
+  // Polled rather than checked once: a caller that just tapped the button opening this menu has
+  // already waited out the usual case, but concurrent rendering (on by default since Compose
+  // Multiplatform 1.11.0) can still leave a frame or two between the tap and the popup actually
+  // painting, and a single check lands in that gap often enough to be worth surviving.
+  let menu = null
+  for (let i = 0; i < 10 && menu === null; i++) {
+    menu = await menuBox()
+    if (menu === null) await page.waitForTimeout(200)
+  }
   if (menu === null) throw new Error('no menu is open')
   const rowHeight = (menu.bottom - menu.top) / rows
   return [x, Math.round(menu.top + (index + 0.5) * rowHeight)]
