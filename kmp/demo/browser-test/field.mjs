@@ -4463,8 +4463,16 @@ if (Buffer.compare(beforeTurning, afterTurning) === 0) {
   pass('one finger turns the cave, and it is still there afterwards')
 }
 
-await at(...THREE_D_CLOSE); await page.waitForTimeout(900)
-const backToTheSketch = await page.evaluate(() => document.querySelectorAll('canvas').length)
+await at(...THREE_D_CLOSE)
+// Polled rather than checked once after a fixed wait: leaving the 3D view is a heavier
+// recomposition than most, and concurrent rendering (on by default since Compose Multiplatform
+// 1.11.0) can leave the canvas element itself briefly detached while the plan view remounts it -
+// see menuRowAt above for the same class of gap on opening a menu.
+let backToTheSketch = 0
+for (let i = 0; i < 10 && backToTheSketch === 0; i++) {
+  await page.waitForTimeout(200)
+  backToTheSketch = await page.evaluate(() => document.querySelectorAll('canvas').length)
+}
 if (backToTheSketch === 0) {
   fail('closing the 3D view left no canvas at all')
 } else {
