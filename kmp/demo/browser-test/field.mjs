@@ -655,7 +655,14 @@ async function menuRowAt(index, rows, x) {
     menu = await menuBox()
     if (menu === null) await page.waitForTimeout(200)
   }
-  if (menu === null) throw new Error('no menu is open')
+  if (menu === null) {
+    // Diagnostic only: this call has thrown "no menu is open" since the version bump even after
+    // polling for two seconds, and it isn't obvious from here whether the menu never opened or
+    // opened somewhere/something menuBox() doesn't recognise. Capturing what was actually on
+    // screen is worth more than another guess at why the colour scan came back empty.
+    await page.screenshot({ path: join(shotDir, 'DEBUG-no-menu-found.png') })
+    throw new Error('no menu is open')
+  }
   const rowHeight = (menu.bottom - menu.top) / rows
   return [x, Math.round(menu.top + (index + 0.5) * rowHeight)]
 }
