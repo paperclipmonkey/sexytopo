@@ -251,8 +251,8 @@ if (survey === null) {
 // The last part of the app that could not be tried at all without hardware. Beat Heeb's solver was
 // ported and tested against the Android app's own datasets early on, and the packet decoders and
 // the memory writes with it — but nothing could ask an instrument to start, so none of it had ever
-// been driven end to end. Here the fake DistoX-BLE is put into calibration mode, fed sixteen real
-// readings, and the coefficients are written back to it.
+// been driven end to end. Here the fake DistoX-BLE is put into calibration mode, fed real readings,
+// and the coefficients are written back to it.
 //
 // The readings are the real 56-shot dataset the shared tests fit — one of the two from the Android
 // app's own test suite — so this ends in the answer that data is known to produce (0.60 in 43
@@ -404,7 +404,6 @@ if (storedLog === null) {
   pass(`the instrument log is written down as it happens (${storedLog.length} lines)`)
 }
 
-// The dialog itself, reached the way a caver would reach it.
 await at(...CALIBRATION_CLOSE); await page.waitForTimeout(700)
 await at(...OVERFLOW); await page.waitForTimeout(600)
 await at(...(await instrumentMenuRow('log'))); await page.waitForTimeout(900)

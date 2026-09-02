@@ -1,13 +1,11 @@
 // The desk half of the browser build: a wheel, a trackpad and a keyboard.
 //
 // Everything else in this suite runs at phone size with a finger, because that is where surveying
-// happens. But a survey is *drawn up* afterwards at a desk, and both of the things checked here
-// were reported from one: "on web desktop click and drag to pan works great but macbook pinch to
-// zoom zooms the whole page rather than the survey", and "add support for ctrl+z to undo and redo".
+// happens. Both checks here came from desktop bug reports: trackpad pinch zooming the whole page
+// instead of the survey, and no ctrl+z support for undo/redo.
 //
-// A separate script rather than more of `field.mjs` for two reasons. It needs a desktop-sized
-// window and a mouse with a wheel, which that file's iPhone-sized context is not; and every check
-// in it moves the viewport, which every fixed coordinate in that file depends on.
+// A separate script from `field.mjs`: it needs a desktop-sized window and a wheel, and every check
+// here moves the viewport, which field.mjs's fixed coordinates depend on staying put.
 //
 //   node desktop.mjs <url> [screenshotDir]
 import { chromium } from 'playwright'
@@ -57,9 +55,8 @@ const MIDDLE = [Math.round(box.width / 2), Math.round(box.height / 2)]
  * The centreline on the drawing: how much of it there is, and where its middle is.
  *
  * The demo cave is drawn in the app's own pure red, and nothing else on the page is - so counting
- * those pixels measures the *scale* (a leg twice as long covers twice the pixels at a fixed line
- * width) and their mean position measures where the drawing sits. Two numbers, from one scan, that
- * between them tell zooming and panning apart: a zoom changes the count, a pan does not.
+ * those pixels measures scale (twice the pixels at a fixed line width for a leg twice as long) and
+ * their mean position measures where the drawing sits. A zoom changes the count; a pan does not.
  *
  * Bounded to the sketch, with the app bar above it and the toolbar below.
  */
@@ -139,16 +136,14 @@ if (!zoomedIn) {
 }
 
 // ---- and the browser does not zoom the page as well -------------------------------------------
-// Which is the actual complaint: "pinch to zoom zooms the whole page rather than the survey". The
-// app has to say no to the browser's own page zoom, and saying no means one thing exactly -
-// `preventDefault` on the wheel event, from a listener registered `passive: false`.
+// The actual complaint was "pinch to zoom zooms the whole page rather than the survey" - the app
+// has to `preventDefault` on the wheel event, from a listener registered `passive: false`.
 //
-// Asked of the event rather than of the screen, and that is the point. The obvious check - read
-// `devicePixelRatio` after a ctrl-scroll and assert it has not moved - **passes with the whole fix
-// deleted**, because Playwright's wheel goes in through the DevTools protocol and Chromium's page
-// zoom is a browser-window action a synthetic event never reaches. It cannot fail, so it says
-// nothing. Dispatching a real WheelEvent from inside the page and reading `defaultPrevented` back
-// asks about the mechanism itself, and does fail when the listener is not there.
+// Checked on the event rather than the screen. Reading `devicePixelRatio` after a ctrl-scroll and
+// asserting it hasn't moved **passes with the whole fix deleted**, because Playwright's wheel goes
+// in through the DevTools protocol and never reaches Chromium's own page-zoom path. Dispatching a
+// real WheelEvent from inside the page and reading `defaultPrevented` back tests the mechanism
+// itself.
 const pinchPrevented = await page.evaluate(() => {
   const canvas = document.querySelector('canvas')
   const e = new WheelEvent('wheel', {

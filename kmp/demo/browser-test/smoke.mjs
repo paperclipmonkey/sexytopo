@@ -6,9 +6,8 @@
 // correct; the headless render proves Compose draws; this proves the two work together somewhere
 // that is not a JVM.
 //
-// It also exists because the claim it checks was wrong in this repository's own README for a
-// while. "The browser page renders" is exactly the sort of statement that rots silently, so it is
-// asserted by a machine rather than by a sentence.
+// It also exists because "the browser page renders" was wrong in this repository's own README for
+// a while — exactly the kind of claim that rots silently without a machine checking it.
 //
 // Usage:  node smoke.mjs <url> [screenshot-dir]
 // Exit code 0 if everything below holds, 1 with a reason if not.
@@ -31,11 +30,10 @@ const pass = (message) => console.log(`ok    ${message}`)
 // CI installs the browser Playwright expects, so it needs no help. CHROMIUM_PATH is for an
 // environment that already has a Chromium of its own and would rather not download another.
 //
-// SMOKE_PROXY is for pointing this at a *deployed* URL from a sandbox whose outbound traffic goes
-// through a proxy. Chromium does not inherit HTTPS_PROXY the way curl does, so without it a remote
-// run dies on ERR_CONNECTION_RESET while every local run passes. Deliberately its own variable
-// rather than reading HTTPS_PROXY, so a proxy that happens to be set in some CI environment cannot
-// silently reroute a run that does not want it.
+// SMOKE_PROXY points this at a *deployed* URL from a sandbox whose outbound traffic goes through a
+// proxy: Chromium does not inherit HTTPS_PROXY the way curl does, so without it a remote run dies
+// on ERR_CONNECTION_RESET while local runs pass. It's a separate variable so a proxy set ambiently
+// in some CI environment can't silently reroute a run that doesn't want it.
 const launchOptions = {}
 if (process.env.CHROMIUM_PATH) launchOptions.executablePath = process.env.CHROMIUM_PATH
 if (process.env.SMOKE_PROXY) launchOptions.proxy = { server: process.env.SMOKE_PROXY }
@@ -92,8 +90,8 @@ if (!box || box.width < 100 || box.height < 100) {
   pass(`canvas attached at ${Math.round(box.width)}x${Math.round(box.height)}`)
 }
 
-// Is anything actually drawn? A blank page — which is the failure mode this whole file exists to
-// catch — compresses to almost nothing, because a single flat colour is the best case for PNG.
+// Is anything actually drawn? A blank page compresses to almost nothing - the failure mode this
+// whole file exists to catch.
 const rendered = await page.screenshot()
 if (rendered.length < 20000) {
   fail(`the page looks blank (screenshot is only ${rendered.length} bytes)`)
@@ -162,8 +160,8 @@ await page.mouse.click(cellCentre(6), toolRowY)
 await page.waitForTimeout(700)
 const afterUndo = await page.screenshot({ clip: box })
 
-// Undo must take the ink away again, landing nearer where it started than where the stroke left
-// it. Exact equality is too strict — antialiasing does not round-trip byte for byte.
+// Landing nearer where it started than where the stroke left it is what tells "restored" apart
+// from merely "changed again".
 if (afterUndo.length >= afterDraw.length) {
   fail(`undo did not remove the stroke (${afterDraw.length} -> ${afterUndo.length} bytes)`)
 } else if (Math.abs(afterUndo.length - beforeDraw.length) > Math.abs(afterUndo.length - afterDraw.length)) {
@@ -211,7 +209,7 @@ const inkInBand = async () => {
 
 const inkBefore = await inkInBand()
 
-// Row two, cell one: the pencil again. Draw a straight stroke across the band.
+// Row two, cell one: the pencil again.
 await page.mouse.click(cellCentre(1), toolRowY)
 await page.waitForTimeout(400)
 await page.mouse.move(box.x + 200, box.y + strokeY)
@@ -227,7 +225,7 @@ if (inkDrawn <= inkBefore) {
   pass(`a stroke leaves ink (${inkBefore} -> ${inkDrawn} dark pixels)`)
 }
 
-// Row two, cell four: the eraser. Tap the middle of the stroke.
+// Row two, cell four: the eraser.
 await page.mouse.click(cellCentre(3), toolRowY)
 await page.waitForTimeout(400)
 await page.mouse.click(box.x + 425, box.y + strokeY)

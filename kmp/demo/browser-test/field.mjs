@@ -387,20 +387,6 @@ const SETTING_ANGLE = settingsRow(210, 347)
 const SETTING_BUZZ = settingsRow(320, 503)
 const SETTING_HOT_CORNERS = settingsRow(320, 596)
 const SETTING_TWO_FINGER = settingsRow(320, 692)
-// The last switch in the dialog, once it has been scrolled to the end.
-//
-// Anchored to the dialog's *bottom* rather than to its top, and only after a scroll that runs out
-// of travel: a wheel of six hundred is clamped to however much scroll there actually is, so the
-// end of the list is a fixed place however many settings are above it. Measured off a rendered
-// frame, like the reading card's buttons.
-// The three switches at the end of the *Surveying* dialog, once it has been wheeled to the end.
-//
-// Anchored to the dialog's bottom, which is the window's, because the dialog is taller than this
-// screen and so is capped by it. They are stable now in a way they were not: *Chase a lost
-// instrument* used to reveal a text field below itself when it was switched on, so its own
-// position depended on its own state — which is how a check that turned it on and then failed to
-// turn it off again passed anyway. The field is greyed out rather than hidden now, as
-// `android:dependency` actually behaves, and the dialog is one height.
 /**
  * Every switch in the open dialog, top to bottom, found rather than measured.
  *
@@ -1039,8 +1025,6 @@ const EXPORT_FORMATS = [
 ]
 // The cross-section editor's own bar: Cancel at the left, Done at the right.
 const EDITOR_CANCEL = [46, 24]
-// The station menu's first action row. Measured once from the rendered dialog, like the settings
-// screen above it; the dialog is centred, so adding an action moves every row.
 // The station menu's rows are found rather than hard-coded. A dialog is centred, so its rows move
 // with its height — and this dialog's height depends on the station: the origin has no incoming
 // leg and cannot be deleted, so it is two rows shorter than one in the middle of a passage. A
@@ -1630,7 +1614,6 @@ const planPaths = () => page.evaluate(() => {
   return key ? (JSON.parse(localStorage.getItem(key)).paths ?? []).length : -1
 })
 
-// Draw the passage outline and keep it.
 await drag([120, 400], [300, 400]); await page.waitForTimeout(400)
 await drag([300, 400], [300, 560]); await page.waitForTimeout(400)
 await page.screenshot({ path: join(shotDir, 'field-cross-section-drawn.png') })
