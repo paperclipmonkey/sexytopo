@@ -102,24 +102,38 @@ if (rendered.length < 20000) {
 // Text is the specific thing that used to throw here, because Skia ships no system fonts on the
 // web. If the bundled font were not loading, the survey would draw and the labels would not.
 //
-// ComposeViewport briefly swaps in a fresh <canvas> of its own early on - typically once it sees
-// the container's real size - so the element `page.$('canvas')` found above can already be
-// detached by the time this runs. Re-querying a few times rather than once is what makes this
-// robust to that, the same reasoning as the startup poll above.
-let hasWebGl = false
-for (let i = 0; i < 10 && !hasWebGl; i++) {
-  hasWebGl = await page.evaluate(() => {
-    const c = document.querySelector('canvas')
-    if (!c) return false
-    const ctx = c.getContext('webgl2') ?? c.getContext('webgl')
-    return ctx != null
+// This used to check that the canvas had a live WebGL context, as a proxy for "the font loaded
+// and Skia can draw with it". Skiko's newer wasm runtime no longer exposes a context that way -
+// getContext() on the top-level canvas comes back null even though the app renders correctly
+// (most likely control of the canvas has been handed to an OffscreenCanvas elsewhere, which makes
+// the main-thread canvas permanently context-less by spec, not broken). So check the actual thing
+// that was always the point - glyphs on screen - directly: crop the title, where "Demo Cave" is
+// painted in white on the header's green, and count near-white pixels. A missing font draws
+// nothing there and leaves the crop a flat green.
+const titleCrop = { x: 10, y: 5, width: 190, height: 45 }
+const titleShotB64 = (await page.screenshot({ clip: titleCrop })).toString('base64')
+const titleWhitePixels = await page.evaluate(async (data) => {
+  const img = new Image()
+  await new Promise((r) => {
+    img.onload = r
+    img.src = 'data:image/png;base64,' + data
   })
-  if (!hasWebGl) await page.waitForTimeout(200)
-}
-if (hasWebGl) {
-  pass('WebGL context is live')
+  const c = document.createElement('canvas')
+  c.width = img.width
+  c.height = img.height
+  const ctx = c.getContext('2d')
+  ctx.drawImage(img, 0, 0)
+  const px = ctx.getImageData(0, 0, c.width, c.height).data
+  let white = 0
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i] > 200 && px[i + 1] > 200 && px[i + 2] > 200) white++
+  }
+  return white
+}, titleShotB64)
+if (titleWhitePixels > 100) {
+  pass(`the title is drawn in text, not a blank header (${titleWhitePixels} light pixels)`)
 } else {
-  fail('no WebGL context')
+  fail(`the header looks blank where "Demo Cave" should be (${titleWhitePixels} light pixels)`)
 }
 
 // Now drive it: draw a stroke, then undo it. This is the shared SketchEditor running in wasm.
