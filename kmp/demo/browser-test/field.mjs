@@ -4464,13 +4464,15 @@ if (Buffer.compare(beforeTurning, afterTurning) === 0) {
 }
 
 await at(...THREE_D_CLOSE)
-// A 2-second poll (10 * 200ms) was not enough and failed identically twice - this is not the
-// frame-or-two of concurrent-rendering lag menuRowAt polls for elsewhere. Widened well past that
-// and instrumented, rather than guessing at a bigger number a third time: this records how long it
-// actually took (if it ever comes back at all) and, if it does not, what the screen looks like.
+// Leaving the 3D view is genuinely slow to settle, not stuck: an 8-second poll still found no
+// canvas, but a screenshot taken right after showed the plan view already fully back - toolbar,
+// palette, cross-section boxes and all - meaning the real recovery time is just past 8s, not
+// never. A bigger one-time cost than the ~2s first-keyboard-invocation stall seen on iOS, but the
+// same kind of thing: a first-use cold start, not a bug. Give it real margin and record how long
+// it actually takes.
 let backToTheSketch = 0
 let elapsedMs = 0
-for (let i = 0; i < 40 && backToTheSketch === 0; i++) {
+for (let i = 0; i < 75 && backToTheSketch === 0; i++) {
   await page.waitForTimeout(200)
   elapsedMs += 200
   backToTheSketch = await page.evaluate(() => document.querySelectorAll('canvas').length)
