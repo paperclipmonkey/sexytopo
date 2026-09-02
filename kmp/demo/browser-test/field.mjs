@@ -656,9 +656,10 @@ async function menuRowAt(index, rows, x) {
     if (menu === null) await page.waitForTimeout(200)
   }
   if (menu === null) {
-    // Diagnostic only: waitForDialogToClose (previous commit) did not fix this after all - same
-    // failure, same spot. Need to see whether the earlier dialog is somehow still up, or whether
-    // the overflow tap is landing on nothing at all now that the dialog is out of the way.
+    // A screenshot at the point of failure is worth more than the error message alone here: this
+    // is the one check that found a dialog whose Escape-to-dismiss had silently stopped doing
+    // anything (see waitForDialogToClose) - the tap meant for the menu was landing on the previous
+    // dialog's still-open scrim instead.
     await page.screenshot({ path: join(shotDir, 'DEBUG-no-menu-found.png') })
     throw new Error('no menu is open')
   }
@@ -766,7 +767,9 @@ async function toggleOption(name) {
   await at(...toolCell(5)); await page.waitForTimeout(500)
   await at(...(await drawingMenuRow('display'))); await page.waitForTimeout(700)
   await at(...(await drawingOptionRow(name))); await page.waitForTimeout(500)
-  await page.keyboard.press('Escape'); await waitForDialogToClose()
+  const done = await dialogConfirm()
+  if (done === null) throw new Error('the drawing-options dialog has no Done button on screen')
+  await at(...done); await waitForDialogToClose()
 }
 
 /**
@@ -1051,16 +1054,14 @@ const DIALOG_FIRST_ROW_FROM_TOP = 96
  * Waits for a dialog dismissed a moment ago to actually finish closing, by polling until the
  * screen stops changing rather than trusting that a fixed wait was long enough.
  *
- * Found the hard way, twice: dismissing the reading dialog with Escape and waiting 500ms, which
- * used to be plenty, still had the dialog mid fade-out when the very next tap landed - on the
- * dialog's own scrim rather than on the overflow button behind it, so the overflow menu never
- * opened at all. The first fix polled for DIALOG_CARD's exact colour to disappear instead of
- * waiting a fixed time, and still failed the same way: mid-fade, the dialog's pixels are DIALOG_CARD
- * blended with whatever is behind it, not DIALOG_CARD itself, so that check saw "gone" as soon as
- * the fade began rather than when it finished - and Compose keeps hit-testing a fading dialog's
- * scrim as fully present regardless of its opacity. Comparing screenshots against each other,
- * rather than against a colour that assumes how the animation gets from visible to gone, doesn't
- * make that assumption.
+ * Found the hard way: this file used to dismiss dialogs by pressing Escape, which had quietly
+ * stopped doing anything at all on this Compose Multiplatform / wasm build - the screenshot taken
+ * right after the press-and-wait still showed the dialog fully open, not mid fade-out. Escape (and
+ * click-outside) are a desktop-mouse-and-keyboard shortcut that a phone surveyor never has anyway,
+ * so every call site now taps the dialog's own button instead, same as a real tap would. This wait
+ * is still needed after that tap: the button click starts a genuine close animation, and the very
+ * next action in some call sites (a tap on the overflow button behind the dialog's scrim) would
+ * otherwise land before the fade finishes and be swallowed by it.
  */
 async function waitForDialogToClose() {
   let previous = await page.screenshot({ clip: box })
@@ -1287,15 +1288,12 @@ if ((await page.$$('input')).length === 0) {
 } else {
   pass('the app opens on the demo cave and offers a way through to your own survey')
 }
-await page.keyboard.press('Escape'); await waitForDialogToClose()
-// Diagnostic only: confirms whether the reading dialog is actually gone by this point.
-await page.screenshot({ path: join(shotDir, 'DEBUG-after-dialog-close-wait.png') })
+// Escape does nothing here - diagnostic screenshots proved the dialog was still fully open, not
+// mid fade-out, after a press-and-wait. Tap its actual Cancel button instead, as a surveyor would.
+await at(...(await cardButton(CARD_CANCEL_X))); await waitForDialogToClose()
 
 // ---- create a named survey -----------------------------------------------------------
-await at(...overflowButton())
-// Diagnostic only: confirms whether the overflow tap opened anything at all.
-await page.screenshot({ path: join(shotDir, 'DEBUG-after-overflow-tap.png') })
-await page.waitForTimeout(500)
+await at(...overflowButton()); await page.waitForTimeout(500)
 await at(...(await menuRow('new', 0))); await page.waitForTimeout(700)
 await at(...NAME_FIELD); await page.waitForTimeout(250)
 
@@ -2187,7 +2185,6 @@ if (!spots.other) {
     fail(`holding a station did not open its menu (pressed ${JSON.stringify(spots.other)})`)
     // A press that did not become a long press is a plain tap, and a tap near a cross-section
     // opens its editor over everything that follows — so back out of whatever did happen.
-    await page.keyboard.press('Escape'); await waitForDialogToClose()
     await at(...EDITOR_CANCEL); await page.waitForTimeout(600)
   } else {
     // The pencil is down: holding still must open the menu rather than leave a dot behind.
@@ -2280,7 +2277,9 @@ if ((await dialogTop()) === null) {
   // written down there: it is a list as much as a field.
   if (rows.length < 2) {
     fail(`the find dialog listed no stations (${rows.length} rows)`)
-    await page.keyboard.press('Escape'); await waitForDialogToClose()
+    // The last row is the dialog's own Close button (see the comment above) - tap it directly,
+    // same as everywhere else in this file, rather than a key the dialog does not act on.
+    if (rows.length === 1) { await at(210, rows[0]); await waitForDialogToClose() }
   } else {
     await at(210, rows[0]); await page.waitForTimeout(900)
     const afterFinding = await page.screenshot({ clip: box })
@@ -2618,7 +2617,8 @@ const TO_CELL_X = 88
 await at(TO_CELL_X, TABLE_ROW(1)[1]); await page.waitForTimeout(700)
 await page.screenshot({ path: join(shotDir, 'field-table-station.png') })
 const farEndRows = await dialogTextRows()
-await page.keyboard.press('Escape'); await waitForDialogToClose()
+// This station menu's only button is "Close", laid out where a lone confirmButton would be.
+await at(...(await dialogConfirm())); await waitForDialogToClose()
 
 await at(FROM_CELL_X, TABLE_ROW(1)[1]); await page.waitForTimeout(700)
 const nearEndRows = await dialogTextRows()
@@ -4196,7 +4196,7 @@ if (aboutHeight === null) {
 } else {
   pass('the app says who wrote it and under what licence')
 }
-await page.keyboard.press('Escape'); await waitForDialogToClose()
+await at(...(await dialogConfirm())); await waitForDialogToClose()
 
 // ---- the manual ------------------------------------------------------------------------------
 // `GuideActivity` shows a 23 KB HTML guide in a WebView. There is no WebView here: the file is
