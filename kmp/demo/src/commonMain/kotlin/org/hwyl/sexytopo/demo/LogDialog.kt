@@ -24,19 +24,8 @@ import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.log.LogMessage
 
 /**
- * What the instrument has been doing.
- *
- * Ported from `SystemLogActivity`, over the ported `Log`. The Android app has two logs and a screen
- * for each; this shows the device one, which is the one that answers the question somebody actually
- * has underground — *why will this thing not connect* — and which the Android app itself only shows
- * on the device screen.
- *
- * Worth having at all because of where it gets used. A DistoX that will not pair does it in a cave,
- * a hundred metres in, on a phone with no signal, no cable and no console. Either the app kept what
- * it saw or the trip is the bug report.
- *
- * Copy rather than share: [copyToClipboard] already exists for exports and works on every target,
- * and a caver can paste a log into a message when they surface.
+ * What the instrument has been doing — the log that answers the question somebody actually has
+ * underground: *why will this thing not connect*.
  */
 @Composable
 fun LogDialog(
@@ -108,8 +97,6 @@ fun LogDialog(
             ) { Text("Copy") }
         },
         dismissButton = {
-            // Two buttons in the one slot the dialog has for them, so that Copy - the thing this
-            // screen exists to do - keeps the emphasised position on the right.
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(
                     onClick = {
@@ -123,13 +110,7 @@ fun LogDialog(
     )
 }
 
-/**
- * Just the time from an ISO timestamp, because the date is almost always today and the seconds are
- * what tells you whether two things happened together.
- *
- * Falls back to the whole string rather than guessing: a log loaded from a file this app did not
- * write may be in any shape at all, and showing it verbatim is more use than showing nothing.
- */
+/** Just the time from an ISO timestamp. Falls back to the whole string rather than guessing. */
 internal fun timeOf(timestamp: String): String {
     val t = timestamp.indexOf('T')
     if (t < 0 || timestamp.length < t + 9) return timestamp

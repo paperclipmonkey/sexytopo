@@ -15,17 +15,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /**
- * Who wrote this, and under what licence.
- *
- * Ported from `about_dialog.xml` and `values/about_text.xml`, which this port had left out
- * entirely — so it was shipping several thousand lines of somebody else's GPL-3.0 code with the
- * authors' names nowhere a user could see them and no licence notice at all. The GPL asks an
- * interactive program to show its legal notices, and the eight named contributors and the people
- * thanked have earned the other half regardless of what any licence asks.
- *
- * The port's own paragraph is added at the end rather than folded in. Passing this off as SexyTopo
- * would be wrong in both directions: it is not the app Rich Smith maintains, and the things it
- * cannot do — a real instrument, a device build — are not his to answer for.
+ * Who wrote this, and under what licence — the GPL asks an interactive program to show its legal
+ * notices. The port's own paragraph is added at the end rather than folded in: this is not the
+ * app Rich Smith maintains.
  */
 @Composable
 fun AboutDialog(onDismiss: () -> Unit) {
@@ -33,18 +25,14 @@ fun AboutDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("SexyTopo") },
         text = {
-            // Scrolling, because this is a screenful and a half of text on a phone and Material
-            // clips a dialog that does not fit rather than shrinking it — see finding 27.
+            // Material clips a dialog that doesn't fit rather than shrinking it.
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 for (section in ABOUT) {
-                    // `onSurfaceVariant` rather than the primary colour a section heading would
-                    // normally take. Material draws a TextButton's label in primary and nothing
-                    // else on a dialog card does, which is how `field.mjs` finds the rows it can
-                    // tap; a heading in primary made this dialog's buttons unfindable and the
-                    // check clicked past them.
+                    // Not the primary colour: `field.mjs` finds tappable rows in this dialog by
+                    // their TextButton label being drawn in primary, and nothing else is.
                     Text(
                         section.heading,
                         style = MaterialTheme.typography.titleSmall,
@@ -62,18 +50,14 @@ fun AboutDialog(onDismiss: () -> Unit) {
     )
 }
 
-/** One headed block of the About text. */
 class AboutSection(val heading: String, val lines: List<String>)
 
 /**
  * `values/about_text.xml`, verbatim except for the bullet characters and the last section.
  *
- * The bullets were "-" for a while, on the theory that the bundled Liberation Sans had no
- * General Punctuation and would draw a box — the theory this port arrived at after shipping "✓"
- * and watching it come out empty everywhere. Asking Skia rather than remembering says otherwise:
- * the font has 57 of the 112 General Punctuation characters and "•" is one of them. It is
- * Dingbats it has not got, which is where "✓" lives. `FontCoverageTest` holds both halves of
- * that, so this is now a checked claim rather than a cautious one.
+ * The bullets are "•" rather than "✓": the bundled Liberation Sans has 57 of the 112 General
+ * Punctuation characters, including "•", but none of Dingbats, where "✓" lives.
+ * `FontCoverageTest` checks both halves of that claim.
  */
 val ABOUT =
     listOf(

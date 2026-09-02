@@ -28,14 +28,10 @@ import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
 
 /**
- * Finding a station by name and putting the view on it — `action_find_station`, which the Android
- * app offers from its tools menu through `StationSelectorDialog`.
+ * Finding a station by name and putting the view on it.
  *
- * A survey of any size does not fit on a phone screen, and the two things a surveyor does with
- * somebody else's cave are "where is AV12" and "take me back to where I stopped". Without this the
- * only answer is to pinch out until the whole cave is on screen, find the numeral, and pinch back
- * in — which on a 420-pixel screen means the labels are too small to read at exactly the zoom where
- * the whole cave fits.
+ * Without this the only answer is to pinch out until the whole cave is on screen, find the
+ * numeral, and pinch back in — at exactly the zoom where labels are too small to read.
  */
 @Composable
 fun FindStationDialog(
@@ -54,11 +50,8 @@ fun FindStationDialog(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    // Deliberately *not* given [rememberOpeningFocus], unlike the other dialogs
-                    // whose whole purpose is typing. This one is also a list: it shows every
-                    // station in the survey, and the commonest way to use it is to tap the one
-                    // you want rather than to name it. Focusing the box on open raises the
-                    // keyboard over the list the surveyor came here to read.
+                    // Deliberately *not* given [rememberOpeningFocus]: this dialog is also a
+                    // list, and focusing the box would raise the keyboard over it.
                     label = { Text("Name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -70,9 +63,6 @@ fun FindStationDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
-                    // A list rather than an autocomplete dropdown, because a surveyor often does
-                    // not know the name — they know it is one of the ones near the sump. Showing
-                    // the candidates is the useful half of the Android field's autocomplete.
                     LazyColumn(Modifier.heightIn(max = 220.dp)) {
                         items(matches, key = { it.name }) { station ->
                             TextButton(
@@ -101,13 +91,8 @@ internal fun describe(station: Station): String =
 
 /**
  * The stations whose name or comment contains [query], case-insensitively, in survey order.
- *
- * The comment is searched as well as the name, and that is the point of the feature rather than a
- * flourish: stations are called "1", "2", "3", and what the surveyor remembers is "the one where
- * the draught was", which is what they wrote in the comment.
- *
- * An empty query lists everything, so opening the dialog on a small survey shows the whole cave
- * without typing.
+ * Stations are called "1", "2", "3", and what a surveyor remembers is what they wrote in the
+ * comment.
  */
 fun stationsMatching(survey: Survey, query: String): List<Station> {
     val trimmed = query.trim()
@@ -120,25 +105,15 @@ fun stationsMatching(survey: Survey, query: String): List<Station> {
 }
 
 /**
- * Where [station] sits in [projection], or null if the survey does not place it.
- *
- * Null rather than a default, because it is reachable: the map is keyed on station *identity* — see
- * the note in `Space` about `Station` having no `hashCode` — so a station renamed or deleted
- * between the dialog listing it and a row being tapped is simply not in it, and centring the view
- * on the origin instead would be a lie about where it went.
+ * Where [station] sits in [projection], or null if the survey does not place it — reachable when
+ * a station is renamed or deleted between the dialog listing it and a row being tapped.
  */
 fun stationPositionIn(survey: Survey, projection: Projection2D, station: Station): Coord2D? =
     projection.project(survey).stationMap[station]
 
 /**
- * "Delete the last leg", with the leg named — `buttonDeleteLastLeg`, which the Android app runs
- * without asking.
- *
- * Asking is the one deliberate difference. The sketch has an undo stack; the *survey* does not, in
- * the app or here, so this is the only action on the drawing menu that cannot be taken back. On
- * Android it sits between "Centre view" and a row of display toggles, which is a bad neighbourhood
- * for something irreversible — and the reading it names is exactly what tells a surveyor whether
- * the app means the shot they think it means.
+ * "Delete the last leg", with the leg named. Asking is the one deliberate difference from
+ * Android: the survey has no undo stack, so this is the only irreversible action on the menu.
  */
 @Composable
 fun DeleteLastLegDialog(survey: Survey, onDismiss: () -> Unit, onDelete: () -> Unit) {
@@ -164,20 +139,13 @@ fun DeleteLastLegDialog(survey: Survey, onDismiss: () -> Unit, onDelete: () -> U
     )
 }
 
-/**
- * The last leg recorded, in the surveyor's own terms, or null if there is none.
- *
- * Chronological order rather than tree order: "the last leg" means the last one *taken*, which is
- * what `Survey.undoAddLeg` pops, and on a survey with several branches that is not the last one in
- * any walk of the tree.
- */
+/** Chronological order rather than tree order: "the last leg" means the last one *taken*. */
 fun lastLegDescription(survey: Survey): String? {
     val leg = survey.getAllLegsInChronoOrder().lastOrNull() ?: return null
     val from = survey.getOriginatingStation(leg)?.name ?: "?"
     val to = if (leg.hasDestination()) leg.destination.name else "a splay"
-    // The shared formatters the table and every exporter use, so the numbers here read exactly as
-    // they do in the row this deletes — HALF_UP rather than Kotlin's ties-to-even, which is
-    // finding 3 and the reason these exist at all.
+    // The shared formatters the table and every exporter use — HALF_UP rather than Kotlin's
+    // ties-to-even.
     val reading =
         "${formatDistance(leg.distance)} m, ${formatAzimuth(leg.azimuth)}°, " +
             "${formatInclination(leg.inclination)}°"

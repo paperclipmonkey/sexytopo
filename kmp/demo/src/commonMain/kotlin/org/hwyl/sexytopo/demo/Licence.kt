@@ -1,11 +1,8 @@
 package org.hwyl.sexytopo.demo
 
 /**
- * The licences offered by default on the Trip screen. Ported from `model.survey.Licence`.
- *
- * These seed the choices offered in the dialog; they are not the only licences a trip can carry,
- * since [org.hwyl.sexytopo.shared.model.survey.Trip.licence] is plain text and a licence typed by
- * hand, or read from an imported survey, is stored no differently from one picked here.
+ * The licences offered by default on the Trip screen — not the only ones a trip can carry, since
+ * [org.hwyl.sexytopo.shared.model.survey.Trip.licence] is plain text.
  */
 enum class Licence(
     val licenceName: String,
@@ -76,11 +73,7 @@ enum class Licence(
         private const val FREE_PREFIX = "✅ "
         private const val WARNING_PREFIX = "⚠️ "
 
-        /**
-         * Deliberately leaving a survey unlicensed doesn't mean what most people assume: it is the
-         * same as [ALL_RIGHTS_RESERVED] in substance, just without saying so. Carries its own
-         * warning prefix, since it describes a choice rather than one of the entries above.
-         */
+        /** Leaving a survey unlicensed is the same as [ALL_RIGHTS_RESERVED] in substance. */
         const val NONE_SUMMARY =
             WARNING_PREFIX +
                 "Leaving your survey unlicensed does not make it free to use: copyright applies " +

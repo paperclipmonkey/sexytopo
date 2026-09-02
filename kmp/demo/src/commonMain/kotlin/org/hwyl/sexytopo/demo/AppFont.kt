@@ -19,23 +19,14 @@ import org.hwyl.sexytopo.demo.resources.Res
 import org.jetbrains.compose.resources.Font
 
 /**
- * The app bundles its own font rather than relying on the platform's.
- *
- * This is not a nicety: Skia has **no system fonts on the web target**, so every text draw throws
- * and the whole app renders blank. (Diagnosed by bisection — a pure-drawing canvas worked while a
- * single `Text` did not.) Bundling one font fixes the browser and, as a bonus, makes text render
- * identically on iOS, desktop and the web, which keeps the golden renders deterministic.
+ * The app bundles its own font rather than relying on the platform's: Skia has **no system fonts
+ * on the web target**, so every text draw throws and the whole app renders blank.
  *
  * Liberation Sans, SIL OFL 1.1 — see demo/LICENSE-LiberationSans.txt.
  */
 val LocalAppFontFamily = compositionLocalOf<FontFamily> { FontFamily.Default }
 
-/**
- * Loads and preloads the bundled font, then renders [content] with it in scope.
- *
- * Nothing textual is drawn until the resolver reports the family ready, because rendering text
- * against an unresolved family is exactly the failure this works around.
- */
+/** Loads and preloads the bundled font, then renders [content] with it in scope. */
 @OptIn(ExperimentalTextApi::class)
 @Composable
 fun WithBundledFont(content: @Composable (Typography) -> Unit) {

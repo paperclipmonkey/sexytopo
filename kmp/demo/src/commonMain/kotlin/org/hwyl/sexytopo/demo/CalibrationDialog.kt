@@ -32,21 +32,9 @@ import org.hwyl.sexytopo.shared.io.export.formatFixed
 /**
  * Calibrating the instrument.
  *
- * Ported from `DistoXCalibrationActivity`. This is the last of the big screens to have a
- * counterpart here, and the one whose absence mattered most in the field: an uncalibrated DistoX
- * can be several degrees out, a survey is a chain of bearings, and the error accumulates along the
- * passage. A cave surveyed on an uncalibrated instrument comes back not quite the same shape as the
- * cave, and nothing in the numbers says so.
- *
- * Everything under this screen was ported and tested long before anything could reach it: Beat
- * Heeb's solver against the Android app's own two 56-shot datasets — asserting the iteration counts
- * as well as the errors, on the JVM, Kotlin/Wasm *and* Kotlin/Native — the packet decoders that
- * turn frames into readings, and the memory-write commands that put the answer back on the device.
- * What was missing was the fifty lines that ask the instrument to start.
- *
- * The workflow is the app's: put the instrument into calibration mode, shoot the 56 positions it
- * lists, solve, and write the coefficients back. The positions are a checklist rather than a
- * validation — the instrument does not report which way it was pointing, so neither app can know.
+ * An uncalibrated DistoX can be several degrees out, and because a survey is a chain of bearings
+ * the error accumulates along the passage. The positions are a checklist rather than a
+ * validation — the instrument does not report which way it was pointing.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -56,23 +44,15 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
     var result by remember { mutableStateOf<CalibrationResult?>(null) }
     var written by remember { mutableStateOf(0) }
     var problem by remember { mutableStateOf<String?>(null) }
-    // Linear by default, and the Android app's own comment says why: "linear probably safer as
-    // default". The non-linear variant fits three extra accelerometer coefficients.
-    //
-    // Read from the saved preferences rather than held here, which it used to be. A chip that
-    // resets every time the dialog opens is a chip a surveyor has to remember to move again after
-    // fifty-six shots — finding 49's shape, and the calibration screen is the worst place for it,
-    // because the cost of forgetting is the whole calibration.
+    // Read from saved preferences rather than held as local state: a chip that reset every time
+    // the dialog opened would cost a surveyor fifty-six shots' worth of forgetting.
     val algorithm = state.preferences.calibrationAlgorithm
     val nonLinear = algorithm.useNonLinearity(session.profile)
 
-
-    // Read so this recomposes as readings arrive.
     val revision = session.calibrationRevision
 
-    // Saved on every change, keyed on that same counter so it covers every way the run can change
-    // — the buttons here, and a reading arriving from an instrument while nobody is touching the
-    // screen, which is the case that actually matters.
+    // Covers both ways the run can change: the buttons here, and a reading arriving from an
+    // instrument while nobody is touching the screen.
     LaunchedEffect(revision) { state.noteCalibrationChanged() }
 
     AlertDialog(
@@ -111,12 +91,8 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
 
                 HorizontalDivider()
 
-                // Said before Start is pressed rather than after, because "this instrument cannot
-                // be calibrated from the app" is something to learn while deciding whether to
-                // carry a target board into a cave. A BRIC has no calibration commands at all -
-                // `InstrumentFamily.BRIC4` is declared with an empty command set, which is what
-                // the Android app's Bric4Manager sends too - because a BRIC is calibrated on the
-                // device, from its own menu.
+                // Said before Start, not after: worth knowing before carrying a target board
+                // into a cave. A BRIC is calibrated on the device, from its own menu.
                 if (!session.canCalibrate) {
                     Text(
                         session.profile?.name?.let {
@@ -128,8 +104,7 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
                     )
                 }
 
-                // FlowRow, not Row: five buttons do not fit across a phone, and a Row squeezes
-                // the last one into a column of single letters rather than wrapping it.
+                // FlowRow, not Row: a Row squeezes the last button into a column of letters.
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(
                         enabled = !session.calibrating,
@@ -140,7 +115,6 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
                                 if (session.startCalibration()) {
                                     null
                                 } else {
-                                    // FCL exposes no calibration commands at all.
                                     "This instrument cannot be calibrated from the app"
                                 }
                         },
@@ -169,14 +143,8 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
 
                 HorizontalDivider()
 
-                // Solving is offered from the solver's own minimum rather than from 56, with the
-                // shortfall said plainly. The Android app refuses below 56; this reports instead,
-                // because a surveyor who has taken 40 shots and lost the light is better served by
-                // a calibration they know is partial than by none.
-                // Three chips and not two, because `pref_calibration_algorithm` has three
-                // values and the third is the useful one: *Auto* asks the instrument, and the
-                // right answer is a property of the device rather than of the surveyor — the X310
-                // and the DistoX-BLE want the non-linear fit and the A3 does not.
+                // Solving is offered below 56, unlike the Android app: a surveyor who lost the
+                // light after 40 shots is better served by a partial calibration than none.
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -236,11 +204,8 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    // A poor fit is still offered: it is the surveyor's instrument, and a poor
-                    // calibration they know about beats the factory one they do not. A fit that
-                    // never settled is not, because it is not a calibration at all — its
-                    // coefficients are wherever the solver happened to stop, and writing them
-                    // would leave the instrument worse than uncalibrated.
+                    // A fit that never settled is not offered: its coefficients are wherever the
+                    // solver happened to stop, and writing them would be worse than uncalibrated.
                     TextButton(
                         enabled = quality != CalibrationQuality.DID_NOT_SETTLE,
                         onClick = { written = session.writeCalibration(fitted) },
@@ -256,10 +221,6 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
                 problem?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
-
-                // No connection log here, unlike the instrument screen. It would say the same
-                // thing as the count above it, and — because the dialog is centred — every line
-                // it grew by moved the buttons a few pixels up under the surveyor's thumb.
             }
         },
         confirmButton = {

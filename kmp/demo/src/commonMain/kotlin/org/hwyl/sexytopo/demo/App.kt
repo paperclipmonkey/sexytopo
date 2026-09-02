@@ -61,19 +61,8 @@ import org.jetbrains.compose.resources.painterResource
 /**
  * The whole demo UI, written once and run on Android, iOS, desktop and the browser.
  *
- * It is a deliberate copy of SexyTopo's own sketch screen — `activity_graph.xml`, its green panels
- * from `colors.xml`, and its toolbar icons, carried across as Compose resources. That is the point:
- * a demo styled to somebody's taste would prove that Compose can draw a UI, which nobody doubts.
- * A demo that a SexyTopo user recognises on an iPhone, and can already use, is an argument.
- *
- * There is one layout rather than a phone one and a tablet one, because the app has one: a
- * nine-column grid of weighted buttons spreads out on a tablet and squares up on a phone by
- * itself. What the demo adds beyond the app's own chrome — the choice of survey, and the export
- * screen — is in the overflow menu, where a fourth screen would go in the app too.
- *
- * Everything the canvas draws comes from the shared Kotlin core ported from the Android app's Java;
- * everything you draw on it goes back into the same shared sketch model, and every reading in the
- * live survey is decoded from a real DistoX wire-format packet by the ported protocol code.
+ * A deliberate copy of SexyTopo's own sketch screen — its layout, colours and toolbar icons — so
+ * a SexyTopo user recognises it and can already use it.
  */
 @Composable
 fun App(
@@ -102,17 +91,13 @@ fun App(
     val editor = rememberSketchEditor(state)
     val canvas = rememberCanvasController(state)
 
-    // A phone that crosses into its own night while the survey is open should take the app with
-    // it, if the theme is left on Automatic. `SideEffect` and not an assignment in the body of the
-    // composable: writing to state during composition is what makes a UI recompose forever.
+    // `SideEffect`, not a plain assignment: writing to state during composition would make the
+    // UI recompose forever.
     SideEffect { state.systemDark = systemDark }
 
-    // Pick up where the surveyor left off. A cave trip is not one sitting: the phone goes in a
-    // pocket, the app is killed by the OS, and coming back to an empty screen would lose the
-    // survey. Opening the most recent one is what makes this usable rather than a toy.
     LaunchedEffect(Unit) {
-        // Before anything is read, let alone written: in a browser, saved surveys are storage the
-        // browser is entitled to reclaim until it has been asked not to. A no-op everywhere else.
+        // Before anything is read, let alone written: in a browser, saved surveys are storage
+        // the browser is entitled to reclaim until it has been asked not to.
         requestDurableStorage()
         state.loadSettings()
         state.loadCalibration()
@@ -123,13 +108,8 @@ fun App(
 
     KeepScreenAwake()
 
-    // Let the instrument's clock run wherever the surveyor is.
-    //
-    // This used to live in the connection dialog and the calibration dialog, which meant it only
-    // ran while one of them was open — so a connection attempt abandoned by closing the dialog
-    // never timed out and left the radio scanning, and a reconnection could never happen at all,
-    // because a surveyor waiting for an instrument to come back is drawing. Keyed on the attached
-    // instrument so it costs nothing on the demo cave, where the simulator needs no clock.
+    // Runs wherever the surveyor is, not just while a dialog is open — reconnection couldn't
+    // happen while they were drawing instead of looking at a dialog.
     val instrument = state.session.profile
     LaunchedEffect(state.session, instrument) {
         if (instrument == null) return@LaunchedEffect
@@ -139,16 +119,12 @@ fun App(
         }
     }
 
-    // Save after every change rather than on a timer. A survey is a few tens of kilobytes and the
-    // write is synchronous, so the cost is nothing against the thing it prevents: losing the last
-    // few legs when a phone dies underground.
     LaunchedEffect(state.revision, state.liveSurvey) {
         if (state.revision > 0) state.saveLiveSurvey()
     }
 
     WithBundledFont { typography ->
-      // Provided here rather than threaded down: the reading fields are four dialogs deep and
-      // none of the layers between is about angles. See [LocalAngleEntry].
+      // Provided here rather than threaded down four dialogs deep — see [LocalAngleEntry].
       CompositionLocalProvider(LocalAngleEntry provides state.preferences.angleEntry) {
         MaterialTheme(
             colorScheme = if (state.darkMode) darkColorScheme() else lightColorScheme(),
@@ -163,14 +139,8 @@ fun App(
                         SexyTopoColours.canvasBackground
                     },
             ) {
-                // safeDrawing rather than nothing: on Android the app draws edge to edge behind
-                // the status and navigation bars, and on an iPhone there is a notch at one end and
-                // a home indicator at the other. Without this the app bar hides under the clock.
+                // Without safeDrawing the app bar hides under the status bar or a notch.
                 Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-                    // Drawing inside a cross-section takes the whole screen, as it takes a whole
-                    // activity in the Android app: it is a different world with its own tools and
-                    // its own undo, and leaving the plan's toolbar under it would be a lie about
-                    // what the buttons do.
                     val editing = state.editingCrossSection
                     if (editing != null) {
                         CrossSectionEditor(
@@ -195,9 +165,6 @@ fun App(
                             pinchToZoom = state.preferences.pinchToZoom,
                         )
                     } else {
-                        // `action_fullscreen`. The app bar is the one piece of chrome a surveyor
-                        // mid-stroke has no use for, and in landscape — which is how a wide
-                        // passage gets drawn — it is a sixth of the paper.
                         if (state.preferences.fullScreen) {
                             FullScreenHandle {
                                 state.updatePreferences(
@@ -229,16 +196,8 @@ fun App(
 }
 
 /**
- * The app bar: `MaterialToolbar` on `panelBackground` with a white title, and the three
- * always-visible actions from `res/menu/action_bar.xml` that this port can honour — table, plan
- * and extended elevation.
- *
- * The app's fourth always-visible action is save, which is left out rather than drawn as a button
- * that does nothing: this demo holds its survey in memory and has nowhere to put it.
- *
- * The subtitle is the demo's own addition. The app has no such line, but a screenshot of a cave
- * with no numbers on it says very little, and it is where the shared core gets to show that it
- * counted the stations.
+ * The app bar: the three always-visible actions from `action_bar.xml` this port can honour, plus
+ * a subtitle — the demo's own addition — showing what the shared core counted.
  */
 @Composable
 private fun SexyTopoAppBar(state: DemoState) {
@@ -259,11 +218,7 @@ private fun SexyTopoAppBar(state: DemoState) {
     var addingLeg by remember { mutableStateOf(false) }
     var addingSplay by remember { mutableStateOf(false) }
 
-    // `action_add_leg` and `action_add_splay`. Always against `liveSurvey`, never `state.survey`:
-    // the demo cave is a read-only example and the rule that nothing is ever recorded into it is
-    // one this app keeps everywhere else. Opening these from the example and writing into the real
-    // survey would be worse than either, so the menu rows switch to it first — which is what the
-    // Android app's Tools menu does implicitly, having only one survey open at a time.
+    // Always against `liveSurvey`, never `state.survey`: the demo cave is read-only.
     if (addingLeg || addingSplay) {
         val splay = addingSplay
         AddLegDialog(
@@ -325,9 +280,7 @@ private fun SexyTopoAppBar(state: DemoState) {
     }
 
     if (showingLog) {
-        // Read through `logRevision` rather than straight off the log: `ActivityLog` is a plain
-        // class, so appending to it is invisible to Compose and the dialog would show whatever was
-        // there when it opened.
+        // `ActivityLog` is a plain class, so appending to it is invisible to Compose otherwise.
         val entries = remember(state.session.logRevision) { state.session.deviceLog.entries }
         LogDialog(
             entries = entries,
@@ -344,10 +297,6 @@ private fun SexyTopoAppBar(state: DemoState) {
         )
     }
 
-    // `preferences_manual_data_entry.xml`, which is one of `preferences_main.xml`'s eight screens
-    // — so its own dialog here, as *Sketching* already is. It used to be five more rows on
-    // *Surveying*, and eleven settings in one scrolling card is not a screen anybody can use with
-    // cold hands.
     if (editingManualEntry) {
         ManualEntrySettingsDialog(
             preferences = state.preferences,
@@ -481,22 +430,11 @@ private fun SexyTopoAppBar(state: DemoState) {
                     menuOpen = false
                     page = MenuPage.TOP
                 },
-                // One width for every page. Material sizes a menu to its longest label, so the
-                // popup was 164 pixels on the top page and 112 on Help — it shrank under the
-                // finger that had just opened it, and a submenu jumping about while you read it is
-                // the sort of thing that makes an app feel unfinished. 200dp fits "Instrument >"
-                // and leaves room for a saved survey's name beside its delete cross.
+                // 200dp fits "Instrument >" without the menu visibly resizing between pages.
                 modifier = Modifier.width(200.dp),
             ) {
-                // `action_bar.xml`'s own five submenus, and for the same reason it has them: this
-                // list had grown to fourteen rows plus one per saved survey, which is 672 pixels
-                // before a single survey is saved — taller than an iPhone SE. Compose scrolls a
-                // popup that does not fit, so nothing was unreachable, but *About* was drawn half
-                // off the bottom edge and nothing said the list continued.
-                //
-                // The words are the app's, and so is the order: File, View, Instrument, Tools,
-                // Settings, Help. Tools sits where `action_tools` sits, between the device menu
-                // and the settings.
+                // `action_bar.xml`'s own five submenus: File, View, Instrument, Tools, Settings,
+                // Help.
                 if (page == MenuPage.TOP) {
                     MenuGroup("File", MenuPage.FILE) { page = it }
                     MenuGroup("View", MenuPage.VIEW) { page = it }
@@ -507,8 +445,6 @@ private fun SexyTopoAppBar(state: DemoState) {
                 }
 
                 if (page != MenuPage.TOP) {
-                    // First row rather than a chevron in the corner: a surveyor in gloves needs a
-                    // way back that is the same size as everything else on the menu.
                     DropdownMenuItem(
                         text = { Text("< Back") },
                         leadingIcon = { CheckDot(false) },
@@ -517,20 +453,8 @@ private fun SexyTopoAppBar(state: DemoState) {
                 }
 
                 if (page == MenuPage.TOOLS) {
-                    // `tools_group_manual_entry`: `action_add_leg` and `action_add_splay`, which
-                    // go through `LegDialogs.addStation` and `addSplay` and write the leg down
-                    // immediately.
-                    //
-                    // Not the same thing as *Add reading* on the field bar, which is why both are
-                    // in the app. That button stands in for the instrument and holds a typed
-                    // reading to the instrument's rules — three agreeing readings make a station.
-                    // These two write down what a surveyor already knows: a leg out of a paper
-                    // book after the trip, or a join onto a station somebody else surveyed, is not
-                    // three repeats of anything, and the far station usually has a name already.
-                    //
-                    // The other two items of `action_tools` are elsewhere by design and stay
-                    // there: `action_undo_last_leg` and `action_find_station` are both on the
-                    // drawing menu, because their answer is a change to what the canvas shows.
+                    // Unlike *Add reading* on the field bar, these write the leg down
+                    // immediately rather than holding it to the instrument's rules.
                     DropdownMenuItem(
                         text = { Text("Add a leg") },
                         leadingIcon = { CheckDot(false) },
@@ -552,9 +476,6 @@ private fun SexyTopoAppBar(state: DemoState) {
                 }
 
                 if (page == MenuPage.HELP) {
-                    // `help_menu`, which holds exactly these two in exactly this order. It was
-                    // flattened to a single *About…* row while the manual was missing; now that
-                    // the manual is here it is the submenu the app always had.
                     DropdownMenuItem(
                         text = { Text("Manual") },
                         leadingIcon = { CheckDot(false) },
@@ -564,9 +485,8 @@ private fun SexyTopoAppBar(state: DemoState) {
                             page = MenuPage.TOP
                         },
                     )
-                    // `action_about`. Not decoration: this build carries several thousand lines of
-                    // somebody else's GPL-3.0 code, and until it existed neither their names nor
-                    // the licence appeared anywhere a user could see them.
+                    // Not decoration: this build carries GPL-3.0 code whose licence and authors
+                    // need to be visible somewhere.
                     DropdownMenuItem(
                         text = { Text("About") },
                         leadingIcon = { CheckDot(false) },
@@ -579,7 +499,6 @@ private fun SexyTopoAppBar(state: DemoState) {
                 }
 
                 if (page == MenuPage.FILE) {
-                    // Survey management first, because in the field it is what the menu is for.
                     DropdownMenuItem(
                         text = { Text("New survey…") },
                         leadingIcon = { CheckDot(false) },
@@ -593,17 +512,12 @@ private fun SexyTopoAppBar(state: DemoState) {
                         text = { Text("Rename survey…") },
                         leadingIcon = { CheckDot(false) },
                         onClick = {
-                            // This edits the surveyor's own survey, so show it: renaming
-                            // something the screen is not displaying is the kind of thing that
-                            // gets noticed three trips later.
                             state.mode = SurveyMode.LIVE
                             naming = NamingIntent.RENAME
                             menuOpen = false
                             page = MenuPage.TOP
                         },
                     )
-                    // `action_file_open`, which in the app is a dialog and here is the list
-                    // itself: on a phone the shortest way to a survey is its name.
                     for (name in state.savedSurveys) {
                         DropdownMenuItem(
                             text = { Text(name) },
@@ -612,12 +526,9 @@ private fun SexyTopoAppBar(state: DemoState) {
                                     state.mode == SurveyMode.LIVE && state.liveSurvey.name == name,
                                 )
                             },
-                            // Deleting is on the row rather than behind a "manage surveys"
-                            // screen, and it asks first: a survey is a trip somebody cannot
-                            // repeat.
                             trailingIcon = {
-                                // "×" and not "✕": the bundled font has Latin-1 and no Dingbats,
-                                // so the prettier cross renders as a missing-glyph box.
+                                // "×" not "✕": the bundled font has Latin-1 and no Dingbats, so
+                                // the prettier cross renders as a missing-glyph box.
                                 Text(
                                     "×",
                                     style = MaterialTheme.typography.titleMedium,
@@ -665,7 +576,6 @@ private fun SexyTopoAppBar(state: DemoState) {
                             page = MenuPage.TOP
                         },
                     )
-                    // `action_trip` is in the app's View submenu, not its File one.
                     DropdownMenuItem(
                         text = { Text("Trip details…") },
                         leadingIcon = { CheckDot(state.liveSurvey.trip != null) },
@@ -717,8 +627,6 @@ private fun SexyTopoAppBar(state: DemoState) {
                             page = MenuPage.TOP
                         },
                     )
-                    // `action_system_log`, which the app keeps under Tools; it is here because
-                    // every line in it is about an instrument.
                     DropdownMenuItem(
                         text = { Text("Log…") },
                         leadingIcon = { CheckDot(false) },
@@ -751,8 +659,6 @@ private fun SexyTopoAppBar(state: DemoState) {
                             page = MenuPage.TOP
                         },
                     )
-                    // Likewise its own screen, and for the same reason the Android app gives it
-                    // one: everything on it is about a survey booked with a compass and a tape.
                     DropdownMenuItem(
                         text = { Text("Manual entry…") },
                         leadingIcon = { CheckDot(false) },
@@ -762,9 +668,6 @@ private fun SexyTopoAppBar(state: DemoState) {
                             page = MenuPage.TOP
                         },
                     )
-                    // Its own screen, as `preferences_main.xml` gives it: the tolerances answer
-                    // "what counts as the same shot" and these answer "can I read this by head
-                    // torch", which are different questions asked at different moments.
                     DropdownMenuItem(
                         text = { Text("Sketching…") },
                         leadingIcon = { CheckDot(false) },
@@ -774,9 +677,6 @@ private fun SexyTopoAppBar(state: DemoState) {
                             page = MenuPage.TOP
                         },
                     )
-                    // `pref_theme` is a three-value list and not a checkbox, which matters: a
-                    // surveyor who wants the app dark in daylight has to be able to say so, and
-                    // *Automatic* on a phone means "is it evening", not "am I underground".
                     MenuGroup("Theme: ${state.preferences.theme.label}", MenuPage.THEME) {
                         page = it
                     }
@@ -789,9 +689,8 @@ private fun SexyTopoAppBar(state: DemoState) {
                             leadingIcon = { CheckDot(state.preferences.theme == theme) },
                             onClick = {
                                 state.updatePreferences(state.preferences.copy(theme = theme))
-                                // Stay on the page. Choosing a theme is the one setting whose
-                                // effect is the whole screen, so a surveyor comparing two of them
-                                // should not have to walk back down the menu between looks.
+                                // Stays on the page: comparing two themes needs to see the
+                                // effect without navigating back each time.
                             },
                         )
                     }
@@ -801,53 +700,35 @@ private fun SexyTopoAppBar(state: DemoState) {
     }
 }
 
-/**
- * Which page of the overflow menu is showing: `action_bar.xml`'s submenus, one at a time.
- *
- * A submenu rather than a nested popup because Material 3 has no nested `DropdownMenu`, and
- * because a popup hanging off another popup on a phone is a thing to aim at with a gloved finger.
- * Swapping the contents of the one menu keeps every row the full width of it.
- */
+/** Which page of the overflow menu is showing: `action_bar.xml`'s submenus, one at a time. */
 enum class MenuPage {
     TOP,
     FILE,
     VIEW,
     INSTRUMENT,
-
-    /** `action_tools`, holding the two manual-entry items that write a leg down outright. */
     TOOLS,
     SETTINGS,
     HELP,
-
-    /** `pref_theme`'s three values, which live under Settings rather than beside it. */
     THEME,
 }
 
-/** Where *< Back* goes: one level up, which for the theme list is Settings and not the top. */
 internal val MenuPage.parent: MenuPage
     get() = if (this == MenuPage.THEME) MenuPage.SETTINGS else MenuPage.TOP
 
-/** A row that opens one of the submenus. */
 @Composable
 private fun MenuGroup(label: String, opens: MenuPage, onOpen: (MenuPage) -> Unit) {
     DropdownMenuItem(
         text = { Text(label) },
         leadingIcon = { CheckDot(false) },
-        // "›" and not ">": the bundled font does have it, which `FontCoverageTest` checks. The
-        // ">" here was a precaution taken against a font limit that turned out not to exist.
+        // "›" not ">": the bundled font has it, and `FontCoverageTest` checks that.
         trailingIcon = { Text("\u203A", style = MaterialTheme.typography.bodyMedium) },
         onClick = { onOpen(opens) },
     )
 }
 
 /**
- * What is left of the app bar in full screen: a grab handle, and a way back.
- *
- * Something has to stay. Hiding the app bar hides the only route to the overflow menu, and a
- * surveyor who turned this on and could not turn it off would have to delete the app — so this is
- * eighteen pixels of the same green with a bar drawn across it, and a tap anywhere on it brings
- * the app bar back. A drawn bar rather than a typed chevron because a grab handle is a bar — the
- * font would in fact draw "›" perfectly well, which `FontCoverageTest` now settles.
+ * What is left of the app bar in full screen: a grab handle, and a way back — something has to
+ * stay, or a surveyor who turned this on could not turn it off.
  */
 @Composable
 private fun FullScreenHandle(onExit: () -> Unit) {
@@ -868,15 +749,11 @@ private fun FullScreenHandle(onExit: () -> Unit) {
     }
 }
 
-/** Action icons in the app bar: the toolbar button height, and about as wide. */
 private fun Modifier.widthOfAnAction(): Modifier = this.width(44.dp)
 
 /**
- * The three-dot overflow, drawn rather than typed.
- *
- * `⋮` (U+22EE) is not in Liberation Sans, which this app bundles precisely so that text renders
- * identically everywhere — so on every platform it came out as a missing-glyph box. Drawing it is
- * three lines of code and cannot fail on a font.
+ * The three-dot overflow, drawn rather than typed: `⋮` is not in Liberation Sans, which this app
+ * bundles precisely so text renders identically everywhere.
  */
 @Composable
 private fun OverflowGlyph(modifier: Modifier = Modifier) {
@@ -898,14 +775,9 @@ private fun ScreenContent(
     canvas: CanvasController,
     modifier: Modifier,
 ) {
-    // The station whose menu is open, held by name rather than by object: an edit that renames or
-    // deletes it rebuilds the survey's stations, and a menu holding the old object would go on
-    // offering actions against a station that is no longer in the survey.
-    //
-    // It lives out here rather than inside the sketch because both halves of the app open it: a
-    // long press on the drawing, and a tap on a station's name in the table.
+    // Held by name rather than by object: an edit that renames or deletes the station would
+    // otherwise leave a menu holding a reference to a station no longer in the survey.
     var menuFor by remember { mutableStateOf<String?>(null) }
-    // Which of the two opened it. The Android app has two station menus and they differ.
     var menuFromTable by remember { mutableStateOf(false) }
 
     StationMenuFor(
@@ -923,8 +795,6 @@ private fun ScreenContent(
                 revision = state.revision,
                 modifier = modifier,
                 onEdited = { state.noteSketchEdited() },
-                // The demo cave is a fixture; editing it would be surprising and would not be
-                // saved. The surveyor's own survey is the one that can be corrected.
                 editable = state.mode == SurveyMode.LIVE,
                 onStation = { menuFromTable = true; menuFor = it.name },
                 scrollTo = state.pendingTableJump,
@@ -956,12 +826,7 @@ private fun ScreenContent(
     }
 }
 
-/**
- * The sketch, plus the one thing it cannot do for itself.
- *
- * The canvas reports *where* a label goes; typing *what* it says needs a keyboard, so the dialog
- * lives out here where there is a layout to put one in.
- */
+/** The sketch, plus the label dialog it needs a keyboard for and can't provide itself. */
 @Composable
 private fun SketchScreen(
     state: DemoState,
@@ -970,12 +835,8 @@ private fun SketchScreen(
     modifier: Modifier,
     onLongPressStation: (String) -> Unit,
 ) {
-    // Position in survey coordinates, and the text size in metres for the current zoom.
     var placing by remember { mutableStateOf<Pair<Coord2D, Float>?>(null) }
 
-    // `GraphActivity.handleAutoRecentre`, which listens for the same station-created broadcast the
-    // buzz does. Keyed on the count rather than run on every recomposition, and skipped at zero so
-    // opening the app does not count as a station having just been made.
     LaunchedEffect(state.stationsCreated, state.projection) {
         if (state.stationsCreated > 0 && state.preferences.autoRecentre) {
             stationPositionIn(state.survey, state.projection, state.survey.activeStation)
@@ -983,10 +844,8 @@ private fun SketchScreen(
         }
     }
 
-    // "Show it on the plan", asked for from the table. It cannot be done there: the viewport
-    // belongs to this canvas, and this canvas did not exist when the menu was tapped. The request
-    // is cleared whether or not the station turns out to be in this projection, so a station that
-    // is not — nothing is, in a cross-section — does not leave a jump pending for ever.
+    // Cleared whether or not the station is in this projection, so it never leaves a jump
+    // pending forever.
     LaunchedEffect(state.pendingJump, state.projection) {
         state.pendingJump?.let { wanted ->
             state.survey.getStationByName(wanted)
@@ -1025,13 +884,7 @@ private fun SketchScreen(
     )
 }
 
-/**
- * The station menu, wherever it was opened from.
- *
- * One dialog reached two ways — a long press on the drawing and a tap on a station's name in the
- * table — because it is one menu in the app too, near enough: `context_station.xml` and
- * `table_station_selected.xml` differ only in the two items that make no sense in the other place.
- */
+/** The station menu, wherever it was opened from — a long press on the drawing, or a table row. */
 @Composable
 private fun StationMenuFor(
     state: DemoState,
@@ -1042,7 +895,6 @@ private fun StationMenuFor(
 ) {
     val station = name?.let { state.survey.getStationByName(it) }
     if (name != null && station == null) {
-        // Renamed or deleted out from under the menu.
         onClose()
         return
     }
@@ -1058,16 +910,11 @@ private fun StationMenuFor(
             onClose()
             state.noteSketchEdited()
         },
-        // `selectStation` only moves the marker; saving is the caller's job, as it is on the
-        // select tool's own path. Dropping the return value here meant the active station moved on
-        // screen and was back where it started after a restart.
+        // Dropping the return value here meant the active station moved on screen and was back
+        // where it started after a restart — saving is the caller's job.
         onMakeActive = { if (state.selectStation(it.name)) state.noteSketchEdited() },
         onOpenCrossSection = { state.editingCrossSection = it },
         onCreateCrossSection = { at ->
-            // Drawn beside the station rather than on top of it: the plan's own centreline is
-            // under the finger that opened the menu, and a section dropped there covers the
-            // passage it describes. The offset is the app's own starting section size, so it lands
-            // clear of the line at any zoom.
             val position = crossSectionPositionFor(state.survey, at, state.projection)
             if (position != null) {
                 editor.addCrossSection(sectionFor(state.survey, at), position)
@@ -1086,17 +933,9 @@ private fun StationMenuFor(
 /**
  * The field controls: where a reading gets into the survey.
  *
- * Two ways in, and the first is the one that matters on iOS. **Safari has no Web Bluetooth**, so on
- * the platform this port exists for there is no way to hear from an instrument at all — a surveyor
- * reads the DistoX display and types it. "Simulate" keeps the simulated instrument alongside,
- * because it is still the quickest way to show somebody what the app does without an instrument in
- * the room.
- *
- * Both paths feed the same ported [SurveyUpdater], so a typed reading behaves exactly as a radioed
- * one: three that agree within tolerance promote to a station.
- *
- * They appear only over the surveyor's own survey. Over the demo cave this is a way back to it
- * instead — see [DemoCaveBar].
+ * **Safari has no Web Bluetooth**, so on the platform this port exists for there is no way to
+ * hear from an instrument at all — a surveyor reads the DistoX display and types it, through the
+ * same ported [SurveyUpdater] a radio would feed.
  */
 @Composable
 private fun FieldBar(state: DemoState) {
@@ -1117,10 +956,6 @@ private fun FieldBar(state: DemoState) {
             onDismiss = { entering = false },
             lrudFields = state.preferences.lrudFields,
             onAdd = { leg, asSplay, lrud ->
-                // liveSurvey, not state.survey: this composable only runs in LIVE mode, and being
-                // explicit here is what stops that ever silently changing. The rest is in
-                // [addTypedReading], out here where it can be tested — see the note there about
-                // which station the passage was measured at.
                 addTypedReading(
                     survey = state.liveSurvey,
                     leg = leg,
@@ -1157,9 +992,6 @@ private fun FieldBar(state: DemoState) {
                 if (dark) SexyTopoColours.innerPanelNight else SexyTopoColours.innerPanel,
             ),
     ) {
-    // Above the buttons rather than inside the line of status text, because it is a paragraph
-    // and that line is a row of short facts. It is on screen only while an instrument is
-    // refusing to shoot, and it goes the moment one gets through - see `SurveySession.trouble`.
     session.trouble?.let { trouble -> ShotTroubleBanner(trouble, session.troubleDetail) }
     Row(
         Modifier
@@ -1175,14 +1007,11 @@ private fun FieldBar(state: DemoState) {
         if (controls.simulator) {
             Button(onClick = { session.takeReading() }) { Text("Simulate") }
         }
-        // Which station the next leg hangs off is the single most important thing on this screen,
-        // and it was not on it at all. Tapping it names the station and says what is there, which
-        // is what a surveyor does at a junction the moment they reach one.
         Text(
             buildString {
                 append("From ${state.liveSurvey.activeStation.name}")
-                // Only when it is not the default. A backsight mode left on by accident reverses
-                // every leg that follows, and nothing in the numbers afterwards shows it happened.
+                // A backsight mode left on by accident reverses every leg that follows, with
+                // nothing in the numbers afterwards to show it happened.
                 if (state.inputMode != InputMode.FORWARD) {
                     append("  ·  ${labelFor(state.inputMode).lowercase()}")
                 }
@@ -1208,18 +1037,7 @@ private fun FieldBar(state: DemoState) {
     }
 }
 
-/**
- * Why the instrument will not shoot, where somebody waiting for a reading is looking.
- *
- * A BRIC4 that refuses a shot beeps twice and says why over its errors characteristic, and until
- * this the only place that reached was the log - four taps away, behind the overflow menu, in the
- * instrument's own words: *magnetometer 1 high magnitude*. That is a true statement about a sensor
- * and no help at all to somebody standing in a passage wondering whether the app is broken.
- *
- * So the app says what is wrong and what to try, at the bottom of the screen the surveyor is
- * already looking at. See [ShotTrouble], which holds the wording, and which is in `shared` because
- * the mapping from a code to a cause is a fact about the instrument rather than about this screen.
- */
+/** Why the instrument will not shoot, where somebody waiting for a reading is looking. */
 @Composable
 private fun ShotTroubleBanner(trouble: ShotTrouble, detail: String?) {
     Column(
@@ -1236,10 +1054,6 @@ private fun ShotTroubleBanner(trouble: ShotTrouble, detail: String?) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        // The instrument's own numbers, verbatim. They are here because they are the only thing
-        // on this screen that *moves* while the surveyor does: the advice above says to walk
-        // outside, and these are how you find out whether walking outside helped, without
-        // squinting at the instrument's own display in the dark.
         detail?.let {
             Text(
                 it,
@@ -1251,15 +1065,8 @@ private fun ShotTroubleBanner(trouble: ShotTrouble, detail: String?) {
 }
 
 /**
- * What the field bar says while the demo cave is showing.
- *
- * Recording controls must not appear here: the demo cave is a fixture, it is deliberately never
- * saved, and anything put into it would vanish at the next restart. Until now the bar was simply
- * left out over it, which was safe and left the app opening on a screen whose only route to the
- * surveyor's own survey was a three-dot menu — on the screen a new user sees first, and the moment
- * they are most likely to be looking for one.
- *
- * So the space says what this is and offers the one thing worth doing from here.
+ * What the field bar says while the demo cave is showing: recording controls must not appear
+ * here, since the demo cave is a fixture that is never saved.
  */
 @Composable
 private fun DemoCaveBar(state: DemoState) {

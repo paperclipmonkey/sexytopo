@@ -38,58 +38,26 @@ import org.jetbrains.compose.resources.painterResource
 /**
  * Drawing the shape of the passage, standing at one station.
  *
- * Ported from `CrossSectionActivity` and `CrossSectionView`. A cross-section on the plan is a star
- * of splays — the wall, floor and roof shots taken at that station — and a star of rays is not a
- * passage. What makes it one is the outline a surveyor draws round it, joining the splay ends into
- * a wall and closing the gaps where nobody took a shot. That outline is the sub-sketch every
- * [CrossSectionDetail] has carried since the model was ported, which the SVG exporter already draws
- * and the native format already round-trips; this is the thing that could not, until now, put
- * anything into it.
- *
- * It is the same canvas, the same tools, the same viewport and the same undo stack as the plan —
- * over a different world. That reuse is the interesting part: `SurveyScene.forCrossSection` is
- * twenty lines, and everything else came for free from the shared sketch engine.
- *
- * ## Committing
- *
- * Drawing happens in a *copy* of the sub-sketch, so Cancel really does leave the original alone.
- * Done writes the copy's paths back into the live detail in place, as the Java does, rather than
- * swapping the detail for a new one — see [commitCrossSectionSketch] for why that matters to the
- * plan's undo history.
- *
- * Only paths are kept, exactly as `CrossSectionActivity.commitAndFinish` does. A cross-section can
- * hold symbols and labels in the model, and the Android app drops them on commit; matching that is
- * better than silently storing something its own editor would throw away.
+ * It is the same canvas, tools, viewport and undo stack as the plan, over a different world —
+ * `SurveyScene.forCrossSection` is twenty lines, and everything else comes free from the shared
+ * sketch engine.
  */
 /**
  * What the cross-section editor's canvas is drawn with.
  *
- * A plain function rather than inlined into the composable, so it can be tested the way
- * [DemoState.displayOptions] already is — a `@Composable` cannot be called from a `jvmTest`.
- *
- * `CrossSectionView` is a bare `GraphView` subclass with no overrides, so on the Android app every
- * numeric sketch setting and the eraser's fragment toggle apply identically whether the surveyor
- * is drawing the plan or a section. [style] and [deletePathFragments] were missing here until this
- * function existed: a surveyor who enlarged line widths, station size or label text for a head
- * torch, or turned fragment-erase off, got the ordinary defaults back the moment they opened a
- * section — the one screen most likely to be drawn on with cold hands and poor light, since it
- * exists to draw the shape a plan cannot show.
+ * A plain function rather than inlined into the composable, so it can be tested — a `@Composable`
+ * cannot be called from a `jvmTest`.
  */
 internal fun crossSectionDisplayOptions(darkMode: Boolean, preferences: AppPreferences) =
     DisplayOptions(
-        // Splays are the whole subject here, so the plan's toggle does not apply.
         showSplays = true,
         showSketch = true,
         // One station, at the origin, whose name is already in the title bar.
         showStationLabels = false,
         showGrid = true,
         darkMode = darkMode,
-        // The same escape from the toolbar as the plan has: a section is drawn with the same
-        // pencil and moved just as often.
         hotCorners = preferences.hotCorners,
         twoFingerMove = preferences.twoFingerMove,
-        // The same preference the plan honours: a surveyor who turned the pinch off should not
-        // meet it again inside a section.
         pinchToZoom = preferences.pinchToZoom,
         style = preferences.sketchStyle,
         deletePathFragments = preferences.deletePathFragments,
@@ -105,8 +73,8 @@ fun CrossSectionEditor(
     modifier: Modifier = Modifier,
     preferences: AppPreferences = AppPreferences.DEFAULT,
 ) {
-    // The working copy, and the editor over it. Keyed on the detail so reopening a different
-    // section starts again rather than carrying the last one's undo stack across.
+    // Keyed on the detail so reopening a different section starts again rather than carrying
+    // the last one's undo stack across.
     val working = remember(detail) { detail.sketch.copy() }
     val editor = remember(detail) { SketchEditor(working) }
     val canvas = remember(detail) { CanvasController() }
@@ -222,26 +190,14 @@ fun CrossSectionEditor(
     }
 }
 
-/**
- * The tools this editor offers.
- *
- * `CrossSectionActivity.disableUnsupportedTools` hides *Select* — there is no station to select
- * here but the one at the origin — and this port hides the rest of the plan's cross-section tools
- * for the reason its own `onNewCrossSection` gives: cross-sections do not nest.
- */
+/** `CrossSectionActivity.disableUnsupportedTools` hides *Select*: there is no other station here. */
 private val CROSS_SECTION_TOOLS =
     listOf(SketchTool.MOVE, SketchTool.DRAW, SketchTool.ERASE)
 
 /**
- * Write the working copy back into the live cross-section.
- *
- * Mutating the detail in place rather than swapping in a new one is `commitAndFinish`'s own choice,
- * and its comment says why: the plan's undo and redo stacks hold references to this object, so
- * replacing it would leave them pointing at something no longer in the sketch — and undoing past
- * the section's creation would then leave a duplicate behind. The editor has its own undo, so
- * committing is deliberately not a step on the plan's.
- *
- * Only the paths survive, as in the original.
+ * Write the working copy back into the live cross-section, mutating the detail in place rather
+ * than swapping it: the plan's undo and redo stacks hold references to this object, and
+ * replacing it would leave them pointing at something no longer in the sketch.
  */
 internal fun commitCrossSectionSketch(
     survey: Survey,
@@ -251,8 +207,5 @@ internal fun commitCrossSectionSketch(
     val committed = Sketch()
     committed.pathDetails = working.pathDetails.toMutableList()
     detail.sketch = committed
-    // The plan is what holds this section, so the plan is what has become unsaved. The demo saves
-    // on every change rather than on this flag, but the flag is what the Java sets and what a
-    // future save-on-close would read.
     survey.isSaved = false
 }

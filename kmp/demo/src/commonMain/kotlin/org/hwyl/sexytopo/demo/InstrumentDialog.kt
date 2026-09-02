@@ -24,19 +24,10 @@ import org.hwyl.sexytopo.shared.comms.InstrumentProfile
 /**
  * Connecting to an instrument.
  *
- * Every layer under this was ported, tested and unreachable: the device profiles, the GATT
- * lifecycle, the five protocol decoders, the acknowledgements. There was no way to ask the app to
- * talk to anything, on any platform, so a surveyor's only route into the survey was the keyboard.
- *
- * The list is the instrument *families* rather than nearby devices, and that is not a shortcut: on
- * both platforms with a radio the chooser is the system's own. Web Bluetooth requires it — a page
- * may not enumerate devices, only ask the browser to offer some — and CoreBluetooth scans by
- * advertised name prefix, which is what the profile carries. So the surveyor says what they own,
- * and the platform says which one is in the room.
- *
- * While it is open, [SurveySession.tick] runs. That is the run loop
- * `CoreBluetoothTransport.checkTimeout` was written to wait for and never had, and it is the reason
- * an instrument that is switched off now says so instead of leaving the app waiting for ever.
+ * The list is the instrument *families* rather than nearby devices: on both platforms with a
+ * radio the chooser is the system's own, so the surveyor says what they own and the platform
+ * says which one is in the room. While it is open, [SurveySession.tick] runs, which is why a
+ * switched-off instrument is reported rather than leaving the app waiting forever.
  */
 @Composable
 fun InstrumentDialog(state: DemoState, onDismiss: () -> Unit) {
@@ -63,10 +54,6 @@ fun InstrumentDialog(state: DemoState, onDismiss: () -> Unit) {
                         },
                 )
 
-                // Why the instrument is refusing to shoot, in the surveyor's terms. The log
-                // below already carries the instrument's own wording; this says what to do about
-                // it, and it is up here because somebody who has opened this dialog has opened it
-                // to find out why nothing is arriving.
                 session.trouble?.let { trouble ->
                     Text(
                         trouble.summary,
@@ -159,8 +146,5 @@ internal fun status(state: DemoState): String {
     }
 }
 
-/**
- * Often enough that a fifteen-second timeout lands within a second of when it should, and rarely
- * enough that it costs nothing. Only runs while this dialog is open.
- */
+/** Often enough that a fifteen-second timeout lands within a second of when it should. */
 internal const val TICK_MILLIS = 500L

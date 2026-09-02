@@ -7,15 +7,8 @@ import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.sketch.SketchViewport
 
 /**
- * The view onto one sketch, shared between the canvas that draws it and the toolbar that changes it.
- *
- * The viewport used to live inside the canvas composable, which was fine while the only way to move
- * it was to drag it. SexyTopo's toolbar has zoom-in and zoom-out buttons, so it has to be reachable
- * from outside — and hoisting it is also what lets the "centre the view" action in the app's
- * drawing menu work at all.
- *
- * [revision] exists because [SketchViewport] is a plain object with no idea Compose exists.
- * Anything that moves the view bumps it, and the canvas reads it, so the draw happens.
+ * The view onto one sketch, shared between the canvas that draws it and the toolbar that changes
+ * it. [revision] exists because [SketchViewport] is a plain object with no idea Compose exists.
  */
 class CanvasController {
 
@@ -26,12 +19,7 @@ class CanvasController {
     var revision by mutableIntStateOf(0)
         private set
 
-    /**
-     * The canvas size in pixels, recorded during the draw.
-     *
-     * The zoom buttons need a point to zoom about — the middle of the view, since there is no
-     * finger to zoom around — and only the draw knows how big the view is.
-     */
+    /** Recorded during the draw: the zoom buttons need a point to zoom about. */
     var viewWidth: Float = 0f
         private set
 
@@ -59,12 +47,7 @@ class CanvasController {
 
     fun zoomOut() = zoomBy(SketchViewport.ZOOM_OUT_INCREMENT)
 
-    /**
-     * The toolbar's zoom step, about the centre of the view.
-     *
-     * The increments are the Android app's own — 1.1 and 0.9 from `GraphActivity` — so a tap zooms
-     * by the amount a surveyor's hand is used to.
-     */
+    /** The increments are the Android app's own — 1.1 and 0.9 from `GraphActivity`. */
     private fun zoomBy(factor: Float) {
         val centre = Coord2D(viewWidth / 2f, viewHeight / 2f)
         if (viewport.adjustZoomBy(factor, centre)) {
@@ -74,12 +57,8 @@ class CanvasController {
     }
 
     /**
-     * Put [surveyPoint] in the middle of the view — `GraphView.centreViewOnSurveyPoint`.
-     *
-     * The zoom is left alone, deliberately: somebody who has just asked to be taken to a station
-     * has already chosen how close in they are working, and re-fitting the whole cave to show them
-     * one station would undo that. Marks the viewport as theirs, so the automatic re-fit as the
-     * survey grows stops here rather than pulling the view off the station again on the next leg.
+     * Put [surveyPoint] in the middle of the view. The zoom is left alone, deliberately, and the
+     * viewport is marked as the surveyor's so the automatic re-fit stops here.
      */
     fun centreOn(surveyPoint: Coord2D) {
         if (viewWidth <= 0f || viewHeight <= 0f) return
@@ -88,7 +67,7 @@ class CanvasController {
         invalidate()
     }
 
-    /** Puts the view back where the app would have put it. The app's "centre view" menu action. */
+    /** Puts the view back where the app would have put it. */
     fun refit() {
         fit.userHasTakenControl = false
         fit.forget()

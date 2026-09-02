@@ -27,7 +27,6 @@ enum class Screen(val label: String) {
     EXPORT("Export"),
 }
 
-/** Which survey the canvas is showing. */
 enum class SurveyMode(val label: String) {
     EXAMPLE("Demo cave"),
     LIVE("Live survey"),
@@ -36,10 +35,8 @@ enum class SurveyMode(val label: String) {
 /**
  * Everything the demo's chrome can change, in one place.
  *
- * Pulled out of the composables because there are now two layouts — one for a phone, one for a
- * screen with room — and threading a dozen values and their setters through both is how a UI ends
- * up with the two quietly disagreeing. They share this object, so a state that exists in one
- * exists in the other, and switching between them by rotating a tablet loses nothing.
+ * Pulled out of the composables so a value used by one part of the UI can't drift from what
+ * another part reads.
  */
 class DemoState(
     val exampleSurvey: Survey,
@@ -49,93 +46,44 @@ class DemoState(
     initialTool: SketchTool?,
     initialMode: SurveyMode,
     initialScreen: Screen,
-    /**
-     * Where surveys are kept between runs: `localStorage` in the browser, the app's own files
-     * directory on Android, Documents on iOS, and the platform's application-data directory on the
-     * desktop. [SurveyLibrary] reports rather than throws when a platform will not have it.
-     *
-     * A parameter so a test can hand it an in-memory store and close and reopen the app in one
-     * method — which is the only way to check that a setting really came back, as against checking
-     * that a file was written and trusting the reading half.
-     */
+    /** Where surveys are kept between runs; a parameter so a test can substitute an in-memory store. */
     val library: SurveyLibrary = SurveyLibrary(),
 ) {
     var mode by mutableStateOf(initialMode)
     var screen by mutableStateOf(initialScreen)
     var projection by mutableStateOf(initialProjection)
-    /**
-     * The tool the toolbar has lit. Set through [chooseTool] so it reaches the preferences file.
-     *
-     * `private set` on purpose, on all four of these and on [darkMode]: what made finding 48 and
-     * finding 49 possible was that assigning to a `var` on this object looks exactly like
-     * assigning to one that is written down, at every call site. Take the assignment away and the
-     * two stop looking alike.
-     */
+    /** The tool the toolbar has lit. Set through [chooseTool] so it reaches the preferences file. */
     var tool by mutableStateOf(initialTool ?: SketchTool.DEFAULT)
         private set
 
-    /**
-     * Whether the caller named a tool rather than leaving it to the saved one.
-     *
-     * The headless renderer asks for [SketchTool.DRAW] to photograph the drawing tool, and a test
-     * asks for what it is testing; neither wants the machine's own saved preference instead.
-     */
+    /** Whether the caller named a tool rather than leaving it to the saved one. */
     private val seededTool = initialTool != null
 
     var brushColour by mutableStateOf(Colour.BLACK)
         private set
 
-    /**
-     * What the platform says about light and dark: `prefers-color-scheme` in a browser, the trait
-     * collection on iOS, the night resource qualifier on Android.
-     *
-     * A `var` that the composition keeps up to date rather than a constructor value, because the
-     * answer changes while the app is running — a phone crossing into its own night, or a
-     * surveyor pulling down the shade and hitting the moon — and [darkMode] has to follow it.
-     */
+    /** What the platform says about light and dark, kept live since it can change mid-session. */
     var systemDark by mutableStateOf(initialSystemDark)
 
     /**
-     * Whether to draw dark, which is the theme preference and the platform's answer together.
-     *
-     * Derived rather than stored. It was a plain `var` toggled straight from the menu, and that
-     * is the whole of why it was forgotten on every restart: nothing owned it, so nothing saved
-     * it. See finding 48.
+     * Whether to draw dark, derived rather than stored: a plain toggle is how this got forgotten
+     * on every restart before.
      */
     val darkMode: Boolean
         get() = preferences.theme.isDark(systemDark)
 
-    /**
-     * How the surveyor is holding the instrument, which decides what a run of repeated readings
-     * means. A mode rather than a per-reading choice, as in the app: a surveyor working back down a
-     * passage takes every shot the same way, and being asked each time would be worse than useless.
-     *
-     * Kept here rather than in the dialog so it survives the dialog closing, and so the field bar
-     * can say when it is not FORWARD — a backsight mode left on by accident reverses every leg that
-     * follows, and there is nothing in the numbers afterwards to show it happened.
-     */
+    /** How the surveyor is holding the instrument, which decides what a run of readings means. */
     var inputMode by mutableStateOf(InputMode.FORWARD)
         private set
 
     /**
-     * How close repeated readings must be before they make a station.
-     *
-     * Held here and passed into every [org.hwyl.sexytopo.shared.survey.SurveyUpdater] call rather
-     * than left at [SurveySettings.DEFAULT], because the defaults assume a DistoX: on a trip with
-     * a compass and tape, three readings never agree to 1.7 degrees, nothing is ever promoted, and
-     * the survey silently fills up with splays.
+     * How close repeated readings must be before they make a station — not left at the
+     * DistoX-tuned default, or a compass-and-tape survey would never promote one.
      */
     var surveySettings by mutableStateOf(SurveySettings.DEFAULT)
         private set
 
-    /** Reads the saved tolerances. Called once at startup, alongside the survey library. */
-    /**
-     * Bring back a calibration that was interrupted.
-     *
-     * A run is loaded once, when the app opens, and saved on every change — see
-     * [noteCalibrationChanged]. Fifty-six shots is twenty minutes, and losing them to a flat
-     * battery means doing all of it again.
-     */
+    /** Bring back a calibration that was interrupted; saved on every change so nothing is lost. */
     fun loadCalibration() {
         val saved = library.loadCalibration()
         if (saved.isEmpty()) return
@@ -143,19 +91,11 @@ class DemoState(
         saved.forEach(session.calibration::add)
     }
 
-    /** Called whenever the run changes, so an interrupted calibration survives a restart. */
     fun noteCalibrationChanged() {
         library.saveCalibration(session.calibration.readings)
     }
 
-    /**
-     * Bring back what the instrument was doing last time, and keep writing it down.
-     *
-     * Loaded once at startup and saved on every line, because the cases the log exists for - a
-     * crash, a freeze, a battery going flat in a cave - are exactly the ones where no tidy-up code
-     * runs. A hundred lines of JSON is a few kilobytes; writing it every line costs nothing next to
-     * losing the reason an instrument would not connect.
-     */
+    /** Bring back what the instrument was doing last time, and keep writing it down. */
     fun loadLog() {
         val saved = library.loadLog(LogType.DEVICE)
         if (saved.isNotEmpty()) session.deviceLog.replaceAll(saved)
@@ -172,21 +112,11 @@ class DemoState(
         preferences = library.loadPreferences()
         session.onStationCreated = ::noteStationCreated
         session.autoReconnect = preferences.reconnection
-        // session was constructed with SurveySettings.DEFAULT, before this load ever ran — the
-        // same reason autoReconnect is pushed on the line above rather than trusted to have
-        // arrived with the session.
         session.settings = surveySettings
         restoreSelections()
     }
 
-    /**
-     * Put the surveyor back where they left off.
-     *
-     * Skipped for whichever of the four the caller seeded itself, which is the headless renderer
-     * asking for a particular tool and the tests asking for a particular anything. Without that,
-     * a screenshot of the drawing tool would show whatever tool the machine building it happened
-     * to have saved.
-     */
+    /** Put the surveyor back where they left off, except for whatever the caller seeded itself. */
     private fun restoreSelections() {
         if (!seededTool) tool = preferences.tool
         brushColour = preferences.brushColour
@@ -194,34 +124,19 @@ class DemoState(
         inputMode = preferences.inputMode
     }
 
-    /** The app's own preferences: what it does, rather than what a reading means. */
     var preferences by mutableStateOf(AppPreferences.DEFAULT)
         private set
 
-    /**
-     * A station has been made.
-     *
-     * `NewStationNotificationService` listens for the same event on the Android app's own broadcast
-     * and vibrates for 200 ms. It matters because of where it happens: the surveyor is holding an
-     * instrument, looking at rock, in the dark, and the phone is in a pocket or on a strap. Without
-     * this, the third shot of every leg is followed by finding the screen and reading it.
-     *
-     * Called from both paths that can create one - the instrument, and readings typed in by hand -
-     * because the Java's event is broadcast from `SurveyManager` and so covers both.
-     */
+    /** A station has been made: buzzes if the preference is on, and bumps the counter. */
     fun noteStationCreated() {
         if (preferences.buzzOnNewStation) buzz()
         stationsCreated++
     }
 
     /**
-     * How many stations have been made this session — the port's equivalent of the Android app's
-     * `createdReceiver` broadcast, which is what `handleAutoRecentre` listens to.
-     *
-     * A counter rather than a callback because the thing that has to react is the *viewport*, and
-     * the viewport belongs to the canvas composable rather than to this state: see
-     * [rememberCanvasController]. Compose watching a number is the simplest way for one to reach
-     * the other without either owning the other.
+     * How many stations have been made this session — a counter rather than a callback, since
+     * the thing that has to react is the viewport, which belongs to the canvas composable and
+     * not to this state.
      */
     var stationsCreated by mutableIntStateOf(0)
         private set
@@ -229,10 +144,6 @@ class DemoState(
     fun updatePreferences(updated: AppPreferences) {
         preferences = updated
         session.autoReconnect = updated.reconnection
-        // Both of these have to reach the *live* session and not only the next one. Turning the
-        // frame trace on is something a surveyor does with an instrument already connected and
-        // misbehaving, which is the only moment it is any use — a setting that took effect on the
-        // next survey would be a setting that never took effect at all.
         session.traceFrames = updated.developerMode
         if (!library.savePreferences(updated)) {
             storageProblem = library.lastError ?: "could not save preferences"
@@ -241,66 +152,25 @@ class DemoState(
 
     fun updateSettings(settings: SurveySettings) {
         surveySettings = settings
-        // Onto the *live* session, not just the next one — the same reason updatePreferences
-        // pushes autoReconnect and traceFrames onto session rather than leaving them for adopt()
-        // to pick up. A surveyor opens this dialog because the tolerances just rejected a real
-        // reading; a fix that only helped the next survey would not help the shot they are
-        // holding right now.
         session.settings = settings
         if (!library.saveSettings(settings)) {
             storageProblem = library.lastError ?: "could not save settings"
         }
     }
 
-    /**
-     * Which symbol the stamp tool will place.
-     *
-     * Held here rather than in the palette so that choosing one and closing the dialog leaves the
-     * tool loaded — a surveyor stamps a dozen boulders in a row, not one.
-     */
+    /** Which symbol the stamp tool will place, held here so it survives the dialog closing. */
     var symbol by mutableStateOf(Symbol.ENTRANCE)
         private set
 
-    /**
-     * The cross-section whose own drawing is open, if any.
-     *
-     * The Android app makes this a separate activity; here it is a state that takes over the
-     * screen. Held on the state rather than inside the sketch screen so that it survives the
-     * screen being recomposed for any other reason - losing a half-drawn passage outline because
-     * a reading arrived would be its own bug.
-     */
+    /** The cross-section whose own drawing is open, if any — a state rather than a separate screen. */
     var editingCrossSection by mutableStateOf<CrossSectionDetail?>(null)
 
-    /**
-     * Whether the 3D view has the screen.
-     *
-     * Another Android activity turned into a state, for the same reason: it is a different way of
-     * looking at the same survey, with its own gestures, and leaving the sketch toolbar under it
-     * would be a lie about what the buttons do.
-     */
     var viewing3D by mutableStateOf(false)
 
-    /**
-     * Whether the manual has the screen.
-     *
-     * `GuideActivity`, and an activity for the same reason the 3D view is one: a thousand words of
-     * reading is not a dialog. Not persisted — a surveyor who closes the app in the manual wants
-     * the cave back, not the manual.
-     */
+    /** Whether the manual has the screen. Not persisted. */
     var viewingManual by mutableStateOf(false)
 
-    /**
-     * The six sketch toggles, as views onto [preferences] rather than as state of their own.
-     *
-     * They were `mutableStateOf` until the drawing menu was split, which meant a surveyor who
-     * turned the splays off — or turned snapping on — got the opposite back on the next run. Every
-     * one of them is a persisted `SketchPreferences.Toggle` in the Android app, so the fix is to
-     * store them where the other six sketch toggles already live and reach them through the same
-     * `updatePreferences`, which writes the file.
-     *
-     * They stay as properties here because that is what the whole app already reads, and because a
-     * `var` whose setter persists reads at the call site exactly like the `var` that did not.
-     */
+    /** The six sketch toggles, as views onto [preferences] rather than as state of their own. */
     var snapToLines: Boolean
         get() = preferences.snapToLines
         set(value) = updatePreferences(preferences.copy(snapToLines = value))
@@ -325,21 +195,10 @@ class DemoState(
         get() = preferences.showCompass
         set(value) = updatePreferences(preferences.copy(showCompass = value))
 
-    /**
-     * The survey being built, kept even while the demo cave is showing.
-     *
-     * A `var` rather than a `val` because a survey can now be opened from storage, which replaces
-     * it wholesale. [session] follows it, since a session is bound to one survey.
-     */
+    /** The survey being built, kept even while the demo cave is showing. */
     var liveSurvey by mutableStateOf(Survey(DEFAULT_NEW_SURVEY_NAME))
         private set
 
-    // Built on the class default rather than `surveySettings`, exactly as it is for
-    // `autoReconnect` and `onStationCreated` below: this session exists before `loadSettings()`
-    // has ever run, and `loadSettings()` (called once, at startup, before anything a surveyor
-    // could touch) is what pushes the real values onto it. A default here that `loadSettings`
-    // always overwrites first would be an unverified line - nothing in this file could tell it
-    // apart from `SurveySession(liveSurvey)` doing the same job.
     var session by mutableStateOf(SurveySession(liveSurvey))
         private set
 
@@ -362,14 +221,7 @@ class DemoState(
         savedSurveys = library.list()
     }
 
-    /**
-     * Writes the live survey out.
-     *
-     * Called after every change rather than on a timer. A survey is small, the write is
-     * synchronous, and the alternative - losing the last few legs when a phone dies in a cave - is
-     * exactly the failure this exists to prevent. The demo cave is never saved: it is a fixture,
-     * and writing it would clutter the surveyor's own list.
-     */
+    /** Writes the live survey out after every change. The demo cave is never saved. */
     fun saveLiveSurvey() {
         if (liveSurvey.getAllLegsInChronoOrder().isEmpty() && liveSurvey.planSketch.isEmpty()) return
         val ok = library.save(liveSurvey)
@@ -383,8 +235,6 @@ class DemoState(
             return false
         }
         adopt(loaded)
-        // After `adopt`, which clears it. A survey that opens short of what its file holds is
-        // worth saying, and worth saying *before* the next edit writes the shortfall back.
         importProblem = library.lastWarning
         return true
     }
@@ -394,14 +244,7 @@ class DemoState(
         saveLiveSurvey()
     }
 
-    /**
-     * Removes a survey from storage.
-     *
-     * If it is the one open, the app is left holding a survey that no longer exists anywhere, so
-     * it starts a fresh one — better than leaving the surveyor editing something that will not be
-     * saved. The autosave effect only writes a survey with legs in it, so the empty replacement
-     * does not immediately recreate the directory just deleted.
-     */
+    /** Removes a survey from storage, starting a fresh one if it was the one open. */
     fun deleteSurvey(name: String) {
         if (!library.delete(name)) {
             storageProblem = library.lastError ?: "could not delete $name"
@@ -418,11 +261,8 @@ class DemoState(
     fun importCandidates(): List<String> = library.importCandidates()
 
     /**
-     * Brings one in and opens it, returning the name it ended up with.
-     *
-     * The name can differ from the file's: [SurveyLibrary.uniqueName] refuses to overwrite a
-     * survey already in the library, which is the whole point of importing one that a colleague
-     * called the same thing you did.
+     * Brings one in and opens it, returning the name it ended up with — which can differ from
+     * the file's, to avoid overwriting a survey already in the library.
      */
     fun importSurvey(fileName: String): String? {
         val imported = library.import(fileName) ?: run {
@@ -430,18 +270,13 @@ class DemoState(
             return null
         }
         adopt(imported)
-        // After `adopt`, which clears it: a survey that came in without a drawing it should have
-        // had is worth saying out loud, and it is the *last* thing to happen so it survives.
         importProblem = library.lastWarning
         return imported.name
     }
 
     /**
-     * Something came in, but not all of it.
-     *
-     * Separate from [storageProblem], which is about writing. This is about reading, and the
-     * difference is what a surveyor should do next: a save that failed is worth retrying, a
-     * drawing that would not parse is a damaged file and retrying will not help.
+     * Something came in, but not all of it — separate from [storageProblem], which is about
+     * writing rather than reading.
      */
     var importProblem: String? by mutableStateOf(null)
 
@@ -451,8 +286,6 @@ class DemoState(
         val previous = liveSurvey.name
         liveSurvey.name = library.uniqueName(trimmed)
         if (library.save(liveSurvey)) {
-            // The old directory is named after the old name, so it would otherwise linger as a
-            // stale copy that reopening would resurrect.
             library.delete(previous)
             refreshLibrary()
         }
@@ -463,16 +296,12 @@ class DemoState(
         liveSurvey = survey
         session = SurveySession(survey, surveySettings)
         // A new session starts on the class default, which is off — so opening a second survey
-        // would quietly turn auto-reconnect off for the rest of the trip.
+        // would quietly turn auto-reconnect off.
         session.autoReconnect = preferences.reconnection
         session.traceFrames = preferences.developerMode
         session.onStationCreated = ::noteStationCreated
         mode = SurveyMode.LIVE
         storageProblem = null
-        // Cleared here so it belongs to the survey on screen and not to the session. Set once and
-        // never cleared, it would sit in the app bar saying a drawing was unreadable long after
-        // the surveyor had opened a different cave — a true sentence about the wrong survey, which
-        // is a worse kind of wrong than no sentence at all. `importSurvey` sets it *after* this.
         importProblem = null
         sketchRevision++
         refreshLibrary()
@@ -480,8 +309,7 @@ class DemoState(
 
     /**
      * Sketches are mutated in place rather than replaced, so nothing about editing one is
-     * observable to Compose. This counter is what tells the canvas to look again; the session
-     * keeps its own for incoming readings, and the two are added together at the call site.
+     * observable to Compose. This counter is what tells the canvas to look again.
      */
     var sketchRevision by mutableIntStateOf(0)
         private set
@@ -491,13 +319,8 @@ class DemoState(
     }
 
     /**
-     * A station the app has been asked to show on a drawing, by name.
-     *
-     * The table's station menu offers "show it on the plan", which is two things at once: change
-     * screen and projection, and move the view. Only the first can be done here — the viewport
-     * belongs to the canvas, and the canvas for the projection being switched *to* does not exist
-     * until it has been composed. So the request is left here and the sketch picks it up, the same
-     * shape as the station-created counter that drives auto-recentre.
+     * A station the app has been asked to show on a drawing, by name — deferred because the
+     * canvas for the projection being switched to may not exist yet.
      */
     var pendingJump by mutableStateOf<String?>(null)
         private set
@@ -512,14 +335,6 @@ class DemoState(
         pendingJump = null
     }
 
-    /**
-     * The other direction: `action_jump_to_table`, from the sketch's own station menu.
-     *
-     * Simpler than [showOnDrawing] because the table does not have a viewport to move — it has a
-     * scroll position, and a `LazyColumn` can be told to put a row at the top without waiting for
-     * anything to be composed first. It is still a request rather than an action, for the same
-     * reason: the table is not on screen at the moment the menu item is tapped.
-     */
     var pendingTableJump by mutableStateOf<String?>(null)
         private set
 
@@ -544,31 +359,22 @@ class DemoState(
     }
 
     /**
-     * Choose a tool. The four selections below all write themselves down; see finding 49.
-     *
-     * One-shot tools go through here too — the surveyor really has selected them — and are simply
-     * not restored on the way back in. That rule lives in [AppPreferencesStore.restorableTool],
-     * beside the file it guards, rather than here.
+     * Choose a tool. One-shot tools are not restored on the way back in — see
+     * [AppPreferencesStore.restorableTool].
      */
     fun chooseTool(tool: SketchTool) {
         this.tool = tool
         rememberSelections()
     }
 
-    /** Choose the symbol the stamp will place. */
     fun chooseSymbol(symbol: Symbol) {
         this.symbol = symbol
         rememberSelections()
     }
 
     /**
-     * Choose how the instrument is being held.
-     *
-     * The one on this list that changes what the numbers *mean*: a surveyor working back down a
-     * passage on backsights, whose phone is killed in a pocket between stations, would otherwise
-     * come back to foresights with nothing on screen to say so, and every leg after that is turned
-     * end for end. `SurveyManager.getInputMode` reads this out of `generalPrefs` on the Android
-     * app's way in for exactly that reason.
+     * Choose how the instrument is being held — the one setting here that changes what the
+     * numbers mean, not just how they look.
      */
     fun chooseInputMode(mode: InputMode) {
         inputMode = mode
@@ -594,13 +400,6 @@ class DemoState(
         if (editor.redo()) noteSketchEdited()
     }
 
-    /**
-     * Make [stationName] the station the next leg starts from.
-     *
-     * Only meaningful on the live survey: the demo cave is already complete, and moving its active
-     * station would change nothing visible except the highlight. It is allowed anyway, because
-     * seeing the brackets follow your finger is how somebody works out what the tool does.
-     */
     fun selectStation(stationName: String): Boolean {
         val station = survey.getStationByName(stationName) ?: return false
         if (station === survey.activeStation) return false
@@ -632,17 +431,8 @@ class DemoState(
 }
 
 /**
- * The editor for whichever sketch is currently showing.
- *
- * One editor per *sketch*, held for as long as the app is running, rather than one per current
- * selection. The plan and the extended elevation are different sketches and so get separate undo
- * stacks — that part matches the Android app — but they have to keep them. Rebuilding the editor
- * whenever the projection changed meant flipping to the elevation and back silently emptied the
- * plan's history, which is a nasty thing for a drawing app to do: the surveyor's stroke is still
- * there, and undo has quietly forgotten it ever happened.
- *
- * The map is keyed by identity, since [Sketch] does not override equals — which is what is wanted:
- * two sketches are the same sketch only if they are the same object.
+ * The editor for whichever sketch is currently showing — one per sketch, so switching projection
+ * doesn't lose undo history. Keyed by identity, since [Sketch] does not override equals.
  */
 @Composable
 fun rememberSketchEditor(state: DemoState): SketchEditor {
@@ -652,17 +442,11 @@ fun rememberSketchEditor(state: DemoState): SketchEditor {
         editors.getOrPut(sketch) {
             SketchEditor(sketch).also { it.activeColour = state.brushColour }
         }
-    // The brush is a property of the toolbar, not of the sketch, so it follows the surveyor across.
     editor.activeColour = state.brushColour
     return editor
 }
 
-/**
- * The view that survives a rebuild of the canvas composable, one per sketch.
- *
- * Same reasoning as [rememberSketchEditor]: flipping to the elevation and back should not throw
- * away where the surveyor had scrolled to, any more than it should throw away their undo history.
- */
+/** The view that survives a rebuild of the canvas composable, one per sketch. */
 @Composable
 fun rememberCanvasController(state: DemoState): CanvasController {
     val controllers = remember(state) { mutableMapOf<Sketch, CanvasController>() }
@@ -677,35 +461,20 @@ class ViewToggle(
     val toggle: (DemoState) -> Unit,
 )
 
-/**
- * `drawingMenuBehaviourToggles`: the four in `drawing.xml` that change what the app *does*.
- *
- * The grouping is the Android app's own, not one invented here, and it is a real distinction
- * rather than a tidy one: none of these four changes what is on the screen right now. Turning
- * snapping on does nothing until the next stroke; turning the blue water on does nothing until the
- * next symbol is stamped. Everything in [DISPLAY_TOGGLES] redraws the moment it is tapped.
- */
+/** `drawingMenuBehaviourToggles`: the four settings that change what the app does, not what's drawn. */
 val BEHAVIOUR_TOGGLES =
     listOf(
-        // `buttonAutoRecentre`, off by its default. Worth turning on halfway down a long passage,
-        // which is exactly why it has to still be on after a battery change.
         ViewToggle(
             "Follow the survey",
             { it.preferences.autoRecentre },
             { it.updatePreferences(it.preferences.copy(autoRecentre = !it.preferences.autoRecentre)) },
         ),
         ViewToggle("Snap to lines", { it.snapToLines }, { it.snapToLines = !it.snapToLines }),
-        // `buttonBlueWater`, on by its default. Water is blue on every published cave survey there
-        // has ever been, and a surveyor with the brush set to black for wall outlines should not
-        // have to change it and change it back to stamp a stream.
         ViewToggle(
             "Water is blue",
             { it.preferences.blueWater },
             { it.updatePreferences(it.preferences.copy(blueWater = !it.preferences.blueWater)) },
         ),
-        // `buttonPinchToZoom`, on by its default, and one preference over both the drawing and the
-        // 3D view as it is in the app. Worth having off for anyone drawing with a stylus, where a
-        // second contact is usually the side of a hand rather than a pinch.
         ViewToggle(
             "Pinch to zoom",
             { it.preferences.pinchToZoom },
@@ -714,28 +483,18 @@ val BEHAVIOUR_TOGGLES =
     )
 
 /**
- * `drawingMenuDisplayToggles`: the ones that change what is drawn, in the app's own order.
- *
- * `buttonShowConnections` is the one member of that group with nothing behind it here — a
- * neighbouring survey is reached by an absolute `content://` URI, which is a format decision for
- * upstream rather than a porting one — so it is absent rather than present and dead.
+ * `drawingMenuDisplayToggles`: the ones that change what is drawn. `buttonShowConnections` has
+ * nothing behind it here — reaching a neighbouring survey needs a `content://` URI, out of scope
+ * for this port.
  */
 val DISPLAY_TOGGLES =
     listOf(
-        // `buttonFadeNonActive`, off by its default. The question a surveyor keeps asking of a
-        // plan is "where am I on this", and in a cave of any size a page of red lines does not
-        // answer it. Fading everything that does not hang off the working station does, without
-        // moving the view — which matters, because the part of the sketch they are drawing is the
-        // part they are standing in.
         ViewToggle(
             "Fade all but the working end",
             { it.preferences.fadeNonActive },
             { it.updatePreferences(it.preferences.copy(fadeNonActive = !it.preferences.fadeNonActive)) },
         ),
         ViewToggle("Show splays", { it.showSplays }, { it.showSplays = !it.showSplays }),
-        // `buttonShowXSections`. Turning it off hides the sections *and* stops them being tapped —
-        // the app's own "special case: can't tap on invisible X-sections" — because a tap that
-        // opens an editor from apparently blank paper is worse than one that does nothing.
         ViewToggle(
             "Show cross-sections",
             { it.preferences.showCrossSections },
@@ -748,13 +507,7 @@ val DISPLAY_TOGGLES =
         ViewToggle("Show sketch", { it.showSketch }, { it.showSketch = !it.showSketch }),
         ViewToggle("Show grid", { it.showGrid }, { it.showGrid = !it.showGrid }),
         ViewToggle("Show station labels", { it.showLabels }, { it.showLabels = !it.showLabels }),
-        // `buttonShowCompass`. The arrow does not swing with the phone here, but on a plan north
-        // genuinely is up, so a fixed one is correct rather than approximate.
         ViewToggle("Show north", { it.showCompass }, { it.showCompass = !it.showCompass }),
-        // `pref_highlight_latest_leg`, on by its default. In the Android app it lives in the
-        // general settings screen rather than this menu; it is here because this is where this
-        // port keeps display choices, and a preference reachable from nowhere is
-        // indistinguishable from one that does not exist.
         ViewToggle(
             "Mark the last leg taken",
             { it.preferences.highlightLatestLeg },
@@ -772,14 +525,7 @@ val DISPLAY_TOGGLES =
  */
 val BRUSH_COLOURS = BrushColour.entries.map { it.colour }
 
-/**
- * The tools the demo offers *as toolbar buttons*, out of the eleven [SketchTool] knows about.
- *
- * The rest are reached from the drawing menu rather than the toolbar — stamping a symbol, placing
- * a label, and the three cross-section gestures — because a nine-column toolbar has no room for
- * them and the Android app hangs most of them off menus too. The two genuinely absent ones are the
- * modal pan gestures, which have no button anywhere: they are entered by a pinch or a hot corner.
- */
+/** The tools offered as toolbar buttons, out of the eleven [SketchTool] knows about. */
 val DEMO_TOOLS =
     listOf(SketchTool.MOVE, SketchTool.DRAW, SketchTool.ERASE, SketchTool.SELECT)
 
@@ -799,24 +545,13 @@ val SketchTool.label: String
             else -> name.lowercase().replaceFirstChar { it.uppercase() }
         }
 
-/**
- * The app bar's subtitle: what the shared core counted, and nothing else.
- *
- * Kept to one short line on purpose. It is an addition to the app's own chrome — SexyTopo has no
- * such line — so it has to earn its place without pushing the app bar down over the cave.
- */
+/** The app bar's subtitle: what the shared core counted, and nothing else. */
 fun subtitle(state: DemoState): String {
-    // Reading the revision is what makes this recompute. The survey is mutated in place, so a new
-    // leg changes nothing Compose can see; without this the counts would freeze at whatever they
-    // were when the app bar last happened to be redrawn for some other reason.
     @Suppress("UNUSED_VARIABLE")
     val revision = state.revision
     val space = state.projection.project(state.survey)
     val legs = space.legMap.keys.count { it.hasDestination() }
     val sketch = state.survey.getSketch(state.projection)
-    // Splays are left out: there are typically four per station, so the number is large, dull and
-    // the first thing to be truncated on a narrow phone - where it would push out the counts that
-    // actually say how big the cave is.
     return "${plural(space.stationMap.size, "station")} · ${plural(legs, "leg")} · " +
         plural(sketch.pathDetails.size, "line")
 }
@@ -829,9 +564,7 @@ fun summarise(state: DemoState, compact: Boolean): String {
     val splays = space.legMap.size - legs
     val sketch = survey.getSketch(state.projection)
 
-    // The hint describes what the finger does on the canvas, so it is only true while the canvas
-    // is what is showing. Telling someone reading a table that they can pinch to zoom is the sort
-    // of small lie that makes a whole interface feel untrustworthy.
+    // Null while off the sketch screen, since the hint describes what the finger does on canvas.
     val hint =
         if (state.screen != Screen.SKETCH) {
             null
@@ -867,12 +600,7 @@ fun summarise(state: DemoState, compact: Boolean): String {
     ).joinToString("  ·  ")
 }
 
-/**
- * "1 station", "2 stations".
- *
- * Trivial, and worth doing: this line is the first thing on the screen, and a survey that reports
- * "1 legs" reads as unfinished software to exactly the person whose confidence the demo needs.
- */
+/** "1 station", "2 stations". */
 internal fun plural(count: Int, noun: String): String =
     if (count == 1) "1 $noun" else "$count ${noun}s"
 

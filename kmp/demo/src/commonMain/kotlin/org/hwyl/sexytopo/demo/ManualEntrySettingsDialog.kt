@@ -18,21 +18,9 @@ import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.survey.LrudMode
 
 /**
- * What a reading looks like when it is typed rather than radioed: `preferences_manual_data_entry`.
+ * What a reading looks like when it is typed rather than radioed.
  *
- * Its own dialog because that is the shape `preferences_main.xml` has — *Manual data entry* is one
- * of its eight screens — and because this port had merged it into *Surveying* and the merge
- * outgrew a phone. Eleven settings in one scrolling card is not a screen anybody can use with cold
- * hands, and the browser checks proved it in their own way: they find the switches by scanning
- * pixels, the dialog grew past the point where all of them fit on a 420-by-900 screen at once, and
- * "the last switch but five" silently became a switch that was not on screen at all.
- *
- * ## Who this screen is for
- *
- * The surveyor with a compass, a clinometer and a tape, and no DistoX in the party. Every setting
- * here is about that: whether the app offers a hand-typed reading at all, whether it asks for the
- * passage size in the same breath, which bearing the walls are measured square to, and whether the
- * angles are typed as decimals or as the degrees and minutes a sighting compass is graduated in.
+ * For the surveyor with a compass, a clinometer and a tape, and no DistoX in the party.
  */
 @Composable
 fun ManualEntrySettingsDialog(
@@ -61,8 +49,6 @@ fun ManualEntrySettingsDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                // `pref_manual_controls`. The Android app applies it to the two floating buttons
-                // on its table view; the same control here is *Add reading* on the field bar.
                 Toggle(
                     title = "Offer a reading typed by hand",
                     detail =
@@ -73,10 +59,8 @@ fun ManualEntrySettingsDialog(
                     onCheckedChange = { manualControls = it },
                 )
 
-                // `pref_lrud_fields`. Disabled rather than hidden when there is no hand-typed
-                // reading to put them in — `android:dependency`'s own behaviour, and the right
-                // one: a row that vanishes is a row nobody can find again to work out why their
-                // setting did nothing.
+                // Disabled rather than hidden when there's no hand-typed reading to put it in:
+                // a row that vanishes is one nobody can find again to see why it did nothing.
                 Toggle(
                     title = "Book passage size with the reading",
                     detail =
@@ -88,20 +72,12 @@ fun ManualEntrySettingsDialog(
                     enabled = manualControls,
                 )
 
-                // `pref_lrud_direction`, which is here at all because the Android app **reads
-                // this key and declares it nowhere**: `getLrudMode` has a caller and no entry in
-                // any `preferences_*.xml`, so on Android the choice exists in the code and nobody
-                // can make it. See the note in the README.
+                // `pref_lrud_direction`: the Android app reads this key but declares it nowhere,
+                // so the choice exists in its code with no way to reach it.
                 //
-                // A switch and not two chips, and that was not the first attempt. Chips are the
-                // better shape for a choice between two conventions — but the browser checks find
-                // the switches in this dialog by scanning a band of pixels around x=320, and the
-                // second chip's right edge lands *inside* that band at seventeen columns against a
-                // threshold of ten. It would have been counted as a switch, shifting every
-                // negative index in `field.mjs` by one and quietly turning off whichever setting
-                // the checks meant to touch. That failure has happened on this branch before; it
-                // took four hundred lines to surface last time. A switch is also what every other
-                // row here is.
+                // A switch and not two chips, deliberately: `field.mjs` finds switches in this
+                // dialog by scanning pixels, and a chip pair here would be miscounted as one,
+                // silently toggling the wrong setting.
                 Toggle(
                     title = "Measure walls square to the next leg",
                     detail =
@@ -112,11 +88,6 @@ fun ManualEntrySettingsDialog(
                     onCheckedChange = { lrudMode = if (it) LrudMode.SHOT else LrudMode.SURVEY },
                 )
 
-                // `pref_deg_mins_secs` and `pref_inc_deg_mins_secs`, from the Android app's
-                // *Manual data entry* screen. They are here, with the tolerances, because both
-                // answer the same question — what a reading looks like when it is not coming off
-                // a DistoX — and because the surveyor who loosens the tolerances for a compass
-                // and tape is the same surveyor who needs these.
                 Toggle(
                     title = "Type bearings in minutes",
                     detail =
@@ -140,9 +111,8 @@ fun ManualEntrySettingsDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    // A `copy` of what came in, for the reason written on `preferencesFrom`: this
-                    // screen shows five of the app's preferences and building a fresh object from
-                    // five values would reset every other one to its default.
+                    // A `copy` of what came in: building a fresh object from these five values
+                    // would reset every other preference to its default.
                     onSave(
                         preferences.copy(
                             manualControls = manualControls,

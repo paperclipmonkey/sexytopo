@@ -20,17 +20,12 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
 /**
- * Bringing a survey in from outside.
+ * Bringing a survey in from outside: this app's own `.data.json`, or a Survex `.svx`, Therion
+ * `.th` or PocketTopo `.txt`, from wherever it is sitting in the app's own storage root.
  *
- * The list is whatever survey-shaped file is sitting in the app's own storage root: this app's own
- * `.data.json`, or a Survex `.svx`, Therion `.th` or PocketTopo `.txt` from anywhere else. On iOS
- * that is the folder the Files app shows, so importing is: AirDrop or download the file, put it in
- * *On My iPhone → SexyTopo KMP*, come back here. In the browser there is no such folder, so the chooser writes the
- * file into that same place first and the rest is identical.
- *
- * The list is re-read while the dialog is open rather than once when it opens. The browser's file
- * chooser is asynchronous and native, and there is no callback to wait on that would not make this
- * whole call chain suspending — so the file simply appears a moment after it is picked.
+ * The list is re-read while the dialog is open rather than once when it opens, since the
+ * browser's file chooser is asynchronous and native — the file simply appears a moment after it
+ * is picked.
  */
 @Composable
 fun ImportDialog(

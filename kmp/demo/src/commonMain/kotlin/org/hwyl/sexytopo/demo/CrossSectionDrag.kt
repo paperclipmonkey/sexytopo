@@ -7,52 +7,27 @@ import org.hwyl.sexytopo.shared.sketch.SketchEditor
 /**
  * What a finger is doing to a cross-section, while it is still doing it.
  *
- * Ported from the two halves of `GraphView` that drive `MOVE_CROSS_SECTION` and
- * `ROTATE_CROSS_SECTION`: `handleMoveCrossSection` and `handleRotateCrossSection`. Both are drags
- * that show a preview and commit on release, and both are worth having because the placement the
- * app makes for you is a guess.
- *
- * The bearing in particular is a guess. `CrossSectioner` picks it by bisecting the corner
- * mid-passage and following the single leg at a dead end, which is right often enough to be worth
- * doing automatically and wrong often enough that a surveyor standing in the passage needs to be
- * able to say so — a section drawn square to the wrong axis is not a smaller mistake than no
- * section at all, it is a misleading one.
- *
- * This is a value: every drag frame makes a new one rather than mutating, so the preview drawn on
- * the canvas and the edit finally committed are computed by exactly the same code. The alternative
- * — a preview drawn from the finger and a commit computed from the event — is how a preview comes
- * to disagree with its result.
+ * A value: every drag frame makes a new one rather than mutating, so the preview drawn on the
+ * canvas and the edit finally committed are computed by exactly the same code.
  */
 internal class SectionDrag(
     val mode: SectionDragMode,
     val detail: CrossSectionDetail,
-    /** Where the drag started, in survey metres. */
     val from: Coord2D,
-    /** Where the finger is now, in survey metres. */
     val finger: Coord2D = from,
     /**
      * What the section swings around while being re-aimed: its station's position in the main
-     * projection, as in `GraphView.getRotationPivot`.
-     *
-     * Null when the station is not in the projection at all — which the original guards against
-     * too, and which really happens: an extended elevation does not contain every station of the
-     * plan.
+     * projection. Null when the station is not in the projection at all — an extended elevation
+     * does not contain every station of the plan.
      */
     val pivot: Coord2D? = null,
 ) {
 
-    /** The same drag with the finger somewhere else. */
     fun movedTo(point: Coord2D): SectionDrag = SectionDrag(mode, detail, from, point, pivot)
 
-    /** How far the finger has travelled, in survey metres. */
     val delta: Coord2D get() = finger - from
 
-    /**
-     * The compass bearing this drag is aiming at, or null if it is not aiming at anything.
-     *
-     * Null covers both of the original's guards: no pivot to measure from, and a finger sitting
-     * exactly on the pivot, where the direction is undefined rather than north.
-     */
+    /** Null when there is no pivot, or the finger sits exactly on it (direction undefined). */
     val azimuth: Float?
         get() {
             val pivot = pivot ?: return null
@@ -60,13 +35,7 @@ internal class SectionDrag(
             return bearingOf(pivot, finger)
         }
 
-    /**
-     * What the section would look like if the finger lifted now — drawn as the preview, and used to
-     * work out whether there is anything to commit.
-     *
-     * A drag that has not produced a usable value yet previews the section unchanged, so the
-     * surveyor sees the section they grabbed rather than a flicker of something else.
-     */
+    /** What the section would look like if the finger lifted now. */
     fun preview(): CrossSectionDetail =
         when (mode) {
             SectionDragMode.MOVE -> detail.translate(delta)
@@ -76,10 +45,9 @@ internal class SectionDrag(
     /**
      * Apply the drag, as one undo step.
      *
-     * @return true if the sketch changed, so the caller knows whether to save. A drag that ends
-     *   where it started changes nothing — the Java tests the delta for exactly this reason, and
-     *   without it every accidental brush against a section would push an undo step that undoes
-     *   nothing visible.
+     * @return true if the sketch changed. A drag that ends where it started changes nothing, so
+     *   an accidental brush against a section doesn't push an undo step that undoes nothing
+     *   visible.
      */
     fun commit(editor: SketchEditor): Boolean =
         when (mode) {
@@ -114,13 +82,8 @@ internal enum class SectionDragMode {
 }
 
 /**
- * The compass bearing from one survey point to another, in degrees clockwise from north.
- *
- * Ported from `GraphView.toAzimuth`. Sketch space has y increasing downwards and, after
- * [org.hwyl.sexytopo.shared.model.graph.Projection2D]'s flip, north is up — so this is the same
- * arithmetic as the screen-space [bearingOf] and deliberately shares its implementation. Anything
- * else would let the two drift apart, and the symptom would be a section aimed a few degrees off
- * from where the preview said.
+ * The compass bearing from one survey point to another, in degrees clockwise from north. Shares
+ * its implementation with the screen-space [bearingOf] so the two cannot drift apart.
  */
 internal fun bearingOf(from: Coord2D, to: Coord2D): Float =
     bearingOf(to.x - from.x, to.y - from.y)

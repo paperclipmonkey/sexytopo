@@ -32,15 +32,9 @@ import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 /**
  * What can be done to a leg once it is in the survey.
  *
- * The reason this exists: a surveyor mistypes a number. Underground, with cold hands, reading a
- * display by head torch, they will — and without a way to fix it the app is a one-way funnel into
- * a wrong survey. The Android app puts these on a long-press context menu
- * (`ContextMenuManager`); here they are a tap on the table row, which is the same idea for a
- * screen with no long-press affordance.
- *
- * Every action is a call into the ported [SurveyUpdater], so the consequences are the app's own:
- * deleting a leg takes its subtree with it, promoting a splay names a new station and renumbers
- * from there, and reversing swaps the shot's direction rather than negating its numbers.
+ * Every action is a call into the ported [SurveyUpdater]: deleting a leg takes its subtree with
+ * it, promoting a splay names a new station and renumbers from there, and reversing swaps the
+ * shot's direction rather than negating its numbers.
  */
 enum class LegAction(private val legLabel: String, private val splayLabel: String = legLabel) {
     EDIT("Edit reading"),
@@ -56,16 +50,7 @@ enum class LegAction(private val legLabel: String, private val splayLabel: Strin
     fun label(isSplay: Boolean): String = if (isSplay) splayLabel else legLabel
 }
 
-/**
- * Which actions this row can actually take, in the order the dialog offers them.
- *
- * Ported from `ContextMenuManager.configureMenuVisibility`, with one divergence. The Java shows
- * *Downgrade to Splay* greyed out when the stations beyond it are in the way, and shows *Add to
- * Leg Above* always, answering an impossible tap with a toast. Both are left out here instead:
- * a dialog on a phone is a short column of buttons, and a button that cannot be pressed — or
- * one that can be pressed and does nothing but apologise — is worse than no button at all. The
- * warning above the buttons already says what a full leg is carrying behind it.
- */
+/** Which actions this row can actually take, in the order the dialog offers them. */
 fun legActionsFor(survey: Survey, row: SurveyTableRow): List<LegAction> = buildList {
     add(LegAction.EDIT)
     add(LegAction.COMMENT)
@@ -83,24 +68,9 @@ fun legActionsFor(survey: Survey, row: SurveyTableRow): List<LegAction> = buildL
 /**
  * The stations [row]'s shot could be re-hung on, filtered by [query] the way *Find a station* is.
  *
- * The reason this exists at all: a shot is taken from whichever station is active, and the mistake
- * a surveyor actually makes is taking one from the wrong place — pushing on from the end of the
- * passage when the leg should have come off the junction thirty metres back. `SurveyUpdater.moveLeg`
- * is the Java's answer and was ported here long ago; nothing in this port called it, so the only
- * repair available was *Delete*, which for a full leg takes everything surveyed beyond it too. That
- * turns one mistyped station into an hour of re-surveying.
- *
- * Two stations are excluded, and the second is not cosmetic. The one the leg already hangs off,
- * because moving it there does nothing. And, for a connecting leg, the station it leads to and
- * everything below that: `moveLeg` re-parents without checking, its own note says so, and a survey
- * is a tree only by convention — so hanging a leg inside its own subtree makes a cycle and the next
- * traversal never returns. The Android app refuses the same move with
- * `survey_update_error_descendant_station`, in `EditLegForm` rather than in the updater, which is
- * why porting the updater did not bring the guard with it.
- *
- * Excluded rather than shown and refused, and when nothing is left the action is not offered — the
- * same rule the rest of this file follows, and the reason the Java's "Nowhere valid to move this
- * leg" has no counterpart here.
+ * Two stations are excluded: the one the leg already hangs off, and, for a connecting leg, the
+ * station it leads to and everything below that — `moveLeg` re-parents without checking, so
+ * hanging a leg inside its own subtree would make a cycle and the next traversal never returns.
  */
 fun legMoveTargets(survey: Survey, row: SurveyTableRow, query: String = ""): List<Station> {
     val leg = row.leg
@@ -112,13 +82,8 @@ fun legMoveTargets(survey: Survey, row: SurveyTableRow, query: String = ""): Lis
 }
 
 /**
- * Writes a comment onto a leg, and remembers that the survey has changed.
- *
- * That second line is the whole reason this is a function. `SurveyEditorActivity`'s own leg and
- * station comment dialogs set the comment and broadcast an update, but never clear `isSaved` —
- * and `isSaved` is what decides whether leaving the survey writes it out. A comment typed with
- * nothing else changed is therefore lost on the Android app, silently, which is the worst way to
- * lose the note that says the passage ahead sumps.
+ * Writes a comment onto a leg, and remembers that the survey has changed — which the Android
+ * app's own comment dialogs fail to do, silently losing a comment-only edit.
  */
 internal fun applyLegComment(survey: Survey, leg: Leg, comment: String) {
     leg.comment = comment
@@ -204,9 +169,6 @@ fun LegActionsDialog(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         if (!row.isSplay) {
-                            // Only true of a connecting leg. Saying it over a splay, which has
-                            // nothing beyond it, would teach a surveyor to distrust the warning
-                            // exactly where it matters.
                             Text(
                                 "Everything surveyed beyond this leg moves with it.",
                                 style = MaterialTheme.typography.bodySmall,
@@ -214,9 +176,6 @@ fun LegActionsDialog(
                             )
                         }
                         if (row.leg.hasComment()) {
-                            // The table only shows a dagger, so this is where the note itself is
-                            // read — and the surveyor deciding whether to delete a leg is exactly
-                            // the person who wants to see what they wrote about it.
                             Text(
                                 "$COMMENT_MARKER ${row.leg.comment}",
                                 style = MaterialTheme.typography.bodySmall,
@@ -237,9 +196,9 @@ fun LegActionsDialog(
                                             SurveyUpdater.upgradeSplay(survey, row.leg)
                                             onEdited()
                                         }
-                                        // reverseLeg is addressed by the station the leg arrives
-                                        // at, not by the leg, because that is the one thing that
-                                        // survives the leg object being replaced.
+                                        // Addressed by the station the leg arrives at, not by
+                                        // the leg, since that survives the leg object being
+                                        // replaced.
                                         LegAction.REVERSE -> {
                                             SurveyUpdater.reverseLeg(survey, row.leg.destination)
                                             onEdited()
@@ -265,11 +224,8 @@ fun LegActionsDialog(
 }
 
 /**
- * Correcting a reading that was taken or typed wrongly.
- *
- * The fields hold the **as-taken** reading — what the table row shows, which for a leg shot
- * backwards is the far-end reading turned round. Saving puts it back into the orientation the
- * survey stores, so a backsight stays a backsight and the row reads the same way afterwards.
+ * Correcting a reading that was taken or typed wrongly. The fields hold the **as-taken** reading;
+ * saving puts it back into the orientation the survey stores, so a backsight stays a backsight.
  */
 @Composable
 private fun EditLegDialog(row: SurveyTableRow, onDismiss: () -> Unit, onSave: (Leg) -> Unit) {
@@ -283,9 +239,6 @@ private fun EditLegDialog(row: SurveyTableRow, onDismiss: () -> Unit, onSave: (L
         onDismissRequest = onDismiss,
         title = { Text("Edit reading") },
         text = {
-            // Scrollable for the same reason the station dialog is: three fields and a keypad on
-            // a phone leave very little room, and a Compose dialog that does not fit is clipped
-            // from the bottom, which is where Save is.
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -320,17 +273,11 @@ private fun EditLegDialog(row: SurveyTableRow, onDismiss: () -> Unit, onSave: (L
 /**
  * Re-dresses a freshly parsed reading as a replacement for [original].
  *
- * [parseReading] only ever produces a bare splay, so three things have to be carried across or the
- * edit quietly destroys them:
- *  - the destination station, whose loss would orphan — and [SurveyUpdater.editLeg] being a
- *    straight swap, silently delete — everything surveyed beyond this leg;
- *  - the comment;
- *  - the backwards flag, together with the 180-degree turn that puts the entered foresight back
- *    into the stored backsight orientation.
- *
- * `promotedFrom` is deliberately *not* carried across, matching the Android app's
- * `EditLegForm.getUpdatedLeg`: those constituent readings no longer average to what was typed, so
- * keeping them would make the leg claim a provenance it does not have.
+ * [parseReading] only produces a bare splay, so three things must be carried across or the edit
+ * quietly destroys them: the destination station (whose loss would silently delete everything
+ * surveyed beyond this leg), the comment, and the backwards flag with its 180-degree turn.
+ * `promotedFrom` is deliberately *not* carried across: those constituent readings no longer
+ * average to what was typed.
  */
 internal fun inOrientationOf(original: Leg, edited: Leg): Leg {
     val replacement =
@@ -354,13 +301,6 @@ internal fun inOrientationOf(original: Leg, edited: Leg): Leg {
     return replacement
 }
 
-/**
- * Writing a note against a leg — "sump", "boulder choke", "tape stretched over a rift".
- *
- * The comment travels: it is written into the survey's own JSON, and both the Survex and Therion
- * exporters put it on the line for that leg, so a note made underground reaches whoever draws the
- * cave up afterwards.
- */
 @Composable
 private fun LegCommentDialog(
     row: SurveyTableRow,
@@ -387,14 +327,7 @@ private fun LegCommentDialog(
     )
 }
 
-/**
- * Pick the station this shot should have come off.
- *
- * Built like *Find a station* — a search box over a list of every candidate — for the same reason:
- * the surveyor knows it is "the one at the junction with the draught", not its number, and the
- * comment is searched as well as the name. The list is [legMoveTargets], so a station that would
- * make a cycle is not on it to be tapped.
- */
+/** Pick the station this shot should have come off, from [legMoveTargets] so no cycle is offered. */
 @Composable
 private fun MoveLegDialog(
     survey: Survey,

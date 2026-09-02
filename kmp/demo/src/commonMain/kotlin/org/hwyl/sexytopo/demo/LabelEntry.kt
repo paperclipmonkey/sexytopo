@@ -14,15 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
 
 /**
- * Typing a label onto the sketch.
- *
- * "Sump", "boulder choke", "AV12 continues" — the words a surveyor writes on the drawing itself
- * rather than in the numbers. The sketch model has carried [org.hwyl.sexytopo.shared.model.sketch
- * .TextDetail] since the port began, the canvas has always drawn it, and the toolbar's `A` button
- * was disabled because nothing could create one.
- *
- * Separate from the canvas because typing needs a keyboard: the canvas reports *where* the label
- * goes, and this asks *what* it says.
+ * Typing a label onto the sketch. Separate from the canvas because typing needs a keyboard: the
+ * canvas reports *where* the label goes, and this asks *what* it says.
  */
 @Composable
 fun LabelDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
