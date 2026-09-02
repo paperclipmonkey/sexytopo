@@ -8,8 +8,6 @@ import org.hwyl.sexytopo.shared.model.survey.Leg
 
 /**
  * Geometry helpers shared between the leg amalgamation strategies.
- *
- * Ported from `control/util/amalgamation/Amalgamation`.
  */
 
 /** The cartesian endpoints of the readings, each taken from a common origin. */

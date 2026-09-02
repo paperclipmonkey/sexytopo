@@ -1,9 +1,8 @@
 package org.hwyl.sexytopo.shared.model.sketch
 
 /**
- * Ported verbatim from `org.hwyl.sexytopo.model.sketch.Colour` (generated from the Java enum so
- * the values cannot drift). Sketch colours are the app's own packed RGB ints, not any platform
- * colour type, so they carry across untouched.
+ * Sketch colours are the app's own packed RGB ints, not any platform colour type, so they carry
+ * across untouched.
  *
  * Serialised in the native JSON format by enum name, matching SketchJsonTranslater.
  */

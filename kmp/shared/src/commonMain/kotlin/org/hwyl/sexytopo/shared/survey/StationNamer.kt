@@ -4,25 +4,20 @@ import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
 
 /**
- * Names new stations. Ported from `control/util/StationNamer`, together with the one naming helper
- * it uses from `control/util/TextTools` ([advanceLastNumber]).
+ * Names new stations.
  *
  * The rule is deliberately simple: a new station takes its parent's name with the last number in
- * it bumped, repeatedly, until the name is unused anywhere in the survey. Surveying a straight
- * passage from "1" therefore gives 2, 3, 4...; branching off "1" again in a survey that already
- * reaches "4" gives "5", because 2, 3 and 4 are taken. Branch *suffixes* are supported only in the
- * sense that a hand-typed name like "S2-1.1" keeps its shape and advances its trailing number to
- * "S2-1.2": there is no automatic "1a"/"1b" branch lettering in SexyTopo.
+ * it bumped, repeatedly, until the name is unused anywhere in the survey. Branch *suffixes* are
+ * supported only in the sense that a hand-typed name like "S2-1.1" keeps its shape and advances
+ * its trailing number to "S2-1.2": there is no automatic "1a"/"1b" branch lettering in SexyTopo.
  */
 object StationNamer {
 
-    /** The origin is always station "1". */
     fun generateOriginName(): String = "1"
 
     fun generateNextStationName(survey: Survey, originatingStation: Station): String =
         advanceNumberIfNotUnique(survey, originatingStation.name)
 
-    /** Bumps [candidateName]'s last number until it collides with nothing in the survey. */
     fun advanceNumberIfNotUnique(survey: Survey, candidateName: String): String {
         val allNames = getAllStationNames(survey)
         var candidate = candidateName
@@ -37,9 +32,9 @@ object StationNamer {
 
     /**
      * Increments the last run of digits in a name, preserving anything either side of it and any
-     * zero padding. Ported from `control/util/TextTools.advanceLastNumber`.
+     * zero padding.
      *
-     * Worked examples from the Java tests:
+     * Worked examples:
      *  - "S1" -> "S2", "1" -> "2"
      *  - "S2-1.1" -> "S2-1.2" (only the final run of digits moves)
      *  - "foo" -> "foo1" (no digits at all: a 1 is appended)

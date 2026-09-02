@@ -5,13 +5,6 @@ import org.hwyl.sexytopo.shared.model.survey.Station
 import kotlin.math.abs
 import kotlin.math.sqrt
 
-/**
- * Ported from `org.hwyl.sexytopo.model.graph` in the Android app.
- *
- * The sketch and survey geometry deliberately uses these types rather than any platform graphics
- * primitives, which is why this layer moves to Kotlin Multiplatform essentially unchanged.
- */
-
 /** Matches SexyTopoConstants.ALLOWED_DOUBLE_DELTA. */
 const val ALLOWED_DELTA: Double = 0.0001
 
@@ -102,19 +95,12 @@ class Line<T : Coord<T>>(val start: T, val end: T) {
 /**
  * A projected survey: where each station sits, and where each leg runs.
  *
- * Station and Leg are used as keys with identity semantics (neither overrides equals), exactly as
- * in the Java original — two legs with identical readings are still different legs.
+ * Station and Leg are used as keys with identity semantics (neither overrides equals) — two legs
+ * with identical readings are still different legs.
  *
- * `LinkedHashMap` and not `HashMap`, which is the one deliberate difference. Identity keys with no
- * `hashCode` mean a `HashMap` iterates in identity-hash order: stable within one object's life and
- * different the next time the same survey is built. That is precisely the defect this port
- * reported in `PocketTopoTxtExporter` and `SvgExporter`, and both of those were repaired one
- * exporter at a time — while the `.xvi` exporter, written later, walked these maps directly and
- * inherited it. Two exports of the same survey came out with the shot lines in different orders.
- *
- * Fixing it here rather than in the exporter fixes it for every reader of a `Space`, including the
- * ones nobody has written yet. Insertion order is the order the survey was walked in, which is the
- * order it was surveyed in — a defined order, and the same one the repaired exporters chose.
+ * Uses `LinkedHashMap`, not `HashMap`: identity keys with no `hashCode` make a `HashMap` iterate in
+ * identity-hash order, which can differ between runs of the same survey — so two exports could list
+ * the shot lines in a different order. Insertion order is deterministic instead.
  */
 class Space<T : Coord<T>> {
 
@@ -162,10 +148,8 @@ enum class ExtendedElevationDirection(val propagates: Boolean) {
 }
 
 /**
- * Ported from `Space2DUtils.translate`: every station and leg moved by the same offset.
- *
- * Used to put a cross-section's own projection — which is drawn around the origin — where the
- * section sits on the main drawing.
+ * Used to put a cross-section's own projection — drawn around the origin — where the section sits
+ * on the main drawing.
  */
 fun Space<Coord2D>.translate(translation: Coord2D): Space<Coord2D> {
     val translated = Space<Coord2D>()

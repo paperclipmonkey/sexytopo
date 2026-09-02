@@ -3,18 +3,14 @@ package org.hwyl.sexytopo.shared.model.survey
 /**
  * A calendar date, with no time and no zone.
  *
- * Ported in place of the `java.util.Date` the Java `Trip` holds. That substitution is deliberate,
- * not incidental: a trip date is what the surveyor wrote in the book, so it has no time of day and
- * no timezone, and `Date` only ever gets away with representing it because the app immediately
- * formats it back through `SimpleDateFormat("yyyy-MM-dd")` in the device's default zone. Carry the
- * instant across a zone boundary — export a survey on a phone set to UTC+13, read it on one set to
- * UTC-8 — and the date the Java app shows can differ by a day from the date it saved. Storing the
- * three fields the format actually round-trips removes that class of bug from the port, and makes
- * the file bytes reproducible in a test without a clock.
+ * Deliberate, not incidental: a trip date has no time of day and no timezone, but `java.util.Date`
+ * only gets away with representing it because the app formats it straight back through
+ * `SimpleDateFormat("yyyy-MM-dd")` in the device's zone — carry the instant across a zone boundary
+ * and the date shown can differ by a day from the date saved. Storing the three fields directly
+ * removes that class of bug.
  *
- * There is no validation: the Java `SimpleDateFormat` is lenient (it rolls "2026-13-45" forward
- * into 2027), and nothing downstream cares, so an out-of-range field is kept verbatim rather than
- * either rejected or silently rolled.
+ * There is no validation: `SimpleDateFormat` is lenient (it rolls "2026-13-45" forward into 2027),
+ * so an out-of-range field is kept verbatim rather than rejected or silently rolled.
  */
 data class SurveyDate(val year: Int, val month: Int, val day: Int) {
 
@@ -41,12 +37,6 @@ data class SurveyDate(val year: Int, val month: Int, val day: Int) {
 /**
  * Who was on the trip and what they did.
  *
- * Ported from `model/survey/Trip`. This is the metadata block that turns a set of numbers into a
- * survey somebody can publish: the date it was surveyed, the date the passage was found (often
- * earlier, and often the same, hence [explorationDateLinked]), who was there, what instrument was
- * used, and the copyright and licence terms the data is released under.
- *
- * The port keeps the Java's data model but not its mutable-bean shape where a value class will do.
  * [team] is a list rather than a set: order is meaningful (the book-keeper is conventionally
  * listed first) and the file format preserves it.
  */
@@ -58,9 +48,8 @@ class Trip(surveyDate: SurveyDate) {
     /**
      * The day the passage was originally explored, when that differs from the survey date.
      *
-     * Null means "not recorded". Note the two-flag encoding the file format uses and this port
-     * keeps: [explorationDateLinked] true means "explored on the day it was surveyed", in which
-     * case this stays null and [hasExplorationDate] is still true.
+     * Null means "not recorded". [explorationDateLinked] true means "explored on the day it was
+     * surveyed", in which case this stays null and [hasExplorationDate] is still true.
      */
     var explorationDate: SurveyDate? = null
 
@@ -147,20 +136,17 @@ class Trip(surveyDate: SurveyDate) {
     /**
      * The jobs on a survey trip.
      *
-     * The Java carries an Android string-resource id per constant for the UI label; that is a
-     * platform concern, so the port keeps only the names — which are what the file format stores.
+     * The port keeps only the names, which are what the file format stores.
      */
     enum class Role {
         /** Wrote the readings down (and, in practice, drew the sketch). */
         BOOK,
 
-        /** Operated the instrument. */
         INSTRUMENTS,
 
         /** Held the other end of the tape, or otherwise made themselves useful. */
         DOG,
 
-        /** Found the passage in the first place. */
         EXPLORATION,
         ;
 

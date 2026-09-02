@@ -11,19 +11,14 @@ import org.hwyl.sexytopo.shared.model.sketch.SymbolDetail
 import org.hwyl.sexytopo.shared.model.sketch.TextDetail
 
 /**
- * One undoable step. Ported from the Java `Sketch`'s twin `sketchHistory` / `undoneHistory` stacks.
+ * One undoable step.
  *
- * The Android app stores a bare `SketchDetail` in its history for an addition, and wraps a deletion
- * in a `DeletedDetail` carrying both the thing removed and the things that replaced it. That
- * wrapper exists because erasing does not usually delete: rubbing out the middle of a passage wall
- * removes one stroke and puts *two* back, and undo must reverse the whole exchange in one step.
- * Kotlin lets us say that directly with a sealed type, so the `instanceof DeletedDetail` test and
- * the "can't wrap a DeletedDetail in a DeletedDetail" runtime guard both disappear — the shape of
- * the data makes them impossible.
+ * Erasing does not usually delete: rubbing out the middle of a passage wall removes one stroke and
+ * puts *two* back, and undo must reverse the whole exchange in one step — which is what [Delete]'s
+ * replacements are for.
  */
 sealed interface SketchEdit {
 
-    /** Something was added to the sketch. Undo removes it. */
     class Add(val item: SketchItem) : SketchEdit
 
     /**
@@ -39,11 +34,7 @@ sealed interface SketchEdit {
  *
  * Framework-free by design: it knows nothing of touch events, canvases or pixels. A UI layer
  * converts a gesture into survey-space coordinates and a tolerance in metres, calls one of these
- * methods, and redraws. That is the whole contract, and it is what lets the same editing model sit
- * under Compose on Android, iOS and the web.
- *
- * Ported from `model/sketch/Sketch` together with the parts of `control/graph/GraphView` that
- * decide what a touch means.
+ * methods, and redraws.
  */
 class SketchEditor(val sketch: Sketch = Sketch()) {
 
@@ -58,7 +49,6 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
     var activePath: PathDetail? = null
         private set
 
-    /** False once anything has been committed since the last [markSaved]. */
     var isSaved: Boolean = true
         private set
 
@@ -66,7 +56,6 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
 
     val canRedo: Boolean get() = undone.isNotEmpty()
 
-    /** The colour new details are drawn in. */
     var activeColour: Colour
         get() = sketch.activeColour
         set(value) {
@@ -95,7 +84,6 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
         return path
     }
 
-    /** Extend the active stroke. A move event with no active stroke starts one, as in the Java. */
     fun extendPath(point: Coord2D) {
         val active = activePath
         if (active == null) {
@@ -107,9 +95,6 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
 
     /**
      * Finish the active stroke: simplify it, commit it to the sketch and push one undo step.
-     *
-     * The simplification tolerance comes from the stroke's own extent
-     * ([simplificationEpsilon]), so it thins a long wall hard and a small detail barely at all.
      *
      * Unlike the Java, which mutates the path's point list in place, this replaces the detail with
      * a simplified copy *at the same index*, preserving draw order. The identity of the returned
@@ -144,7 +129,6 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
         sketch.pathDetails.removeFirstIdentical(active)
     }
 
-    /** The end of another stroke to snap to, ignoring the stroke being drawn. */
     fun snapPointNear(point: Coord2D, deltaInMetres: Float): Coord2D? =
         findEligibleSnapPointWithin(sketch, point, deltaInMetres, exclude = activePath)
 
@@ -200,17 +184,15 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
      * Swap one cross-section component for another as a single undo step: how a move, a rotate or a
      * committed sub-sketch edit is applied.
      *
-     * This matters more here than in the Android app. There, a cross-section's sub-sketch is
-     * mutable, so committing an edit keeps the detail's identity and the history stays valid. In
-     * the shared model [CrossSectionDetail] is immutable, so an edit *must* come through here: a
-     * silent swap would leave the history pointing at a detail that is no longer in the sketch,
-     * and undoing past the component's creation would then leave a duplicate behind.
+     * This matters more here than in the Android app, where a cross-section's sub-sketch is mutable
+     * and committing an edit keeps the detail's identity. In the immutable shared model, an edit
+     * *must* come through here — a silent swap would leave the history pointing at a detail no
+     * longer in the sketch, and undoing past its creation would leave a duplicate behind.
      */
     fun replaceCrossSection(old: CrossSectionDetail, new: CrossSectionDetail) {
         delete(old, listOf(new))
     }
 
-    /** Move a cross-section by [delta] metres, as one undo step. No-op for a zero delta. */
     fun moveCrossSection(detail: CrossSectionDetail, delta: Coord2D): CrossSectionDetail {
         if (delta.x == 0f && delta.y == 0f) return detail
         val moved = detail.translate(delta)
@@ -218,7 +200,6 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
         return moved
     }
 
-    /** Re-aim a cross-section at a new compass bearing, as one undo step. */
     fun rotateCrossSection(detail: CrossSectionDetail, azimuth: Float): CrossSectionDetail {
         val rotated =
             CrossSectionDetail(
@@ -234,12 +215,10 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
     // Deleting and erasing
     // -------------------------------------------------------------------------------------
 
-    /** Delete a detail, optionally putting [replacements] in its place, as one undo step. */
     fun delete(detail: SketchDetail, replacements: List<SketchDetail> = emptyList()) {
         deleteItem(detail.asItem(), replacements.map { it.asItem() })
     }
 
-    /** Delete a cross-section, optionally putting [replacements] in its place. */
     fun delete(detail: CrossSectionDetail, replacements: List<CrossSectionDetail> = emptyList()) {
         deleteItem(detail.asItem(), replacements.map { it.asItem() })
     }
@@ -262,11 +241,9 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
      *     eraser survive as new strokes, so rubbing out the middle of a wall leaves both ends. Turn
      *     [deletePathFragments] off to delete whole strokes instead.
      *
-     * One call is one dab of the eraser. The Android app makes exactly one per touch — its
-     * `handleErase` works under `case ACTION_DOWN` and its `ACTION_MOVE` case is a bare `break`, so
-     * dragging across a wall there does nothing — but that is a fact about its gesture handling
-     * rather than about this method, and this port's canvas deliberately calls it all along a drag
-     * instead. See `rubAlong`.
+     * One call is one dab of the eraser. The Android app makes exactly one per touch — dragging
+     * across a wall there does nothing — but this port's canvas deliberately calls it all along a
+     * drag instead. See `rubAlong`.
      *
      * @return true if anything was deleted.
      */
@@ -314,11 +291,9 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
     // -------------------------------------------------------------------------------------
 
     /**
-     * Reverse the most recent edit.
-     *
      * Restored details are appended to their list rather than put back where they were, so undo can
-     * change the drawing order of overlapping ink. That is true of the Java as well and is left
-     * alone: sketch details are drawn with opaque strokes, so order is rarely visible.
+     * change the drawing order of overlapping ink — left alone since sketch details are opaque, so
+     * order is rarely visible.
      */
     fun undo(): Boolean {
         val edit = done.removeLastOrNull() ?: return false
@@ -333,7 +308,6 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
         return true
     }
 
-    /** Re-apply the most recently undone edit. */
     fun redo(): Boolean {
         val edit = undone.removeLastOrNull() ?: return false
         when (edit) {
@@ -347,10 +321,6 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
         return true
     }
 
-    /**
-     * Push an edit. Any new edit discards the redo stack — you cannot redo down a branch you have
-     * drawn away from.
-     */
     private fun record(edit: SketchEdit) {
         isSaved = false
         done.addLast(edit)
@@ -388,8 +358,7 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
  * Remove the first element that *is* [element], by identity.
  *
  * Sketch details have no value equality — two identical strokes drawn twice are two different
- * things — and the history holds references, so removal has to be by identity. `List.remove` in the
- * Java behaves the same way for these types because they inherit `Object.equals`.
+ * things — and the history holds references, so removal has to be by identity.
  */
 private fun <T : Any> MutableList<T>.removeFirstIdentical(element: T) {
     val index = indexOfFirst { it === element }

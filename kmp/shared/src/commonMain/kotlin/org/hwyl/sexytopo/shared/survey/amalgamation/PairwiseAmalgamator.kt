@@ -11,9 +11,7 @@ import org.hwyl.sexytopo.shared.survey.SurveySettings
  * every pair. Readings are averaged as vectors (the centroid of their endpoints).
  *
  * The tolerance is relative rather than absolute, so longer legs are allowed a proportionally
- * larger gap. Like the cartesian method it behaves sensibly at any inclination.
- *
- * Ported from `control/util/amalgamation/PairwiseAmalgamator`.
+ * larger gap.
  */
 internal object PairwiseAmalgamator {
 

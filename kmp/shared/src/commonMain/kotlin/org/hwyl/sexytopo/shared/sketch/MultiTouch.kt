@@ -7,14 +7,8 @@ import kotlin.math.sqrt
 /**
  * The pan and zoom a set of fingers is asking for, as plain arithmetic over their positions.
  *
- * Compose has this built in ([androidx.compose.foundation.gestures.detectTransformGestures]), and
- * the pan tool uses it. What it does not have is a way to say "only once there are two fingers" —
- * the detector fires for a single finger too, so a canvas that is also being drawn on cannot use
- * it. The gesture loop in `SurveyCanvas` therefore watches the pointers itself, and this is the
- * arithmetic it needs, kept here so it can be tested without a touchscreen.
- *
- * The Android app gets the same thing from `ScaleGestureDetector`, which is why pinch-to-zoom works
- * there under every tool rather than only under the pan tool.
+ * Compose's gesture detector fires for a single finger too, so a canvas that is also being drawn on
+ * cannot use it directly — this is the arithmetic `SurveyCanvas` needs instead.
  */
 fun centroidOf(points: List<Coord2D>): Coord2D {
     if (points.isEmpty()) return Coord2D.ORIGIN

@@ -9,8 +9,6 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
  * The survey engine: it turns the stream of readings coming off the instrument into a tree of
  * stations, and provides the edits a surveyor makes to that tree afterwards.
  *
- * Ported from `control/util/SurveyUpdater`.
- *
  * The central idea is that the surveyor never tells the app "this is a leg". Every reading arrives
  * as a *splay* — a shot from the active station into the dark with no named destination. When the
  * last few splays off the active station turn out to agree with each other (or, in combo mode, to
@@ -18,11 +16,6 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
  * repeating a leg for accuracy, deletes the individual readings, and replaces them with one
  * averaged leg to a newly named station, which becomes active. Everything else — wall shots, a
  * mis-aimed repeat — stays a splay.
- *
- * The original's Android dependencies (logging to string resources, a global preferences object,
- * and `synchronized` on the update methods) are dropped: tolerances arrive as [SurveySettings], and
- * callers on a platform with concurrent instrument input are responsible for confining calls to a
- * single thread or coroutine dispatcher.
  */
 object SurveyUpdater {
 
@@ -52,12 +45,7 @@ object SurveyUpdater {
         return anyStationsAdded
     }
 
-    /**
-     * Records one reading as a splay off the active station, then applies the promotion rule for
-     * the given input mode.
-     *
-     * @return true if this reading completed a set and created a new station.
-     */
+    /** @return true if this reading completed a set and created a new station. */
     fun update(
         survey: Survey,
         leg: Leg,
@@ -83,11 +71,9 @@ object SurveyUpdater {
         }
     }
 
-    /** @see SurveyBuilder.updateWithNewStation */
     fun updateWithNewStation(survey: Survey, leg: Leg): Station =
         SurveyBuilder.updateWithNewStation(survey, leg)
 
-    /** @see SurveyBuilder.addLegFromStation */
     fun addLegFromStation(survey: Survey, fromStation: Station, leg: Leg) =
         SurveyBuilder.addLegFromStation(survey, fromStation, leg)
 
@@ -95,10 +81,9 @@ object SurveyUpdater {
      * Turns an existing splay into a full leg to a new station, which becomes active — the manual
      * version of what the triple-shot rule does automatically.
      *
-     * NOTE: as in the original, the new name is generated from the survey's *active* station, not
-     * from the station the splay actually hangs off. Those are normally the same station; when the
-     * surveyor has moved the active station elsewhere first, the generated name follows the active
-     * one.
+     * NOTE: the new name is generated from the survey's *active* station, not from the station the
+     * splay actually hangs off. Those are normally the same station; when the surveyor has moved
+     * the active station elsewhere first, the generated name follows the active one.
      */
     fun upgradeSplay(survey: Survey, leg: Leg, inputMode: InputMode = InputMode.DEFAULT) {
         val newStation = Station(getNextStationName(survey))
@@ -144,25 +129,16 @@ object SurveyUpdater {
     }
 
     /**
-     * Whether [promoteToAboveLeg] would find a leg to promote this splay into.
-     *
-     * Split out so a menu can leave the action off when it cannot work. The Android app shows it
-     * regardless and answers a tap with the toast "No valid leg to combine with", which tells a
-     * surveyor the answer only after they have asked.
+     * Split out so a menu can leave the action off when it cannot work — the Android app shows it
+     * regardless and only tells the surveyor after they have tapped it.
      */
     fun canPromoteToAboveLeg(survey: Survey, splay: Leg): Boolean =
         !splay.hasDestination() && findMostRecentPreviousLeg(survey, splay) != null
 
-    /**
-     * Whether [downgradeLeg] would succeed rather than failing its own `check`.
-     *
-     * A leg can only go back to being a splay if nothing was surveyed beyond it: the stations past
-     * it would have nowhere to hang. The Android app greys the menu item out on the same test.
-     */
+    /** A leg can only go back to being a splay if nothing was surveyed beyond it. */
     fun canDowngradeLeg(leg: Leg): Boolean =
         leg.hasDestination() && leg.destination.onwardLegs.isEmpty()
 
-    /** The nearest full leg recorded before [leg], or null if there is none. */
     private fun findMostRecentPreviousLeg(survey: Survey, leg: Leg): Leg? {
         val chronoLegs = survey.getAllLegsInChronoOrder()
         val index = chronoLegs.indexOf(leg)
@@ -177,12 +153,10 @@ object SurveyUpdater {
      * Rebuilds [leg] with [splay] averaged into it, keeping every constituent reading in the new
      * leg's `promotedFrom` so the promotion can be undone.
      *
-     * NOTE two quirks of the original that are reproduced here. A leg shot backwards has its extra
-     * splay reversed to match the *leg's* orientation — but the readings already in `promotedFrom`
-     * were stored in the orientation they were shot in, which for a backwards leg is the opposite
-     * one, so the average is taken over readings pointing in two directions. And the rebuilt leg's
-     * own `wasShotBackwards` comes from the freshly-averaged reading and so is always false. Both
-     * only bite in backward input mode.
+     * NOTE, both only in backward mode: the extra splay is reversed to match the leg's orientation,
+     * but the readings already in `promotedFrom` were shot in the opposite orientation, so the
+     * average mixes both; and the rebuilt leg's `wasShotBackwards` is always false, since it comes
+     * from the freshly-averaged reading.
      */
     private fun combineSplayWithLeg(splay: Leg, leg: Leg, settings: SurveySettings): Leg {
         val shot = if (leg.wasShotBackwards) splay.reverse() else splay
@@ -230,8 +204,6 @@ object SurveyUpdater {
             return false
         }
 
-        // All of the last readings must hang off the active station: a reading recorded elsewhere
-        // in between means these are not a run of repeats.
         if (lastNLegs.any { !activeLegs.contains(it) }) {
             return false
         }
@@ -287,8 +259,6 @@ object SurveyUpdater {
             return false
         }
 
-        // The foresight is assumed to come first; the original carries a TODO about honouring a
-        // "reverse mode" in which the backsight is taken first.
         val fore = lastPair[lastPair.size - 2]
         val back = lastPair[lastPair.size - 1]
 
@@ -318,10 +288,8 @@ object SurveyUpdater {
     // ---------------------------------------------------------------------------------------
 
     /**
-     * Replaces [toEdit] with [edited] wherever it hangs.
-     *
      * The edited leg keeps its place in the chronological record but moves to the *end* of its
-     * station's onward legs, since the original removes and re-adds it.
+     * station's onward legs.
      */
     fun editLeg(survey: Survey, toEdit: Leg, edited: Leg) {
         survey.traverseLegs { station, leg ->
@@ -338,11 +306,9 @@ object SurveyUpdater {
     }
 
     /**
-     * Renames a station, rejecting a name already used elsewhere in the survey.
-     *
      * NOTE: the uniqueness check uses the raw name, but [Station] strips newlines when storing it,
      * so a name that differs from an existing one only by a newline passes the check and then
-     * collides. The check also rejects renaming a station to the name it already has.
+     * collides.
      */
     fun renameStation(survey: Survey, station: Station, name: String) {
         require(survey.getStationByName(name) == null) { "New station name is not unique" }
@@ -353,10 +319,8 @@ object SurveyUpdater {
     fun renameOrigin(survey: Survey, name: String) = renameStation(survey, survey.origin, name)
 
     /**
-     * Re-hangs [leg] off [newSource].
-     *
-     * NOTE: as in the original there is no check that this keeps the survey a tree — moving a leg
-     * onto a station inside its own subtree creates a cycle, which will hang the traversals.
+     * NOTE: there is no check that this keeps the survey a tree — moving a leg onto a station
+     * inside its own subtree creates a cycle, which will hang the traversals.
      */
     fun moveLeg(survey: Survey, leg: Leg, newSource: Station) {
         val originating =
@@ -366,16 +330,11 @@ object SurveyUpdater {
         survey.isSaved = false
     }
 
-    /**
-     * Deletes a station by deleting the leg that creates it, taking everything beyond it with it.
-     * Deleting the origin is a no-op: it is the one station no leg creates.
-     */
+    /** Deleting the origin is a no-op: it is the one station no leg creates. */
     fun deleteStation(survey: Survey, toDelete: Station) {
         if (survey.isOrigin(toDelete)) {
             return
         }
-        // Station comes as a package with the leg that forms it, so remove that to delete the
-        // station from the graph.
         val referringLeg =
             checkNotNull(survey.getReferringLeg(toDelete)) { "Station is not in this survey" }
         val fromStation =
@@ -385,9 +344,7 @@ object SurveyUpdater {
         deleteLeg(survey, fromStation, referringLeg)
     }
 
-    /** Deletes [leg] and, with it, every leg in the subtree hanging off its destination. */
     fun deleteLeg(survey: Survey, fromStation: Station, leg: Leg) {
-        // First remove all legs in the subtree from the survey record
         if (leg.hasDestination()) {
             Survey.traverseLegs(leg.destination) { _, subLeg ->
                 survey.removeLegRecord(subLeg)
@@ -401,16 +358,9 @@ object SurveyUpdater {
         survey.isSaved = false
     }
 
-    /**
-     * Turns a full leg back into splays: the reverse of promotion. A leg that was promoted from
-     * several readings gives all of them back, in their original order; one that was not gives back
-     * the single reading it holds.
-     *
-     * Only a leaf leg can be downgraded — there is nowhere for the stations beyond it to hang.
-     */
+    /** Only a leaf leg can be downgraded — there is nowhere for the stations beyond it to hang. */
     fun downgradeLeg(survey: Survey, leg: Leg) {
         if (!leg.hasDestination()) {
-            // Already a splay, so nothing to do
             return
         }
 
@@ -438,11 +388,7 @@ object SurveyUpdater {
         survey.isSaved = false
     }
 
-    /**
-     * Flips the leg into [toReverse] end for end: azimuth turned through 180, inclination negated,
-     * and the backwards flag toggled. The destination station is unchanged, so the station moves to
-     * the opposite side of its parent — this is how a leg entered the wrong way round is corrected.
-     */
+    /** This is how a leg entered the wrong way round is corrected. */
     fun reverseLeg(survey: Survey, toReverse: Station) {
         survey.traverseLegs { station, leg ->
             if (leg.hasDestination() && leg.destination === toReverse) {
@@ -462,10 +408,6 @@ object SurveyUpdater {
     // Comparing and averaging readings
     // ---------------------------------------------------------------------------------------
 
-    /**
-     * Whether these readings agree closely enough to be treated as repeats of one leg. Full legs
-     * are never "about the same" as anything: by definition each is a unique measured leg.
-     */
     fun areLegsAboutTheSame(
         legs: List<Leg>,
         settings: SurveySettings = SurveySettings.DEFAULT,
@@ -476,7 +418,6 @@ object SurveyUpdater {
         return settings.legAmalgamationAlgorithm.areReadingsCompatible(legs, settings)
     }
 
-    /** Whether [fore] and [back] agree as a foresight and backsight down the same leg. */
     fun areLegsBacksights(
         fore: Leg,
         back: Leg,
@@ -486,7 +427,6 @@ object SurveyUpdater {
     fun averageLegs(repeats: List<Leg>, settings: SurveySettings = SurveySettings.DEFAULT): Leg =
         settings.legAmalgamationAlgorithm.average(repeats)
 
-    /** Averages a foresight and a backsight which may not exactly agree into one foresight. */
     fun averageBacksights(
         fore: Leg,
         back: Leg,
@@ -498,9 +438,8 @@ object SurveyUpdater {
     // ---------------------------------------------------------------------------------------
 
     /**
-     * Sets the extended elevation direction on a station, applying it to the stations below too if
-     * the direction propagates. Directions that don't propagate affect only the leg into this
-     * station, leaving the rest of the survey to carry on as it was.
+     * Applies to the stations below too if the direction propagates; otherwise it affects only the
+     * leg into this station.
      */
     fun setExtendedElevationDirection(
         survey: Survey,
@@ -532,16 +471,10 @@ object SurveyUpdater {
     }
 
     /**
-     * Resolves the direction that a newly-created station should inherit from its parent.
+     * A direction that doesn't propagate (VERTICAL) applies to the leg into the parent alone, so
+     * this walks up to the nearest ancestor whose direction does propagate.
      *
-     * A direction that doesn't propagate (VERTICAL — a pitch, drawn as a vertical line in the
-     * extended elevation) applies to the leg into the parent alone, so it says nothing about where
-     * the survey goes next. In that case we walk up to the nearest ancestor whose direction does
-     * propagate, so the survey resumes the direction it was heading in before the pitch.
-     *
-     * NOTE: this is a potentially expensive O(n^2) operation (repeated survey traversals to find
-     * the parent with a "standard" direction), but it only runs when creating a new station, and
-     * long series of VERTICAL legs ought to be very rare.
+     * NOTE: potentially O(n^2), but it only runs when creating a new station.
      */
     private tailrec fun resolveInheritedExtendedElevationDirection(
         survey: Survey,

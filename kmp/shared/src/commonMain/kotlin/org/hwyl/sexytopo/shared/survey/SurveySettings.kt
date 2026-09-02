@@ -5,11 +5,6 @@ import org.hwyl.sexytopo.shared.survey.amalgamation.LegAmalgamationAlgorithm
 /**
  * The surveying preferences the engine reads, with the same defaults as the Android original.
  *
- * In the Java these are static reads of `GeneralPreferences`, backed by Android SharedPreferences
- * — a global the engine reaches out to mid-calculation, and which silently returns the defaults
- * when unset (which is how the Java unit tests exercise the defaults). Here they are an immutable
- * value passed in, so the engine is pure and the tolerances can be varied per call in tests.
- *
  * Defaults come from `control/util/GeneralPreferences` and `SexyTopoConstants`:
  *  - `pref_leg_amalgamation_algorithm` = "angular"
  *  - `pref_max_distance_delta` = 0.05 (metres)
@@ -37,7 +32,6 @@ data class SurveySettings(
     val numberOfRepeatsForNewStation: Int = 3,
 ) {
     companion object {
-        /** The app's out-of-the-box tolerances. */
         val DEFAULT = SurveySettings()
     }
 }

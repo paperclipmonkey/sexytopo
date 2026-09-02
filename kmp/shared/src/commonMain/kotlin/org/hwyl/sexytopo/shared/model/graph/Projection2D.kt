@@ -6,8 +6,6 @@ import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
 
 /**
- * Ported from `org.hwyl.sexytopo.model.graph.Projection2D`.
- *
  * Each projection drops one axis and negates y, because mathematically the origin is bottom left
  * but on screen it is top left. That flip is load-bearing: exporters have to reverse it, and a port
  * that loses it mirrors every sketch.
@@ -65,11 +63,7 @@ enum class Projection2D(val displayName: String, val abbreviation: String) {
 
     /**
      * Whether a surveyor can draw on this projection — which is to say whether [Survey] keeps a
-     * sketch for it. Two of the five: the plan and the unrolled elevation, as in the Android app,
-     * where `GraphActivity` has exactly those two subclasses.
-     *
-     * Here rather than at each caller because two places already asked the question and a third
-     * (the Therion export, which names one scrap file per drawing) was about to.
+     * sketch for it. Two of the five: the plan and the unrolled elevation.
      */
     val isDrawable: Boolean
         get() = this == PLAN || this == EXTENDED_ELEVATION

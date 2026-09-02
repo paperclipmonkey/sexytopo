@@ -9,8 +9,6 @@ import org.hwyl.sexytopo.shared.model.survey.Station
  * inclination negated, so a reading taken from the far end can be compared with, and averaged
  * against, the foresight down the same leg.
  *
- * Ported from `Leg.asBacksight`, as an extension so the shared [Leg] type stays untouched.
- *
  * Two things the original does that are easy to "fix" by accident, so are reproduced here:
  *  - it does **not** flip `wasShotBackwards`; the corrected reading always comes out as a forward
  *    shot regardless of the source leg's flag (unlike [Leg.reverse], which does flip it);
@@ -18,7 +16,7 @@ import org.hwyl.sexytopo.shared.model.survey.Station
  *    the original orientation.
  *
  * A leg whose inclination is in the 270..360 theodolite band cannot be negated into a legal
- * inclination, so this throws for such legs, exactly as the Java constructor does.
+ * inclination, so this throws for such legs.
  */
 fun Leg.asBacksight(destination: Station = Station.NULL_STATION): Leg {
     val backAzimuth = adjustAngle(azimuth, 180.0f)

@@ -3,21 +3,10 @@ package org.hwyl.sexytopo.shared.sketch
 /**
  * How big everything on the drawing is: `preferences_sketching.xml`'s numeric group.
  *
- * ## Why a surveyor changes these
- *
- * A plan read on a desk and a plan read at arm's length under a helmet, by a head torch, through
- * a scratched screen, with the phone in a dry bag, are not the same picture. A hairline centreline
- * that is perfectly legible on the first is guesswork on the second, and the surveyor who needs it
- * heavier needs it heavier *now*, at the station, not when they get home.
- *
- * ## Where the numbers come from, and a warning about the ones on screen
- *
  * These are the values the Android app **uses** — `GeneralPreferences`' own fallbacks — which for
- * four of the eight are *not* the values its settings screen shows as the default. The screen and
- * the code disagree, in the same way and for the same reason as `pref_vibrate_on_new_station`
- * (see `AppPreferencesStore`): nothing calls `PreferenceManager.setDefaultValues`, so on a fresh
- * install the key is simply absent and the getter's own fallback wins. Where they differ, the
- * value taken here is the one that is actually drawn.
+ * four of the eight are *not* the values its settings screen shows as the default: nothing calls
+ * `PreferenceManager.setDefaultValues`, so on a fresh install the key is simply absent and the
+ * getter's own fallback wins. Where they differ, the value taken here is the one actually drawn.
  *
  * | Preference | Shown on the screen | Used by the code |
  * | --- | --- | --- |
@@ -32,8 +21,7 @@ package org.hwyl.sexytopo.shared.sketch
  *
  * The last row is worse than a disagreement. The screen writes `pref_survey_text_tool_font_size`
  * and `GeneralPreferences.getTextStartingSizeSp` reads `pref_survey_text_tool_font_size_sp` — a
- * different key — so upstream that preference does nothing at all, whatever it is set to. Reported
- * as finding 52.
+ * different key — so upstream that preference does nothing at all, whatever it is set to.
  */
 data class SketchStyle(
     /** A drawn stroke's width, in dp. `pref_sketch_line_width`. */
@@ -70,11 +58,9 @@ data class SketchStyle(
         /**
          * The bounds every one of these is held inside.
          *
-         * Not limits the Android app has: it takes any number its text field will accept, and a
-         * leg width of zero draws a cave with no centreline in it while a station diameter of two
-         * thousand draws one dot over the whole screen. Neither is recoverable from the drawing —
-         * the surveyor has to know that a settings screen did it — so the value is clamped on the
-         * way in rather than trusted.
+         * Not limits the Android app has: it takes any number its text field will accept, and an
+         * extreme value produces a drawing with no way to tell a settings screen did it. Clamped on
+         * the way in rather than trusted.
          */
         const val SMALLEST = 0.5f
         const val LARGEST = 60.0f

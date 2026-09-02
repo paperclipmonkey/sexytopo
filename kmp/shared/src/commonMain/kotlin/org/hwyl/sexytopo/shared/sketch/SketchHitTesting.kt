@@ -12,29 +12,19 @@ import org.hwyl.sexytopo.shared.model.survey.Station
 /**
  * Picking things out of a sketch with a fingertip.
  *
- * Ported from `Sketch.findNearestVisibleDetailWithin`, `Sketch.findEligibleSnapPointWithin`,
- * `GraphView.findCrossSectionBodyAt` and `GraphView.findNearestStationWithinDelta`.
- *
  * Every threshold reaching these functions is in survey metres, having been converted from the
- * screen by dividing by the current pixels-per-metre. That is the whole trick of the interaction
- * model: the finger has a constant size in millimetres, so its reach in the cave shrinks as you
- * zoom in, which is exactly what a surveyor expects.
+ * screen by dividing by the current pixels-per-metre.
  */
 
 /**
- * Anything the editor can add to, or remove from, a [Sketch].
- *
- * The Android app has a single `SketchDetail` hierarchy that cross-sections belong to; the shared
- * Kotlin model keeps [CrossSectionDetail] separate (it is not ink — it owns a sub-sketch and a
- * station). This union puts them back together for the operations that treat them alike: undo,
+ * Anything the editor can add to, or remove from, a [Sketch] — reuniting [CrossSectionDetail],
+ * which the shared model keeps separate from ink, for the operations that treat them alike: undo,
  * redo, deletion and hit-testing.
  */
 sealed interface SketchItem {
 
-    /** A path, symbol or text detail. */
     class Drawn(val detail: SketchDetail) : SketchItem
 
-    /** A cross-section component placed on the plan. */
     class Section(val detail: CrossSectionDetail) : SketchItem
 }
 
@@ -122,9 +112,8 @@ fun findEligibleSnapPointWithin(
  * The cross-section component whose body contains [point], or null.
  *
  * Distinct from [findNearestVisibleItemWithin], which only ever measures to a cross-section's
- * centre: pressing anywhere inside the frame — on a splay, on the sub-sketch — should hit it. There
- * is no distance tolerance; the bounding box either contains the point or it does not. Overlapping
- * components are resolved by whichever centre is nearer, first-wins on a tie.
+ * centre: pressing anywhere inside the frame should hit it. Overlapping components are resolved by
+ * whichever centre is nearer, first-wins on a tie.
  */
 fun findCrossSectionBodyAt(sketch: Sketch, point: Coord2D): CrossSectionDetail? {
     var best: CrossSectionDetail? = null

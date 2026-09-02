@@ -22,7 +22,6 @@ enum class Symbol(
     val isDirectional: Boolean,
     val paths: List<String>,
 ) {
-    /** UIS entrance. Therion `entrance`. */
     ENTRANCE(
         therionName = "entrance",
         isDirectional = true,
@@ -30,7 +29,6 @@ enum class Symbol(
             "M15,29L20,9L25,29Z",
         ),
     ),
-    /** UIS gradient. Therion `gradient`. */
     GRADIENT(
         therionName = "gradient",
         isDirectional = true,
@@ -39,7 +37,6 @@ enum class Symbol(
             "m16.626,12.415l3.129,-4.785l3.129,4.785l-6.258,0z",
         ),
     ),
-    /** UIS narrow end. Therion `narrow-end`. */
     TOO_TIGHT(
         therionName = "narrow-end",
         isDirectional = true,
@@ -48,7 +45,6 @@ enum class Symbol(
             "M25.294,7L25,33.003",
         ),
     ),
-    /** UIS sand. Therion `sand`. */
     SAND(
         therionName = "sand",
         isDirectional = false,
@@ -65,7 +61,6 @@ enum class Symbol(
             "M34,27m-1,0a1,1 0,1 1,2 0a1,1 0,1 1,-2 0",
         ),
     ),
-    /** UIS clay. Therion `clay`. */
     CLAY(
         therionName = "clay",
         isDirectional = false,
@@ -81,7 +76,6 @@ enum class Symbol(
             "M34,33L38,32",
         ),
     ),
-    /** UIS pebbles. Therion `pebbles`. */
     PEBBLES(
         therionName = "pebbles",
         isDirectional = false,
@@ -91,7 +85,6 @@ enum class Symbol(
             "M9.01,22.601a6.108,3.024 117.317,1 0,5.657 -10.827a6.108,3.024 117.317,1 0,-5.657 10.827z",
         ),
     ),
-    /** UIS blocks. Therion `blocks`. */
     BLOCKS(
         therionName = "blocks",
         isDirectional = false,
@@ -105,7 +98,6 @@ enum class Symbol(
             "m31.151,19.577l-3.568,0.846",
         ),
     ),
-    /** UIS stalactite. Therion `stalactite`. */
     STALACTITE(
         therionName = "stalactite",
         isDirectional = false,
@@ -114,7 +106,6 @@ enum class Symbol(
             "M20,12.5L30,5",
         ),
     ),
-    /** UIS stalagmite. Therion `stalagmite`. */
     STALAGMITE(
         therionName = "stalagmite",
         isDirectional = false,
@@ -123,7 +114,6 @@ enum class Symbol(
             "M20,27.5L30,35",
         ),
     ),
-    /** UIS pillar. Therion `pillar`. */
     COLUMN(
         therionName = "pillar",
         isDirectional = false,
@@ -133,7 +123,6 @@ enum class Symbol(
             "M10,36L20,26L30,36",
         ),
     ),
-    /** UIS curtain. Therion `curtain`. */
     CURTAIN(
         therionName = "curtain",
         isDirectional = false,
@@ -142,7 +131,6 @@ enum class Symbol(
             "m19.953,15.892l0,5c-6.756,5 -6.756,5 0,10l0,5",
         ),
     ),
-    /** UIS soda straw. Therion `soda-straw`. */
     STRAWS(
         therionName = "soda-straw",
         isDirectional = false,
@@ -155,7 +143,6 @@ enum class Symbol(
             "m32.5,12.5l0,12.5",
         ),
     ),
-    /** UIS helictite. Therion `helictite`. */
     HELICTITES(
         therionName = "helictite",
         isDirectional = false,
@@ -163,7 +150,6 @@ enum class Symbol(
             "M20,8L20,32M12,8L12,20 28,20 28,32",
         ),
     ),
-    /** UIS crystal. Therion `crystal`. */
     CRYSTALS(
         therionName = "crystal",
         isDirectional = false,
@@ -173,7 +159,6 @@ enum class Symbol(
             "M12.796,9.556L27.204,30.444",
         ),
     ),
-    /** UIS rimstone dam. Therion `rimstone-dam`. */
     GOUR(
         therionName = "rimstone-dam",
         isDirectional = true,
@@ -181,7 +166,6 @@ enum class Symbol(
             "m5,26.54a15,13.08 0,0 1,30 0",
         ),
     ),
-    /** UIS water flow. Therion `water-flow`. */
     WATER_FLOW(
         therionName = "water-flow",
         isDirectional = true,
@@ -190,7 +174,6 @@ enum class Symbol(
             "m16.626,9.777l3.129,-4.785l3.129,4.785l-6.258,0z",
         ),
     ),
-    /** UIS air draught. Therion `air-draught`. */
     AIR_DRAUGHT(
         therionName = "air-draught",
         isDirectional = true,
@@ -201,7 +184,6 @@ enum class Symbol(
             "M24.246,30.593L19.82,24.892",
         ),
     ),
-    /** UIS guano. Therion `guano`. */
     GUANO(
         therionName = "guano",
         isDirectional = false,
@@ -210,7 +192,6 @@ enum class Symbol(
             "m33.478,14.858c-0.498,-0.783 -6.103,-9.29 -9.472,0.11c-3.368,9.4 -3.401,12.796 -3.851,14.18",
         ),
     ),
-    /** UIS debris. Therion `debris`. */
     DEBRIS(
         therionName = "debris",
         isDirectional = false,

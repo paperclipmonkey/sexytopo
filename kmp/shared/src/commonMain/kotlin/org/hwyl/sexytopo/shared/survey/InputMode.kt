@@ -1,8 +1,6 @@
 package org.hwyl.sexytopo.shared.survey
 
 /**
- * Ported from `control/util/InputMode`, minus the Android menu-item ids.
- *
  * How the surveyor is holding the instrument, which decides what a run of repeated readings means:
  *  - [FORWARD]: shots are taken from the current station towards the next one.
  *  - [BACKWARD]: shots are taken standing at the *next* station looking back, so a promoted leg is

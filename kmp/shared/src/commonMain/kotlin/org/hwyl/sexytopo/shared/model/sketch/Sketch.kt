@@ -4,19 +4,15 @@ import org.hwyl.sexytopo.shared.math.getDistanceFromLine
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 
 /**
- * Ported from `org.hwyl.sexytopo.model.sketch`.
- *
  * The sketch model uses no platform graphics types at all: a path is a list of [Coord2D] in survey
- * space (metres, never pixels) and a colour is a packed RGB int. That is the single biggest reason
- * this app is portable — the drawing data needs no translation, only the renderer does.
+ * space (metres, never pixels) and a colour is a packed RGB int.
  */
 
 /**
- * In dark mode black ink is drawn white, as in the original.
+ * In dark mode black ink is drawn white.
  *
  * A property of the colour rather than of the thing drawn in it, so a toolbar swatch can show what
- * the brush will actually put on the page — otherwise a black swatch on a black background paints
- * white, which is wrong twice over.
+ * the brush will actually put on the page.
  */
 fun Colour.forDarkMode(isDarkModeActive: Boolean): Colour =
     if (isDarkModeActive && this == Colour.BLACK) Colour.WHITE else this
@@ -105,13 +101,10 @@ class SymbolDetail(
         SymbolDetail(position + translation, symbolName, size, angle, colour)
 
     /**
-     * Grows the stamp but leaves it where it is, as in the original.
-     *
-     * That asymmetry looks like a bug and is not. `SinglePositionDetail.scale` returns `this`
-     * unchanged with the comment "if just a point, do we need to scale anything?", and the
-     * subclasses override it only to scale [size]. Scaling the position too would be right if
-     * `scale` meant "zoom the whole sketch about the origin" — but its callers mean "make the
-     * marks bigger", so moving them would drag every symbol away from the passage it annotates.
+     * Grows the stamp but leaves it where it is — deliberately, not a bug. Scaling the position too
+     * would be right if `scale` meant "zoom the whole sketch about the origin", but its callers mean
+     * "make the marks bigger", so moving them would drag every symbol away from the passage it
+     * annotates.
      */
     override fun scale(scale: Float): SymbolDetail =
         SymbolDetail(position, symbolName, size * scale, angle, colour)
@@ -142,7 +135,7 @@ class Sketch {
     var textDetails: MutableList<TextDetail> = mutableListOf()
     var crossSectionDetails: MutableList<CrossSectionDetail> = mutableListOf()
 
-    /** How much bigger than life a cross-section is drawn, as in the Android app's sketch. */
+    /** How much bigger than life a cross-section is drawn. */
     var crossSectionScale: Float = 1f
 
     var activeColour: Colour = Colour.BLACK
@@ -150,14 +143,10 @@ class Sketch {
     /**
      * A working copy: new lists, the same details.
      *
-     * Ported from the Java copy constructor, shallow copies and all — its own comment says "shallow
-     * copies are OK here because paths are immutable", which is true of everything that matters:
-     * editing a sketch adds, removes or replaces details in the list rather than mutating a detail
-     * in place. (`PathDetail.lineTo` is the exception, and it is only ever called on a path the
-     * editor is still drawing, which by definition is not in a copy taken beforehand.)
-     *
-     * Used by the cross-section editor, which draws into a copy so that cancelling really does
-     * leave the original alone.
+     * Shallow copies are fine because editing a sketch adds, removes or replaces details in the
+     * list rather than mutating a detail in place. (`PathDetail.lineTo` is the exception, and it is
+     * only ever called on a path the editor is still drawing, which by definition is not in a copy
+     * taken beforehand.)
      */
     fun copy(): Sketch {
         val copy = Sketch()
@@ -173,12 +162,7 @@ class Sketch {
     /**
      * Everything in this sketch scaled about the origin, and everything in it moved.
      *
-     * Ported from `Sketch.scale` and `Sketch.translate`. Used when a cross-section's sub-sketch —
-     * which is drawn in the section's own station-relative coordinates — has to be placed on the
-     * main drawing, which is what the XVI exporter does for each section.
-     *
-     * Cross-sections are carried across unchanged: `CrossSectionDetail.scale` returns itself in the
-     * original, and cross-sections do not nest anyway.
+     * Cross-sections themselves are carried across unchanged, and do not nest anyway.
      */
     fun scale(factor: Float): Sketch {
         val scaled = Sketch()

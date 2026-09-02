@@ -10,8 +10,8 @@ import kotlin.math.cos
 /**
  * Chooses the bearing to slice a passage at, from whatever the survey knows.
  *
- * Ported from `control/util/CrossSectioner`. The heuristic is deliberately crude — the surveyor can
- * always re-aim the section afterwards — but the reasoning is standard practice: a cross-section
+ * The heuristic is deliberately crude — the surveyor can always re-aim the section afterwards —
+ * but the reasoning is standard practice: a cross-section
  * should cut the passage square, so in the middle of a passage it faces the average of the way in
  * and the way on (bisecting a corner), at a dead end or a junction only the way in is meaningful,
  * and at the origin only the way on is.
@@ -37,9 +37,7 @@ object CrossSectioner {
             // running 350 degrees then 10 degrees sections at 0, not at 180.
             numIncomingLegs == 1 && numOutgoingLegs == 1 ->
                 averageAzimuths(incomingAzimuth(survey, station), outgoingAzimuth(station))
-            // A dead end, or a junction with several ways on: only the way in is meaningful.
             numIncomingLegs == 1 -> incomingAzimuth(survey, station)
-            // Sectioning at the origin, which has no way in.
             numOutgoingLegs == 1 -> outgoingAzimuth(station)
             // The origin with no onward legs, or with several: nothing to go on, so due north.
             else -> 0f
@@ -47,19 +45,14 @@ object CrossSectioner {
     }
 
     /**
-     * How far any splay reaches from the station in the horizontal plane, in metres.
-     *
-     * Used to park a cross-section clear of the passage it belongs to. A splay's horizontal reach
-     * is `distance * cos(inclination)`, so a shot straight up or down contributes (near enough)
-     * nothing, and a station with no splays at all gives 0.
+     * How far any splay reaches from the station in the horizontal plane, in metres. Used to park
+     * a cross-section clear of the passage it belongs to.
      *
      * Beware: a purely vertical splay yields ~1e-16 rather than a true zero, since `cos(90 deg)` in
-     * floating point is not exactly zero. The original has the same behaviour and callers only ever
-     * compare it against zero to pick a fallback offset, so the difference never shows — but do not
-     * write an exact-equality test against 0.
+     * floating point is not exactly zero. Callers only ever compare it against zero to pick a
+     * fallback offset, so the difference never shows — but do not write an exact-equality test.
      */
     fun horizontalRadius(station: Station): Float {
-        // Reduced in Double and converted once at the end, exactly as the Java stream does.
         var maximum: Double? = null
         for (splay in station.getUnconnectedOnwardLegs()) {
             val reach = splay.distance.toDouble() * cos(splay.inclination.toDouble() * PI_OVER_180)

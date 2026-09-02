@@ -9,12 +9,8 @@ import org.hwyl.sexytopo.shared.survey.SurveySettings
  * lies within a fixed distance of each other. Readings are averaged as vectors (the centroid of
  * their endpoints).
  *
- * This behaves sensibly at any inclination because it measures the actual spatial spread of the
- * readings rather than their angular spread. The tolerance is an absolute distance, so it bounds
- * the readings to a sphere of that radius regardless of the leg's direction — by default 0.1m,
- * the BCRA Grade 5 cell size.
- *
- * Ported from `control/util/amalgamation/CartesianAmalgamator`.
+ * The tolerance is an absolute distance, so it bounds the readings to a sphere of that radius
+ * regardless of the leg's direction — by default 0.1m, the BCRA Grade 5 cell size.
  */
 internal object CartesianAmalgamator {
 

@@ -7,15 +7,12 @@ import org.hwyl.sexytopo.shared.survey.SurveySettings
 
 /**
  * Compares distance, azimuth and inclination separately, each against its own tolerance, and
- * averages each component independently. This is the historical SexyTopo behaviour and remains the
- * default.
+ * averages each component independently.
  *
  * It works well for gently-sloping legs but breaks down for steep ones: near the vertical a tiny
  * variation in the endpoint produces a large swing in azimuth even though the readings are in
  * practice identical, so genuinely-repeated steep readings can be rejected. The spatial strategies
  * avoid this.
- *
- * Ported from `control/util/amalgamation/AngularAmalgamator`.
  */
 internal object AngularAmalgamator {
 

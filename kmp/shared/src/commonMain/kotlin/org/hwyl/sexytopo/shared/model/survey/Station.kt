@@ -3,8 +3,6 @@ package org.hwyl.sexytopo.shared.model.survey
 import org.hwyl.sexytopo.shared.model.graph.ExtendedElevationDirection
 
 /**
- * Ported from `org.hwyl.sexytopo.model.survey.Station`.
- *
  * Identity is deliberately reference-based (no equals/hashCode override), because a survey is a
  * tree of distinct station objects and Space maps are keyed on them.
  */
@@ -42,10 +40,7 @@ class Station(name: String) {
     companion object {
         val FORBIDDEN_CHARS = charArrayOf('\n', '\r')
 
-        /**
-         * The sentinel destination marking a splay. Compared by identity, as in the original, where
-         * it lives on Survey.
-         */
+        /** The sentinel destination marking a splay. Compared by identity. */
         val NULL_STATION = Station("-")
 
         private fun sanitiseName(name: String): String {

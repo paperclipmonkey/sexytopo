@@ -5,14 +5,7 @@ import org.hwyl.sexytopo.shared.model.graph.Coord2D
 /**
  * Whether a line is entirely off the drawing, and so need not be drawn at all.
  *
- * Ported from `control/util/CohenSutherlandAlgorithm`, which the Android app carries a copy of and
- * uses in exactly one place: `GraphView.drawLegs` skips a leg whose two ends are both off the same
- * side of the canvas. Why it matters is the same reason findings 17 and 18 matter — a real cave is
- * much bigger than a demo one. Zoomed into one passage of a four-thousand-station survey, almost
- * every leg is off screen, and each of them otherwise costs a projection, a draw call, and for a
- * leg drawn dashed a list of dashes built and thrown away every frame, while a finger is dragging.
- *
- * It is the first half of Cohen and Sutherland's clipping algorithm and none of the second: each
+ * This is the first half of Cohen and Sutherland's clipping algorithm and none of the second: each
  * end gets a four-bit code saying which sides of the rectangle it is outside, and if the two codes
  * share a bit then both ends are off the same side and nothing between them can be on screen.
  * Sharing no bits is not proof that a line *is* visible — one end above and the other to the left
@@ -48,11 +41,6 @@ private const val LEFT = 0x1
 
 /**
  * Whether a point, and whatever is drawn around it, is entirely off the drawing.
- *
- * The Android app does not do this — `GraphView.drawStations` walks every station in the survey —
- * but it is the same argument as the line above, and on a four-thousand-station cave zoomed into
- * one passage it is a bigger saving, because a station is not only a dot: it may carry its name,
- * and measuring a piece of text is far more work than drawing a circle.
  *
  * [margin] is how far outside the rectangle a station can sit and still put something inside it:
  * its name is drawn up and to the right, and the active one wears brackets wider than the dot. Too

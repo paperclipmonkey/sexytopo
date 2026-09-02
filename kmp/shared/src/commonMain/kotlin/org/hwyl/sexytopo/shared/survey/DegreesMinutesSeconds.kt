@@ -6,32 +6,20 @@ import kotlin.math.roundToInt
 /**
  * An angle as a compass reads it — degrees, minutes and seconds — rather than as a decimal.
  *
- * `pref_deg_mins_secs` and `pref_inc_deg_mins_secs`. A DistoX reports a decimal and nobody needs
- * this; a sighting compass and a clinometer are graduated in minutes, and a surveyor reading one
- * has 123° 30′ in front of them, not 123.5. Converting in your head at every station, in a cave,
- * on a training trip, is how a survey acquires arithmetic errors nobody can find afterwards.
- *
  * ## The sign comes from the text, not from the number
  *
  * Upstream takes it from the parsed value: `float sign = degrees < 0 ? -1.0f : 1.0f`. That is
  * wrong for one input and the input is not exotic — a shot *just* below horizontal. `-0` parses to
  * negative zero, `-0.0f < 0` is false by IEEE 754, so the sign comes out positive and **0° 30′
- * down is recorded as 0° 30′ up**. Run against the real Java rather than reasoned about:
- * `parsed=-0.0 sign=1.0 result=0.5`. And there is no other way to express that angle in that mode,
- * because minutes and seconds are documented there as always positive.
- *
- * A leg half a degree out is not the point. The point is that it is out *in the wrong direction*,
- * on a shot along a level passage, where the two readings differ by a metre of depth over a
- * hundred metres of cave and nothing in the numbers says which was meant. Reported as finding 54.
+ * down is recorded as 0° 30′ up**.
  */
 object DegreesMinutesSeconds {
 
     /**
      * The three typed fields as one angle, or null if they do not make one.
      *
-     * Minutes and seconds are optional and count as zero when blank, as upstream has them; degrees
-     * is required. Minutes and seconds are magnitudes — the direction is the degrees field's `-`,
-     * which is read off the **text** for the reason above.
+     * Minutes and seconds are magnitudes — the direction is the degrees field's `-`, which is read
+     * off the **text** for the reason above.
      */
     fun toDecimal(degrees: String, minutes: String, seconds: String): Float? {
         val typed = degrees.trim().replace(',', '.')
@@ -54,8 +42,6 @@ object DegreesMinutesSeconds {
     }
 
     /**
-     * The other direction: a stored angle as three fields to put in front of a surveyor.
-     *
      * Rounded to whole seconds, because that is what the fields hold and because a compass cannot
      * be read to better. Rounding can carry — 0.99999 degrees is 59′ 60″, which is 1° 0′ 0″ — so
      * the carry is done here rather than left to produce a field reading "60".
@@ -74,7 +60,7 @@ object DegreesMinutesSeconds {
      * An angle split up.
      *
      * [degrees] is a magnitude and [negative] carries the direction, rather than the degrees being
-     * signed — because a signed zero cannot carry it, which is the whole of finding 54.
+     * signed — because a signed zero cannot carry it.
      */
     data class Parts(
         val degrees: Int,
@@ -82,7 +68,6 @@ object DegreesMinutesSeconds {
         val seconds: Int,
         val negative: Boolean,
     ) {
-        /** What goes in the degrees field: the magnitude, with a `-` when it is needed. */
         val degreesText: String
             get() = if (negative) "-$degrees" else "$degrees"
 

@@ -8,8 +8,6 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
  * The deliberate, "I know where this leg goes" half of the survey engine: hanging a named station
  * off a shot, and recording splays. The reactive half — watching a stream of readings and deciding
  * when they amount to a new station — lives in [SurveyUpdater].
- *
- * Ported from the correspondingly-named methods of `control/util/SurveyUpdater`.
  */
 object SurveyBuilder {
 
@@ -34,7 +32,6 @@ object SurveyBuilder {
         return fullLeg.destination
     }
 
-    /** Hangs [leg] off [fromStation], and makes its destination active if it has one. */
     fun addLegFromStation(survey: Survey, fromStation: Station, leg: Leg) {
         fromStation.addOnwardLeg(leg)
         survey.isSaved = false
@@ -44,13 +41,11 @@ object SurveyBuilder {
         }
     }
 
-    /** Records a splay: a leg with no destination station. */
     fun addSplay(survey: Survey, station: Station, leg: Leg) {
         station.addOnwardLeg(leg)
         survey.addLegRecord(leg)
     }
 
-    /** @see StationNamer.generateNextStationName */
     fun nextStationName(survey: Survey, from: Station): String =
         StationNamer.generateNextStationName(survey, from)
 }

@@ -3,8 +3,6 @@ package org.hwyl.sexytopo.shared.model.survey
 import org.hwyl.sexytopo.shared.math.adjustAngle
 
 /**
- * Ported from `org.hwyl.sexytopo.model.survey.Leg`.
- *
  * A leg holds the polar reading as taken. A leg whose destination is [Station.NULL_STATION] is a
  * splay; one with a real destination is a tree edge.
  *
@@ -12,7 +10,7 @@ import org.hwyl.sexytopo.shared.math.adjustAngle
  *  - inclination accepts a 270..360 "theodolite" band as well as the usual -90..90
  *  - [wasShotBackwards] records that the reading was taken from the far end
  *
- * Like the original, identity is reference-based so that Space maps key on the leg object.
+ * Identity is reference-based, so `Space` maps key on the leg object.
  */
 class Leg(
     val distance: Float,

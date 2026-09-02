@@ -11,10 +11,9 @@ import kotlin.math.min
 /**
  * An axis-aligned rectangle in sketch coordinates.
  *
- * Ported from `model/common/Frame`. Note that [top] is the *smaller* y and [bottom] the larger:
- * sketch space has y increasing downwards, as screen space does, which is why
- * [org.hwyl.sexytopo.shared.model.graph.Projection2D] flips it on the way in. Reading this as a
- * maths rectangle instead is the quickest way to get an export upside down.
+ * [top] is the *smaller* y and [bottom] the larger: sketch space has y increasing downwards, as
+ * screen space does. Reading this as a maths rectangle instead is the quickest way to get an
+ * export upside down.
  */
 data class Frame(val left: Float, val right: Float, val top: Float, val bottom: Float) {
 
@@ -32,7 +31,6 @@ data class Frame(val left: Float, val right: Float, val top: Float, val bottom: 
 
     fun addPadding(x: Int, y: Int): Frame = Frame(left - x, right + x, top - y, bottom + y)
 
-    /** Grows outwards to whole multiples of [n], which is what makes a grid land on round numbers. */
     fun expandToNearest(n: Int): Frame =
         Frame(
             roundDownTo(left, n),
@@ -63,7 +61,6 @@ data class Frame(val left: Float, val right: Float, val top: Float, val bottom: 
             return Frame(left, right, top, bottom)
         }
 
-        /** Everything drawn on a sketch: strokes, labels, symbols and cross-section anchors. */
         fun from(sketch: Sketch): Frame =
             of(
                 buildList {
@@ -74,7 +71,6 @@ data class Frame(val left: Float, val right: Float, val top: Float, val bottom: 
                 },
             )
 
-        /** Everything in a projected survey: both ends of every leg and splay. */
         fun from(space: Space<Coord2D>): Frame =
             of(
                 buildList {
