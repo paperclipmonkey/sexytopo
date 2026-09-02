@@ -83,7 +83,7 @@ Being precise about this matters more than the demo looking good.
 | The sketch editor — tools, viewport, hit-testing, undo — is platform-free | **Verified** | `shared/sketch/`, driven by the demo and tested on two targets |
 | The BLE connection logic is platform-free | **Verified** | `GattLinkTest` and `GattSessionTest` — the profile matrix *and* the connection lifecycle; only callback plumbing is left in `iosMain` |
 | The DistoX calibration solver reproduces the Java exactly | **Verified** | the Android app's own two 56-shot datasets, asserting the *iteration counts* (43, 75, 53) as well as the errors — reproduced on the JVM, Kotlin/Wasm **and Kotlin/Native** |
-| The 3D view's camera and projection port off OpenGL | **Verified** | `Matrix4Test` and `Camera3DTest` — the Android `Matrix` routines the renderer uses, and the camera on top of them, including that the whole cave is on screen when the view opens and fills it, on three shapes of screen; `field.mjs` opens it in the browser, counts what got drawn and turns it |
+| The 3D view's camera and projection port off OpenGL | **Verified** | `Matrix4Test`, `Camera3DTest` and `ThreeDViewTest` — the Android `Matrix` routines the renderer uses, the camera on top of them including that the whole cave is on screen when the view opens and fills it on three shapes of screen, and the trackpad path (finding 98) that a pinch zooms it in and a scroll pans it, the right way round each; `field.mjs` opens it in the browser, counts what got drawn and turns it with a finger, and `desktop.mjs` pinches and scrolls it with a wheel |
 | Shared Compose UI draws, and can be drawn on | **Verified** | `./gradlew :demo:renderDemoPng`; drawing/erasing/undo covered by tests |
 | **The shared core has no JVM-only dependencies** | **Verified** | every shared test passes on **Kotlin/Wasm** as well as the JVM |
 | **The same code compiles for iOS** | **Verified** | `:shared:compileKotlinIosSimulatorArm64` in CI on a macOS runner — `iosMain`, `CoreBluetoothTransport` included |
@@ -3227,6 +3227,34 @@ These are the things that would actually shape a real port.
    drawing a strong zoom moves out of a fixed viewport: two clean runs of `desktop.mjs`, `field.mjs`
    and `smoke.mjs` together, at 0.003, with nothing else in any of the three touched.
 
+98. **The 3D view never heard a trackpad's two fingers at all.** Reported directly: pinching and
+   panning the cave from a desk did almost nothing - a barely-perceptible zoom, once, and no pan.
+   `ThreeDView`'s own gesture loop is written out by hand, the way `SurveyView3D.onTouchEvent` is,
+   and counts fingers off `PointerInputChange.pressed` - which is exactly right for a touchscreen
+   and exactly wrong for a trackpad, because a MacBook never reports two fingers as two touches at
+   all. It reports them as a `wheel` event, ctrl held for a pinch, and nothing in the loop was
+   listening for one: a `Scroll` pointer event carries no `pressed` change, so `awaitFirstDown`
+   never even started a gesture for it.
+
+   This is finding 90 again, a second time, in the one view that still had it: the 2D canvas's own
+   `wheel` modifier was the fix there, and `ThreeDView` had never been given the equivalent. Fixed
+   the same way - a second `pointerInput` block reading `PointerEventType.Scroll`, plain scroll
+   panning the camera and ctrl/cmd-scroll zooming it, gated by the same `pinchToZoom` preference the
+   touch path already reads.
+
+   The sign is not the 2D canvas's own, and that is not an oversight - it is the opposite quantity.
+   The 2D wheel handler scales a drawing's *size*, where bigger is closer, so it negates the scroll
+   for a pinch-out to grow it; `Camera3D.zoomedBy` scales a *distance*, where smaller is closer, so
+   the same pinch-out has to shrink the number instead, and the same negation would have zoomed
+   every trackpad gesture the wrong way. Pulled out as `Camera3D.afterScroll` and tested directly -
+   a pinch-out zooms in, a pinch-in zooms out, a notch either way undoes the other, and a plain
+   scroll lands the camera exactly where the same distance dragged by a finger would - rather than
+   only through a browser, the way the 2D fix was, because getting a sign backwards here is exactly
+   the kind of mistake a fast JVM test catches in milliseconds and a browser check takes a full page
+   load to even attempt. `desktop.mjs` gained the browser check anyway, reaching the 3D view through
+   the app's own overflow menu the way `field.mjs` does, since a unit test on the arithmetic cannot
+   see whether the real `pointerInput` block is wired up to it at all.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3378,10 +3406,10 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 790
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 444 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 450 over the UI's own
 logic, 20 running the iOS half in a simulator,
 113 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
-667x375, then 375x375, and 10 more at a desk, on a wheel, a trackpad and a keyboard. The
+667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.
 

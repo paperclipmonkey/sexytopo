@@ -341,6 +341,116 @@ if (Math.abs(emptied - blank) > 40) {
   pass('undoing past the start of the stack does nothing rather than something')
 }
 
+// ---- the 3D view has its own wheel gestures too ------------------------------------------------
+// Reported from a MacBook: the 3D camera's touch loop counts fingers off `pressed` pointer changes,
+// and a trackpad's two fingers never produce one - they are a `wheel` event, ctrl held for a pinch -
+// so before this fix pinching and panning the cave from a desk did nothing at all.
+//
+// Reached through the app's own overflow menu - View, then 3D - measured off the rendered popup
+// rather than a fixed pixel, the way `field.mjs`'s own menu lookups are: this file finishes at a
+// different width, and only a position read off the actual menu stays right regardless of it.
+const MENU_SURFACE = [243, 237, 247]
+const overflowButton = () => [box.width - 16, 26]
+const menuBox = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, surface]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    const is = (x, y) => {
+      const i = (y * c.width + x) * 4
+      return px[i] === surface[0] && px[i + 1] === surface[1] && px[i + 2] === surface[2]
+    }
+    let top = -1
+    let bottom = -1
+    for (let y = 0; y < c.height; y++) {
+      let run = 0
+      for (let x = 0; x < c.width; x++) if (is(x, y)) run++
+      // A wide run of it: narrower things on screen share the colour here and there.
+      if (run > 120) {
+        if (top < 0) top = y
+        bottom = y
+      }
+    }
+    return top < 0 ? null : { top, bottom }
+  }, [b64, MENU_SURFACE])
+}
+const menuRowAt = async (index, rows, x) => {
+  const menu = await menuBox()
+  if (menu === null) throw new Error('no menu is open')
+  const rowHeight = (menu.bottom - menu.top) / rows
+  return [x, Math.round(menu.top + (index + 0.5) * rowHeight)]
+}
+const menuMiddle = () => box.width - 116
+
+// The overflow menu's own top page - File, View, Instrument, Tools, Settings, Help - then View's
+// own four rows below a Back row: Demo cave, Trip, 3D, Stats.
+await at(...overflowButton()); await page.waitForTimeout(600)
+await at(...(await menuRowAt(1, 6, menuMiddle()))); await page.waitForTimeout(500)
+await at(...(await menuRowAt(3, 5, menuMiddle()))); await page.waitForTimeout(1400)
+await page.screenshot({ path: join(shotDir, 'desktop-3d.png') })
+
+// The 3D renderer's own red, a darker shade than the 2D sketch's, so `centreline` above would not
+// see it - counted the same way `field.mjs` counts a leg pixel there.
+const legPixels3D = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async (data) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    let red = 0
+    let sumX = 0
+    let sumY = 0
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i] > 120 && px[i + 1] < 110 && px[i + 2] < 110) {
+        red++
+        const p = i / 4
+        sumX += p % c.width
+        sumY += Math.floor(p / c.width)
+      }
+    }
+    return red === 0 ? null : { count: red, x: Math.round(sumX / red), y: Math.round(sumY / red) }
+  }, b64)
+}
+
+const before3D = await legPixels3D()
+if (!before3D) {
+  fail('the 3D view drew nothing, so the wheel checks below could not run')
+} else {
+  // ---- ctrl+wheel zooms the camera in, the same pinch-out the 2D canvas reads ------------------
+  await wheelAt([Math.round(box.width / 2), Math.round(box.height / 2)], -240, { ctrl: true })
+  const zoomedIn3D = await legPixels3D()
+  if (!zoomedIn3D) {
+    fail('the centreline vanished when the 3D view was zoomed in')
+  } else if (!(zoomedIn3D.count > before3D.count * 1.15)) {
+    fail(`ctrl and scroll did not zoom the 3D view in (${before3D.count} then ${zoomedIn3D.count} pixels)`)
+  } else {
+    pass(`a trackpad pinch zooms the 3D view in (${before3D.count} to ${zoomedIn3D.count} pixels)`)
+  }
+
+  // ---- and a plain scroll pans it, which used to do nothing at all ------------------------------
+  await wheelAt([Math.round(box.width / 2), Math.round(box.height / 2)], 150)
+  await page.screenshot({ path: join(shotDir, 'desktop-3d-panned.png') })
+  const panned3D = await legPixels3D()
+  if (!panned3D) {
+    fail('the centreline vanished when the 3D view was scrolled')
+  } else if (Math.abs(panned3D.y - zoomedIn3D.y) < 15 && Math.abs(panned3D.x - zoomedIn3D.x) < 15) {
+    fail(`a plain scroll did not move the 3D view (${zoomedIn3D.x},${zoomedIn3D.y} then ${panned3D.x},${panned3D.y})`)
+  } else {
+    pass(`a plain scroll pans the 3D view (${zoomedIn3D.x},${zoomedIn3D.y} to ${panned3D.x},${panned3D.y})`)
+  }
+}
+
 if (pageErrors.length > 0) {
   fail(`the page threw while being used:\n      ${pageErrors.slice(0, 3).join('\n      ')}`)
 }

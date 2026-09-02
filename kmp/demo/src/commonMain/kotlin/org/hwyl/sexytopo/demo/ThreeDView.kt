@@ -27,6 +27,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isMetaPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -36,6 +39,7 @@ import org.hwyl.sexytopo.shared.math.Wireframe
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Coord3D
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import kotlin.math.exp
 import kotlin.math.sqrt
 
 /**
@@ -195,6 +199,33 @@ fun ThreeDView(
                                 down.forEach { it.consume() }
                             }
                         }
+                    }
+                    // A trackpad's two fingers never reach the loop above: a MacBook reports them
+                    // as a `wheel` event (ctrl held for a pinch), not as two touches, so nothing
+                    // with a `pressed` change ever arrives and this view sat there doing nothing.
+                    // [SurveyCanvas]'s own `wheel` modifier is the fix for the same report there;
+                    // this is the 3D camera's equivalent, plain scroll panning and ctrl/cmd-scroll
+                    // zooming, on the same [ZOOM_PER_SCROLLED_PIXEL] scale.
+                    .pointerInput(wireframe, pinchToZoom) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                if (event.type != PointerEventType.Scroll) continue
+                                val change = event.changes.lastOrNull() ?: continue
+                                val scroll = change.scrollDelta
+                                if (scroll.x == 0f && scroll.y == 0f) continue
+                                val scrolled =
+                                    Coord2D(scroll.x * scrollUnitInPixels, scroll.y * scrollUnitInPixels)
+                                val modifiers = event.keyboardModifiers
+                                camera =
+                                    camera.afterScroll(
+                                        scrolled,
+                                        zoomModifierHeld = modifiers.isCtrlPressed || modifiers.isMetaPressed,
+                                        pinchToZoom = pinchToZoom,
+                                    )
+                                change.consume()
+                            }
+                        }
                     },
             ) {
                 drawWireframe(wireframe, camera, showSplays, darkMode)
@@ -244,6 +275,30 @@ fun ThreeDView(
 
 /** Two fingers closer together than this are not a pinch. From `SurveyView3D.onTouchEvent`. */
 private const val MINIMUM_PINCH = 10f
+
+/**
+ * What a `wheel`-reported gesture does to the camera: the desktop equivalent of the touch loop
+ * above, for the two fingers a trackpad never delivers as touches at all.
+ */
+internal fun Camera3D.afterScroll(
+    scrolled: Coord2D,
+    zoomModifierHeld: Boolean,
+    pinchToZoom: Boolean,
+): Camera3D =
+    if (zoomModifierHeld) {
+        if (!pinchToZoom) {
+            this
+        } else {
+            // Not negated, unlike [SurveyCanvas]'s own wheel handler: that scales a *size* (bigger
+            // is closer), this scales a *distance* (smaller is closer), so the same pinch-out has
+            // to move the number the other way.
+            zoomedBy(exp(scrolled.y * ZOOM_PER_SCROLLED_PIXEL))
+        }
+    } else {
+        // Negated, the same reasoning [SurveyCanvas]'s own wheel handler gives: a scroll down is a
+        // drag upwards, and `pannedBy` takes the movement of the hand.
+        pannedBy(-scrolled.x, -scrolled.y)
+    }
 
 /** The renderer's own colours, straight out of `SurveyRenderer`, lightened for the dark theme. */
 private object ThreeDColours {
