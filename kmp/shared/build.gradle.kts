@@ -48,7 +48,7 @@ kotlin {
 
 android {
     namespace = "org.hwyl.sexytopo.shared"
-    compileSdk = 35
+    compileSdk = 37
     defaultConfig {
         // Matches the Android app's own minimum and Java level, so this core could drop straight
         // into it without moving anybody's floor.

@@ -69,7 +69,7 @@ kotlin {
 
 android {
     namespace = "org.hwyl.sexytopo.demo"
-    compileSdk = 35
+    compileSdk = 37
     defaultConfig {
         minSdk = 23
     }

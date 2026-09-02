@@ -1,11 +1,11 @@
 plugins {
-    // AGP 8.7 rather than the 9.x the Android app itself uses: this build runs on Gradle 8.14,
-    // and 9.x needs Gradle 9. The two builds are deliberately independent, so they are free to
-    // disagree about their toolchains.
-    id("com.android.application") version "8.7.3" apply false
-    id("com.android.library") version "8.7.3" apply false
+    // Same AGP and Gradle major version as the Android app in app/: Compose Multiplatform 1.12.0
+    // bundles androidx.compose artifacts that require AGP 9.1+, so this build moved off Gradle
+    // 8.14/AGP 8.7 to stay current alongside it rather than pinning to an older pair.
+    id("com.android.application") version "9.2.1" apply false
+    id("com.android.library") version "9.2.1" apply false
     kotlin("multiplatform") version "2.3.20" apply false
     kotlin("plugin.serialization") version "2.3.20" apply false
     id("org.jetbrains.kotlin.plugin.compose") version "2.3.20" apply false
-    id("org.jetbrains.compose") version "1.11.1" apply false
+    id("org.jetbrains.compose") version "1.12.0" apply false
 }

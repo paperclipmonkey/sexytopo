@@ -13,7 +13,7 @@ plugins {
  */
 android {
     namespace = "org.hwyl.sexytopo.kmpdemo"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "org.hwyl.sexytopo.kmpdemo"
