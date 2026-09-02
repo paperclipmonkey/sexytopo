@@ -31,7 +31,8 @@ kotlin {
 
     // Declared so the shared core builds for iOS. These compile only on a macOS
     // host; on other hosts kotlin.native.ignoreDisabledTargets keeps them inert.
-    iosX64()
+    // The Intel simulator target (iosX64) is gone: Compose Multiplatform 1.11
+    // dropped it along with Kotlin's own deprecation of Apple x86_64.
     iosArm64()
     iosSimulatorArm64()
 

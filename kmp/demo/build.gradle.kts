@@ -25,8 +25,10 @@ kotlin {
         binaries.executable()
     }
 
-    // The iOS app links against this framework. Builds on macOS only.
-    listOf(iosX64(), iosArm64(), iosSimulatorArm64()).forEach { target ->
+    // The iOS app links against this framework. Builds on macOS only. The Intel simulator
+    // target (iosX64) is gone: Compose Multiplatform 1.11 dropped it along with Kotlin's own
+    // deprecation of Apple x86_64.
+    listOf(iosArm64(), iosSimulatorArm64()).forEach { target ->
         target.binaries.framework {
             baseName = "SexyTopoDemo"
             isStatic = true
