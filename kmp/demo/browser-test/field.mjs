@@ -1042,37 +1042,28 @@ const DIALOG_CARD = [236, 230, 240]
 const DIALOG_FIRST_ROW_FROM_TOP = 96
 
 /**
- * Whether a dialog is currently showing, by looking for its own surface colour rather than
- * trusting that a fixed wait after dismissing one was long enough.
+ * Waits for a dialog dismissed a moment ago to actually finish closing, by polling until the
+ * screen stops changing rather than trusting that a fixed wait was long enough.
  *
- * Found the hard way: dismissing the reading dialog with Escape and waiting 500ms, which used to
- * be plenty, now still had the dialog mid fade-out when the very next tap landed - on the dialog's
- * own scrim rather than on the overflow button behind it, so the overflow menu never opened at
- * all. Whatever changed - concurrent rendering, a slower transition - a fixed wait is guessing at
- * a duration that already moved once; polling for the dialog's own surface to actually be gone
- * survives it moving again.
+ * Found the hard way, twice: dismissing the reading dialog with Escape and waiting 500ms, which
+ * used to be plenty, still had the dialog mid fade-out when the very next tap landed - on the
+ * dialog's own scrim rather than on the overflow button behind it, so the overflow menu never
+ * opened at all. The first fix polled for DIALOG_CARD's exact colour to disappear instead of
+ * waiting a fixed time, and still failed the same way: mid-fade, the dialog's pixels are DIALOG_CARD
+ * blended with whatever is behind it, not DIALOG_CARD itself, so that check saw "gone" as soon as
+ * the fade began rather than when it finished - and Compose keeps hit-testing a fading dialog's
+ * scrim as fully present regardless of its opacity. Comparing screenshots against each other,
+ * rather than against a colour that assumes how the animation gets from visible to gone, doesn't
+ * make that assumption.
  */
-async function dialogVisible() {
-  const b64 = (await page.screenshot({ clip: box })).toString('base64')
-  return page.evaluate(async ([data, card]) => {
-    const img = new Image()
-    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
-    const c = document.createElement('canvas')
-    c.width = img.width
-    c.height = img.height
-    const ctx = c.getContext('2d')
-    ctx.drawImage(img, 0, 0)
-    const px = ctx.getImageData(0, 0, c.width, c.height).data
-    for (let i = 0; i < px.length; i += 4) {
-      if (px[i] === card[0] && px[i + 1] === card[1] && px[i + 2] === card[2]) return true
-    }
-    return false
-  }, [b64, DIALOG_CARD])
-}
-
-/** Waits for a dialog dismissed a moment ago to actually finish closing. */
 async function waitForDialogToClose() {
-  for (let i = 0; i < 15 && (await dialogVisible()); i++) await page.waitForTimeout(200)
+  let previous = await page.screenshot({ clip: box })
+  for (let i = 0; i < 15; i++) {
+    await page.waitForTimeout(200)
+    const current = await page.screenshot({ clip: box })
+    if (current.equals(previous)) return
+    previous = current
+  }
 }
 
 /**
