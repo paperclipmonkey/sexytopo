@@ -1266,7 +1266,12 @@ if ((await page.$$('input')).length === 0) {
 await page.keyboard.press('Escape'); await page.waitForTimeout(500)
 
 // ---- create a named survey -----------------------------------------------------------
-await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...overflowButton())
+// Diagnostic only: distinguishes "never opened" from "opened then closed again", which the
+// DEBUG-no-menu-found.png two seconds later cannot tell apart on its own.
+await page.screenshot({ path: join(shotDir, 'DEBUG-overflow-tapped-immediately.png') })
+await page.waitForTimeout(500)
+await page.screenshot({ path: join(shotDir, 'DEBUG-overflow-tapped-after-wait.png') })
 await at(...(await menuRow('new', 0))); await page.waitForTimeout(700)
 await at(...NAME_FIELD); await page.waitForTimeout(250)
 
