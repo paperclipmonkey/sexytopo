@@ -4464,19 +4464,22 @@ if (Buffer.compare(beforeTurning, afterTurning) === 0) {
 }
 
 await at(...THREE_D_CLOSE)
-// Polled rather than checked once after a fixed wait: leaving the 3D view is a heavier
-// recomposition than most, and concurrent rendering (on by default since Compose Multiplatform
-// 1.11.0) can leave the canvas element itself briefly detached while the plan view remounts it -
-// see menuRowAt above for the same class of gap on opening a menu.
+// A 2-second poll (10 * 200ms) was not enough and failed identically twice - this is not the
+// frame-or-two of concurrent-rendering lag menuRowAt polls for elsewhere. Widened well past that
+// and instrumented, rather than guessing at a bigger number a third time: this records how long it
+// actually took (if it ever comes back at all) and, if it does not, what the screen looks like.
 let backToTheSketch = 0
-for (let i = 0; i < 10 && backToTheSketch === 0; i++) {
+let elapsedMs = 0
+for (let i = 0; i < 40 && backToTheSketch === 0; i++) {
   await page.waitForTimeout(200)
+  elapsedMs += 200
   backToTheSketch = await page.evaluate(() => document.querySelectorAll('canvas').length)
 }
 if (backToTheSketch === 0) {
-  fail('closing the 3D view left no canvas at all')
+  await page.screenshot({ path: join(shotDir, 'DEBUG-after-3d-close.png') })
+  fail(`closing the 3D view left no canvas at all, even after ${elapsedMs}ms`)
 } else {
-  pass('the 3D view closes back to the survey')
+  pass(`the 3D view closes back to the survey (canvas back after ${elapsedMs}ms)`)
 }
 
 // ---- and a leg can be written down outright, from the Tools menu ----------------------------
