@@ -9,13 +9,17 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.CornerRadius
@@ -56,6 +60,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import org.hwyl.sexytopo.shared.math.getDistance
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
@@ -167,6 +172,12 @@ fun SurveyCanvas(
     // The editor is a plain object, not Compose state, so a stroke in progress has to say when it
     // needs repainting. The viewport says so through the controller's own revision.
     var strokeTick by remember { mutableIntStateOf(0) }
+
+    // A tap that missed a station used to do nothing at all, silently — the one feedback this
+    // canvas gives about a tap that fell on nothing. `showSnackbar` suspends, and
+    // `detectTapGestures`'s own `onTap` does not, hence the separate scope to launch it from.
+    val missedTapMessage = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
 
     // True while a hot-corner or two-finger gesture is panning the view. Only used to tint the
     // corners, so the surveyor can see the touch was taken deliberately rather than lost.
@@ -329,6 +340,13 @@ fun SurveyCanvas(
                             // SketchTool.ROTATE_CROSS_SECTION is how a surveyor overrules it.
                             editor.addCrossSection(CrossSectioner.section(survey, station), where)
                             onSketchEdit()
+                        } else {
+                            // A tap that lands even a little off a station used to do nothing at
+                            // all, silently — indistinguishable from a tool that had simply
+                            // stopped responding.
+                            coroutineScope.launch {
+                                missedTapMessage.showSnackbar("No station there to put a section at")
+                            }
                         }
                     }
                 }
@@ -402,29 +420,41 @@ fun SurveyCanvas(
                         )
 
                     awaitEachGesture {
-                        val down = awaitFirstDown()
-                        var last = viewport.toSurvey(down.position)
-                        var erased = rubAt(last)
+                        // One press of ctrl+z has to take back everything one drag of the rubber
+                        // erased, not just the last stroke it crossed.
+                        editor.inOneUndoStep {
+                            val down = awaitFirstDown()
+                            var last = viewport.toSurvey(down.position)
+                            var erased = rubAt(last)
+                            if (erased) strokeTick++
 
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val pointer = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (!pointer.pressed) break
-                            val here = viewport.toSurvey(pointer.position)
-                            // Along the segment, not merely at its far end. A finger moving
-                            // quickly is sampled every few frames, so at speed the gaps between
-                            // samples are far wider than the eraser and a rub would come out
-                            // dotted — taking out one stroke in three and leaving a wall that
-                            // looks deliberately dashed.
-                            erased = rubAlong(last, here, toleranceInMetres, rub = ::rubAt) || erased
-                            last = here
-                            // Consumed so the sketch does not also scroll under the rub. The
-                            // hot-corner pan detector sits outside this one and would otherwise
-                            // take the same drag.
-                            pointer.consume()
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val pointer =
+                                    event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!pointer.pressed) break
+                                val here = viewport.toSurvey(pointer.position)
+                                // Along the segment, not merely at its far end. A finger moving
+                                // quickly is sampled every few frames, so at speed the gaps
+                                // between samples are far wider than the eraser and a rub would
+                                // come out dotted — taking out one stroke in three and leaving a
+                                // wall that looks deliberately dashed.
+                                val rubbedHere = rubAlong(last, here, toleranceInMetres, rub = ::rubAt)
+                                // Redrawn as it happens rather than only once the finger lifts,
+                                // the same as the pencil already does — a rub with nothing to
+                                // show for it until you let go is one that looks like it did
+                                // nothing at all.
+                                if (rubbedHere) strokeTick++
+                                erased = rubbedHere || erased
+                                last = here
+                                // Consumed so the sketch does not also scroll under the rub. The
+                                // hot-corner pan detector sits outside this one and would
+                                // otherwise take the same drag.
+                                pointer.consume()
+                            }
+
+                            if (erased) onSketchEdit()
                         }
-
-                        if (erased) onSketchEdit()
                     }
                 }
 
@@ -473,38 +503,80 @@ fun SurveyCanvas(
                                 point
                             }
 
-                        // onDragEnd is told nothing about where the finger was, so the last
-                        // point is kept here to snap the end against.
-                        var lastPoint = Coord2D.ORIGIN
+                        // Written out rather than `detectDragGestures`: that only calls
+                        // onDragStart once the touch has moved past slop, with wherever it had
+                        // reached by then — not the original touch-down — so the line began a
+                        // few pixels late and a light, precise Pencil touch lost a visible chip
+                        // off the start of every stroke. This starts the path at the true
+                        // down position the moment slop is exceeded, then extends straight to
+                        // wherever the pointer already is, so nothing between the two is lost.
+                        //
+                        // Slop is still checked, and still leaves a plain tap undrawn here: that
+                        // is `detectTapGestures`'s job, above, and drawing a dot from both would
+                        // double it.
+                        //
+                        // requireUnconsumed = false, as `detectDragGestures` itself takes it: a
+                        // strict read here broke the long-press station menu, which watches the
+                        // same down for `!isConsumed` while it waits out its own timeout, and two
+                        // detectors both insisting on being first is not a fight either can win.
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val downPoint = viewport.toSurvey(down.position)
+                            var lastPoint = downPoint
+                            var started = false
 
-                        detectDragGestures(
-                            onDragStart = { offset ->
-                                lastPoint = viewport.toSurvey(offset)
-                                editor.startPath(snapped(lastPoint))
-                                strokeTick++
-                            },
-                            onDrag = { change, _ ->
-                                change.consume()
-                                lastPoint = viewport.toSurvey(change.position)
-                                editor.extendPath(lastPoint)
-                                strokeTick++
-                            },
-                            onDragEnd = {
-                                // finishPath simplifies the stroke and pushes one undo step; a
-                                // stroke of fewer than two points is still committed, as in the
-                                // original, because a tap is how you draw a dot.
-                                if (options.snapToLines) {
-                                    editor.snapPointNear(lastPoint, snapWithin)
-                                        ?.let { editor.extendPath(it) }
+                            try {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val pointer =
+                                        event.changes.firstOrNull { it.id == down.id } ?: break
+                                    // A hot corner or a cross-section's drag bar sits further in
+                                    // on the same modifier chain and has already had its turn on
+                                    // this event; a change it consumed is a gesture it has taken
+                                    // over, and drawing from the same touch would pan or drag the
+                                    // section *and* leave a line behind it.
+                                    if (pointer.isConsumed) break
+                                    if (!pointer.pressed) break
+
+                                    if (!started) {
+                                        val moved =
+                                            (pointer.position - down.position).getDistance()
+                                        if (moved < viewConfiguration.touchSlop) continue
+                                        editor.startPath(snapped(downPoint))
+                                        strokeTick++
+                                        started = true
+                                    }
+
+                                    pointer.consume()
+                                    lastPoint = viewport.toSurvey(pointer.position)
+                                    editor.extendPath(lastPoint)
+                                    strokeTick++
                                 }
-                                editor.finishPath()
-                                onSketchEdit()
-                            },
-                            onDragCancel = {
-                                editor.abandonPath()
-                                strokeTick++
-                            },
-                        )
+
+                                if (started) {
+                                    // finishPath simplifies the stroke and pushes one undo step;
+                                    // a stroke of fewer than two points is still committed, as in
+                                    // the original, because a tap is how you draw a dot — though a
+                                    // tap never reaches here at all, since it never exceeds slop.
+                                    if (options.snapToLines) {
+                                        editor.snapPointNear(lastPoint, snapWithin)
+                                            ?.let { editor.extendPath(it) }
+                                    }
+                                    editor.finishPath()
+                                    onSketchEdit()
+                                }
+                            } finally {
+                                // A gesture cancelled mid-stroke — a long press elsewhere taking
+                                // the pointer, say — otherwise leaves an unfinished stroke on the
+                                // sketch; `detectDragGestures`'s own onDragCancel did the same
+                                // cleanup. `finishPath` above already clears this on the ordinary
+                                // path, so this only ever fires on the cancelled one.
+                                if (editor.activePath != null) {
+                                    editor.abandonPath()
+                                    strokeTick++
+                                }
+                            }
+                        }
                     }
         }
 
@@ -760,6 +832,8 @@ fun SurveyCanvas(
                 handleRects = handleRects,
             )
         }
+
+        SnackbarHost(missedTapMessage, modifier = Modifier.align(Alignment.BottomCenter))
     }
 }
 

@@ -27,6 +27,12 @@ sealed interface SketchEdit {
      * cross-section edit. Undo restores [item] and removes [replacements]; redo does the reverse.
      */
     class Delete(val item: SketchItem, val replacements: List<SketchItem> = emptyList()) : SketchEdit
+
+    /**
+     * Several edits from one gesture — a drag of the eraser across several strokes — undone or
+     * redone together. See [SketchEditor.inOneUndoStep].
+     */
+    class Batch(val edits: List<SketchEdit>) : SketchEdit
 }
 
 /**
@@ -297,34 +303,88 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
      */
     fun undo(): Boolean {
         val edit = done.removeLastOrNull() ?: return false
-        when (edit) {
-            is SketchEdit.Add -> removeFromSketch(edit.item)
-            is SketchEdit.Delete -> {
-                restoreToSketch(edit.item)
-                edit.replacements.forEach { removeFromSketch(it) }
-            }
-        }
+        applyUndo(edit)
         undone.addLast(edit)
         return true
     }
 
     fun redo(): Boolean {
         val edit = undone.removeLastOrNull() ?: return false
+        applyRedo(edit)
+        done.addLast(edit)
+        return true
+    }
+
+    // A batch undoes its edits in reverse and redoes them in the order they were made, the same as
+    // if they had never been collapsed into one step at all — see [inOneUndoStep].
+    private fun applyUndo(edit: SketchEdit) {
+        when (edit) {
+            is SketchEdit.Add -> removeFromSketch(edit.item)
+            is SketchEdit.Delete -> {
+                restoreToSketch(edit.item)
+                edit.replacements.forEach { removeFromSketch(it) }
+            }
+            is SketchEdit.Batch -> edit.edits.asReversed().forEach { applyUndo(it) }
+        }
+    }
+
+    private fun applyRedo(edit: SketchEdit) {
         when (edit) {
             is SketchEdit.Add -> restoreToSketch(edit.item)
             is SketchEdit.Delete -> {
                 removeFromSketch(edit.item)
                 edit.replacements.forEach { restoreToSketch(it) }
             }
+            is SketchEdit.Batch -> edit.edits.forEach { applyRedo(it) }
         }
+    }
+
+    /**
+     * While a transaction is open, [record] holds edits here instead of pushing them straight to
+     * [done] — [PublishedApi] rather than `private` only so [inOneUndoStep], which has to be public
+     * to be useful outside this module, can be inlined into it.
+     */
+    @PublishedApi
+    internal var transactionEdits: MutableList<SketchEdit>? = null
+
+    /**
+     * Run [block], collapsing every edit it records into a single undo step.
+     *
+     * For the eraser dragged across several strokes: without this, one press of ctrl+z after such a
+     * drag takes back only the last stroke crossed, not the whole rub. A nested call joins the
+     * outermost transaction rather than starting its own, so this is safe to call from inside a
+     * method that might itself already be inside one.
+     */
+    inline fun <T> inOneUndoStep(block: () -> T): T {
+        val startedHere = transactionEdits == null
+        if (startedHere) transactionEdits = mutableListOf()
+        try {
+            return block()
+        } finally {
+            if (startedHere) closeTransaction()
+        }
+    }
+
+    @PublishedApi
+    internal fun closeTransaction() {
+        val edits = transactionEdits ?: return
+        transactionEdits = null
+        when (edits.size) {
+            0 -> Unit
+            1 -> pushDone(edits[0])
+            else -> pushDone(SketchEdit.Batch(edits))
+        }
+    }
+
+    private fun pushDone(edit: SketchEdit) {
         done.addLast(edit)
-        return true
+        undone.clear()
     }
 
     private fun record(edit: SketchEdit) {
         isSaved = false
-        done.addLast(edit)
-        undone.clear()
+        val transaction = transactionEdits
+        if (transaction != null) transaction.add(edit) else pushDone(edit)
     }
 
     private fun restoreToSketch(item: SketchItem) {

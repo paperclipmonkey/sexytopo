@@ -254,6 +254,64 @@ class SketchEditorTest {
     }
 
     // -------------------------------------------------------------------------------------
+    // Batching a whole gesture into one undo step
+    // -------------------------------------------------------------------------------------
+
+    @Test
+    fun erasingSeveralThingsInOneDragIsOneUndoStep() {
+        val editor = editor()
+        val first = editor.addSymbol(Coord2D(0f, 0f), "SAND", size = 0.4f)
+        val second = editor.addSymbol(Coord2D(5f, 5f), "CLAY", size = 0.4f)
+        assertEquals(2, historySize(editor), "sanity check: two symbols, two undo steps so far")
+
+        editor.inOneUndoStep {
+            assertTrue(editor.eraseAt(Coord2D(0f, 0f), toleranceInMetres = 0.2f, pixelsPerMetre = 60f))
+            assertTrue(editor.eraseAt(Coord2D(5f, 5f), toleranceInMetres = 0.2f, pixelsPerMetre = 60f))
+        }
+        assertEquals(0, editor.sketch.symbolDetails.size)
+
+        assertTrue(editor.undo(), "one undo should reach past the whole drag")
+        assertEquals(
+            setOf(first, second),
+            editor.sketch.symbolDetails.toSet(),
+            "both symbols come back from a single undo, in whichever order",
+        )
+
+        assertTrue(editor.redo())
+        assertEquals(0, editor.sketch.symbolDetails.size, "one redo takes both back out again")
+    }
+
+    @Test
+    fun aDragThatErasesNothingPushesNoUndoStep() {
+        val editor = editor()
+        drawHorizontalWall(editor)
+        val before = historySize(editor)
+
+        editor.inOneUndoStep {
+            editor.eraseAt(Coord2D(50f, 50f), toleranceInMetres = 0.2f, pixelsPerMetre = 60f)
+        }
+
+        assertEquals(before, historySize(editor), "a drag that hit nothing must not cost an undo")
+    }
+
+    @Test
+    fun aNestedTransactionJoinsTheOuterOneRatherThanStartingItsOwn() {
+        val editor = editor()
+        editor.addSymbol(Coord2D(0f, 0f), "SAND", size = 0.4f)
+        editor.addSymbol(Coord2D(5f, 5f), "CLAY", size = 0.4f)
+
+        editor.inOneUndoStep {
+            editor.inOneUndoStep {
+                editor.eraseAt(Coord2D(0f, 0f), toleranceInMetres = 0.2f, pixelsPerMetre = 60f)
+            }
+            editor.eraseAt(Coord2D(5f, 5f), toleranceInMetres = 0.2f, pixelsPerMetre = 60f)
+        }
+
+        assertTrue(editor.undo(), "the nested call must not have closed the transaction early")
+        assertEquals(2, editor.sketch.symbolDetails.size, "one undo restores both, from the outer step alone")
+    }
+
+    // -------------------------------------------------------------------------------------
     // Cross-sections
     // -------------------------------------------------------------------------------------
 

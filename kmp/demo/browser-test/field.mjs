@@ -1348,6 +1348,57 @@ if (sections === null) {
   pass('a cross-section can be dropped at a station, and is saved with the sketch')
 }
 
+// ---- and a tap that misses a station says so, rather than doing nothing silently -------------
+// The tool is not modal — it stays armed after placing one section, which is what makes it
+// possible to place several without reopening the menu each time — so it is still active here.
+// A tap that lands nowhere near a station used to be indistinguishable from a tool that had
+// stopped responding at all.
+//
+// A small ink counter of its own rather than the shared `inkAround` below: `const` is not
+// hoisted, and this runs before that declaration is reached.
+const inkInSnackbarBand = async (span) => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, span]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    let ink = 0
+    for (let y = span[1]; y < span[3]; y++) {
+      for (let x = span[0]; x < span[2]; x++) {
+        const i = (y * c.width + x) * 4
+        const lightest = Math.max(px[i], px[i + 1], px[i + 2])
+        if (lightest < 215) ink += 215 - lightest
+      }
+    }
+    return ink
+  }, [b64, span])
+}
+// Measured off a rendered frame: the snackbar sits at y 700-746, well above the field bar and
+// its own toolbar row below — the first guess here landed on that toolbar's colour swatches
+// instead, which are dark whether or not anything is showing.
+const SNACKBAR_BAND = [10, 698, 410, 748]
+const inkBeforeMissedTap = await inkInSnackbarBand(SNACKBAR_BAND)
+await at(210, 500); await page.waitForTimeout(600)
+const inkWithMessageShowing = await inkInSnackbarBand(SNACKBAR_BAND)
+await page.screenshot({ path: join(shotDir, 'field-cross-section-missed-tap.png') })
+await page.waitForTimeout(4600)
+const inkAfterMessageShouldHaveGone = await inkInSnackbarBand(SNACKBAR_BAND)
+
+if (!(inkWithMessageShowing > inkBeforeMissedTap + 200)) {
+  fail(
+    `a tap nowhere near a station left the message band as it was ` +
+      `(${inkBeforeMissedTap} before, ${inkWithMessageShowing} after) — the tap still does nothing`)
+} else if (!(inkAfterMessageShouldHaveGone < inkWithMessageShowing * 0.3)) {
+  fail(`the message did not go away on its own (${inkWithMessageShowing} then ${inkAfterMessageShouldHaveGone})`)
+} else {
+  pass('a tap that misses a station says so, and the message goes away on its own')
+}
+
 // ---- and can be corrected afterwards ---------------------------------------------------
 // Both decisions the app makes when a section appears are guesses: the bearing comes from a
 // heuristic and the position comes from wherever a finger landed. A section cutting the passage at
@@ -1644,6 +1695,33 @@ if ((await subSketchPaths()) !== 2) {
   pass('a stroke abandoned in the cross-section editor leaves both the section and the plan alone')
 }
 
+// ---- and a colour can be chosen inside it, same as on the plan --------------------------------
+// `CrossSectionActivity.disableUnsupportedTools` hides only *Select* — every other tool the
+// Android app offers here, including the full colour row, this port had simply never wired up.
+// The row sits one 40dp button-height above the tools row this file already reaches by name.
+const CROSS_SECTION_COLOUR_ROW_Y = box.height - 60
+const crossSectionColourCell = (index) => [(box.width / 8) * (index + 0.5), CROSS_SECTION_COLOUR_ROW_Y]
+await at(210, 660); await page.waitForTimeout(1000)
+await at(...crossSectionColourCell(3)); await page.waitForTimeout(400) // red
+await drag([120, 330], [300, 330]); await page.waitForTimeout(400)
+await at(...EDITOR_DONE); await page.waitForTimeout(1000)
+
+const lastSectionStrokeColour = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  if (!key) return null
+  const sections = JSON.parse(localStorage.getItem(key))['x-sections'] ?? []
+  const paths = sections[0]?.sketch?.paths ?? []
+  return paths.length ? paths[paths.length - 1].colour : null
+})
+
+if (lastSectionStrokeColour !== 'RED') {
+  fail(
+    `a stroke drawn after picking red in the cross-section editor was saved as ` +
+      `${lastSectionStrokeColour}`)
+} else {
+  pass('a colour can be chosen inside the cross-section editor, and the stroke keeps it')
+}
+
 // Back to drawing, so nothing after this drops a section by accident.
 await at(...toolCell(1)); await page.waitForTimeout(400)
 
@@ -1700,6 +1778,37 @@ if (pathsBeforeDot < 0) {
   pass('a tap of the pencil leaves a dot, which a drag detector on its own cannot do')
 }
 
+// ---- and a drag does not lose the ground it covered before Compose called it one --------------
+// Reported directly, off an iPad: a stroke drawn with the Apple Pencil sometimes missed its own
+// start. `detectDragGestures` only calls onDragStart once the touch has moved past its own slop
+// threshold, with wherever the pointer had reached by *then* — not the original touch-down — so
+// the line always began a few pixels late. A finger dragged a long way barely notices; a Pencil's
+// small, precise, momentarily-still first contact does.
+//
+// A short, slow drag makes the lost ground a large fraction of the whole stroke rather than a
+// sliver of a long one, so it shows up as a clear miss rather than a rounding error: ink is
+// measured in a small box sat exactly on the touch-down pixel, which the old code left bare no
+// matter how far the drag went, because nothing was ever drawn that close to the actual start.
+const STROKE_START = [300, 260]
+const startBox = [STROKE_START[0] - 5, STROKE_START[1] - 5, STROKE_START[0] + 5, STROKE_START[1] + 5]
+const inkAtStartBefore = await inkAround(startBox)
+
+await page.mouse.move(box.x + STROKE_START[0], box.y + STROKE_START[1])
+await page.mouse.down()
+await page.mouse.move(box.x + STROKE_START[0] + 60, box.y + STROKE_START[1], { steps: 20 })
+await page.mouse.up()
+await page.waitForTimeout(600)
+await page.screenshot({ path: join(shotDir, 'field-pencil-start.png') })
+const inkAtStartAfter = await inkAround(startBox)
+
+if (!(inkAtStartAfter > inkAtStartBefore + 40)) {
+  fail(
+    `a stroke dragged from (${STROKE_START}) left no ink on its own starting pixel ` +
+      `(${inkAtStartBefore} before, ${inkAtStartAfter} after) — the line began late`)
+} else {
+  pass('a drag starts drawing from the touch-down point, not from wherever slop was crossed')
+}
+
 // ---- and the rubber rubs, rather than only lifting what it landed on -------------------------
 // The one deliberate departure from the Android app in this file's sketching checks, so it is
 // worth being plain about: `GraphView.handleErase` does its work under `case ACTION_DOWN` and its
@@ -1734,6 +1843,60 @@ if (pathsBeforeRub < crossedByTheRub) {
       ' only lifting what it landed on')
 } else {
   pass(`the rubber rubs: one drag across ${crossedByTheRub} strokes took out ${rubbedOut}`)
+}
+
+// ---- what it rubs disappears as it goes, not only once the finger lifts ----------------------
+// The strokes *were* being erased as the finger crossed them, but nothing told the canvas to look
+// again until the whole drag finished — so a rub across five strokes looked like nothing had
+// happened right up to the moment the finger came up. A fresh band, clear of the rub above.
+await at(...toolCell(1)); await page.waitForTimeout(400)
+for (let i = 0; i < 5; i++) {
+  await drag([100 + i * 30, 340], [100 + i * 30, 400])
+  await page.waitForTimeout(300)
+}
+const RUB_BAND = [95, 340, 235, 400]
+const inkBeforeLiveRub = await inkAround(RUB_BAND)
+
+await at(...toolCell(3)); await page.waitForTimeout(400)
+await page.mouse.move(box.x + 95, box.y + 370)
+await page.mouse.down()
+await page.mouse.move(box.x + 165, box.y + 370, { steps: 6 })
+await page.waitForTimeout(400)
+const inkMidRub = await inkAround(RUB_BAND)
+await page.mouse.move(box.x + 235, box.y + 370, { steps: 6 })
+await page.mouse.up()
+await page.waitForTimeout(800)
+await page.screenshot({ path: join(shotDir, 'field-rubbing-live.png') })
+const inkAfterFullRub = await inkAround(RUB_BAND)
+
+if (!(inkBeforeLiveRub > 0)) {
+  fail('the strokes for the live-redraw check were never drawn')
+} else if (!(inkMidRub < inkBeforeLiveRub * 0.9)) {
+  fail(
+    `the eraser had only reached halfway across but the drawing still showed ${inkMidRub} of its ` +
+      `original ${inkBeforeLiveRub} — it is still waiting for the finger to lift before it redraws`)
+} else {
+  pass(`the rubber shows what it has erased as it goes (${inkBeforeLiveRub} to ${inkMidRub} halfway across)`)
+}
+
+// ---- and one drag is one undo, however many strokes it crossed --------------------------------
+// Each stroke the eraser crossed used to become its own undo step, so taking back a five-stroke
+// rub took five presses of ctrl+z. It should be the one gesture it was.
+await page.keyboard.press('Control+z')
+await page.waitForTimeout(700)
+await page.screenshot({ path: join(shotDir, 'field-rub-undone.png') })
+const inkAfterOneUndo = await inkAround(RUB_BAND)
+
+if (!(inkAfterFullRub < inkBeforeLiveRub * 0.3)) {
+  fail(`the rub did not clear enough of the band to test undo (${inkBeforeLiveRub} then ${inkAfterFullRub})`)
+} else if (!(inkAfterOneUndo > inkBeforeLiveRub * 0.85)) {
+  fail(
+    `one ctrl+z after a drag across five strokes only brought back ${inkAfterOneUndo} of the ` +
+      `original ${inkBeforeLiveRub} — it undid one stroke rather than the whole drag`)
+} else {
+  pass(
+    `one undo takes back a whole drag of the eraser, not just the last stroke it crossed ` +
+      `(${inkAfterFullRub} back to ${inkAfterOneUndo} of ${inkBeforeLiveRub})`)
 }
 
 await at(...toolCell(1)); await page.waitForTimeout(400)
@@ -1868,6 +2031,7 @@ const stationSpots = async (fromY, toY) => {
     const px = ctx.getImageData(0, 0, c.width, c.height).data
     const centreline = []
     const amber = []
+    const stationMarks = []
     for (let y = top; y < bottom; y++) {
       for (let x = 0; x < c.width; x++) {
         const i = (y * c.width + x) * 4
@@ -1879,6 +2043,10 @@ const stationSpots = async (fromY, toY) => {
         if (r > 230 && g < 60 && (b < 60 || b > 230)) centreline.push([x, y])
         // `activeStationHighlight`: 0xFFC107.
         if (r > 230 && g > 170 && g < 215 && b < 60) amber.push([x, y])
+        // `station`: 0x8B0000. The centreline stops a little short of the station it ends at
+        // (leaving room for the cross the station is drawn as), so the farthest centreline pixel
+        // alone lands a surveyor's finger a station-width away rather than on the station.
+        if (r > 120 && r < 160 && g < 40 && b < 40) stationMarks.push([x, y])
       }
     }
     const mean = (points) => points.length === 0 ? null
@@ -1893,7 +2061,12 @@ const stationSpots = async (fromY, toY) => {
       const d = (x - active[0]) ** 2 + (y - active[1]) ** 2
       if (d > bestDistance) { bestDistance = d; best = [x, y] }
     }
-    return { active, other: Math.sqrt(bestDistance) > 60 ? best : null }
+    if (Math.sqrt(bestDistance) <= 60) return { active, other: null }
+    // The station itself, if its cross is close enough to the line's end to be the one it drew:
+    // sharper than the endpoint pixel alone, and inside the touch reach a long press needs to
+    // land within.
+    const nearby = stationMarks.filter(([x, y]) => (x - best[0]) ** 2 + (y - best[1]) ** 2 <= 60 ** 2)
+    return { active, other: mean(nearby) ?? best }
   }, [b64, fromY, toY])
 }
 
@@ -1941,6 +2114,17 @@ async function longPress([x, y]) {
 // and its bottom edge is where the lower one ends.
 const sketchTop = leftCorners[0]?.top ?? 0
 const sketchBottom = (leftCorners[1]?.top ?? Math.round(box.height)) + cornerSide
+
+// Off for these two checks: a cross-section's own tap target is deliberately generous — at least
+// a metre in every direction, per `boundsOf(CrossSectionDetail)` — so one dropped near this
+// station earlier in the run can cover it completely, and a press meant for the long-press menu
+// would land on the section instead. Hidden sections cannot be tapped at all, which is exactly
+// what a surveyor already has the toggle for when a section is in the way of something else on
+// the plan. It also keeps `stationSpots` from mistaking the section's own dropped marker — drawn
+// in the station colour too — for the station itself. Back on before anything after this expects
+// the app's own default.
+await toggleOption('show-xsections')
+
 const spots = await stationSpots(sketchTop, sketchBottom)
 if (!spots.other) {
   fail(`could not find a station on the plan that is not the active one (${JSON.stringify(spots)})`)
@@ -2016,6 +2200,9 @@ if (jumpMenuTop === null) {
   }
   await at(...PLAN_TAB); await page.waitForTimeout(700)
 }
+
+// Back on, because everything after this expects the app's own default.
+await toggleOption('show-xsections')
 
 // ---- finding a station, and taking back the last leg ---------------------------------------
 // Two things a surveyor does constantly and this port could not do at all. A survey of any size

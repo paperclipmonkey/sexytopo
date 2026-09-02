@@ -28,6 +28,7 @@ import org.hwyl.sexytopo.demo.resources.undo
 import org.hwyl.sexytopo.demo.resources.zoom_in
 import org.hwyl.sexytopo.demo.resources.zoom_out
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
+import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -80,8 +81,19 @@ fun CrossSectionEditor(
     val canvas = remember(detail) { CanvasController() }
     var tool by remember(detail) { mutableStateOf(SketchTool.DRAW) }
     var revision by remember(detail) { mutableStateOf(0) }
+    // Not persisted, unlike the main sketch's own brush colour: a cross-section is a quick aside,
+    // and starting each one from whatever it was last drawn in keeps that choice from leaking
+    // into every station's plan.
+    var brushColour by remember(detail) { mutableStateOf(working.activeColour) }
 
     val scene = remember(detail, revision) { SurveyScene.forCrossSection(detail, working) }
+
+    fun pickColour(colour: Colour) {
+        brushColour = colour
+        editor.activeColour = colour
+        // As the main toolbar does: choosing a colour is choosing to draw with it.
+        if (!tool.usesColour) tool = SketchTool.DRAW
+    }
 
     Column(modifier.fillMaxSize()) {
         Row(
@@ -125,6 +137,31 @@ fun CrossSectionEditor(
             onSketchEdit = { revision++ },
             sceneOverride = scene,
         )
+
+        // `CrossSectionActivity.disableUnsupportedTools` hides only *Select* here — the Android
+        // app's own cross-section editor keeps the full colour row this port had never wired up.
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(
+                    if (darkMode) {
+                        SexyTopoColours.panelBackgroundNight
+                    } else {
+                        SexyTopoColours.panelBackground
+                    },
+                ),
+        ) {
+            for (colour in BRUSH_COLOURS) {
+                ColourButton(
+                    colour = colour,
+                    selected = brushColour == colour,
+                    darkMode = darkMode,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    pickColour(colour)
+                }
+            }
+        }
 
         Row(
             Modifier

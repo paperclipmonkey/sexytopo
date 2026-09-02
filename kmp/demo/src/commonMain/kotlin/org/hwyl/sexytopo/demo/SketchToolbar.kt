@@ -396,9 +396,15 @@ fun ToolbarButton(
     }
 }
 
-/** A brush colour. The app draws these as its own swatch PNGs, so this uses them too. */
+/**
+ * A brush colour. The app draws these as its own swatch PNGs, so this uses them too.
+ *
+ * `internal` rather than `private`: [CrossSectionEditor] draws the same swatches, since the
+ * Android app's own cross-section editor offers the full colour row too — only *Select* is
+ * disabled there.
+ */
 @Composable
-private fun RowScope.ColourButton(
+internal fun RowScope.ColourButton(
     colour: Colour,
     selected: Boolean,
     darkMode: Boolean,

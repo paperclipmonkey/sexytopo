@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 790 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 793 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and eight more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -3405,10 +3405,10 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 790
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 793
 shared tests on three targets, 8 more against `java.util.zip` on the JVM, 450 over the UI's own
 logic, 20 running the iOS half in a simulator,
-113 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
+118 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.
