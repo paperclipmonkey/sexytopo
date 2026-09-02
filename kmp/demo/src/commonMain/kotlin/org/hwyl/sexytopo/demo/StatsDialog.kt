@@ -20,10 +20,6 @@ import org.hwyl.sexytopo.shared.survey.SurveyStats
  *
  * Ported from `StatsActivity`, minus its linked-surveys half — this port has no cross-survey links,
  * and a panel of zeroes claiming otherwise would be worse than not showing one.
- *
- * A surveyor asks this underground, not afterwards: how far have we come, how deep are we, is it
- * worth pushing on. [SurveyStats] has been ported since the SVG legend needed it and this is the
- * screen the Android app puts it on.
  */
 @Composable
 fun StatsDialog(survey: Survey, revision: Int, onDismiss: () -> Unit) {

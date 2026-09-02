@@ -32,10 +32,7 @@ import org.hwyl.sexytopo.shared.survey.SurveyUpdater
  * What a long press on a station offers, ported from `res/menu/context_station.xml` and the
  * visibility rules `ContextMenuManager` applies to it.
  *
- * Kept as a list of values rather than built inline in the dialog so the rules can be tested: which
- * of these a station offers depends on whether it is the origin, whether it is already active,
- * which projection is showing and whether it already has a cross-section, and every one of those
- * has a wrong answer that is invisible until somebody taps it underground.
+ * Kept as a list of values rather than built inline in the dialog, so the rules can be tested.
  */
 enum class StationAction(val label: String) {
     /** `action_set_active_station`: where the next leg will hang off. */
@@ -73,12 +70,8 @@ enum class StationAction(val label: String) {
 /**
  * The actions [station] offers, in the order the Android menu lists them.
  *
- * The rules are the original's:
- *  - the active station cannot be made active again;
- *  - cross-sections belong to the plan, and `CrossSectionActivity` is reached from a section that
- *    exists, so create and edit/delete are mutually exclusive;
- *  - the origin has no incoming leg, and `SurveyUpdater.deleteStation` is a no-op on it — a menu
- *    item that silently does nothing is worse than one that is not there.
+ * The origin has no incoming leg, and `SurveyUpdater.deleteStation` is a no-op on it — a menu item
+ * that silently does nothing is worse than one that is not there.
  */
 fun stationActionsFor(
     survey: Survey,
@@ -86,12 +79,8 @@ fun stationActionsFor(
     projection: Projection2D,
     sketch: Sketch?,
     /**
-     * Whether this menu was opened from the table rather than from the drawing.
-     *
-     * The Android app has two station menus, not one: `context_station.xml` for the sketch and
-     * `table_station_selected.xml` for the table. What separates them is the `menu_navigate`
-     * submenu — each offers the two views you are *not* looking at — and cross-sections, which are
-     * a thing you draw and so belong to the sketch's menu only.
+     * Whether this menu was opened from the table rather than from the drawing: the Android app
+     * has two station menus, and cross-sections belong to the sketch's only.
      */
     fromTable: Boolean = false,
 ): List<StationAction> {
@@ -125,8 +114,7 @@ fun stationActionsFor(
  * The cross-section drawn at [station], if there is one.
  *
  * By station identity rather than by name: a survey read from a file can hold two stations with the
- * same name (see the cycle finding), and the section belongs to the object the sketch was drawn
- * against.
+ * same name, and the section belongs to the object the sketch was drawn against.
  */
 fun crossSectionAt(sketch: Sketch?, station: Station): CrossSectionDetail? =
     sketch?.crossSectionDetails?.firstOrNull { it.station === station }
@@ -134,15 +122,9 @@ fun crossSectionAt(sketch: Sketch?, station: Station): CrossSectionDetail? =
 /**
  * The menu itself: long-press a station on the sketch and this is what comes up.
  *
- * Until this existed, the only station a surveyor could name, comment or measure was the *active*
- * one, through the chip on the field bar. That is fine while the survey is being pushed forward and
- * useless the moment somebody wants to go back and write "sump" on the junction they passed twenty
- * minutes ago — which is most of what a station's name is for.
- *
- * A dialog rather than a menu anchored at the finger, unlike the Android app's. On a 420-pixel
- * screen an anchored menu with seven items and a submenu either runs off the bottom or opens
- * upwards over the thing that was long-pressed; and every other action in this port — leg actions,
- * settings, trip details — is already a dialog, so this is the shape a user of it expects.
+ * A dialog rather than a menu anchored at the finger, unlike the Android app's: an anchored menu
+ * with seven items and a submenu runs off the bottom of a small screen or opens upwards over the
+ * thing that was long-pressed.
  */
 @Composable
 fun StationMenuDialog(
@@ -285,22 +267,12 @@ fun StationMenuDialog(
     }
 }
 
-/**
- * The bearing a cross-section created from this menu gets, and where it is drawn.
- *
- * Same call the position tool makes — `CrossSectioner.section` bisects the corner mid-passage,
- * follows the single leg at a dead end and falls back to north — so a section dropped from the menu
- * is the same section as one dropped by tapping, and can be overruled the same way.
- */
+/** The bearing a cross-section created from this menu gets: the same call the position tool makes. */
 fun sectionFor(survey: Survey, station: Station) = CrossSectioner.section(survey, station)
 
 /**
- * Where a cross-section created from the menu is drawn: beside the station, not on it.
- *
- * The position tool puts the section wherever the finger landed, which is how a surveyor keeps it
- * off the passage. From a menu there is no such point — the finger was on the station — so it is
- * offset by the app's own starting section size, far enough that it lands in the white space rather
- * than on top of the centreline it describes. *Move a cross-section* slides it from there.
+ * Where a cross-section created from the menu is drawn: beside the station, not on it, since from
+ * a menu there is no finger position to place it at. *Move a cross-section* slides it from there.
  */
 fun crossSectionPositionFor(
     survey: Survey,

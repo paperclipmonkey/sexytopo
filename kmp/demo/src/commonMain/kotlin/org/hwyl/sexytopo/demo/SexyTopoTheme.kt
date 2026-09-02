@@ -4,13 +4,7 @@ import androidx.compose.ui.graphics.Color
 
 /**
  * SexyTopo's own colours, taken from `app/src/main/res/values/colors.xml` and its `values-night`
- * override.
- *
- * These are not a designer's reinterpretation. The point of the demo is to let somebody who knows
- * the Android app look at an iPhone and recognise it, and half of recognising an app is its
- * colours — the green panels, the red centreline, the salmon splays. Restyling them to whatever
- * Material 3 generates would have made the port look like a different program that happens to draw
- * caves.
+ * override, kept exactly rather than restyled to Material 3 defaults.
  *
  * The names are the resource names, so a reader can grep for them in the Android app and find the
  * same value. Where the light and night themes differ, both are here.
@@ -37,11 +31,11 @@ object SexyTopoColours {
 
     // -- The survey itself ----------------------------------------------------------------
 
-    /** `leg`. Bright red, which is not what most people guess a cave survey looks like. */
+    /** `leg`. */
     val leg = Color(0xFFFF0000)
     val legNight = Color(0xFFFF4444)
 
-    /** `legLatest`: the most recently shot leg, so the surveyor can see what just arrived. */
+    /** `legLatest`: the most recently shot leg. */
     val legLatest = Color(0xFFFF00FF)
 
     /** `splay`. */
@@ -61,30 +55,21 @@ object SexyTopoColours {
     val gridNight = Color(0xFF505050)
 
     /**
-     * `hotCorner`: the corner squares that pan the sketch without changing tool.
-     *
-     * Drawn at a fifth alpha, as `GraphView.FADED_ALPHA` does. The night value is lighter than the
-     * app's own mid-grey, which is all but invisible against the night background — the Android app
-     * has no night mode for the sketch, so it never had to answer this.
+     * `hotCorner`: the corner squares that pan the sketch without changing tool. The night value
+     * is lighter than the app's own mid-grey, which the Android app never had to answer.
      */
     val hotCorner = Color(0xFF808080)
     val hotCornerNight = Color(0xFFB0B0B0)
 
     /**
-     * `legLatest`: the leg just taken, drawn instead of [leg] so the working end is findable.
-     *
-     * The app resolves it to `md_magenta`, which is full-strength `#FF00FF` — a colour nothing
-     * else in cave surveying uses, and deliberately so: against a page of red centreline it is the
-     * one leg you can pick out at arm's length, by head torch, without reading a single label.
-     * There is no night variant in the app and none is needed; magenta carries on either ground.
+     * `legLatest`: the leg just taken, drawn instead of [leg] so the working end is findable, in
+     * full-strength magenta — a colour nothing else in cave surveying uses.
      */
     val latestLeg = Color(0xFFFF00FF)
 
     /**
-     * `legend`: the scale bar, the compass and the survey label — and nothing else.
-     *
-     * Not station names. `GraphView` draws those with `stationPaint`, i.e. in [station], which is
-     * the one label colour a SexyTopo user would actually recognise: red numerals beside red dots.
+     * `legend`: the scale bar, the compass and the survey label — and not station names, which
+     * `GraphView` draws in [station].
      */
     val legend = Color(0xFF000000)
     val legendNight = Color(0xFFD3D3D3)
@@ -94,11 +79,7 @@ object SexyTopoColours {
 
     /**
      * The frame drawn round a cross-section on the plan, and the grip marks on its drag bar.
-     *
-     * `GraphView` resolves these from the theme rather than from `colors.xml` - `colorPrimary` and
-     * `colorOnPrimary`, which `themes.xml` sets to `sexyTopoGreen` and white. So the frame is the
-     * same green as the app bar, which is what makes it read as a piece of chrome sitting on the
-     * drawing rather than as something the surveyor drew.
+     * `GraphView` resolves these from the theme, `colorPrimary` and `colorOnPrimary`.
      */
     val crossSectionFrame = Color(0xFF7FAF7F)
     val onCrossSectionFrame = Color(0xFFFFFFFF)
@@ -111,12 +92,7 @@ object SexyTopoColours {
     val bodyTextNight = Color(0xFFBFBFBF)
 }
 
-/**
- * The dimensions the Android layout uses, so the toolbar is the size a thumb expects.
- *
- * `toolbar_button_height` is 40dp and the grid is nine columns by two rows — that shape is as much
- * of the app's identity as its colours are.
- */
+/** The dimensions the Android layout uses, so the toolbar is the size a thumb expects. */
 object SexyTopoDimens {
     /** `R.dimen.toolbar_button_height`. */
     const val TOOLBAR_BUTTON_HEIGHT_DP = 40

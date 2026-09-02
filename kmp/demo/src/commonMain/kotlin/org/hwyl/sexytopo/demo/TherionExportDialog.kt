@@ -24,18 +24,11 @@ import org.hwyl.sexytopo.shared.model.graph.Projection2D
 /**
  * What a Therion export is called and what goes in it: `preferences_export_therion.xml`.
  *
- * ## Why a surveyor would open this
- *
- * A Therion project is not one file. This app writes a `.th` of centreline, a `.thconfig` that
+ * A Therion project is not one file: this app writes a `.th` of centreline, a `.thconfig` that
  * builds it, and per drawing a `.th2` scrap and the `.xvi` background image the scrap is traced
- * over — and every one of them names the others. So the names are not a matter of taste: a
- * surveyor joining these files to a project that already holds twenty trips, laid out the way that
- * project lays things out, needs them to match, and a surveyor who keeps background images in an
- * `xvi/` folder needs the scrap to say so.
- *
- * That is also why this shows what the files will be called, live, above the boxes that decide it.
- * A suffix rule with three answers about one dot — `.plan` gives `Name.plan.th2`, `P` gives
- * `NameP.th2`, empty gives `Name.th2` — is far easier to check by looking than by reading.
+ * over — and every one of them names the others, so a surveyor joining these files to an existing
+ * project needs the names to match. This shows what the files will be called, live, above the
+ * boxes that decide it: `.plan` gives `Name.plan.th2`, `P` gives `NameP.th2`, empty gives `Name.th2`.
  */
 @Composable
 fun TherionExportDialog(
@@ -84,7 +77,6 @@ fun TherionExportDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                // The answer, above the question. See the note on this dialog.
                 Text(
                     listOf(
                         preview.fileNameFor(survey, Projection2D.PLAN, "th2"),
@@ -185,9 +177,6 @@ fun TherionExportDialog(
                             crossSections = crossSections,
                             symbols = symbols,
                             labels = labels,
-                            // At least one, as the Java's `parseIntSafe` does: an empty box or
-                            // "three" means the surveyor did not change it, and zero scraps is a
-                            // th2 with no drawing in it at all.
                             planScrapCount = scrapsFrom(planScraps),
                             elevationScrapCount = scrapsFrom(elevationScraps),
                             stationsInFirstPlanScrap = stationsInPlan,

@@ -47,16 +47,10 @@ import org.hwyl.sexytopo.shared.manual.parseManual
 /**
  * The user manual, which `GuideActivity` shows in a `WebView`.
  *
- * There is no web view here and deliberately so. One would be three separate platform views — a
- * `WKWebView` behind a UIKit interop on iOS, an iframe positioned over the Compose canvas on the
- * web, and nothing at all on the desktop — to display eight tags' worth of markup. So the guide is
- * bundled verbatim, read by `parseManual`, and drawn as Compose: one implementation, the same on
- * every platform, and it inherits the app's own font and dark mode instead of fighting them.
- *
- * The cost is drift, and it is paid for rather than ignored: the reader throws on any tag it was
- * not written for, and `ManualContentTest` parses the shipped file on every build and counts the
- * headings, paragraphs and list items against the file's own tags. Upstream adding a table breaks
- * this build; it does not quietly lose a section.
+ * There is no web view here: the guide is instead bundled verbatim, read by `parseManual`, and
+ * drawn as Compose, inheriting the app's own font and dark mode instead of fighting them. The
+ * reader throws on any tag it was not written for, and `ManualContentTest` parses the shipped file
+ * on every build, so upstream adding a table breaks the build rather than quietly losing a section.
  *
  * A whole screen rather than a dialog, as `GuideActivity` is a whole Activity: this is a thousand
  * words of reading, and Material clips a dialog it cannot fit.
@@ -70,9 +64,7 @@ fun ManualView(onClose: () -> Unit, modifier: Modifier = Modifier) {
         blocks = try {
             parseManual(Res.readBytes("files/manual.html").decodeToString())
         } catch (throwable: Throwable) {
-            // A manual that will not open should say so rather than showing an empty screen: the
-            // resource is bundled, so this can only be a build that lost it or a reader that met
-            // something new, and both are worth reporting rather than hiding.
+            // A manual that will not open should say so rather than showing an empty screen.
             failure = throwable.message ?: throwable.toString()
             emptyList()
         }
@@ -123,8 +115,8 @@ fun ManualView(onClose: () -> Unit, modifier: Modifier = Modifier) {
                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    // The guide builds its own contents list in JavaScript, from the h2s. There is
-                    // no JavaScript here, so the app builds it — off the same headings.
+                    // The guide builds its own contents list in JavaScript; there is none here, so
+                    // the app builds it off the same headings.
                     item { Contents(contentsOf(loaded), jump) }
                     itemsIndexed(loaded) { _, block -> ManualBlockView(block, jump) }
                     item { Box(Modifier.padding(bottom = 24.dp)) {} }
@@ -190,10 +182,7 @@ private fun ManualBlockView(block: ManualBlock, jump: (String) -> Unit) {
     }
 }
 
-/**
- * One `<li>`: its mark in a fixed-width column so the text of every item lines up, and the whole
- * thing pushed right by its depth. The guide's one nested list is the only thing that uses depth.
- */
+/** One `<li>`: its mark in a fixed-width column so the text of every item lines up. */
 @Composable
 private fun ListItemView(item: ManualItem, number: Int?, jump: (String) -> Unit) {
     Row(Modifier.padding(start = (12 + item.depth * 16).dp)) {

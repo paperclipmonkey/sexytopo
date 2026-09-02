@@ -8,9 +8,6 @@ import org.hwyl.sexytopo.shared.model.sketch.Symbol
 /**
  * A cave symbol as something Compose can draw.
  *
- * The shape work is all in `commonMain` — [parseSvgPath] turns the artwork into moves, lines and
- * cubics, arcs included — so this is the short remainder: three cases, one `Path`.
- *
  * The result is in the symbol's own 40-by-40 grid, centred on the origin so that scaling and
  * rotating happen about the middle of the stamp rather than its top-left corner. Callers scale by
  * `size / VIEWPORT` to reach survey metres.
@@ -40,10 +37,7 @@ fun Symbol.toPath(): Path {
     return path
 }
 
-/**
- * Built once and kept, because the canvas repaints on every frame of a drag and re-parsing
- * nineteen symbols' worth of path data each time would be visible on a phone.
- */
+/** Built once and kept: the canvas repaints every frame of a drag, so re-parsing here would show. */
 val symbolPaths: Map<Symbol, Path> by lazy { Symbol.entries.associateWith { it.toPath() } }
 
 /** Sentence case for the palette, from the Therion name the model already carries. */

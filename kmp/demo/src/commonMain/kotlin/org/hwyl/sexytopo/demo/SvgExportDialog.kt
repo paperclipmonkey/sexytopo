@@ -22,24 +22,10 @@ import org.hwyl.sexytopo.shared.io.export.SvgExporter
  * What goes into the drawing that leaves the cave: `dialog_svg_export`, and the settings screen
  * behind it.
  *
- * The Android app puts these in two places at once. `SvgExporter.showOptionsDialog` asks thirteen
- * of them at the moment of export and writes the answers back to the preferences; the other four -
- * the three stroke widths and this port's own *Draw the sketch* - live only on
- * `preferences_export_svg.xml`, a screen reached from the settings menu that nobody exporting a
- * file is looking at. They are one dialog here, on the export screen, because they are one
- * question: what should this file contain. The answers persist either way, so the surveyor who
- * sets them up once at home does not set them again at the entrance.
- *
- * ## Why any of this is worth a screen
- *
- * An SVG is what a survey looks like to everybody who was not on the trip, and what it needs to
- * contain depends entirely on where it is going. A drawing headed for Inkscape to be composed with
- * three other trips wants no legend, no grid and a transparent background, because all of those
- * will be added once at the end over the whole cave. A drawing headed for a club newsletter wants
- * the legend, the scale bar, the north arrow and the surveyors' names, because it is going to be
- * printed on its own. A drawing headed for a landowner wants the centreline gone. Exporting the
- * same file for all three and expecting the recipient to delete what they do not want is how a
- * survey ends up redrawn by hand.
+ * The Android app puts these in two places at once — `SvgExporter.showOptionsDialog` for thirteen
+ * of them, `preferences_export_svg.xml` for the rest — but they are one dialog here, because they
+ * are one question: what should this file contain. The answers persist either way, so the surveyor
+ * who sets them up once at home does not set them again at the entrance.
  */
 @Composable
 fun SvgExportDialog(
@@ -144,11 +130,9 @@ fun SvgExportDialog(
 
                 HorizontalDivider()
 
-                // The strip underneath. Each of the four below is inside the legend, so turning
-                // the legend off takes all of them with it however they are set - which is why
-                // they are disabled rather than hidden when it is off. See the note on
-                // `pref_auto_reconnect_window`: a row that vanishes is a row a surveyor cannot
-                // find again to work out why their setting did nothing.
+                // The strip underneath. Each of the four below is inside the legend, so they are
+                // disabled rather than hidden when it is off: a row that vanishes is a row a
+                // surveyor cannot find again to work out why their setting did nothing.
                 Toggle(
                     title = "Add a legend",
                     detail =

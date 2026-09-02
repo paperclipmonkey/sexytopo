@@ -61,20 +61,16 @@ import org.jetbrains.compose.resources.painterResource
 /**
  * SexyTopo's sketch toolbar: nine columns by two rows of icon buttons on a green panel.
  *
- * This is a deliberate copy of `activity_graph.xml`, down to the order of the buttons and the
- * artwork on them — the icons are the app's own PNGs, carried across as Compose resources. A
- * surveyor who uses SexyTopo should be able to pick up an iPhone running this and already know
- * where everything is; a toolbar redesigned to somebody's taste would have proved nothing except
- * that Compose can draw buttons.
+ * A deliberate copy of `activity_graph.xml`, down to the order of the buttons and the artwork on
+ * them — the icons are the app's own PNGs, carried across as Compose resources.
  *
  * Row one is the eight brush colours and zoom in. Row two is the tools — move, draw, symbol, erase,
  * select — then the drawing menu, undo, redo and zoom out.
  *
  * One of those buttons is drawn but disabled: the symbol tool, which the shared model supports
- * (`SketchTool.SYMBOL`) and this demo has no palette to drive - the app's symbol artwork is SVG in
- * its assets rather than the PNGs the toolbar uses, so it is not carried across. Showing it greyed
- * rather than leaving a gap keeps the layout honest in both directions: the toolbar is the app's,
- * and what the demo cannot do is visible rather than quietly missing.
+ * (`SketchTool.SYMBOL`) but this demo has no palette to drive, since the app's symbol artwork is
+ * SVG rather than the PNGs the toolbar uses. Showing it greyed rather than leaving a gap keeps the
+ * layout honest: the toolbar is the app's, and what the demo cannot do is visible, not missing.
  */
 @Composable
 fun SketchToolbar(
@@ -85,10 +81,8 @@ fun SketchToolbar(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
-    // Read the revision so this toolbar recomposes when the sketch changes. SketchEditor is a
-    // plain object, so `editor.canUndo` is not something Compose can observe: without this line
-    // the undo button stays greyed out after the first stroke, because nothing else the toolbar
-    // reads has changed and it is never asked to draw itself again.
+    // Read the revision so this toolbar recomposes when the sketch changes: SketchEditor is a
+    // plain object, so `editor.canUndo` is not something Compose can observe on its own.
     @Suppress("UNUSED_VARIABLE")
     val revision = state.revision
 
@@ -123,8 +117,7 @@ fun SketchToolbar(
             ToolButton(state, SketchTool.MOVE, painterResource(Res.drawable.move), "Move")
             ToolButton(state, SketchTool.DRAW, painterResource(Res.drawable.pencil), "Draw")
             // The app's own button here is the symbol palette, whose artwork is SVG this port
-            // does not carry. The text tool is the half of it that needs no artwork, and is what a
-            // surveyor reaches for most often anyway: "sump", "boulder choke", "continues".
+            // does not carry. The text tool is the half of it that needs no artwork.
             ToolButton(state, SketchTool.TEXT, painterResource(Res.drawable.text), "Label")
             ToolButton(state, SketchTool.ERASE, painterResource(Res.drawable.eraser), "Erase")
             ToolButton(state, SketchTool.SELECT, painterResource(Res.drawable.select), "Select")
@@ -166,21 +159,14 @@ fun SketchToolbar(
 /**
  * The menu behind the settings button, from `res/menu/drawing.xml`.
  *
- * ## Why it is two things and not one
- *
- * `drawing.xml` is three groups: actions, behaviour toggles, display toggles. This port carries all
- * three *and* the items it reaches from here rather than from a nine-column toolbar with no room
- * left — the symbol palette, the three cross-section gestures, finding a station — which took the
- * single list to eighteen rows. Eighteen rows is a popup the height of a phone: it scrolls on a
- * small one, and a menu you have to scroll to find "show grid" in is one you stop opening.
- *
- * So the twelve toggles moved into a dialog of their own, under the app's own two group names, and
- * what is left here is the seven things that *do* something when tapped. That is the split
- * `drawing.xml` already draws; this port only had to stop ignoring it.
+ * `drawing.xml` is three groups: actions, behaviour toggles, display toggles. Carrying all three
+ * plus the items reached only from here — symbol palette, the three cross-section gestures, finding
+ * a station — pushed a single list to eighteen rows, more than a small phone can show without
+ * scrolling. So the twelve toggles moved into a dialog of their own, and what is left here is the
+ * seven things that *do* something when tapped.
  *
  * `buttonShowConnections` is the one item of that menu still absent, because a neighbouring survey
- * is reached by an absolute `content://` URI — a format decision for upstream rather than a porting
- * one — and a switch that does nothing is worse than no switch.
+ * is reached by an absolute `content://` URI, and a switch that does nothing is worse than no switch.
  */
 @Composable
 private fun DrawingMenu(
@@ -241,10 +227,7 @@ private fun DrawingMenu(
                 onDismiss()
             },
         )
-        // A menu item rather than a tenth button in a nine-column toolbar — and the app puts it in
-        // a menu too, on the station's own long-press menu — which this port now has as well, in
-        // `StationMenu.kt`, though the symbol palette is not on it: a symbol is placed anywhere,
-        // not at a station.
+        // A menu item rather than a tenth button in a nine-column toolbar.
         DropdownMenuItem(
             text = { Text("Symbol…") },
             leadingIcon = { CheckDot(state.tool == SketchTool.SYMBOL) },
@@ -263,9 +246,8 @@ private fun DrawingMenu(
                 onDismiss()
             },
         )
-        // Both halves of "the app's guess was not quite right". The bearing is guessed by
-        // CrossSectioner and the position by whoever tapped, and a section drawn square to the
-        // wrong axis or sitting on top of the passage is worse than a rough one placed by hand.
+        // The bearing is guessed by CrossSectioner and the position by whoever tapped, so each can
+        // need correcting independently.
         DropdownMenuItem(
             text = { Text("Re-aim a cross-section") },
             leadingIcon = { CheckDot(state.tool == SketchTool.ROTATE_CROSS_SECTION) },
@@ -282,9 +264,7 @@ private fun DrawingMenu(
                 onDismiss()
             },
         )
-        // `action_find_station`, from the Android app's tools menu. It is here rather than behind
-        // the three dots because it is a *drawing* action: the answer is a change to what the
-        // canvas is showing.
+        // `action_find_station`, from the Android app's tools menu.
         DropdownMenuItem(
             text = { Text("Find a station…") },
             onClick = {
@@ -292,10 +272,7 @@ private fun DrawingMenu(
                 onDismiss()
             },
         )
-        // `buttonDeleteLastLeg`. The one destructive action a surveyor reaches for often: a shot
-        // taken by accident, or one taken from the wrong station, wants to be gone before the next
-        // one goes in — and going to the table to find it is three taps and a scroll away from
-        // where they are standing.
+        // `buttonDeleteLastLeg`.
         DropdownMenuItem(
             text = { Text("Delete the last leg") },
             onClick = {
@@ -303,9 +280,7 @@ private fun DrawingMenu(
                 onDismiss()
             },
         )
-        // The twelve toggles, one row instead of twelve. Last in the menu because it is the one
-        // row here that opens something rather than doing something, and because everything above
-        // it is what a surveyor with cold hands is actually reaching for.
+        // The twelve toggles, one row instead of twelve.
         DropdownMenuItem(
             text = { Text("What the drawing shows\u2026") },
             onClick = {
@@ -319,14 +294,8 @@ private fun DrawingMenu(
 /**
  * The twelve sketch toggles, in the app's own two groups.
  *
- * A dialog rather than a submenu because a submenu of eight rows has the same problem the parent
- * had, and because these are the settings somebody changes once and leaves: opening them, ticking
- * three, and closing once beats a popup that shuts on every tap.
- *
- * It applies as it goes rather than on a Save button — [ViewToggle.toggle] writes the preferences
- * file — so the drawing behind the dialog changes under the surveyor's finger. That is the point:
- * "show grid" is a question you answer by looking, and a dialog that made you close it first to
- * find out would be asking you to guess.
+ * Applies as it goes rather than on a Save button — [ViewToggle.toggle] writes the preferences file
+ * directly — so the drawing behind the dialog changes live as each switch is flipped.
  */
 @Composable
 private fun DrawingOptionsDialog(state: DemoState, onDismiss: () -> Unit) {
@@ -334,8 +303,6 @@ private fun DrawingOptionsDialog(state: DemoState, onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("What the drawing shows") },
         text = {
-            // Scrolling, because twelve rows and two headings do not fit the height Material gives
-            // a dialog on a small phone, and a dialog that cannot scroll silently clips instead.
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 ToggleSection("Shown", DISPLAY_TOGGLES, state)
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -359,8 +326,7 @@ private fun ToggleSection(heading: String, toggles: List<ViewToggle>, state: Dem
         Row(
             Modifier
                 .fillMaxWidth()
-                // The whole row, not just the switch: a checkbox-sized target is a poor one in a
-                // cave, and the label is the part being aimed at anyway.
+                // The whole row is clickable, not just the switch.
                 .clickable { toggle.toggle(state) }
                 .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -425,9 +391,6 @@ fun ToolbarButton(
             // Square, not full-width: the artwork is square, so a full-width box would centre the
             // glyph inside a wide invisible rectangle - which only shows up when something is
             // drawn around the box, as the selection ring on a colour swatch is.
-            //
-            // Greyed rather than absent: see the note on SketchToolbar about the two tools this
-            // demo cannot drive, and about undo before there is anything to undo.
             modifier = Modifier.fillMaxHeight().aspectRatio(1f).alpha(if (enabled) 1f else 0.35f),
         )
     }
@@ -470,9 +433,8 @@ private fun RowScope.ColourButton(
                     .fillMaxHeight()
                     .aspectRatio(1f)
                     .then(
-                        // The app has no selected state on these; a ring is added because without
-                        // one there is no way at all to tell which colour the brush is holding,
-                        // and on a demo somebody is watching over your shoulder that matters.
+                        // The app has no selected state on these; a ring is added since without
+                        // one there is no way to tell which colour the brush is holding.
                         if (selected) {
                             Modifier.border(
                                 2.dp,

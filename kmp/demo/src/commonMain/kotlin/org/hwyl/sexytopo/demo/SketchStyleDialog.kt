@@ -22,17 +22,7 @@ import org.hwyl.sexytopo.shared.sketch.SketchStyle
  * How big everything on the drawing is drawn: `preferences_sketching.xml`, as its own screen.
  *
  * Its own dialog rather than more rows on *Surveying*, because that is the shape the Android app
- * has — `preferences_main.xml` lists Sketching and Instruments as separate screens — and because
- * the tolerances answer "what counts as the same shot" while these answer "can I read this by head
- * torch", which are questions asked at different moments by different people.
- *
- * ## Why a surveyor touches this at all
- *
- * A plan read on a desk and a plan read at arm's length under a helmet, through a scratched screen,
- * in a dry bag, by a light pointed at the rock rather than the phone, are not the same picture.
- * The defaults are the Android app's, and the Android app's are a compromise; the point of the
- * screen is that the compromise is not the same for everybody, and the person who needs a heavier
- * line needs it at the station rather than at home.
+ * has — `preferences_main.xml` lists Sketching and Instruments as separate screens.
  */
 @Composable
 fun SketchStyleDialog(
@@ -79,9 +69,7 @@ fun SketchStyleDialog(
 
                 HorizontalDivider()
 
-                // `pref_delete_path_fragments`. The engine has done this since the sketch was
-                // ported and nothing ever passed it anything but the default, so the app had the
-                // behaviour and not the choice.
+                // `pref_delete_path_fragments`.
                 Toggle(
                     title = "Rub out part of a line",
                     detail =
@@ -91,8 +79,7 @@ fun SketchStyleDialog(
                     onCheckedChange = { fragments = it },
                 )
 
-                // `pref_legacy_cross_sections`, which this port did not have because it did not
-                // have the frame the setting turns off.
+                // `pref_legacy_cross_sections`.
                 Toggle(
                     title = "Plain cross-sections",
                     detail =
@@ -135,10 +122,8 @@ fun SketchStyleDialog(
 /**
  * The eight typed values as sizes, each falling back to what it was rather than to the default.
  *
- * These are text fields, so every one of them passes through every prefix of a number on the way
- * to one — and through the empty string, when somebody clears the box to retype it. Falling back
- * to the *default* there would quietly reset a surveyor's chosen line width to the app's the
- * moment they touched a different field and pressed Save.
+ * A text field passes through the empty string while being cleared to retype; falling back to the
+ * *default* there would quietly reset a surveyor's chosen value the moment they pressed Save.
  */
 internal fun styleFrom(
     current: SketchStyle,

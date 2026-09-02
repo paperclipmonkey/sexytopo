@@ -17,32 +17,20 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
 /**
  * Bringing a survey in from outside.
  *
- * The mechanism is the same on every platform and needs no file picker: whatever a survey file
- * lands in the app's own storage root gets offered for import. On iOS that is literally drag and
- * drop — `UIFileSharingEnabled` publishes the app's Documents directory to the Files app, so a
- * `.data.json` AirDropped from somebody else, or restored from a backup, appears there and then
- * appears here. Android's external files directory works the same way. The browser has no such
- * folder, so [canPickFiles] platforms put the chosen file into the store root themselves and the
- * rest of this is shared.
+ * Needs no file picker: whatever a survey file lands in the app's own storage root gets offered
+ * for import. On iOS that is drag and drop, via `UIFileSharingEnabled`; the browser has no such
+ * folder, so [canPickFiles] platforms put the chosen file into the store root themselves.
  *
- * Only the root is scanned, not the `surveys/` tree: a folder this app wrote is already a survey
- * and shows up in the library without any of this.
+ * Only the root is scanned, not the `surveys/` tree: a folder this app wrote is already a survey.
  */
 object SurveyImport {
 
-    /**
-     * What the file's extension says it is, or null if this app cannot read it.
-     *
-     * Survex and Therion are here because they are the two formats a caver is actually handed by
-     * somebody else: a club's existing survey of the cave they are about to extend. JSON is this
-     * app's own.
-     */
+    /** What the file's extension says it is, or null if this app cannot read it. */
     internal fun formatOf(fileName: String): SurveyFormat? =
         when {
             fileName.endsWith(".svx", ignoreCase = true) -> SurveyFormat.SURVEX
-            // Therion's own extension. `.th2` is the *drawing*, which this app exports but has no
-            // importer for, so it is deliberately not matched: offering it and then failing to
-            // read it is worse than not offering it.
+            // `.th2` is the *drawing*, which this app exports but has no importer for, so it is
+            // deliberately not matched here.
             fileName.endsWith(".th", ignoreCase = true) -> SurveyFormat.THERION
             else -> null
         }
@@ -50,10 +38,9 @@ object SurveyImport {
     /**
      * The parts of a saved survey that are not the survey: the two sketches and the version stamp.
      *
-     * These have to be recognised so they can be *left out*. A survey this app or the Android app
-     * wrote is four files, and every one of them ends `.json` — so a rule of "any `.json` is a
-     * survey" offered `Swildons.plan.json` as something to import beside `Swildons.data.json`,
-     * where picking it would parse a drawing as a centreline and fail.
+     * These have to be recognised so they can be *left out* — every file in a saved survey ends
+     * `.json`, so a rule of "any `.json` is a survey" also offered `Swildons.plan.json` beside
+     * `Swildons.data.json`, and picking it parsed a drawing as a centreline and failed.
      */
     private val SURVEY_PARTS =
         listOf(
@@ -68,12 +55,7 @@ object SurveyImport {
     private fun isNative(fileName: String) =
         fileName.endsWith(".json", ignoreCase = true) && !isSurveyPart(fileName)
 
-    /**
-     * PocketTopo's text export, which is the only one of these that brings a *drawing* in too.
-     *
-     * Not PocketTopo's own `.top`, which is binary and would need a byte-level [FileStore]; this is
-     * the file its Export menu writes.
-     */
+    /** PocketTopo's text export (its Export menu), the only one of these that brings a drawing too. */
     private fun isPocketTopo(fileName: String) = fileName.endsWith(".txt", ignoreCase = true)
 
     /** PocketTopo's own binary file, which its Save writes rather than its Export. */
@@ -85,14 +67,9 @@ object SurveyImport {
     /**
      * Whether a `.txt` at the root is a PocketTopo export rather than somebody's notes.
      *
-     * The only one of these that is decided by *looking*, and the exception is worth stating: every
-     * other extension here belongs to a survey format and nothing else, whereas `.txt` belongs to
-     * everything. On a phone whose Documents folder is visible in the Files app — which is the whole
-     * mechanism this import uses — offering every text file as a survey would bury the one that is.
-     *
-     * The check is the first non-blank line, which a PocketTopo export always spends on a section
-     * header. Reading a few text files at the storage root is bounded work; parsing them would not
-     * be, which is why nothing else here does it.
+     * The only one of these decided by *looking*: every other extension here belongs to a survey
+     * format and nothing else, whereas `.txt` belongs to everything. The check is the first
+     * non-blank line, which a PocketTopo export always spends on a section header.
      */
     private fun looksLikePocketTopo(store: FileStore, fileName: String): Boolean {
         val text = runCatching { store.readText(listOf(fileName)) }.getOrNull() ?: return false
@@ -103,9 +80,9 @@ object SurveyImport {
     /**
      * Files at the storage root that look like they might be surveys.
      *
-     * Named rather than parsed at this point, because parsing every file in a directory to decide
-     * whether to list it would read the lot on every open of the dialog. A file that turns out not
-     * to be a survey fails at [import], which says so.
+     * Named rather than parsed at this point: parsing every file to decide whether to list it would
+     * read the lot on every open of the dialog. A file that turns out not to be a survey fails at
+     * [import], which says so.
      */
     fun candidates(store: FileStore): List<String> =
         runCatching {
@@ -122,17 +99,10 @@ object SurveyImport {
     /**
      * A whole survey *directory* somebody has put at the root, which is `action_file_import_directory`.
      *
-     * A survey does not usually arrive as a loose file. It arrives as a zip, and unzipping it in
-     * the Files app — or on a desktop, or in a browser's download folder — leaves a folder called
-     * after the cave with the survey's four files inside. Listing only files made that folder
-     * invisible: the app would show an empty import list beside a survey sitting right there.
-     *
-     * [SurveyStorage.isSurveyDirectory] decides, by looking for the `.data.json` named after the
-     * folder — the same test the library itself uses, so a folder this app wrote and a folder the
-     * Android app wrote are the same thing.
-     *
-     * The app's own `surveys/` directory is excluded because everything in it is already in the
-     * library; offering it would invite the surveyor to import what they already have.
+     * A survey often arrives as a zip, and unzipping it leaves a folder with the survey's four
+     * files inside; listing only files made that folder invisible. [SurveyStorage.isSurveyDirectory]
+     * decides, the same test the library itself uses. The app's own `surveys/` directory is
+     * excluded, since everything in it is already in the library.
      */
     private fun isSurveyFolder(store: FileStore, name: String): Boolean =
         name != SURVEYS_ROOT.single() &&
@@ -142,41 +112,36 @@ object SurveyImport {
     /**
      * Reads one, names it something not already taken, and saves it into the library.
      *
-     * The name comes from the file rather than from the survey's own name field, because the field
-     * is what the survey was called on the phone that wrote it and the filename is what the person
-     * who sent it called it — and when they differ, the filename is the one the surveyor just
-     * looked at. That is doubly true of Survex and Therion, whose name comes from a `*begin`
-     * inside the file that a hand-assembled one may not have at all.
+     * The name comes from the file rather than from the survey's own name field: the field is what
+     * the survey was called on the phone that wrote it, and the filename is what the person who
+     * sent it called it — which is the one the surveyor just looked at.
      */
     fun import(library: SurveyLibrary, store: FileStore, fileName: String): Survey? {
         val name = nameFor(fileName)
         val survey =
             if (isSurveyFolder(store, fileName)) {
-                // A folder goes through the loader the library itself uses, which has read all
-                // four files since the day it was written. Nothing here needs to know how.
+                // A folder goes through the loader the library itself uses, which already reads
+                // all four files. Nothing here needs to know how.
                 runCatching { SurveyStorage.load(store, listOf(fileName)) }
                     .onFailure { library.lastError = it.message }
                     .getOrNull()
             } else {
                 // The exception's own message, not the generic one `SurveyLibrary.import` falls
-                // back to below - it is what turns "could not read Cave.svx" into "Error importing
-                // this line: 1 2 3.0 45.0 999.0" for a Survex or Therion file with an illegal
-                // reading in it.
+                // back to below: a Survex or Therion file with an illegal reading in it gets that
+                // reading's own error rather than a generic "could not read" one.
                 runCatching { parse(store, fileName, name) }
                     .onFailure { library.lastError = it.message }
                     .getOrNull()
             } ?: return null
 
         // A loose data file is only ever part of a survey, so the drawings beside it come too —
-        // and if one of them is there and will not parse, the library is told, because a survey
-        // that arrives with an empty plan and no explanation is the same silent loss this whole
-        // area has just been fixed for.
+        // and if one of them is there and will not parse, the library is told rather than silently
+        // importing a survey with an empty plan.
         if (!isSurveyFolder(store, fileName) && isNative(fileName)) {
             library.lastWarning = withSketchesBesideIt(store, fileName, survey)
         }
         // The same idea for a Therion project: the `.th` carries the centreline and the tracing
-        // images beside it carry the two drawings, so importing the one without the others is the
-        // silent loss this app has already been fixed for once, in its own format.
+        // images beside it carry the two drawings.
         if (formatOf(fileName) == SurveyFormat.THERION) {
             library.lastWarning = withTracingsBesideIt(store, fileName, survey)
         }
@@ -184,9 +149,9 @@ object SurveyImport {
         // file that is all `scrap`, say. Importing it would put a survey with no legs in the
         // library and look like success.
         //
-        // A tracing image is the exception, and it took writing this to notice: an `.xvi` has no
-        // centreline in it *by definition*, so the guard would have thrown away every one of them
-        // as empty. It is offered if it brought a drawing, which is the whole of what it holds.
+        // A tracing image is the exception: an `.xvi` has no centreline in it *by definition*, so
+        // the guard would otherwise throw away every one of them as empty. It is offered if it
+        // brought a drawing, which is the whole of what it holds.
         if (survey.origin.onwardLegs.isEmpty() &&
             !(isTracing(fileName) && survey.planSketch.pathDetails.isNotEmpty())
         ) {
@@ -196,12 +161,7 @@ object SurveyImport {
         return if (library.save(survey)) survey else null
     }
 
-    /**
-     * Whichever reader the extension calls for.
-     *
-     * `.top` is the only one that asks the store for bytes; everything else this app imports is
-     * text, which is why [FileStore.readBytes] exists for exactly this line.
-     */
+    /** Whichever reader the extension calls for. `.top` is the only one that asks for raw bytes. */
     private fun parse(store: FileStore, fileName: String, name: String): Survey? {
         if (isPocketTopoBinary(fileName)) {
             val bytes = store.readBytes(listOf(fileName)) ?: return null
@@ -221,15 +181,8 @@ object SurveyImport {
      * The two drawings, if whoever sent the survey sent all of it.
      *
      * A SexyTopo survey is four files — `Name.data.json` and its two sketches, plus a version
-     * stamp — and this importer takes one file at a time, so `SurveyJson.parse` gets the
-     * centreline and the sketches were dropped without a word. That is most of a surveyor's work:
-     * the numbers take a minute a station and the drawing takes the whole trip.
-     *
-     * [SurveyStorage] has read all four for as long as it has existed; it is only the *loose file*
-     * path that did not. So this is the same four files, looked for beside the one that was picked
-     * rather than inside a survey directory — which is where they land when somebody AirDrops a
-     * survey or unzips one into the Files app.
-     *
+     * stamp — and this importer takes one file at a time, so without this the sketches would be
+     * silently dropped. [SurveyStorage] already reads all four; only the *loose file* path did not.
      * A survey sent as its data file alone still imports, with empty sketches, exactly as before.
      */
     private fun withSketchesBesideIt(
@@ -244,17 +197,13 @@ object SurveyImport {
         fun read(type: SurveyFileType, into: (Sketch) -> Unit) {
             val name = type.filenameFor(base)
             val text = runCatching { store.readText(listOf(name)) }.getOrNull() ?: return
-            // Present but unreadable is the case worth reporting. Absent is ordinary — plenty of
-            // surveys are handed over as their data file alone — but a drawing that is *there* and
-            // will not parse means the file somebody sent is damaged, and silently importing a
-            // survey with an empty plan tells them the opposite.
+            // Present but unreadable is worth reporting; absent is ordinary (plenty of surveys are
+            // handed over as their data file alone).
             runCatching { SketchJson.read(text, survey) }
                 .onSuccess {
                     into(it.sketch)
-                    // And the partial case, which is the likelier one. The reader drops a damaged
-                    // stroke rather than the drawing, so a sketch can arrive short without
-                    // arriving empty — and a drawing three strokes short looks exactly like a
-                    // drawing that was drawn three strokes short.
+                    // The reader drops a damaged stroke rather than the whole drawing, so a sketch
+                    // can arrive short without arriving empty.
                     dropped += it.dropped
                 }
                 .onFailure { unreadable += name }
@@ -263,11 +212,8 @@ object SurveyImport {
         read(SurveyFileType.PLAN_SKETCH) { survey.planSketch = it }
         read(SurveyFileType.EXTENDED_ELEVATION_SKETCH) { survey.elevationSketch = it }
 
-        // And the working end. It is in the metadata file rather than the data file when the
-        // survey came from the Android app, which keeps it nowhere else. Not reported when it is
-        // missing or will not parse, unlike the drawings above: a survey that opens at the
-        // entrance of the cave rather than where somebody stopped has lost a convenience, and a
-        // warning about it beside a perfectly good centreline would read as a damaged import.
+        // The working end, from the metadata file. Not reported when missing or unparseable,
+        // unlike the drawings above: losing it is a lost convenience, not a damaged import.
         runCatching { store.readText(listOf(SurveyFileType.METADATA.filenameFor(base))) }
             .getOrNull()
             ?.let { MetadataJson.apply(survey, it) }
@@ -283,17 +229,13 @@ object SurveyImport {
     /**
      * The tracing images beside a Therion file, which is where its drawings live.
      *
-     * A Therion project is a `.th` and a `.th2` scrap per drawing, and the scrap is traced over an
-     * `.xvi` background image. `TherionImporter` in the Android app reads the `.th` for the
-     * centreline and then any `.xvi` beside it for the plan and the extended elevation; this port
-     * read the `.th` and stopped, so a Therion project imported as a bare centreline.
+     * `TherionImporter` in the Android app reads the `.th` for the centreline and then any `.xvi`
+     * beside it for the plan and elevation; this port read the `.th` and stopped.
      *
-     * Files are matched by name rather than by a fixed suffix, because the suffix is the
-     * surveyor's to choose: this app writes `Name.plan.xvi` and `Name.ee.xvi` by default, the
-     * Android app writes `Nameplan` and `Nameee`, and somebody who typed `P` and `EE` into the
-     * Therion settings gets those. So anything called `Name*.xvi` is a tracing of this survey, and
-     * what follows the name decides which drawing it is: ending in `ee` is the elevation and
-     * everything else is the plan, which also lets a lone `Name.xvi` in as the plan.
+     * Files are matched by name rather than a fixed suffix, since the suffix is the surveyor's to
+     * choose (`Name.plan.xvi`, `Nameplan`, or whatever else they typed into the Therion settings):
+     * anything called `Name*.xvi` is a tracing of this survey, and ending in `ee` makes it the
+     * elevation rather than the plan.
      */
     private fun withTracingsBesideIt(
         store: FileStore,

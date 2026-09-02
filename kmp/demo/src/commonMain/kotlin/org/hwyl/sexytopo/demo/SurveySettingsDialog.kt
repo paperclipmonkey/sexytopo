@@ -34,13 +34,11 @@ import org.hwyl.sexytopo.shared.survey.amalgamation.LegAmalgamationAlgorithm
  * How close two readings have to be before the app calls them the same shot.
  *
  * This exists because the defaults assume a DistoX. `maxAngleDelta` is 1.7 degrees, which a laser
- * instrument beats comfortably and a hand-held compass does not come close to — so on a training
- * trip with a compass and tape, three readings of the same leg never agree, nothing is ever
- * promoted to a station, and the survey fills up with splays while the surveyor has no idea why.
- * Every one of these values was already ported and tested; they were simply hard-wired to
- * [SurveySettings.DEFAULT], which made the app usable with one class of instrument only.
+ * instrument beats comfortably and a hand-held compass does not come close to, so on a training
+ * trip with a compass and tape, three readings of the same leg never agree and nothing is ever
+ * promoted to a station.
  *
- * Only the tolerances the selected algorithm actually reads are shown. Offering all four at once
+ * Only the tolerances the selected algorithm actually reads are shown: offering all four at once
  * invites somebody to loosen the one their algorithm ignores and conclude the setting is broken.
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -117,9 +115,7 @@ fun SurveySettingsDialog(
                 HorizontalDivider()
 
                 // `pref_vibrate_on_new_station`, which lives in the Android app's general
-                // preferences. It is here because this port has one settings screen, and because
-                // this is the setting somebody reaches for the moment they take the phone
-                // underground rather than looking at it on a desk.
+                // preferences. It is here because this port has one settings screen.
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Buzz when a station is made", style = MaterialTheme.typography.bodyMedium)
@@ -138,8 +134,7 @@ fun SurveySettingsDialog(
                         enabled = canBuzz(),
                         onCheckedChange = {
                             buzz = it
-                            // Feel it as you turn it on, which is the only way to know the phone
-                            // is actually going to do it.
+                            // Feel it as you turn it on, to know the phone actually will.
                             if (it) buzz()
                         },
                     )
@@ -147,9 +142,8 @@ fun SurveySettingsDialog(
 
                 HorizontalDivider()
 
-                // `pref_hot_corners` and `pref_two_finger_movement`. Both are about the same
-                // problem — moving the drawing while drawing it — so they belong together, and
-                // both keep the Android app's own defaults.
+                // `pref_hot_corners` and `pref_two_finger_movement`, both about the same problem:
+                // moving the drawing while drawing it.
                 Toggle(
                     title = "Corners pan the sketch",
                     detail =
@@ -170,9 +164,7 @@ fun SurveySettingsDialog(
 
                 HorizontalDivider()
 
-                // `pref_auto_reconnect` and `pref_auto_reconnect_window`, which the Android app
-                // keeps on this same preference screen — `preferences_instruments.xml`, below the
-                // tolerances — so this is where they belong here too.
+                // `pref_auto_reconnect` and `pref_auto_reconnect_window`.
                 Toggle(
                     title = "Chase a lost instrument",
                     detail =
@@ -183,13 +175,9 @@ fun SurveySettingsDialog(
                     onCheckedChange = { autoReconnect = it },
                 )
 
-                // Greyed out while the switch above is off, rather than hidden — which is what
-                // `android:dependency` actually does: `Preference.setDependency` *disables* the
-                // dependent, it does not remove it. Hiding it was both less faithful and worse
-                // here for a reason worth writing down: a dialog that changes height when you
-                // touch a control in it moves every other control in it, and `field.mjs` finds
-                // these by measurement. A check that turned this on and then failed to turn it
-                // off again passed anyway, because it only asserted the turning on.
+                // Greyed out while the switch above is off, rather than hidden - see the note on
+                // [Toggle]. It also keeps the dialog's height constant, which `field.mjs` relies
+                // on to find controls by measurement.
                 NumberField(
                     reconnectWindow,
                     { reconnectWindow = it },
@@ -205,9 +193,7 @@ fun SurveySettingsDialog(
 
                 HorizontalDivider()
 
-                // `pref_developer_mode`, which upstream declares, gives a screen of its own, and
-                // reads nowhere. Here it is one diagnostic, for the one situation that is
-                // otherwise undiagnosable underground — see `SurveySession.traceFrames`.
+                // `pref_developer_mode`. Here it is one diagnostic — see `SurveySession.traceFrames`.
                 Toggle(
                     title = "Log every frame from the instrument",
                     detail =
@@ -260,11 +246,7 @@ internal fun preferencesFrom(
     hotCorners: Boolean,
     twoFingerMove: Boolean,
     autoReconnect: Boolean,
-    /**
-     * As typed. Rubbish keeps the value that was there rather than resetting it to the default —
-     * a half-typed number should not be able to change a setting the surveyor was not editing,
-     * and the field is only on screen at all while the toggle above it is on.
-     */
+    /** As typed. Rubbish keeps the value that was there rather than resetting to the default. */
     autoReconnectWindow: String,
     developerMode: Boolean,
 ): AppPreferences =
@@ -282,10 +264,8 @@ internal fun preferencesFrom(
 /**
  * A labelled switch with a line of explanation, as the settings rows above it already are.
  *
- * [enabled] greys the row out rather than removing it, which is what `android:dependency` does on
- * an Android preference screen and is the right behaviour for the same reason: a setting that
- * disappears when its parent is turned off is a setting the surveyor cannot find again to work out
- * why it did nothing. It also keeps the dialog one height, which the browser checks rely on.
+ * [enabled] greys the row out rather than removing it: a setting that disappears when its parent
+ * is turned off is a setting the surveyor cannot find again to work out why it did nothing.
  */
 @Composable
 internal fun Toggle(

@@ -13,19 +13,9 @@ import androidx.compose.ui.unit.dp
 /**
  * The tick beside a checked menu item, drawn rather than typed.
  *
- * It used to be the character "✓", and every one of them rendered as a missing-glyph box. The app
- * bundles Liberation Sans — it has to, because Skia ships no system fonts on the web and text
- * would otherwise not draw at all — and Liberation Sans has no Dingbats block. So every checkable
- * item in every menu showed the same small empty square whether it was on or off, which is a
- * strange way to build a menu of toggles.
- *
- * A drawn dot cannot have that problem on any platform or in any font.
- *
- * The rule this incident produced — distrust any glyph outside Latin-1 — was the wrong lesson, and
- * it cost the About box its bullets and the submenu rows their chevrons before anyone checked it.
- * Liberation Sans has 2388 characters and most of the punctuation a UI wants. `FontCoverageTest`
- * asks Skia which, so the marks that are drawn and the marks that are typed are each justified by
- * a test rather than by this anecdote.
+ * A prior version used the character "✓", which rendered as a missing-glyph box: the app bundles
+ * Liberation Sans (Skia ships no system fonts on the web) and that font has no Dingbats block. A
+ * drawn dot has no such font dependency.
  */
 @Composable
 fun CheckDot(checked: Boolean) {

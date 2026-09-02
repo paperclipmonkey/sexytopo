@@ -36,18 +36,14 @@ import kotlin.time.TimeSource
 /**
  * A live surveying session: readings arrive from an instrument, are decoded, and build the survey.
  *
- * This is the whole point of the app, and every layer it touches is the real ported code — the
- * decoders are the Android drivers' own, translated byte for byte, and [SurveyUpdater] applies the
- * real triple-shot promotion rule.
+ * Every layer it touches is the real ported code — the decoders are the Android drivers' own,
+ * translated byte for byte, and [SurveyUpdater] applies the real triple-shot promotion rule.
  *
- * The radio is now the only thing that varies. A [SimulatedInstrument] emitting genuine classic
- * DistoX packets and a CoreBluetooth or Web Bluetooth link to a real one both arrive here as an
+ * The radio is the only thing that varies. A [SimulatedInstrument] emitting genuine classic DistoX
+ * packets and a CoreBluetooth or Web Bluetooth link to a real one both arrive here as an
  * [InstrumentTransport] and a matching [InstrumentDecoder], and nothing below this line can tell
- * them apart. That is deliberate: the simulated path is exercised on every push, so the shared
- * half of the real one is too.
- *
- * Three mutually-agreeing readings promote to a new station, exactly as underground: a surveyor
- * shoots the same leg three times and the app decides they are the same shot.
+ * them apart: the simulated path is exercised on every push, so the shared half of the real one is
+ * too.
  */
 class SurveySession(
     val survey: Survey,
@@ -74,23 +70,16 @@ class SurveySession(
      * `pref_max_distance_delta`/`pref_max_angle_delta` and the repeat count for a new station.
      *
      * A `var` rather than the constructor-only `val` this began as, because `DemoState` can open a
-     * settings dialog on a session that already exists. The Java has no session object at all —
-     * `AngularAmalgamator` and `LegAmalgamationAlgorithm` read `GeneralPreferences` fresh on every
-     * call, so a change there is live on the very next shot. A constructor-only value here made a
-     * changed setting apply to the *next* survey opened and never to the one in progress, which
-     * for the surveyor holding the instrument is the same as it not applying at all: every reading
-     * from an instrument or the simulator was silently checked against [SurveySettings.DEFAULT]
-     * forever, whatever the dialog showed or the library had saved. `DemoState.updateSettings`
-     * pushes here the same way `updatePreferences` already pushes [autoReconnect] and
-     * [traceFrames] onto a live session.
+     * settings dialog on a session that already exists. A constructor-only value here made a
+     * changed setting apply to the *next* survey opened and never to the one in progress: every
+     * reading from an instrument or the simulator was silently checked against
+     * [SurveySettings.DEFAULT] forever, whatever the dialog showed or the library had saved.
      */
     var settings: SurveySettings = initialSettings
 
     /**
      * Whether to chase a lost instrument, and for how long. Kept current by [DemoState].
-     *
-     * `pref_auto_reconnect` and `pref_auto_reconnect_window`; see [ReconnectionPolicy] for what a
-     * cave does to a Bluetooth link and why this is worth having.
+     * `pref_auto_reconnect` and `pref_auto_reconnect_window`; see [ReconnectionPolicy].
      */
     var autoReconnect by mutableStateOf(AutoReconnect())
 
@@ -127,11 +116,6 @@ class SurveySession(
      * Null until an instrument reports a problem, and null again the moment a reading arrives -
      * because a refusal that has been superseded by a good shot is history, and a banner about it
      * left on screen is worse than none. Everything that ever went wrong is still in [log].
-     *
-     * The reason this exists at all is what a refused BRIC shot looks like from the outside: two
-     * beeps, high then low, and nothing on the phone. Until this, the *only* place the instrument's
-     * side of that was written down was the log, four taps away behind the overflow menu, in the
-     * instrument's own vocabulary.
      */
     var trouble by mutableStateOf<ShotTrouble?>(null)
         private set
@@ -143,13 +127,11 @@ class SurveySession(
      * The instrument's own numbers for the codes it last refused on, newest value per code.
      *
      * A BRIC sends two floats with every error and this app used to drop both. They are the same
-     * numbers the instrument prints on its own screen - `Mag1 Low: 0.8235` - and they are the only
-     * thing on offer that *moves* while the surveyor does: walking away from a steel wall changes
-     * them, and a code that says "magnetometer 1 high magnitude" every time does not.
+     * numbers the instrument prints on its own screen - `Mag1 Low: 0.8235` - and are the only thing
+     * on offer that *moves* while the surveyor does, unlike the error code itself.
      *
-     * Shown as the instrument sent them and labelled as the instrument's, because this port does
-     * not know what scale they are on. Guessing at that in the UI would be inventing a fact; a
-     * surveyor with the instrument in their hand can compare the two screens and see.
+     * Shown as the instrument sent them rather than converted, because this port does not know
+     * what scale they are on.
      */
     var troubleDetail by mutableStateOf<String?>(null)
         private set
@@ -160,27 +142,16 @@ class SurveySession(
     /**
      * Write every frame to the log as it arrives, decoded or not. `pref_developer_mode`.
      *
-     * Upstream has that key, a preference screen of its own to set it on, and a getter nothing
-     * calls — a checkbox that does nothing at all (finding 64). This is what it does here, and it
-     * exists for one situation that is otherwise undiagnosable in a cave: **the instrument is
-     * shooting and the app is recording nothing.**
-     *
-     * Without it that looks the same from the outside as a radio that never connected, because a
-     * frame which decodes to no packets is logged nowhere — there is no line for "something
-     * arrived and meant nothing". Which of those two it is decides everything about what to try
-     * next, and it cannot be worked out afterwards from a survey with no legs in it.
-     *
-     * Off by default, because the log is a hundred lines and a surveyor reading it wants the
-     * sentences rather than the hex.
+     * Exists for one situation that is otherwise undiagnosable in a cave: **the instrument is
+     * shooting and the app is recording nothing.** Without it that looks the same from the outside
+     * as a radio that never connected, because a frame which decodes to no packets is logged
+     * nowhere. Off by default, because the log is a hundred lines and a surveyor reading it wants
+     * the sentences rather than the hex.
      */
     var traceFrames by mutableStateOf(false)
 
     /**
      * Everything the instrument has done, oldest first, bounded at a hundred lines.
-     *
-     * The real `Log.LogType.DEVICE`, not a summary of it. The instrument dialog shows the last few;
-     * the log screen shows the lot, and can copy them, because the moment this matters is the one
-     * where a DistoX will not pair in a cave and there is no console, no cable and no signal.
      *
      * `logRevision` exists because [ActivityLog] is a plain class rather than Compose state:
      * mutating it changes nothing Compose is watching, so the counter is what recomposes.
@@ -198,12 +169,9 @@ class SurveySession(
     // -------------------------------------------------------------------------------------
 
     /**
-     * The readings taken since calibration was started.
-     *
-     * A calibration is a run of 56 shots taken with the instrument pointed and rolled in a
-     * prescribed set of positions, which the solver fits sensor corrections to. Kept here rather
-     * than in the survey because it belongs to the *instrument*: one calibration serves every
-     * survey that instrument takes afterwards.
+     * The readings taken since calibration was started: 56 shots pointed and rolled in a
+     * prescribed set of positions. Kept here rather than in the survey because it belongs to the
+     * *instrument*: one calibration serves every survey that instrument takes afterwards.
      */
     val calibration = CalibrationRun()
 
@@ -215,12 +183,6 @@ class SurveySession(
     var calibrationRevision by mutableIntStateOf(0)
         private set
 
-    /**
-     * Put the instrument into calibration mode.
-     *
-     * @return false if this instrument has no calibration commands — FCL exposes none — so the
-     *   screen can say so rather than appearing to work.
-     */
     /**
      * Whether this instrument can be put into calibration mode at all.
      *
@@ -274,13 +236,11 @@ class SurveySession(
     /**
      * Have the simulated instrument send the next reading of a real 56-shot calibration.
      *
-     * The demo equivalent of pressing the instrument's button while it is in calibration mode, and
-     * the only way to drive this screen without hardware. The readings are genuine — one of the
-     * datasets the solver is tested against — so working through all 56 produces the fit that
-     * dataset is known to produce, rather than one that never settles.
+     * The demo equivalent of pressing the instrument's button while it is in calibration mode. The
+     * readings are genuine — one of the datasets the solver is tested against — so working through
+     * all 56 produces the fit that dataset is known to produce, rather than one that never settles.
      *
-     * @return false when the 56 are used up, or when a real instrument is attached: this is a
-     *   button for the simulator, and pressing it with a DistoX connected would be pretending.
+     * @return false when the 56 are used up, or when a real instrument is attached.
      */
     fun simulateCalibrationReading(): Boolean {
         if (transport !== simulator) return false
@@ -304,10 +264,7 @@ class SurveySession(
 
     /**
      * The bytes that carry [command] to whichever instrument is attached, or null if it has no
-     * such command.
-     *
-     * The single command byte is the same everywhere — the DistoX defined the vocabulary and the
-     * clones adopted it — but how it is wrapped is not, which is what the profile knows.
+     * such command. The single command byte is the same everywhere, but how it is wrapped is not.
      */
     private fun commandFor(command: InstrumentCommand): ByteArray? =
         decoder.encodeCommand(command)
@@ -341,20 +298,11 @@ class SurveySession(
              * Every byte from a radio arrives here, and none of it is under anybody's control.
              *
              * Wrapped, because this is the one place in the app where *foreign data on the main
-             * thread* meets code that can throw. A decoder's guards are written against the
-             * protocol as documented, and the instruments this port has never met are exactly the
-             * ones likely to send something the documentation does not cover — a truncated
-             * notification, a firmware revision with an extra field, a device whose advertised
-             * name matched a profile it does not really speak. Every one of those is a Kotlin
-             * exception raised inside a Bluetooth callback, which on iOS takes the app with it.
-             *
-             * Losing the app is not losing a packet. The survey is written on every change, so a
-             * crash costs at most the shot in flight — but it also costs the connection, the
-             * screen, and a surveyor's confidence in the thing holding their trip, in a cave,
-             * with cold hands. A line in the log costs a re-shoot.
-             *
+             * thread* meets code that can throw: an instrument sending something the decoder's
+             * guards do not cover — a truncated notification, an unexpected firmware field — raises
+             * a Kotlin exception inside a Bluetooth callback, which on iOS takes the app with it.
              * Deliberately not silent: it goes to the log the surveyor can already read and copy
-             * off the phone, which is the whole reason that log exists. See finding 56.
+             * off the phone.
              */
             override fun onFrame(channel: FrameChannel, bytes: ByteArray) {
                 runCatching { readFrame(channel, bytes) }
@@ -387,14 +335,10 @@ class SurveySession(
 
                 for (packet in packets) {
                     if (packet !is InstrumentPacket.DeviceFailure) continue
-                    // Both slots go to the log; only the first is toasted upstream, which is what
-                    // `showToUser` carries. The *cause* is collected from both, because the two
-                    // halves of a refusal are usually a distrusted sensor and the calculation
-                    // that depended on it, and it is the sensor that says what to do.
+                    // Only the first failure is toasted upstream (`showToUser`), but the numbers go
+                    // in the log line regardless, since a record of *which* readings were refused is
+                    // worth more than a record that some were.
                     val numbers = "${formatFixed(packet.data1, 4)}, ${formatFixed(packet.data2, 4)}"
-                    // The numbers go in the log line too. The log is the thing a surveyor copies
-                    // off the phone and sends to somebody, and a record of *which* readings were
-                    // refused is worth more than a record that some were.
                     if (packet.showToUser) note("instrument: ${packet.description} ($numbers)")
                     troublesSinceAReading += ShotTrouble.ofBric(packet.code)
                     trouble = ShotTrouble.worstOf(troublesSinceAReading)
@@ -442,10 +386,8 @@ class SurveySession(
     /**
      * Files the calibration readings that arrive while calibrating.
      *
-     * The pairing of a classic DistoX's two frames happens in the decoder, where the Android app
-     * does it too — `DistoXCalibrationDecoder`, which also treats a repeated half as a lost
-     * acknowledgement rather than as an error. A DistoX-BLE sends both halves in one notification
-     * and needs none of that. Either way one reading arrives here.
+     * The pairing of a classic DistoX's two frames happens in the decoder; a DistoX-BLE sends both
+     * halves in one notification and needs none of that. Either way one reading arrives here.
      */
     private fun collectCalibration(packets: List<InstrumentPacket>) {
         for (packet in packets) {
@@ -477,8 +419,8 @@ class SurveySession(
     /**
      * A link has gone. Chase it, give up on it, or leave it alone.
      *
-     * Never for the simulator, which cannot drop and would only be theatre — and would fire on
-     * every switch away from it, since [attach] disconnects the old transport on the way out.
+     * Never for the simulator: it cannot drop, and would otherwise fire on every switch away from
+     * it, since [attach] disconnects the old transport on the way out.
      */
     private fun considerReconnecting() {
         val instrument = profile ?: return
@@ -492,10 +434,8 @@ class SurveySession(
     }
 
     /**
-     * Attaches a real instrument, replacing whatever was attached before.
-     *
-     * Returns false when the platform has no radio, which is not an error to report as a failure:
-     * the connection screen says why in words instead.
+     * Attaches a real instrument, replacing whatever was attached before. Returns false when the
+     * platform has no radio, which is not an error: the connection screen says why in words.
      */
     fun useInstrument(profile: InstrumentProfile): Boolean {
         val transport = platformTransportFor(profile) ?: return false
@@ -508,11 +448,8 @@ class SurveySession(
     fun useSimulator() = attach(simulator, InstrumentDecoder.classicDistoX(), null)
 
     /**
-     * Attaches a transport directly.
-     *
-     * Exists for tests: [useInstrument] goes through [platformTransportFor], which on every target
-     * a test can run on returns null, so there would otherwise be no way to exercise the half of
-     * this that a cave exercises.
+     * Attaches a transport directly. Exists for tests: [useInstrument] goes through
+     * [platformTransportFor], which on every target a test can run on returns null.
      */
     internal fun attachForTest(
         transport: InstrumentTransport,
@@ -542,20 +479,12 @@ class SurveySession(
     }
 
     /**
-     * Lets a connection attempt time out.
-     *
-     * [org.hwyl.sexytopo.shared.comms.GattSession] holds the timeout policy and has no clock, and
-     * the transports deliberately schedule no timer of their own — an unbalanced one keeps the
-     * radio awake, which is worse than the failure it fixes. So the host calls this while the
-     * connection screen is open, which is also the only time anybody is waiting.
-     */
-    /**
      * Let time pass: age out a connection attempt, and perform a retry that has come due.
      *
-     * Driven from [App] whenever an instrument is attached, rather than from the connection dialog
-     * as it used to be. That was the whole reason none of this could work: a surveyor waiting for
-     * an instrument to come back is *drawing*, not sitting on the connection screen, and a clock
-     * that only runs while a dialog is open is a clock that never runs when it is needed.
+     * Driven from [App] whenever an instrument is attached, rather than from the connection dialog:
+     * a surveyor waiting for an instrument to come back is *drawing*, not sitting on the connection
+     * screen, and a clock that only runs while a dialog is open is a clock that never runs when it
+     * is needed.
      */
     fun tick() {
         // Wrapped for the same reason [InstrumentTransportListener.onFrame] is: this drives the
@@ -582,19 +511,15 @@ class SurveySession(
     }
 
     /**
-     * Called when three readings promote to a station.
-     *
-     * `NewStationNotificationService` in the Android app, which listens for the same event and
-     * vibrates. A callback rather than a broadcast, and set by the app rather than by the session,
-     * because whether it buzzes is a preference and preferences are not this class's business.
+     * Called when three readings promote to a station. A callback rather than a broadcast, and set
+     * by the app rather than by the session, because whether it buzzes is a preference.
      */
     var onStationCreated: (() -> Unit)? = null
 
     /**
-     * Called after every log line, so the app can write the log out.
-     *
-     * Saved as it happens rather than on the way out: the crash, the freeze and the battery dying
-     * are exactly the cases the log is for, and none of them run any tidy-up code.
+     * Called after every log line, so the app can write the log out. Saved as it happens rather
+     * than on the way out: the crash, the freeze and the battery dying are exactly the cases the
+     * log is for, and none of them run any tidy-up code.
      */
     var onLogged: (() -> Unit)? = null
 
@@ -602,14 +527,9 @@ class SurveySession(
         "${oneDp(leg.distance)}m  ${oneDp(leg.azimuth)}°  ${oneDp(leg.inclination)}°"
 
     /**
-     * Logs the extra telemetry FCL rides along with a shot, mirroring the two log lines
-     * `FCLCommunicator.enhancedLegCallback` always writes: the quality/battery/roll summary, then
-     * the retake recommendation when quality drops below half.
-     *
-     * The classic DistoX and every other supported instrument leave [detail] at
-     * [ShotDetail.NONE], so this is silent for them. FCL's own low-battery, temperature and
-     * interference *warnings* are firmware bits this port never receives — only the values behind
-     * them do — so they are not reproduced here rather than guessed at with an invented threshold.
+     * Logs the extra telemetry FCL rides along with a shot: the quality/battery/roll summary, then
+     * the retake recommendation when quality drops below half. The classic DistoX and every other
+     * supported instrument leave [detail] at [ShotDetail.NONE], so this is silent for them.
      */
     private fun noteTelemetry(detail: ShotDetail) {
         val quality = detail.shotQuality ?: return
@@ -629,9 +549,8 @@ class SurveySession(
 
         /**
          * How a surveyor actually works: each leg is shot three times, with the small
-         * disagreement between readings that real instruments produce. The jitter is kept inside
-         * [SurveySettings] tolerances so the triple promotes; widen it and the readings stay
-         * splays, which is also the correct behaviour.
+         * disagreement between readings that real instruments produce, kept inside
+         * [SurveySettings] tolerances so the triple promotes.
          */
         fun fieldScript(): List<Leg> {
             val legs =
@@ -658,11 +577,9 @@ class SurveySession(
         }
 
         /**
-         * Enough to see a pattern, few enough to read at arm's length by head torch.
-         *
-         * Four codes covers the commonest refusal - two magnetometers, an accelerometer and the
-         * azimuth calculation that failed because of them - which is exactly the run this was
-         * written for.
+         * Enough to see a pattern, few enough to read at arm's length by head torch: four codes
+         * covers the commonest refusal - two magnetometers, an accelerometer, and the azimuth
+         * calculation that failed because of them.
          */
         private const val MOST_NUMBERS_WORTH_SHOWING = 4
     }

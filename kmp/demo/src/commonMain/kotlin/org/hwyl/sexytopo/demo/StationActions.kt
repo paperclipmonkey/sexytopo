@@ -33,16 +33,10 @@ import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 /**
  * Naming a station, and saying what is there.
  *
- * Stations arrive as "1", "2", "3" and that is fine for a straight passage. It stops being fine at
- * the first junction: a surveyor writes "sump" or "AV12" in their notebook, and a survey where that
- * name exists only on paper is one that cannot be tied to the next trip's. The comment is the same
- * argument a sentence later — "continues, too tight for me" is the difference between a lead
- * somebody goes back for and one nobody remembers.
- *
- * The extended-elevation direction is here because it belongs to a station and nowhere else. In an
- * extended elevation the passage is unrolled onto a line, and at a junction the surveyor has to say
- * which way the branch unrolls; SexyTopo's own UI puts that choice on the station for exactly this
- * reason. It propagates onward from here, so setting it on the junction sets it for the branch.
+ * The extended-elevation direction is here because it belongs to a station and nowhere else: in an
+ * extended elevation the passage unrolls onto a line, and at a junction the surveyor says which way
+ * the branch unrolls. It propagates onward from here, so setting it on a junction sets it for the
+ * whole branch.
  */
 @Composable
 fun StationActionsDialog(
@@ -64,13 +58,10 @@ fun StationActionsDialog(
         onDismissRequest = onDismiss,
         title = { Text("Station ${station.name}") },
         text = {
-                // Scrollable because this dialog is the tallest in the app — a name, a
-                // comment, four passage measurements and the elevation direction — and it is
-                // opened with the keyboard up, which on a phone takes a third of the screen. A
-                // Compose dialog that does not fit is clipped, and what gets clipped off the
-                // bottom of this one is Save. Nothing here can catch that: the browser these
-                // checks run in is 900 pixels tall and has no keyboard. A scroll container that
-                // fits reports the height of its content, so this changes nothing where it does.
+                // Scrollable because this dialog is the tallest in the app - a name, a comment,
+                // four passage measurements and the elevation direction - and it opens with the
+                // keyboard up, taking a third of a phone screen. A scroll container that fits
+                // reports the height of its content, so this changes nothing where it doesn't.
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -152,11 +143,9 @@ fun StationActionsDialog(
  * Why the typed name cannot be used, or null if it can.
  *
  * The uniqueness check is deliberately made here rather than left to
- * [SurveyUpdater.renameStation], which throws — a surveyor who types a name that is already taken
- * should be told, not crashed at. It is also made on the *sanitised* name: [Station] strips
- * newlines when storing one, and the ported `renameStation` checks the raw string, so a name that
- * differs from an existing one only by a newline passes its check and then collides. Checking what
- * will actually be stored closes that off without changing the ported behaviour underneath.
+ * [SurveyUpdater.renameStation], which throws. It is also made on the *sanitised* name: [Station]
+ * strips newlines when storing one, but the ported `renameStation` checks the raw string, so a
+ * name differing from an existing one only by a newline would pass its check and then collide.
  */
 internal fun renameProblem(survey: Survey, station: Station, typed: String): String? {
     val wanted = sanitiseStationName(typed)
@@ -171,23 +160,21 @@ internal fun renameProblem(survey: Survey, station: Station, typed: String): Str
 /**
  * Characters that would make the survey files this app writes unreadable.
  *
- * `Station` strips only newlines, faithfully to the Java, and the Android app's rename form checks
- * only that a name is not blank, not `-`, and unique. So *sump 2* is accepted there — and the
- * Survex exporter writes station names into whitespace-separated columns, so that leg comes out as
+ * The Android app's rename form only checks that a name is not blank, not `-`, and unique, so
+ * *sump 2* is accepted there — and the Survex exporter writes station names into
+ * whitespace-separated columns, so that leg comes out as
  *
  * ```
  * 1	sump 2	5.000	10.00	0.00
  * ```
  *
  * which is six fields where `*data normal from to tape compass clino` wants five. Survex will not
- * read it. A semicolon is worse than a space: it begins a comment in Survex, so everything after it
- * — the whole reading — is thrown away silently. Therion separates its columns the same way.
+ * read it. A semicolon is worse than a space: it begins a comment in Survex, so the whole reading
+ * is thrown away silently. Therion separates its columns the same way.
  *
- * This is the one place the divergence is worth it. The *model* still keeps whatever it is given,
- * so a survey imported from Android with a name like that is unchanged and still exports as
- * badly — this app cannot fix somebody else's file by refusing to open it. What it can do is stop
- * making the problem, and say why rather than silently substituting a character, because a station
- * quietly renamed on export is a station nobody can match back to their notes.
+ * The *model* still keeps whatever it is given, so a survey imported from Android with a name like
+ * that is unchanged and still exports as badly — this app cannot fix somebody else's file by
+ * refusing to open it. What it can do is stop making the problem going forward.
  */
 private fun exportProblem(wanted: String): String? =
     when {
@@ -203,16 +190,11 @@ private fun exportProblem(wanted: String): String? =
 /**
  * What is wrong with a name typed for a station that does not exist yet, or null.
  *
- * The other door into the same room as [renameProblem], and it was standing open: *Add a leg* lets
- * a surveyor name the far station, and without this a leg to `sump 2` would be accepted and then
- * break every Survex and Therion export the survey ever produced — which is finding 63 exactly,
- * one dialog along.
- *
- * Two of [renameProblem]'s three rules do not apply here, and both differences are deliberate. A
- * blank name is fine: it means "call it whatever you would have called it", which is what the box
- * is pre-filled with. And a name already in the survey is *not* refused, because
- * `advanceNumberIfNotUnique` moves it on — `2` becomes `3` — which is what upstream does with a
- * typed name and is better than losing a reading somebody has just taken.
+ * The other door into the same room as [renameProblem]: *Add a leg* lets a surveyor name the far
+ * station. Two of [renameProblem]'s three rules do not apply here: a blank name is fine (it means
+ * "call it whatever you would have called it"), and a name already in the survey is *not* refused,
+ * because `advanceNumberIfNotUnique` moves it on — `2` becomes `3` — rather than losing a reading
+ * somebody has just taken.
  */
 internal fun newStationNameProblem(typed: String): String? {
     val wanted = sanitiseStationName(typed)
@@ -237,19 +219,10 @@ internal fun applyStationEdit(
         SurveyUpdater.renameStation(survey, station, wanted)
     }
     station.comment = comment
-    // Through SurveyUpdater rather than by assignment, and only when it actually changed - which
-    // is what `SurveyEditorActivity.setDirection` does, guard and all.
-    //
-    // The difference is the whole meaning of the setting. An extended elevation unrolls the cave
-    // onto a line, and at a junction the surveyor is saying which way *the passage beyond here*
-    // is drawn - so LEFT and RIGHT carry down the subtree (`ExtendedElevationDirection.propagates`
-    // says so in the model, and `setExtendedElevationDirectionOfSubtree` is what acts on it).
-    // Assigning the field sent one leg the other way and left everything past the junction going
-    // as it was: a drawing that is wrong and does not look wrong, which is the worst kind for a
-    // survey nobody will re-walk.
-    //
-    // The guard matters too. Re-flooding the subtree every time somebody edited a comment would
-    // undo a branch that had been sent the other way earlier in the trip.
+    // Through SurveyUpdater rather than by assignment: LEFT and RIGHT carry down the whole subtree
+    // (`ExtendedElevationDirection.propagates`), so assigning the field directly would leave
+    // everything past the junction going as it was - a drawing that is wrong and does not look
+    // wrong. The guard avoids re-flooding the subtree on every unrelated edit.
     if (station.extendedElevationDirection != direction) {
         SurveyUpdater.setExtendedElevationDirection(survey, station, direction)
     }
@@ -259,18 +232,11 @@ internal fun applyStationEdit(
 /**
  * Turns typed passage dimensions into splays.
  *
- * The traditional way of recording passage size when there is a tape and no instrument: four
- * numbers per station rather than four full compass-and-clino shots, with the app inventing the
- * directions. Left and right go square to whichever bearing [mode] names — [LrudMode.SURVEY] by
- * default, which bisects the corner at a bend and is what most cavers mean by a left-hand wall
- * measurement — while up and down are vertical.
+ * Left and right go square to whichever bearing [mode] names — [LrudMode.SURVEY] by default, which
+ * bisects the corner at a bend — while up and down are vertical.
  *
- * They become ordinary splays, which is what makes cross-sections and the exporters' passage
- * dimensions work on a hand-booked survey exactly as on an instrument-fed one.
- *
- * A blank or unreadable field adds nothing, and a zero is skipped too: [Leg] rejects a
- * non-positive distance by throwing, and "0" is what somebody types for a wall they are standing
- * against.
+ * A blank or unreadable field adds nothing, and a zero is skipped too: [Leg] rejects a non-positive
+ * distance by throwing, and "0" is what somebody types for a wall they are standing against.
  */
 internal fun addLruds(
     survey: Survey,

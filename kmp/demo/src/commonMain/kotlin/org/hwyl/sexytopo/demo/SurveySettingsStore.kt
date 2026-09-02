@@ -11,10 +11,6 @@ import org.hwyl.sexytopo.shared.survey.amalgamation.LegAmalgamationAlgorithm
  * serialisation library and six numbers do not justify adding one. Unknown keys are ignored and
  * unparseable values fall back to the default, so a file written by a later version still loads
  * and a corrupted one degrades to the app's out-of-the-box behaviour rather than refusing to start.
- *
- * These are worth persisting rather than resetting each run for a specific reason: a surveyor sets
- * them once, at the entrance, to match the instrument they brought. Losing them when the phone dies
- * would mean discovering at the next station that nothing promotes any more.
  */
 object SurveySettingsStore {
 

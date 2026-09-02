@@ -15,8 +15,7 @@ import org.hwyl.sexytopo.shared.survey.SurveySettings
  * Somewhere for surveys to live that outlasts the app being closed.
  *
  * The shared [SurveyStorage] does all the work; this only says *where*. On the web that is the
- * browser's own storage, which is what makes the app usable in a cave: an installed web app with
- * no signal can still open, record and keep a survey.
+ * browser's own storage, so an installed web app with no signal can still open and keep a survey.
  */
 expect fun platformFileStore(): FileStore
 
@@ -26,10 +25,9 @@ val SURVEYS_ROOT = listOf("surveys")
 /**
  * Saving and reopening surveys, wrapped so callers never have to think about paths.
  *
- * Failure is swallowed deliberately. Browser storage can be full, disabled, or unavailable in a
- * private window, and none of those should take the app down mid-survey — a surveyor who cannot
- * save still needs the screen they are drawing on. [lastError] carries the reason so the UI can
- * say so quietly.
+ * Failure is swallowed deliberately: browser storage can be full, disabled, or unavailable in a
+ * private window, and none of those should take the app down mid-survey. [lastError] carries the
+ * reason so the UI can say so quietly.
  */
 class SurveyLibrary(private val store: FileStore = platformFileStore()) {
 
@@ -41,10 +39,7 @@ class SurveyLibrary(private val store: FileStore = platformFileStore()) {
      *
      * Separate from [lastError] because the difference matters to a surveyor. "It failed" means try
      * again; "it worked but the drawing was unreadable" means the file you were sent is damaged and
-     * trying again will not help. Importing a survey whose sketch file is present and corrupt used
-     * to produce a survey with an empty drawing and say nothing at all — which is the silent loss
-     * this port has now written three findings about, committed once more by the fix for the first
-     * of them.
+     * trying again will not help.
      */
     var lastWarning: String? = null
         internal set
@@ -83,10 +78,8 @@ class SurveyLibrary(private val store: FileStore = platformFileStore()) {
         lastWarning = null
         lastError = null
         return SurveyImport.import(this, store, fileName).also {
-            // SurveyImport already set a specific message for anything that threw - a bad Survex
-            // or Therion reading names its own line, for instance. This generic one is only for
-            // the message-less failures: a file that plainly is not a survey, or one that parsed
-            // to nothing.
+            // SurveyImport already sets a specific message for anything that threw; this generic
+            // one is only for the message-less failures.
             if (it == null && lastError == null) lastError = "could not read $fileName"
         }
     }
@@ -110,14 +103,7 @@ class SurveyLibrary(private val store: FileStore = platformFileStore()) {
             if (!it) lastError = "could not save settings"
         }
 
-    /**
-     * The calibration readings, which belong to the *instrument* rather than to any one survey —
-     * so they sit beside the settings at the storage root rather than inside a survey's folder.
-     *
-     * Worth persisting for one reason: fifty-six shots is a twenty-minute job, and that is long
-     * enough for a phone to be dropped, a battery to die, or the app to be killed in a pocket.
-     * Losing the run means doing all of it again, in the same cave, in the same cold.
-     */
+    /** The calibration readings, which belong to the *instrument* and sit beside the settings. */
     fun loadCalibration(): List<CalibrationReading> =
         runCatching { store.readText(CALIBRATION_PATH)?.let(CalibrationJson::read) }
             .getOrNull()
@@ -132,8 +118,8 @@ class SurveyLibrary(private val store: FileStore = platformFileStore()) {
      * The instrument log, at the storage root under the name `Log.getLogFile` gives it.
      *
      * Failure here is swallowed and *not* reported: the log is what somebody reads when something
-     * else has gone wrong, and "could not save the log" occupying the one line the app has for
-     * telling them what went wrong would be its own small joke.
+     * else has gone wrong, and using the app's one error line to report a failure to save it would
+     * be its own small joke.
      */
     fun loadLog(type: LogType): List<LogMessage> =
         runCatching { store.readText(listOf(type.fileName))?.let(LogJson::read) }
@@ -146,9 +132,7 @@ class SurveyLibrary(private val store: FileStore = platformFileStore()) {
 
     /**
      * A name that is not already taken, so "New survey" twice does not overwrite the first.
-     *
-     * Suffixes with a number rather than a timestamp: a caver reading a list wants "Swildons 2",
-     * not an epoch.
+     * Suffixes with a number rather than a timestamp: a caver reading a list wants "Swildons 2".
      */
     fun uniqueName(preferred: String): String {
         if (!exists(preferred)) return preferred

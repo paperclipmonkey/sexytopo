@@ -30,15 +30,9 @@ import androidx.compose.ui.unit.sp
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
 
 /**
- * The UIS symbol palette.
- *
- * Each swatch is the symbol's own artwork rather than a name, because that is how a surveyor picks
- * one: they know the shape from the printed key and not the Therion identifier. It is drawn through
- * the same path data and the same parser the canvas uses, so a swatch cannot disagree with what
- * gets stamped.
- *
- * The app reaches this from a spinner on the toolbar. Here it is a dialog off the drawing menu, for
- * the same reason the cross-section tool is: nine toolbar columns, all spoken for.
+ * The UIS symbol palette: a dialog off the drawing menu rather than the app's toolbar spinner,
+ * since all nine toolbar columns are already spoken for. Each swatch is drawn through the same
+ * path data and parser the canvas uses, so a swatch cannot disagree with what gets stamped.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

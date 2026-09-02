@@ -41,29 +41,19 @@ import kotlin.math.sqrt
 /**
  * The cave, from the outside, turned with a finger.
  *
- * Ported from `ThreeDViewActivity`, `SurveyView3D` and the camera half of `SurveyRenderer`. The
- * other half of that renderer — GLSL shaders, vertex buffers, `glDrawArrays` — is deliberately not
- * ported. A centreline is a few hundred lines, which any 2D canvas draws without noticing, and
- * doing the projection in [Wireframe.projectSegment] rather than in a vertex shader is what lets
- * this run on iOS, Android, the desktop and the web from one file instead of only where GLES is.
+ * Ported from `ThreeDViewActivity`, `SurveyView3D` and the camera half of `SurveyRenderer` — not
+ * the GLSL/vertex-buffer half, since projecting in [Wireframe.projectSegment] instead lets this run
+ * on iOS, Android, the desktop and the web from one file rather than only where GLES is.
  *
- * Two things the depth buffer used to do have to be done by hand, and both are here rather than in
- * the shared module because both are drawing decisions rather than maths:
+ * Two things the depth buffer used to do are done by hand instead:
  *
- * - **Near-plane clipping**, which is in [Wireframe.projectSegment] because getting it wrong is a
- *   maths bug — a passage that vanishes, or folds back onto the screen mirrored, as you move into
- *   the cave.
- * - **Draw order**, which is just painting: splays behind legs behind stations. GL sorted by depth
- *   per fragment; for unfilled lines the difference is invisible, and sorting hundreds of segments
- *   every frame would not be.
+ * - **Near-plane clipping**, in [Wireframe.projectSegment] — getting it wrong is a maths bug, a
+ *   passage that vanishes or folds back mirrored as you move into the cave.
+ * - **Draw order**: splays behind legs behind stations, fixed rather than sorted per-fragment as
+ *   GL did, which is invisible for unfilled lines and too slow to redo every frame.
  *
- * ## Gestures
- *
- * One finger rotates; two pan, and pinch to zoom. This is the one deliberate divergence from
- * `SurveyView3D`, which pans with one finger and rotates with two — reachable only by moving both
- * fingers together without changing their spacing, which is also how you start a pinch. On a phone
- * the first thing anybody does with a 3D view is drag it to spin it, and the Android app answers
- * that by sliding the cave sideways.
+ * One finger rotates; two pan, and pinch to zoom — the one deliberate divergence from
+ * `SurveyView3D`, which pans with one finger and rotates with two.
  */
 @Composable
 fun ThreeDView(
@@ -72,25 +62,16 @@ fun ThreeDView(
     darkMode: Boolean,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
-    /**
-     * `SketchPreferences.Toggle.PINCH_TO_ZOOM`, which `SurveyView3D` reads as well as the sketch
-     * does — one preference over both views, so a surveyor who turned the pinch off on the drawing
-     * does not meet it again here.
-     */
+    /** `SketchPreferences.Toggle.PINCH_TO_ZOOM`, one preference shared with the sketch. */
     pinchToZoom: Boolean = AppPreferences.DEFAULT_PINCH_TO_ZOOM,
 ) {
-    // Rebuilt only when the survey changes, as the Java's `geometryDirty` flag arranges: moving the
-    // camera changes the transform, not the geometry.
+    // Rebuilt only when the survey changes: moving the camera changes the transform, not this.
     val wireframe =
         remember(survey, revision) { Wireframe.of(Space3DTransformer().transformTo3D(survey)) }
 
     // Keyed on the wireframe rather than on the survey, so a leg recorded while you are looking
-    // does not throw away the view you had set up - which is what the Java does, because it resets
-    // the distance inside `buildGeometry`.
-    //
-    // The starting distance is a guess until the canvas has been measured: how far back a cave has
-    // to be to fit depends on the shape of the screen, and nothing knows that during the first
-    // composition. The guess is the Java's, and it is replaced below as soon as there is a size.
+    // does not throw away the view you had set up. The starting distance is a guess until the
+    // canvas has been measured, and is replaced below as soon as there is a size.
     var fitDistance by remember(wireframe) {
         mutableStateOf(Camera3D.fittingExtent(wireframe.extent))
     }
@@ -133,11 +114,9 @@ fun ThreeDView(
                     1f
                 }
 
-            // Refits the *distance* whenever the shape of the screen changes - a phone turned on
-            // its side - but only moves the camera the first time, so measuring does not throw away
-            // a view somebody has just set up. Reset uses the refreshed distance either way.
+            // Refits the *distance* whenever the shape of the screen changes, but only moves the
+            // camera the first time, so measuring does not throw away a view somebody has set up.
             LaunchedEffect(wireframe, aspect) {
-                // Measured from the opening angles, which is where Reset puts the camera back to.
                 fitDistance = wireframe.distanceToFit(Camera3D(), aspect)
                 if (!fittedToTheScreen) {
                     camera = Camera3D(distance = fitDistance)
@@ -266,13 +245,7 @@ fun ThreeDView(
 /** Two fingers closer together than this are not a pinch. From `SurveyView3D.onTouchEvent`. */
 private const val MINIMUM_PINCH = 10f
 
-/**
- * The renderer's own colours, which are not the plan view's: a darker red leg, a translucent grey
- * splay and a blue station, straight out of `SurveyRenderer`.
- *
- * They are lightened for the dark theme, as the 2D palette's are, because the Java's are chosen
- * against the app's light background and its 3D view does not have a night mode.
- */
+/** The renderer's own colours, straight out of `SurveyRenderer`, lightened for the dark theme. */
 private object ThreeDColours {
     val leg = Color(0xFFCC3333)
     val legNight = Color(0xFFFF5555)
@@ -283,19 +256,14 @@ private object ThreeDColours {
 }
 
 /**
- * In dp, and converted at the point of drawing: a `DrawScope` measures in physical pixels, so on a
- * phone at three of those to the dp these would each come out a third of the size intended. Same
- * correction as [CanvasSizes] on the plan, and invisible in the browser, where the two are equal.
+ * In dp, converted at the point of drawing: a `DrawScope` measures in physical pixels, so at three
+ * of those to the dp these would otherwise come out a third of the size intended.
  */
 private const val LEG_WIDTH_DP = 2f
 private const val SPLAY_WIDTH_DP = 1f
 private const val STATION_RADIUS_DP = 3f
 
-/**
- * Splays, then legs, then stations — a painter's algorithm standing in for the depth buffer the
- * Java's GL context had. Between the three kinds it is what you want anyway; within each kind, for
- * lines with no fill, there is nothing to hide.
- */
+/** Splays, then legs, then stations — a painter's algorithm standing in for the GL depth buffer. */
 private fun DrawScope.drawWireframe(
     wireframe: Wireframe,
     camera: Camera3D,

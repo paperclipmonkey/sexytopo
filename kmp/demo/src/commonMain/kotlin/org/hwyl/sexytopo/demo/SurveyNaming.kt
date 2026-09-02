@@ -19,9 +19,7 @@ enum class NamingIntent { NONE, NEW, RENAME }
  * Naming a survey.
  *
  * The name is not decoration: it is the directory the survey is saved in and the filename inside
- * it, exactly as in the Android app, so "Swildons" becomes `Swildons/Swildons.data.json`. A blank
- * name is refused rather than silently defaulted, because a survey called nothing is one a caver
- * cannot find again in the list.
+ * it, exactly as in the Android app, so "Swildons" becomes `Swildons/Swildons.data.json`.
  */
 @Composable
 fun SurveyNameDialog(
@@ -57,13 +55,7 @@ fun SurveyNameDialog(
     )
 }
 
-/**
- * Confirming a deletion.
- *
- * A survey is a trip somebody cannot repeat, and on a phone the delete control is a few
- * millimetres from the one that opens it, so this asks — and says plainly that it is permanent,
- * because on the browser build there is no file to recover from anywhere.
- */
+/** Confirming a deletion: on the browser build there is no file to recover it from afterwards. */
 @Composable
 fun DeleteSurveyDialog(
     name: String,

@@ -32,14 +32,10 @@ import org.hwyl.sexytopo.shared.model.survey.Trip
 /**
  * Who was on the trip, when, and with what.
  *
- * This is the block that turns a set of numbers into a survey somebody can publish. Every exporter
- * in the port already knows how to write it — Therion and Survex `*team` and `*date` lines,
- * Compass's `SURVEY DATE` and `SURVEY TEAM` headers, PocketTopo's date row — and until now there
- * was no way to put anything in it, so every file this app produced went out anonymous and, in
- * Compass's case, dated by whatever the caller passed rather than by the trip.
- *
- * It matters most for exactly the case a training weekend is: several people, several trips, one
- * cave. A survey that does not say who made it cannot be checked against anybody's notebook.
+ * Every exporter in the port already knows how to write this — Therion and Survex `*team` and
+ * `*date` lines, Compass's `SURVEY DATE` and `SURVEY TEAM` headers, PocketTopo's date row — and
+ * until now there was no way to put anything in it, so every file this app produced went out
+ * anonymous and, in Compass's case, dated by whatever the caller passed rather than by the trip.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -52,11 +48,8 @@ fun TripDetailsDialog(
     val existing = survey.trip
 
     var date by remember { mutableStateOf((existing?.surveyDate ?: SurveyDate.parseOrNull(today))?.toString() ?: today) }
-    // The two-flag encoding Trip itself keeps: linked means "explored the day it was surveyed",
-    // in which case explorationDate is never even read - see Trip.hasExplorationDate. Seeded from
-    // the trip already on the survey, not from scratch, which is the whole fix: the dialog used to
-    // build a brand-new Trip on Save and silently reset both fields to their class defaults, so an
-    // exploration date read in from an imported file did not survive opening this dialog at all.
+    // Seeded from the trip already on the survey, not from scratch: building a fresh Trip on Save
+    // used to silently reset both fields to their class defaults.
     var explorationDateLinked by remember { mutableStateOf(existing?.explorationDateLinked ?: true) }
     var explorationDate by remember {
         mutableStateOf(existing?.explorationDate?.toString() ?: date)
@@ -65,10 +58,8 @@ fun TripDetailsDialog(
     var comments by remember { mutableStateOf(existing?.comments ?: "") }
     var copyrightHolder by remember { mutableStateOf(existing?.copyrightHolder ?: "") }
     var licence by remember { mutableStateOf(existing?.licence ?: "") }
-    // Whether the licence question has been answered for this trip - either it already carried
-    // one when the dialog opened, or the surveyor has picked one this session, including
-    // explicitly picking "No licence". Until then Save stays disabled: a blank licence is a
-    // perfectly good answer, but it has to be chosen rather than defaulted into.
+    // Until chosen, Save stays disabled: a blank licence is a perfectly good answer, but it has
+    // to be chosen rather than defaulted into.
     var isLicenceChosen by remember { mutableStateOf(existing?.licence?.isNotEmpty() == true) }
 
     // A list rather than a single string, because the exporters emit one line per person with
@@ -103,10 +94,7 @@ fun TripDetailsDialog(
                 )
 
                 // `exploration_date_linked_checkbox`, `exploration_date_field` and
-                // `clear_exploration_date_button` from `activity_trip.xml`: the passage a survey
-                // records is often found on an earlier trip, and a training weekend where several
-                // people book the same lead on different days is exactly when that difference is
-                // worth keeping separate from *when this particular set of numbers was measured*.
+                // `clear_exploration_date_button` from `activity_trip.xml`.
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -134,9 +122,7 @@ fun TripDetailsDialog(
                             supportingText = explorationDateProblem?.let { { Text(it) } },
                             modifier = Modifier.weight(1f),
                         )
-                        // `clear_exploration_date_button`: back to "not recorded" rather than back
-                        // to linked - a surveyor who unlinked the date because they do not know it
-                        // yet should not have to re-discover the checkbox to say so.
+                        // `clear_exploration_date_button`: back to "not recorded", not to linked.
                         TextButton(onClick = { explorationDate = "" }) { Text("Clear") }
                     }
                 }
@@ -195,8 +181,7 @@ fun TripDetailsDialog(
                     value = licence,
                     onValueChange = {
                         licence = it
-                        // Typing a licence by hand answers the question just as picking one of
-                        // the chips below does. Clearing the field by hand does not: an empty
+                        // Clearing the field by hand does not un-answer the question: an empty
                         // field is the unanswered state, and "No licence" is its own chip.
                         if (it.isNotBlank()) isLicenceChosen = true
                     },
@@ -247,10 +232,8 @@ fun TripDetailsDialog(
                         )
                     }
                 }
-                // What the currently chosen licence permits, with the link to read it (as plain
-                // text, matching how AboutDialog offers its own links) - only the licences above
-                // have a summary; free text, an unfamiliar licence from an imported survey, and an
-                // untouched field all show nothing.
+                // Only the licences above have a summary; free text, an unfamiliar licence from an
+                // imported survey, and an untouched field all show nothing.
                 val chosenLicence = Licence.forName(licence.trim())
                 val licenceSummary = when {
                     chosenLicence != null -> chosenLicence.summaryPrefix + chosenLicence.summary
@@ -342,12 +325,8 @@ internal fun labelFor(role: Trip.Role): String =
  * Builds the [Trip] the dialog describes.
  *
  * Blank people are dropped rather than written: an empty name would emit a `*team ""` line that
- * Therion accepts and no human can read.
- *
- * [explorationDate] is parsed only when [explorationDateLinked] is false — when it is true,
- * [Trip.hasExplorationDate] never reads the field at all, so a blank or half-typed box left behind
- * from before the surveyor re-linked it must not block Save, matching the dialog's own
- * `explorationDateProblem`, which is null in exactly that case for the same reason.
+ * Therion accepts and no human can read. [explorationDate] is parsed only when
+ * [explorationDateLinked] is false, matching the dialog's own `explorationDateProblem`.
  */
 internal fun tripFrom(
     date: String,

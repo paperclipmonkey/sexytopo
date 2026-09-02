@@ -46,18 +46,13 @@ fun SurveyTableView(
     onEdited: () -> Unit = {},
     /** Read-only when false, which is what the demo cave wants. */
     editable: Boolean = false,
-    /**
-     * Opening a station's own menu, which in the Android app is what a tap on a From or To cell
-     * does — `table_station_selected.xml` rather than `context_leg.xml`. Null leaves those cells
-     * behaving like the rest of the row.
-     */
+    /** Opening a station's own menu, from a tap on a From or To cell. Null disables it. */
     onStation: ((Station) -> Unit)? = null,
     /**
      * A station to scroll to, from `action_jump_to_table` on the sketch's own menu.
      *
-     * The *first* row that mentions it, which is the leg that arrives at it — a station appears
-     * twice in this table, once as a To and again as the From of everything leaving it, and the
-     * arriving leg is the one a surveyor who tapped it on the drawing is looking for.
+     * The *first* row that mentions it: a station appears twice in this table, once as a To and
+     * again as the From of everything leaving it, and the arriving leg is the one being looked for.
      */
     scrollTo: String? = null,
     /** Called once the scroll has happened, so the request is not repeated on every recomposition. */
@@ -87,14 +82,9 @@ fun SurveyTableView(
         )
     }
 
-    // One scroll state for the header and every row, so the whole table moves together.
-    //
-    // Five fixed-width columns come to 396dp and the padding to 24 more, which is exactly a
-    // 420-pixel window and forty-five too many for an iPhone SE. The header alone was scrollable
-    // and the rows were not, which is the worst of both: the inclination column ran off the right
-    // of every row with no way to reach it, and had the header ever been dragged its labels would
-    // have come away from the numbers under them. Sharing the state is what the Android app gets
-    // for free — its header is drawn *over* one RecyclerView, in the same coordinate space.
+    // One scroll state for the header and every row, so the whole table moves together: five
+    // fixed-width columns plus padding run wider than a small phone, and a header that scrolls
+    // independently of the rows would drift out of alignment with the numbers under it.
     val columns = rememberScrollState()
 
     Column(modifier.fillMaxSize()) {
@@ -129,8 +119,7 @@ fun SurveyTableView(
                         .padding(horizontal = 12.dp, vertical = 3.dp),
                 ) {
                     // A tap on a station's name is about the station; a tap anywhere else on the
-                    // row is about the reading. Ported from `TableActivity.onCellClicked`, which
-                    // asks the same question of the column that was hit.
+                    // row is about the reading.
                     StationCell(row.fromShown, row.fromStationShown, editable, onStation)
                     StationCell(row.toShown, row.toStationShown, editable, onStation)
                     Cell(row.distanceShown, 92.dp)
@@ -145,14 +134,8 @@ fun SurveyTableView(
 /**
  * Which row to scroll to for a named station, or null if the table has none.
  *
- * The *first* row mentioning it, which is the leg that arrives at it. A station appears in this
- * table more than once — once as the To of the leg that reached it, then as the From of everything
- * leaving it — and someone who tapped it on the drawing is looking for the reading that made it.
- * Its own row is also the one with its splays under it, so landing there shows the passage
- * measurements as well.
- *
- * The origin is the exception and is right by accident: it has no arriving leg, so the first row
- * mentioning it is the first leg *out* of it, which is the only row it has.
+ * The origin is an accidental exception: it has no arriving leg, so the first row mentioning it is
+ * the first leg *out* of it, which is the only row it has.
  */
 internal fun rowIndexFor(rows: List<SurveyTableRow>, station: String): Int? =
     rows.indexOfFirst { it.to == station || it.from == station }.takeIf { it >= 0 }
@@ -167,12 +150,7 @@ private fun HeaderCell(text: String, width: androidx.compose.ui.unit.Dp) {
     )
 }
 
-/**
- * A From or To cell: the station's name, and a way into its menu.
- *
- * Inert on a splay, whose To column is a dash rather than a station, and on the demo cave, where
- * nothing is editable.
- */
+/** A From or To cell: the station's name, and a way into its menu. Inert on a splay. */
 @Composable
 private fun StationCell(
     text: String,
@@ -213,9 +191,7 @@ class SurveyTableRow(
     val toHasComment: Boolean = false,
     /**
      * The station the From column shows, which for a backsight is the far end — the one the
-     * reading was taken standing at. `TableActivity` works this out with
-     * `(col == FROM) ^ leg.wasShotBackwards()`, and getting it the wrong way round would open the
-     * menu for the station at the other end of the leg.
+     * reading was taken standing at.
      */
     val fromStationShown: Station = fromStation,
     /** The station the To column shows, or null on a splay, which arrives nowhere. */
@@ -223,10 +199,8 @@ class SurveyTableRow(
 ) {
     val isSplay: Boolean get() = !leg.hasDestination()
 
-    // Ported from `TableRowAdapter.onBindViewHolder`, which marks three cells and no others: a
-    // full leg's From and To when *that station* has a comment, with the dagger trailing; and the
-    // distance when the *leg* has one, with the dagger leading. A splay's From is left alone even
-    // when the station it hangs off has a comment, because the Java tests `isFullLeg` first.
+    // A splay's From is left alone even when the station it hangs off has a comment: only a full
+    // leg's stations are marked.
     val fromShown: String get() = if (fromHasComment) "$from $COMMENT_MARKER" else from
     val toShown: String get() = if (toHasComment) "$to $COMMENT_MARKER" else to
     val distanceShown: String
@@ -234,11 +208,9 @@ class SurveyTableRow(
 }
 
 /**
- * Flattens the survey tree into table rows in chronological order, normalising backwards shots.
- *
- * Ported from `GraphToListTranslator.toAsTakenReading`: a leg with `wasShotBackwards` is stored
- * with the reading taken at the far station but attached in the opposite direction, so from/to are
- * swapped and the leg is converted to its backsight before being displayed.
+ * Flattens the survey tree into table rows in chronological order, normalising backwards shots: a
+ * leg with `wasShotBackwards` is stored attached in the opposite direction from the one it was
+ * read, so from/to are swapped and the leg is converted to its backsight before being displayed.
  */
 fun asTakenRows(survey: Survey): List<SurveyTableRow> {
     val rows = mutableListOf<SurveyTableRow>()
@@ -254,10 +226,8 @@ fun asTakenRows(survey: Survey): List<SurveyTableRow> {
 /**
  * The row for the leg that made [station], or null for the origin, which no leg made.
  *
- * The station menu on the sketch offers the incoming leg's actions — edit, reverse, comment,
- * delete — and those are already written against a table row, because that is where they were
- * first reachable from. Building the row here rather than duplicating the actions keeps one
- * implementation of "what a leg looks like once a backwards shot has been normalised".
+ * The station menu's incoming-leg actions are already written against a table row, so building one
+ * here keeps one implementation of "what a leg looks like once normalised".
  */
 fun incomingLegRow(survey: Survey, station: Station): SurveyTableRow? {
     val leg = survey.getReferringLeg(station) ?: return null
@@ -288,21 +258,12 @@ internal fun rowFor(from: Station, leg: Leg): SurveyTableRow {
 
 private const val SPLAY = "–"
 
-/**
- * The dagger the Android app puts beside anything carrying a comment.
- *
- * `SexyTopoConstants.COMMENT_MARKER`. It is the only sign in the table that a comment exists at
- * all, so a surveyor who wrote "sump, do not follow" against a leg can see it without opening
- * anything.
- */
+/** The dagger the Android app puts beside anything carrying a comment. `SexyTopoConstants.COMMENT_MARKER`. */
 const val COMMENT_MARKER = "†"
 
 /**
- * Fixed-decimal formatting, because commonMain has no `String.format`.
- *
- * Rounds half away from zero on the magnitude, matching Java's `Formatter` HALF_UP. This will move
- * to the shared module alongside the exporters, which need exactly the same behaviour to reproduce
- * Therion and Survex output byte for byte.
+ * Fixed-decimal formatting, because commonMain has no `String.format`. Rounds half away from zero
+ * on the magnitude, matching Java's `Formatter` HALF_UP.
  */
 fun formatFixed(value: Float, decimalPlaces: Int, alwaysSigned: Boolean = false): String {
     if (value.isNaN()) return "NaN"
