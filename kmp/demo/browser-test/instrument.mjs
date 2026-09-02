@@ -349,15 +349,21 @@ await at(...CALIBRATION_WRITE); await page.waitForTimeout(1500)
 await page.screenshot({ path: join(shotDir, 'calibration-written.png') })
 
 const allWrites = await page.evaluate(() => window.__fakeInstrument.written)
-// Twelve four-byte memory writes from 0x8010, each `[0x39, addrLow, addrHigh, b0..b3]`.
-const coefficientWrites = allWrites.filter((w) => w.includes(0x39) && w.length >= 7)
-if (coefficientWrites.length < 12) {
+// A DistoX-BLE calibration write is one `data:`-framed memory write to 0x8010, not the classic
+// protocol's twelve raw 4-byte 0x39 commands: `[0x64,0x61,0x74,0x61,0x3a]` ("data:"), a length
+// byte, then `['>', 0x10, 0x80, payloadLength, coefficients...]`.
+const coefficientFrame = allWrites.find(
+  (w) =>
+    w[0] === 0x64 && w[1] === 0x61 && w[2] === 0x74 && w[3] === 0x61 && w[4] === 0x3a &&
+    w[6] === 0x3e && w[7] === 0x10 && w[8] === 0x80,
+)
+if (!coefficientFrame) {
   fail(
-    `only ${coefficientWrites.length} of 12 coefficient blocks reached the instrument ` +
+    `no framed calibration write reached the instrument ` +
       `(${allWrites.length - writesBefore} writes in total)`,
   )
 } else {
-  pass('a calibration is solved and its coefficients written back to the instrument')
+  pass('a calibration is solved and written back to the instrument as one framed BLE packet')
 }
 
 // ---- and an interrupted calibration comes back ------------------------------------------------

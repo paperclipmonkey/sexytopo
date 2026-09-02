@@ -96,7 +96,7 @@ Being precise about this matters more than the demo looking good.
 | **Compose actually draws the survey on iOS, and is still alive afterwards** | **Verified** | CI boots a simulator, installs the app, launches it and photographs it — then **looks again twenty seconds later**, and scans the host's crash reports for this bundle. The second look and the scan are new, and they exist because a phone found a crash this job could not: an app that launches, draws, passes the photograph and *then* dies is what an uncaught throw dispatched to a background queue looks like, and a check that looks once cannot see anything that happens afterwards. See finding 54. The picture has to contain the app's own panel green — an app that crashed shows Springboard, one with no UI shows white — *and* enough distinct colours to rule out the launch screen, which is that same green on purpose. Measured on the runner: **2340 green pixels and 609 distinct colours** against thresholds of 500 and 40. The screenshot is uploaded as the `ios-simulator-screenshot` artifact on every run |
 | The iOS app runs on a device | **Not verified** | needs Xcode, an Apple developer account and a physical phone. The app *bundle* is now built by CI, so what is left is signing and installing it |
 | **The app can ask to connect to an instrument** | **Verified** | `instrument.mjs` in CI stands a stub where `navigator.bluetooth` would be and makes it behave like a DistoX-BLE: the profile's name prefix and UUIDs reach the browser API, the notification arrives as a frame, the decoder reads it, the acknowledgement goes back, and three readings make a station in a saved survey |
-| **A calibration can be taken, solved and written back** | **Verified** | `instrument.mjs` puts the fake DistoX-BLE into calibration mode, feeds it the Android app's own 56-shot dataset over Web Bluetooth, and checks the twelve coefficient blocks reach the device |
+| **A calibration can be taken, solved and written back** | **Verified** | `instrument.mjs` puts the fake DistoX-BLE into calibration mode, feeds it the Android app's own 56-shot dataset over Web Bluetooth, and checks the coefficients reach the device as one framed BLE packet |
 | `CoreBluetoothTransport` works | **Not verified** | it compiles, it now has a caller, and it has still never talked to a radio; the simulator has no Bluetooth stack, so this needs a real instrument |
 | Web Bluetooth works against real hardware | **Not verified** | the chain is driven end to end against a fake instrument in CI; no real one has been near it |
 | The whole app runs in a browser | **Verified** | a headless-Chromium smoke test in CI loads the page, draws a stroke and undoes it |
@@ -3091,6 +3091,16 @@ These are the things that would actually shape a real port.
    and asserts the session sends exactly one frame that unwraps as a genuine `data:` packet — the
    whole path from a connected profile to bytes on the wire, so a future change to how the family
    reaches `writeCalibration` cannot silently reopen the seam.
+
+   A third check should have caught this before either unit test did, and did not:
+   `instrument.mjs`'s own calibration-write assertion still expected the old shape - twelve raw
+   `0x39` writes - so the fix above shipped with a browser check that would have passed just as
+   happily on the bug it exists to catch. It went unnoticed for a while because a later, unrelated
+   zoom-speed regression in the same CI job failed first and stopped the job before this check
+   ever ran; fixing that regression let this one run again for the first time and it failed
+   immediately, exactly as it should have from the start. Rewritten to look for the actual frame -
+   the `data:` header, then `['>', 0x10, 0x80, ...]` for address 0x8010 - rather than a count of
+   writes in a shape this instrument was never going to send.
 
 93. **Two of this session's own changes broke the checks that would have caught them
    somewhere else.** Gating *Simulate* behind Developer Mode (finding 87) removed a button from
