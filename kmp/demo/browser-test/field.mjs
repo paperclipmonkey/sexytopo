@@ -4463,25 +4463,19 @@ if (Buffer.compare(beforeTurning, afterTurning) === 0) {
   pass('one finger turns the cave, and it is still there afterwards')
 }
 
-await at(...THREE_D_CLOSE)
-// Leaving the 3D view is genuinely slow to settle, not stuck: an 8-second poll still found no
-// canvas, but a screenshot taken right after showed the plan view already fully back - toolbar,
-// palette, cross-section boxes and all - meaning the real recovery time is just past 8s, not
-// never. A bigger one-time cost than the ~2s first-keyboard-invocation stall seen on iOS, but the
-// same kind of thing: a first-use cold start, not a bug. Give it real margin and record how long
-// it actually takes.
-let backToTheSketch = 0
-let elapsedMs = 0
-for (let i = 0; i < 75 && backToTheSketch === 0; i++) {
-  await page.waitForTimeout(200)
-  elapsedMs += 200
-  backToTheSketch = await page.evaluate(() => document.querySelectorAll('canvas').length)
-}
+await at(...THREE_D_CLOSE); await page.waitForTimeout(900)
+// Not a timing problem after all: the DEBUG screenshot this captured on failure was byte-identical
+// whether taken after 8 seconds of waiting or 15 - the plan view was already fully rendered,
+// toolbar, palette, cross-section boxes and all, every single time. The canvas was never gone; the
+// check was blind to it. `document.querySelectorAll` does not pierce shadow DOM, and evidently
+// Compose Multiplatform 1.12.0's wasm target now mounts its canvas inside a shadow root - which is
+// also exactly why the rest of this file gets "the" canvas once through Playwright's own
+// shadow-piercing page.$('canvas') up top, rather than a fresh native query. Do the same here.
+const backToTheSketch = (await page.$$('canvas')).length
 if (backToTheSketch === 0) {
-  await page.screenshot({ path: join(shotDir, 'DEBUG-after-3d-close.png') })
-  fail(`closing the 3D view left no canvas at all, even after ${elapsedMs}ms`)
+  fail('closing the 3D view left no canvas at all')
 } else {
-  pass(`the 3D view closes back to the survey (canvas back after ${elapsedMs}ms)`)
+  pass('the 3D view closes back to the survey')
 }
 
 // ---- and a leg can be written down outright, from the Tools menu ----------------------------
