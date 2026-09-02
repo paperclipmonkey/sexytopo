@@ -11,7 +11,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.focusRequester
 
 /**
  * Typing a label onto the sketch. Separate from the canvas because typing needs a keyboard: the
@@ -32,7 +31,7 @@ fun LabelDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
                 label = { Text("Text") },
                 placeholder = { Text("Sump") },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                modifier = Modifier.fillMaxWidth().then(focus),
             )
         },
         confirmButton = {

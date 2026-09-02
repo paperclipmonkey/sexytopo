@@ -20,7 +20,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.math.adjustAngle
@@ -319,7 +318,7 @@ private fun LegCommentDialog(
                 onValueChange = { comment = it },
                 label = { Text("Comment") },
                 placeholder = { Text("Sump; do not follow") },
-                modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                modifier = Modifier.fillMaxWidth().then(focus),
             )
         },
         confirmButton = { TextButton(onClick = { onSave(comment) }) { Text("Save") } },
