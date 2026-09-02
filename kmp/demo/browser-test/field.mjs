@@ -655,7 +655,13 @@ async function menuRowAt(index, rows, x) {
     menu = await menuBox()
     if (menu === null) await page.waitForTimeout(200)
   }
-  if (menu === null) throw new Error('no menu is open')
+  if (menu === null) {
+    // Diagnostic only: waitForDialogToClose (previous commit) did not fix this after all - same
+    // failure, same spot. Need to see whether the earlier dialog is somehow still up, or whether
+    // the overflow tap is landing on nothing at all now that the dialog is out of the way.
+    await page.screenshot({ path: join(shotDir, 'DEBUG-no-menu-found.png') })
+    throw new Error('no menu is open')
+  }
   const rowHeight = (menu.bottom - menu.top) / rows
   return [x, Math.round(menu.top + (index + 0.5) * rowHeight)]
 }
@@ -1282,9 +1288,14 @@ if ((await page.$$('input')).length === 0) {
   pass('the app opens on the demo cave and offers a way through to your own survey')
 }
 await page.keyboard.press('Escape'); await waitForDialogToClose()
+// Diagnostic only: confirms whether the reading dialog is actually gone by this point.
+await page.screenshot({ path: join(shotDir, 'DEBUG-after-dialog-close-wait.png') })
 
 // ---- create a named survey -----------------------------------------------------------
-await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...overflowButton())
+// Diagnostic only: confirms whether the overflow tap opened anything at all.
+await page.screenshot({ path: join(shotDir, 'DEBUG-after-overflow-tap.png') })
+await page.waitForTimeout(500)
 await at(...(await menuRow('new', 0))); await page.waitForTimeout(700)
 await at(...NAME_FIELD); await page.waitForTimeout(250)
 
