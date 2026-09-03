@@ -3255,6 +3255,54 @@ These are the things that would actually shape a real port.
    the app's own overflow menu the way `field.mjs` does, since a unit test on the arithmetic cannot
    see whether the real `pointerInput` block is wired up to it at all.
 
+99. **A line that vanished under the pen every time the instrument fired.** Reported from an iPad
+   in the field, one person drawing while another took the shots: the stroke being drawn
+   disappeared the moment a reading landed - and on the build before that one it stayed on the
+   sketch but could not be undone. Two symptoms, one on each side of an unrelated fix, and one
+   cause.
+
+   Every gesture detector on the canvas was keyed on `(scene, tool, options)`, and `scene` is
+   rebuilt on every revision - which the app bumps for every reading, so the drawing shows the new
+   leg. `Modifier.pointerInput` restarts its gesture loop when a key changes, and a restart
+   *cancels the gesture under the finger*. On the current build the drawing loop's own `finally`,
+   put there so a long press that turns into the station menu leaves no stray mark, did exactly
+   what it was written to do and abandoned the stroke. On the build before, the loop was
+   `detectDragGestures`, whose `onDragCancel` does not fire when the coroutine running it is
+   cancelled - it fires when another detector takes the pointer - so the half-drawn stroke stayed
+   in `pathDetails` with `finishPath` never called and no undo step behind it. Both are the same
+   bug reporting itself through whichever cleanup happened to be there.
+
+   Finding 81 put `options` into those keys because a loop that is *not* restarted holds stale
+   settings; this is the same lesson from the other end. A key that changes too often is as much a
+   defect as one that does not change enough, and `scene` changed on every reading and - since a
+   finished stroke bumps the revision too - after every stroke, tearing every detector down and
+   building it again between gestures, where nobody could see it. The keys are now exactly the
+   things that make a running loop wrong: the tool, the options, and the editor, canvas and survey
+   that change together when the view switches to another sketch. What the loops need from the
+   scene - a station under a long press, a cross-section under a tap - they read live through
+   `rememberUpdatedState`, so a station that arrives mid-stroke is still there to be pressed once
+   the stroke is over. The Android app never had this: `GraphView` keeps the stroke inside the
+   `Sketch`, and a survey update hands it the same `Sketch` back.
+
+   Keeping the loop alive was half of it. A reading that grows the survey also moves the view: the
+   automatic re-fit that follows the centreline until the surveyor pans, and *Follow the survey*,
+   which centres on each new station. Either one moves the paper under a pen that has not moved,
+   and the stroke's next point is wherever that spot on the glass now is in survey metres - a
+   spike across the drawing. `CanvasController` now knows when a touch is down, told by the
+   canvas's outermost detector (the one that already gave the keyboard back on a touch, watching
+   until the last finger lifts, with a `finally` so a torn-down loop cannot leave the view held
+   still for good). A `centreOn` asked for while a touch is down waits until it lifts, and only
+   the latest is kept; the re-fit is skipped for as long as one is down and happens on the frame
+   after, which `touchEnded` asks for.
+
+   `DrawingWhileSurveyingTest` drives the real canvas through `ImageComposeScene`'s own pointer
+   events - press, move, a leg added and the revision bumped as `SurveySession` and `DemoState`
+   do, move, release - and checks that what is left is one committed stroke from where the pen
+   went down to where it lifted, one undo step, drawn on a viewport that did not move until the
+   pen was up and did afterwards. Run against the previous canvas it fails at the assertion the
+   report describes: the active path is gone the frame after the reading. `CanvasControllerTest`
+   covers the deferral on its own.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3406,7 +3454,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 793
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 450 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 458 over the UI's own
 logic, 20 running the iOS half in a simulator,
 118 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
