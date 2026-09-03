@@ -573,7 +573,15 @@ fun SurveyCanvas(
                                     strokeTick++
                                 }
 
-                                if (started) {
+                                // `started` alone is not enough: another detector can have
+                                // abandoned the stroke under this loop - a second finger reaching
+                                // `detectModalMove`, or a long press taking the touch - and the
+                                // loop then leaves on `isConsumed` with nothing active. Snapping
+                                // in that state would *start* a stroke at the snap point, since
+                                // `extendPath` begins one when none is in progress, and
+                                // `finishPath` would commit it: a dot left on the end of a wall by
+                                // a pan the surveyor made to get away from it.
+                                if (started && editor.activePath != null) {
                                     // finishPath simplifies the stroke and pushes one undo step;
                                     // a stroke of fewer than two points is still committed, as in
                                     // the original, because a tap is how you draw a dot — though a

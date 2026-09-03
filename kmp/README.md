@@ -3303,6 +3303,31 @@ These are the things that would actually shape a real port.
    report describes: the active path is gone the frame after the reading. `CanvasControllerTest`
    covers the deferral on its own.
 
+100. **Undo that "did nothing, then took the line a few seconds later" - and a dot a pan left on
+   the end of a wall.** The first is finding 99 seen from the other side, and worth spelling out
+   because it looked like a separate undo bug. On the build before the drawing loop had a
+   `finally`, a reading that cancelled the loop left the half-drawn stroke on the sketch, visible,
+   with `finishPath` never called: not in the history at all. Undo then took back the *previous*
+   stroke, which is "undo did not remove the last line drawn"; and the orphan went when the next
+   stroke began, because `startPath` abandons whatever is still active first - "deleting it a few
+   seconds later", the few seconds being however long it took to start drawing again. Same cause,
+   same fix; `UndoRepaintTest` now also checks the half that was never in doubt but had no evidence
+   behind it, by reading the pixels along a stroke before and after undo rather than the model:
+   the line is off the *screen* on the frame after the toolbar's undo, not on some later frame
+   another event happens to cause.
+
+   The second was found reading the same loop for anything else that could leave a mark nobody
+   made. A second finger landing mid-stroke turns the gesture into a pan, and `detectModalMove`
+   abandons the stroke so the pan does not commit half a line; the drawing loop then leaves on the
+   consumed change - but it had `started`, and its finishing code ran anyway. With snap-to-lines
+   on, snapping the last point first *started* a fresh stroke at the snap point, because
+   `extendPath` begins one when none is active, and `finishPath` committed it: a dot on the end of
+   the nearest wall, from a pan the surveyor made to get away from that wall, sitting in the undo
+   history as though somebody had drawn it. The finish now runs only if the stroke is still
+   active. `StrokeAbandonmentTest` puts two fingers on the headless canvas through
+   `ComposeScenePointer` - the one API that can, and internal to Compose, hence the opt-in - and
+   against the previous loop finds the second path.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3454,7 +3479,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 793
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 458 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 460 over the UI's own
 logic, 20 running the iOS half in a simulator,
 118 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
