@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        A bare theme with no ActionBar: Compose draws everything, including the app's own chrome,
+        so the platform decoration would only sit on top of it. The window background is
+        transparent so the Compose surface is what shows through during startup rather than a
+        flash of a different colour.
+    -->
+    <style name="Theme.SexyTopoKmp" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+    </style>
+</resources>

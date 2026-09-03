@@ -1,0 +1,60 @@
+# XcodeGen spec for the iOS host app.
+#
+# The Xcode project is generated rather than committed because it was authored on Linux, where
+# Xcode cannot be run to verify a hand-written .pbxproj. Generating it takes one command:
+#
+#   brew install xcodegen
+#   cd kmp/iosApp && xcodegen && open iosApp.xcodeproj
+#
+# kmp/README.md also describes the fully manual alternative (a new SwiftUI project plus one run
+# script phase), if you would rather not install anything.
+
+name: iosApp
+
+options:
+  bundleIdPrefix: org.hwyl.sexytopo
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+
+targets:
+  iosApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: iosApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.hwyl.sexytopo.kmpdemo
+        PRODUCT_NAME: SexyTopo KMP
+        INFOPLIST_FILE: iosApp/Info.plist
+        # Names the icon set inside iosApp/Assets.xcassets. Without it Xcode compiles the
+        # catalogue but ships no icon, and the home screen shows a blank white tile.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: NO
+        # Xcode 14+ sandboxes script phases by default, which stops Gradle running.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        FRAMEWORK_SEARCH_PATHS:
+          - $(inherited)
+          - $(SRCROOT)/../demo/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)
+        OTHER_LDFLAGS:
+          - $(inherited)
+          - -framework
+          - SexyTopoDemo
+    preBuildScripts:
+      # Builds the Kotlin/Native framework from :demo and copies it into the app bundle.
+      - name: Compile Kotlin Framework
+        basedOnDependencyAnalysis: false
+        script: |
+          cd "$SRCROOT/.."
+          # Xcode runs script phases with a stripped environment and no login shell, so a JDK
+          # installed by Homebrew, SDKMAN or the Temurin package is not on PATH and Gradle stops
+          # with "Unable to locate a Java Runtime" before it has compiled a line. java_home is the
+          # macOS-supplied way to find one, and asking for 21 first keeps this on the version CI
+          # uses rather than whatever happens to be newest.
+          if [ -z "${JAVA_HOME:-}" ] && [ -x /usr/libexec/java_home ]; then
+            JAVA_HOME="$(/usr/libexec/java_home -v 21 2>/dev/null || /usr/libexec/java_home 2>/dev/null)"
+            export JAVA_HOME
+          fi
+          ./gradlew :demo:embedAndSignAppleFrameworkForXcode

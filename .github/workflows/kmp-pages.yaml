@@ -1,0 +1,109 @@
+# Publishes the browser build of the shared UI to GitHub Pages.
+#
+# The point is not hosting. It is that a URL is the only way to put this in front of somebody with
+# an iPhone without a Mac, an Apple developer account and a provisioning profile between them and
+# the demo. Safari on iOS runs the WebAssembly build, so what a caver's own phone renders is the
+# ported survey core and the shared Compose UI, drawn by Skia, taking real touch input on real iOS
+# hardware.
+#
+# That is emphatically NOT the same as the native Kotlin/Native build, and the README says so. What
+# it does settle is the half of the question that does not depend on Apple's toolchain: whether
+# this UI is usable on a phone-shaped iOS screen, with a finger, by a caver. It costs one workflow
+# and answers that in ten seconds instead of a week.
+#
+# Publishing needs two manual settings, both one-off and both requiring a repository admin.
+#
+#   1. Settings -> Pages -> Build and deployment -> Source -> "GitHub Actions"
+#
+#      Cannot be automated. Asking `configure-pages` to do it (`enablement: true`) was tried and
+#      the API refused: "Create Pages site failed. Error: Resource not accessible by integration".
+#      The workflow's GITHUB_TOKEN may deploy to a Pages site but may not create one, whatever
+#      permissions the job declares.
+#
+#   2. Settings -> Environments -> github-pages -> Deployment branches and tags -> add `claude/**`
+#
+#      By default that environment only accepts deployments from the default branch, so a feature
+#      branch is rejected before its deploy job runs a single step:
+#      "Branch ... is not allowed to deploy to github-pages due to environment protection rules."
+#      Only needed to preview a branch; merging to the default branch publishes without it.
+#
+# Neither is something CI can do for itself, so neither is allowed to turn the pull request red.
+# The build is the real check and still fails loudly; the deploy is a convenience and reports what
+# to change instead.
+name: KMP browser demo
+
+on:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+    paths:
+      - 'kmp/**'
+      - '.github/workflows/kmp-pages.yaml'
+  workflow_dispatch:
+
+# One deployment at a time, and let a newer push win rather than queue behind an older one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    name: Build the browser demo
+    runs-on: ubuntu-latest
+    outputs:
+      # Whether there is anything for the deploy job to deploy.
+      published: ${{ steps.pages.outcome == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build
+        working-directory: kmp
+        run: ./gradlew :demo:wasmJsBrowserDistribution
+
+      # continue-on-error, so `outcome` below is the real result while `conclusion` stays green.
+      - id: pages
+        uses: actions/configure-pages@v5
+        continue-on-error: true
+
+      - if: steps.pages.outcome != 'success'
+        run: |
+          echo "::warning::Pages is not configured for this repository, so the demo was built" \
+               "but not published. A repository admin can enable it at Settings -> Pages ->" \
+               "Build and deployment -> Source -> GitHub Actions; then re-run this workflow."
+
+      - if: steps.pages.outcome == 'success'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: kmp/demo/build/dist/wasmJs/productionExecutable
+
+  deploy:
+    name: Deploy
+    needs: build
+    if: needs.build.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    # A branch the github-pages environment does not allow is rejected before any step runs, so
+    # this has to be tolerated at the job level rather than the step level. See setting 2 above.
+    continue-on-error: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Say where it went
+        run: |
+          echo "::notice::Demo published at ${{ steps.deployment.outputs.page_url }}"

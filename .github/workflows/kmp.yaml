@@ -1,0 +1,383 @@
+# CI for the Kotlin Multiplatform proof of concept in kmp/.
+#
+# Deliberately independent of the Android app's own workflow: this build needs no Android SDK,
+# which is the point — the shared core is plain Kotlin and its tests are the correctness oracle.
+name: KMP proof of concept
+
+on:
+  push:
+    paths:
+      - 'kmp/**'
+      - '.github/workflows/kmp.yaml'
+  pull_request:
+    paths:
+      - 'kmp/**'
+      - '.github/workflows/kmp.yaml'
+  workflow_dispatch:
+
+jobs:
+  shared-core:
+    name: Shared core tests + demo render
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Run the ported test suite (JVM)
+        working-directory: kmp
+        run: ./gradlew :shared:jvmTest
+
+      # The same tests on a non-JVM target. Kotlin/Wasm, like Kotlin/Native for iOS, has no
+      # java.* at all, so this is the closest thing to proving the shared core will compile and
+      # run for iOS without a Mac to try it on.
+      - name: Run the ported test suite (Kotlin/Wasm, non-JVM)
+        working-directory: kmp
+        run: ./gradlew :shared:wasmJsNodeTest
+
+      - name: Test the interactive drawing layer
+        working-directory: kmp
+        run: ./gradlew :demo:jvmTest
+
+      # The UI's own non-JVM target. Only the shared module was being compiled for Wasm, so a
+      # change to a composable's signature could - and did - break the browser and the iOS host
+      # while every check here stayed green. Nothing else in this workflow compiles a source set
+      # that iOS also uses, which is exactly why this step matters more than it looks.
+      - name: Compile the shared UI for a non-JVM target
+        working-directory: kmp
+        run: ./gradlew :demo:compileKotlinWasmJs
+
+      # The Android host, which is the same App() the iOS and browser hosts show. Building it here
+      # is what makes "one UI, three platforms" a checked statement rather than an assertion: two
+      # of the three are compiled on every push, and the third shares their source set.
+      - name: Build the Android app
+        working-directory: kmp
+        run: ./gradlew :androidApp:assembleDebug
+
+      - name: Upload the Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-demo-apk
+          path: kmp/androidApp/build/outputs/apk/debug/*.apk
+
+      - name: Render the shared Compose UI headlessly
+        working-directory: kmp
+        run: ./gradlew :demo:renderDemoPng
+
+      - name: Upload renders
+        uses: actions/upload-artifact@v4
+        with:
+          name: survey-renders
+          path: kmp/demo/build/demo/*.png
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: kmp/shared/build/reports/tests/
+
+  # The Mac.
+  #
+  # Every "not verified" in kmp/README.md traces back to one fact: nothing here had ever been
+  # compiled for Apple. `kotlin.native.ignoreDisabledTargets=true` lets the iOS targets be declared
+  # on Linux and quietly skipped, so `iosMain` - the CoreBluetooth transport included - was never
+  # once fed to a compiler. Everything above compiles a source set iOS also uses, which is the
+  # nearest available proxy, but a proxy is what it is: none of it would catch an Objective-C
+  # selector clash, a missing interop opt-in, or a Compose klib that does not exist for Native.
+  #
+  # GitHub's macOS runners are free on public repositories, which makes the Mac that gates this
+  # whole project a nine-line CI job rather than a purchase. It does not replace a physical device -
+  # the simulator has no Bluetooth stack, so every instrument claim still needs real hardware - but
+  # it turns "written, never compiled" into a check that either passes or does not.
+  ios:
+    name: Compile and test for iOS (Kotlin/Native)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # The Kotlin/Native toolchain is a large download that setup-gradle does not cache.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('kmp/**/*.gradle.kts', 'kmp/gradle.properties') }}
+          restore-keys: konan-${{ runner.os }}-
+
+      # The first thing that has ever compiled iosMain. CoreBluetoothTransport lives or dies here.
+      - name: Compile the shared module for iOS
+        working-directory: kmp
+        run: ./gradlew :shared:compileKotlinIosSimulatorArm64
+
+      # The same ported test suite the JVM and Wasm jobs run, this time on Kotlin/Native itself -
+      # the actual target, not a stand-in for it.
+      - name: Run the ported test suite (Kotlin/Native)
+        working-directory: kmp
+        run: ./gradlew :shared:iosSimulatorArm64Test
+
+      # The riskiest link in the chain: Compose Multiplatform's own Native klibs, plus the bundled
+      # font and toolbar icons, resolved into the static framework the iOS app links against.
+      - name: Link the Compose framework the iOS app links against
+        working-directory: kmp
+        run: ./gradlew :demo:linkDebugFrameworkIosSimulatorArm64
+
+      # The iOS half of the app, executed rather than merely compiled.
+      #
+      # Everything above proves iosMain gets past a compiler. Nothing above runs a line of it, and
+      # the ways hand-written Objective-C interop goes wrong - a selector that quietly returns nil,
+      # a directory never created, a write with the wrong encoding - all compile perfectly. If
+      # DocumentsFileStore is broken, a surveyor loses the trip and finds out on the way home.
+      # These run in the simulator, which costs a minute and answers it.
+      - name: Run the iOS platform code in a simulator
+        working-directory: kmp
+        run: ./gradlew :demo:iosSimulatorArm64Test
+
+      # The phone, which is not the simulator.
+      #
+      # iosArm64 and iosSimulatorArm64 are separate Kotlin/Native targets with separate platform
+      # libraries - device UIKit and CoreBluetooth are not the simulator's - so a green simulator
+      # build is not evidence the device build works. That distinction is the whole point here:
+      # everything above proves the app runs on a Mac, and nobody surveys a cave with a Mac. This
+      # is the one check that speaks to the thing somebody will actually carry underground.
+      - name: Compile and link for a real iPhone (iosArm64)
+        working-directory: kmp
+        run: ./gradlew :shared:compileKotlinIosArm64 :demo:linkDebugFrameworkIosArm64
+
+      # The app, not the framework.
+      #
+      # Everything above builds Kotlin. None of it touches the Xcode project, and the Xcode project
+      # is where the things authored on Linux live: project.yml, Info.plist, the asset catalogue
+      # and two Swift files, none of which had ever been compiled by anything. That is the half of
+      # an iOS app a Kotlin compiler cannot check.
+      #
+      # It is also the only way to run actool, which is the only thing that can say whether the app
+      # icon drawn here with PIL is one iOS will accept - an alpha channel or a wrong size is
+      # rejected outright, and nothing on Linux reports either.
+      #
+      # No signing: a simulator build needs none, and this is about whether the project compiles
+      # rather than whether it can be installed.
+      - name: Build the iOS app itself
+        working-directory: kmp/iosApp
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild \
+            -project iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            ONLY_ACTIVE_ARCH=NO \
+            ARCHS=arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+      # And then run it, which is the question this whole branch asks.
+      #
+      # Everything else about iOS here is inference: the framework links, so Compose is *probably*
+      # fine; the platform code passes its tests, so the file store is fine. None of it draws a
+      # cave. Booting a simulator, installing the app and photographing it is the difference
+      # between "this should work on iOS" and a picture of it working on iOS.
+      #
+      # The assertion is what makes it a check rather than a photo opportunity. The app's panel
+      # green is in the app bar and under the toolbar and nowhere else on a phone screen, so an app
+      # that crashed on launch, or drew nothing, or came up as a white Compose canvas with no UI in
+      # it, has none of that colour in the screenshot. Springboard's own wallpaper is not it either.
+      - name: Run it in a simulator and photograph it
+        working-directory: kmp/iosApp
+        run: |
+          set -euo pipefail
+          device=$(xcrun simctl list devices available | grep -m1 "iPhone" |
+            grep -oE "[0-9A-F]{8}-[0-9A-F-]+")
+          echo "Using simulator $device"
+          xcrun simctl boot "$device" || true
+          xcrun simctl bootstatus "$device" -b
+          xcrun simctl install "$device" "build/Build/Products/Debug-iphonesimulator/SexyTopo KMP.app"
+          xcrun simctl launch "$device" org.hwyl.sexytopo.kmpdemo
+          # Compose's first frame on a cold simulator is not instant, and this is the one place
+          # where waiting too long costs nothing and waiting too little reports a working app as
+          # broken.
+          sleep 25
+          xcrun simctl io "$device" screenshot ios-simulator.png
+          # Downscaled first because the check below is a PNG decoder written in the standard
+          # library — there is no Pillow on a macOS runner — and a phone screenshot is three
+          # million pixels. The app bar is a solid block of the colour being looked for, so it
+          # survives the scaling.
+          sips -Z 240 ios-simulator.png --out ios-small.png > /dev/null
+          python3 check-screenshot.py ios-small.png
+
+          # And again, later. This is the half that was missing when a phone found a crash this
+          # job could not: the app launches, draws, passes the photograph, and *then* dies —
+          # which is what an uncaught throw dispatched to a background queue does. A check that
+          # looks once cannot see anything that happens afterwards.
+          #
+          # Not a substitute for the crash scan below; it is the cheaper of the two and it fails
+          # with a picture of what the screen looked like, which is worth having.
+          sleep 20
+          xcrun simctl io "$device" screenshot ios-simulator-later.png
+          sips -Z 240 ios-simulator-later.png --out ios-small-later.png > /dev/null
+          python3 check-screenshot.py ios-small-later.png
+
+      # A simulator app that dies leaves a report on the *host*, whatever killed it and whenever.
+      # That is the check with real teeth: it does not depend on catching the app mid-fall, and it
+      # prints the reason, so the next one of these arrives as a stack rather than as a
+      # disassembly somebody had to paste by hand.
+      - name: Check the app did not crash while it was running
+        if: always()
+        run: |
+          set -uo pipefail
+          # Say what was actually looked at. A scan that finds nothing and a scan that could not
+          # see anything read the same in a green log, and an absent DiagnosticReports directory
+          # is exactly the second dressed as the first — so the log has to distinguish them or
+          # this step is a claim rather than a check.
+          dir="$HOME/Library/Logs/DiagnosticReports"
+          if [ -d "$dir" ]; then
+            echo "Scanned $(ls -1 "$dir" 2>/dev/null | wc -l | tr -d ' ') file(s) in $dir"
+          else
+            echo "::notice::$dir does not exist, so nothing has crashed on this runner at all."
+            echo "This step can only report what it can see; the screenshot checks above are the"
+            echo "ones that assert a live app."
+          fi
+          reports=$(ls "$dir"/*.ips 2>/dev/null || true)
+          found=""
+          for report in $reports; do
+            if grep -qi "sexytopo" "$report" 2>/dev/null; then
+              found="yes"
+              echo "::error::the app crashed in the simulator: $(basename "$report")"
+              cat "$report"
+            fi
+          done
+          if [ -n "$found" ]; then
+            exit 1
+          fi
+          echo "No crash reports for this app."
+
+      - name: Upload the iOS screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-screenshot
+          path: kmp/iosApp/ios-simulator*.png
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-test-report
+          path: |
+            kmp/shared/build/reports/tests/
+            kmp/demo/build/reports/tests/
+
+  # The whole stack in a real browser: the ported survey core, the shared Compose UI and Skia, all
+  # compiled to WebAssembly and running somewhere with no java.* in it at all. Separate from the
+  # job above because it needs Node and a browser, and because it is the slow one.
+  browser:
+    name: Shared UI in a real browser (Wasm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build the browser distribution
+        working-directory: kmp
+        run: ./gradlew :demo:wasmJsBrowserDistribution
+
+      - name: Install Playwright and Chromium
+        working-directory: kmp/demo/browser-test
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Serve the distribution
+        working-directory: kmp/demo/build/dist/wasmJs/productionExecutable
+        run: |
+          python3 -m http.server 8731 &
+          # Wait for the server rather than sleeping blind, so a slow runner does not fail here.
+          for _ in $(seq 1 30); do
+            curl -sf -o /dev/null http://localhost:8731/index.html && exit 0
+            sleep 1
+          done
+          echo "the static server never came up" >&2
+          exit 1
+
+      - name: Smoke-test the page
+        working-directory: kmp/demo/browser-test
+        run: node smoke.mjs http://localhost:8731/index.html screenshots
+
+      # Whether a caver could actually record a survey: named survey, typed readings, triple-shot
+      # promotion, persistence across a restart, and loading with the network cut. None of that is
+      # visible in a screenshot, and every one of them would make the app useless underground.
+      - name: Test the field workflow
+        working-directory: kmp/demo/browser-test
+        run: node field.mjs http://localhost:8731/index.html field-screenshots
+
+      # The desk, rather than the cave. A survey is drawn up afterwards on a laptop, and both of
+      # the things this checks were reported from one: a trackpad pinch that zoomed the browser
+      # page instead of the survey, and no Ctrl+Z. Its own script because it needs a desktop-sized
+      # window and a wheel, and because every check in it moves the viewport that the field
+      # workflow's fixed coordinates depend on.
+      - name: Test the desktop wheel, trackpad and keyboard
+        working-directory: kmp/demo/browser-test
+        run: node desktop.mjs http://localhost:8731/index.html desktop-screenshots
+
+      # A radio, without a radio.
+      #
+      # CoreBluetoothTransport cannot be exercised anywhere - the iOS simulator has no Bluetooth
+      # stack - but Web Bluetooth is JavaScript, so a stub standing where navigator.bluetooth would
+      # be can behave exactly like a DistoX-BLE. That checks the entire chain the port has never
+      # been able to check: the profile's name prefix and UUIDs reaching the browser API, the
+      # notification arriving as a frame, the decoder reading it, the acknowledgement being written
+      # back, and three of them making a station. Everything except the radio itself.
+      - name: Test the instrument connection against a fake instrument
+        working-directory: kmp/demo/browser-test
+        run: node instrument.mjs http://localhost:8731/index.html instrument-screenshots
+
+      - name: Upload instrument screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrument-screenshots
+          path: kmp/demo/browser-test/instrument-screenshots/*.png
+
+      - name: Upload desktop screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-screenshots
+          path: kmp/demo/browser-test/desktop-screenshots/*.png
+
+      - name: Upload field screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: field-screenshots
+          path: kmp/demo/browser-test/field-screenshots/*.png
+
+      - name: Upload browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-screenshots
+          path: kmp/demo/browser-test/screenshots/*.png
