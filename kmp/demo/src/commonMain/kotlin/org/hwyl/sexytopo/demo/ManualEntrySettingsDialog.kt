@@ -36,7 +36,7 @@ fun ManualEntrySettingsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Manual entry") },
+        title = { Text(Strings.settingsManualDataEntryTitle) },
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
@@ -50,11 +50,8 @@ fun ManualEntrySettingsDialog(
                 )
 
                 Toggle(
-                    title = "Offer a reading typed by hand",
-                    detail =
-                        "How a DistoX's display gets into the survey when the radio will not " +
-                            "play. Worth turning off once an instrument is talking, for the room " +
-                            "it gives back.",
+                    title = Strings.settingsManualControlsTitle,
+                    detail = Strings.settingsManualControlsSummary,
                     checked = manualControls,
                     onCheckedChange = { manualControls = it },
                 )
@@ -62,11 +59,8 @@ fun ManualEntrySettingsDialog(
                 // Disabled rather than hidden when there's no hand-typed reading to put it in:
                 // a row that vanishes is one nobody can find again to see why it did nothing.
                 Toggle(
-                    title = "Book passage size with the reading",
-                    detail =
-                        "Four tape measurements beside the leg, taken where you are standing. " +
-                            "For a compass-and-tape survey that is the whole station in one " +
-                            "dialog instead of going back to one you have already left.",
+                    title = Strings.settingsLrudFieldsTitle,
+                    detail = Strings.settingsLrudFieldsSummary,
                     checked = lrudFields,
                     onCheckedChange = { lrudFields = it },
                     enabled = manualControls,
@@ -79,30 +73,25 @@ fun ManualEntrySettingsDialog(
                 // dialog by scanning pixels, and a chip pair here would be miscounted as one,
                 // silently toggling the wrong setting.
                 Toggle(
-                    title = "Measure walls square to the next leg",
+                    title = Strings.settingsLrudDirectionTitle,
                     detail =
-                        "Off, the default, takes them square to the passage — bisecting the " +
-                            "corner at a bend, which is what most cavers mean by a left-hand " +
-                            "wall. On uses the leg you are about to shoot instead.",
+                        Strings.settingsLrudDirectionSummary + ". Off is " +
+                            Strings.lrudDirectionSurvey + "; on is " +
+                            Strings.lrudDirectionShot + ".",
                     checked = lrudMode == LrudMode.SHOT,
                     onCheckedChange = { lrudMode = if (it) LrudMode.SHOT else LrudMode.SURVEY },
                 )
 
                 Toggle(
-                    title = "Type bearings in minutes",
-                    detail =
-                        "A sighting compass is graduated in minutes, so it reads 123\u00b0 30\u2032 " +
-                            "and not 123.5. Converting that in your head at every station is how " +
-                            "a survey acquires errors nobody can find afterwards.",
+                    title = Strings.settingsAzimuthDmsTitle,
+                    detail = Strings.settingsAzimuthDmsSummary,
                     checked = azimuthInDms,
                     onCheckedChange = { azimuthInDms = it },
                 )
 
                 Toggle(
-                    title = "Type inclinations in minutes",
-                    detail =
-                        "Its own switch, as upstream: plenty of clinometers read in degrees while " +
-                            "the compass beside them reads in minutes.",
+                    title = Strings.settingsInclinationDmsTitle,
+                    detail = Strings.settingsInclinationDmsSummary,
                     checked = inclinationInDms,
                     onCheckedChange = { inclinationInDms = it },
                 )
@@ -123,8 +112,8 @@ fun ManualEntrySettingsDialog(
                         ),
                     )
                 },
-            ) { Text("Save") }
+            ) { Text(Strings.save) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
     )
 }

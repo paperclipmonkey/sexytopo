@@ -2,6 +2,7 @@ package org.hwyl.sexytopo.demo
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,22 +11,27 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.math.adjustAngle
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.survey.Lrud
+import org.hwyl.sexytopo.shared.survey.LrudMode
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 
 /**
@@ -36,14 +42,29 @@ import org.hwyl.sexytopo.shared.survey.SurveyUpdater
  * shot's direction rather than negating its numbers.
  */
 enum class LegAction(private val legLabel: String, private val splayLabel: String = legLabel) {
-    EDIT("Edit reading"),
-    COMMENT("Leg comment", "Splay comment"),
-    REVERSE("Reverse the shot"),
-    UPGRADE("Make it a station"),
-    DOWNGRADE("Make it a splay"),
-    PROMOTE("Add it to the leg above"),
-    MOVE("Hang it off another station…"),
-    DELETE("Delete"),
+    /** `action_edit_leg`. */
+    EDIT(Strings.menuEditLeg),
+
+    /** `action_comment_leg`, whose title `configureMenuVisibility` swaps on a splay. */
+    COMMENT(Strings.menuCommentLeg, Strings.menuCommentSplay),
+
+    /** `action_reverse`, shown only on a full leg. */
+    REVERSE(Strings.menuReverse),
+
+    /** `action_upgrade_splay`, shown only on a splay. */
+    UPGRADE(Strings.menuUpgradeSplay),
+
+    /** `action_downgrade_leg`, shown only on a full leg with nothing beyond it. */
+    DOWNGRADE(Strings.menuDowngradeLeg),
+
+    /** `action_promote_to_above_leg`, shown only on a splay. */
+    PROMOTE(Strings.menuPromoteToAboveLeg),
+
+    /** `moveRow`, from the table's own menus rather than from `context_leg.xml`. */
+    MOVE(Strings.menuMoveRow),
+
+    /** `action_delete_leg`, whose title the table's splay menu gives as *Delete Splay*. */
+    DELETE(Strings.menuDeleteLeg, Strings.menuDeleteSplay),
     ;
 
     fun label(isSplay: Boolean): String = if (isSplay) splayLabel else legLabel
@@ -126,6 +147,7 @@ fun LegActionsDialog(
         editing ->
             EditLegDialog(
                 row = row,
+                survey = survey,
                 onDismiss = { editing = false },
                 onSave = { edited ->
                     SurveyUpdater.editLeg(survey, row.leg, edited)
@@ -136,7 +158,15 @@ fun LegActionsDialog(
         confirmingDelete ->
             AlertDialog(
                 onDismissRequest = { confirmingDelete = false },
-                title = { Text("Delete this ${if (row.isSplay) "splay" else "leg"}?") },
+                title = {
+                    Text(
+                        if (row.isSplay) {
+                            "${Strings.menuDeleteSplay}?"
+                        } else {
+                            "${Strings.menuDeleteLeg} ${Strings.leg.lowercase()}?"
+                        },
+                    )
+                },
                 text = {
                     Text(
                         if (row.isSplay) {
@@ -150,17 +180,27 @@ fun LegActionsDialog(
                     TextButton(onClick = {
                         SurveyUpdater.deleteLeg(survey, row.fromStation, row.leg)
                         onEdited()
-                    }) { Text("Delete") }
+                    }) { Text(Strings.delete) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") }
+                    TextButton(onClick = { confirmingDelete = false }) { Text(Strings.cancel) }
                 },
             )
 
         else ->
             AlertDialog(
                 onDismissRequest = onDismiss,
-                title = { Text(if (row.isSplay) "Splay from ${row.from}" else "${row.from} → ${row.to}") },
+                // `menu_context_title_leg` / `menu_context_title_splay`, which is what
+                // `TableActivity.onRowLongClick` puts at the head of the Android menu.
+                title = {
+                    Text(
+                        if (row.isSplay) {
+                            Strings.splayTitle(row.from)
+                        } else {
+                            Strings.legTitle(row.from, row.to)
+                        },
+                    )
+                },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
@@ -217,7 +257,7 @@ fun LegActionsDialog(
                         }
                     }
                 },
-                dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+                dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
             )
     }
 }
@@ -227,21 +267,88 @@ fun LegActionsDialog(
  * saving puts it back into the orientation the survey stores, so a backsight stays a backsight.
  */
 @Composable
-private fun EditLegDialog(row: SurveyTableRow, onDismiss: () -> Unit, onSave: (Leg) -> Unit) {
+internal fun EditLegDialog(
+    row: SurveyTableRow,
+    onDismiss: () -> Unit,
+    onSave: (Leg) -> Unit,
+    /**
+     * The survey the row belongs to. Null keeps the dialog to the three numbers, which is what a
+     * caller with nothing to rename wants; given one, the station and comment fields of
+     * `leg_edit_dialog_unified.xml` appear too and are applied on save.
+     */
+    survey: Survey? = null,
+    /** `pref_lrud_fields`: whether the four passage measurements are shown, as in the app. */
+    lrudFields: Boolean = false,
+    lrudMode: LrudMode = LrudMode.DEFAULT,
+) {
     var distance by remember { mutableStateOf(row.distance) }
     var azimuth by remember { mutableStateOf(row.azimuth) }
     var inclination by remember { mutableStateOf(row.inclination) }
 
+    val from = row.fromStationShown
+    val to = row.toStationShown
+
+    var fromName by remember(row) { mutableStateOf(from.name) }
+    var fromComment by remember(row) { mutableStateOf(from.comment) }
+    var toName by remember(row) { mutableStateOf(to?.name ?: "") }
+    var toComment by remember(row) { mutableStateOf(to?.comment ?: "") }
+    var legComment by remember(row) { mutableStateOf(row.leg.comment) }
+    val lrud = remember(row) { mutableStateListOf("", "", "", "") }
+
     val parsed = parseReading(distance, azimuth, inclination)
+    val fromProblem = survey?.let { renameProblem(it, from, fromName) }
+    val toProblem = if (survey != null && to != null) renameProblem(survey, to, toName) else null
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit reading") },
+        // `manual_edit_leg_title` / `manual_edit_splay_title`, as `LegDialogs.editLeg` titles it.
+        title = {
+            Text(
+                if (row.isSplay) Strings.manualEditSplayTitle else Strings.manualEditLegTitle,
+            )
+        },
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                // `leg_edit_dialog_unified.xml`'s own order: the two stations and their comments,
+                // then the reading, then the leg's comment.
+                if (survey != null) {
+                    OutlinedTextField(
+                        value = fromName,
+                        onValueChange = { fromName = it },
+                        label = { Text(Strings.manualEditFromStation) },
+                        singleLine = true,
+                        isError = fromProblem != null,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = fromComment,
+                        onValueChange = { fromComment = it },
+                        label = { Text(Strings.manualEditStationComment) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (to != null) {
+                        OutlinedTextField(
+                            value = toName,
+                            onValueChange = { toName = it },
+                            label = { Text(Strings.manualEditToStation) },
+                            singleLine = true,
+                            isError = toProblem != null,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = toComment,
+                            onValueChange = { toComment = it },
+                            label = { Text(Strings.manualEditStationComment) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+
                 ReadingFields(
                     distance = distance,
                     onDistance = { distance = it },
@@ -250,7 +357,42 @@ private fun EditLegDialog(row: SurveyTableRow, onDismiss: () -> Unit, onSave: (L
                     inclination = inclination,
                     onInclination = { inclination = it },
                 )
-                parsed.problem?.let {
+
+                if (survey != null) {
+                    OutlinedTextField(
+                        value = legComment,
+                        onValueChange = { legComment = it },
+                        label = {
+                            Text(
+                                if (row.isSplay) {
+                                    Strings.menuCommentSplay
+                                } else {
+                                    Strings.manualEditLegComment
+                                },
+                            )
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                if (survey != null && lrudFields && to != null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for ((index, side) in Lrud.entries.withIndex()) {
+                            OutlinedTextField(
+                                value = lrud[index],
+                                onValueChange = { lrud[index] = it },
+                                label = { Text(lrudFieldLabel(side)) },
+                                singleLine = true,
+                                keyboardOptions =
+                                    KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+
+                listOfNotNull(parsed.problem, fromProblem, toProblem).forEach {
                     Text(
                         it,
                         style = MaterialTheme.typography.bodySmall,
@@ -261,13 +403,49 @@ private fun EditLegDialog(row: SurveyTableRow, onDismiss: () -> Unit, onSave: (L
         },
         confirmButton = {
             TextButton(
-                enabled = parsed.leg != null,
-                onClick = { parsed.leg?.let { onSave(inOrientationOf(row.leg, it)) } },
-            ) { Text("Save") }
+                enabled = parsed.leg != null && fromProblem == null && toProblem == null,
+                onClick = {
+                    if (survey != null) {
+                        // Before the reading: editLeg replaces the Leg object, and the comment
+                        // would then be written onto one no longer in the survey.
+                        applyStationEdit(
+                            survey,
+                            from,
+                            fromName,
+                            fromComment,
+                            from.extendedElevationDirection,
+                        )
+                        to?.let {
+                            applyStationEdit(
+                                survey,
+                                it,
+                                toName,
+                                toComment,
+                                it.extendedElevationDirection,
+                            )
+                            if (lrudFields) addLruds(survey, it, lrud.toList(), lrudMode)
+                        }
+                    }
+                    val edited = parsed.leg?.let { inOrientationOf(row.leg, it) }
+                    if (edited != null) {
+                        edited.comment = legComment
+                        onSave(edited)
+                    }
+                },
+            ) { Text(Strings.save) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
     )
 }
+
+/** `manual_edit_left` and its three siblings, as the with-LRUDs variant of the dialog labels them. */
+private fun lrudFieldLabel(side: Lrud): String =
+    when (side) {
+        Lrud.LEFT -> Strings.manualEditLeft
+        Lrud.RIGHT -> Strings.manualEditRight
+        Lrud.UP -> Strings.manualEditUp
+        Lrud.DOWN -> Strings.manualEditDown
+    }
 
 /**
  * Re-dresses a freshly parsed reading as a replacement for [original].
@@ -316,13 +494,21 @@ private fun LegCommentDialog(
             OutlinedTextField(
                 value = comment,
                 onValueChange = { comment = it },
-                label = { Text("Comment") },
+                label = {
+                    Text(
+                        if (row.isSplay) {
+                            Strings.menuCommentSplay
+                        } else {
+                            Strings.manualEditLegComment
+                        },
+                    )
+                },
                 placeholder = { Text("Sump; do not follow") },
                 modifier = Modifier.fillMaxWidth().then(focus),
             )
         },
-        confirmButton = { TextButton(onClick = { onSave(comment) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { onSave(comment) }) { Text(Strings.save) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
     )
 }
 
@@ -339,7 +525,7 @@ private fun MoveLegDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Hang it off which station?") },
+        title = { Text(Strings.menuMoveRow) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -354,7 +540,7 @@ private fun MoveLegDialog(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    label = { Text("Name") },
+                    label = { Text(Strings.manualRenameStationHint) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -383,6 +569,6 @@ private fun MoveLegDialog(
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
     )
 }

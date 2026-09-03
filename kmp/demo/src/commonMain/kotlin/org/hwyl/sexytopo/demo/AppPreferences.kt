@@ -23,9 +23,9 @@ enum class AppTheme(
     val key: String,
     val label: String,
 ) {
-    AUTO("auto", "Automatic"),
-    LIGHT("light", "Light"),
-    DARK("dark", "Dark"),
+    AUTO("auto", Strings.themeAutomatic),
+    LIGHT("light", Strings.themeLight),
+    DARK("dark", Strings.themeDark),
     ;
 
     fun isDark(systemDark: Boolean): Boolean =

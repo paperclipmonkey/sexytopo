@@ -8,6 +8,7 @@ import org.hwyl.sexytopo.shared.comms.InstrumentPacket
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
 import org.hwyl.sexytopo.shared.comms.distox.DistoXBlePackets
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.survey.InputMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -135,6 +136,29 @@ class InstrumentSessionTest {
 
         assertEquals(3, session.readingsTaken)
         assertEquals(2, survey.getAllStations().size)
+    }
+
+    /**
+     * `action_input` reaches the readings that arrive from an instrument, not only the ones typed
+     * by hand.
+     *
+     * The session called `SurveyUpdater.update` without an input mode, so every reading from a
+     * radio or the simulator was promoted under `FORWARD` whatever the *Input Mode* menu said.
+     * *Splays Only* is the mode that shows it: a surveyor shooting a chamber's walls from one
+     * station wants a fistful of splays and no new stations at all, and got a station every third
+     * shot instead — the cave growing a leg into the wall it was measuring.
+     */
+    @Test
+    fun theInputModeReachesReadingsFromTheInstrument() {
+        val survey = Survey("T")
+        val session = SurveySession(survey)
+        session.inputMode = InputMode.CALIBRATION_CHECK
+
+        repeat(3) { session.takeReading() }
+
+        assertEquals(3, session.readingsTaken)
+        assertEquals(1, survey.getAllStations().size, "Splays Only promotes nothing")
+        assertEquals(3, survey.getAllLegsInChronoOrder().size, "the readings are still kept")
     }
     /**
      * A decoder that throws does not take the app with it.

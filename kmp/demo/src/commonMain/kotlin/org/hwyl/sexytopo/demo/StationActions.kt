@@ -31,17 +31,28 @@ import org.hwyl.sexytopo.shared.survey.SurveyBuilder
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 
 /**
+ * Which of the station's fields a dialog is about.
+ *
+ * `context_station.xml` has a row each for renaming and commenting, and each opens a dialog with
+ * one field in it. This port had them as one dialog with everything on it, which is fewer taps and
+ * not what the app does — so it is one composable with three faces instead, sharing a single save
+ * path so the three cannot disagree about what a rename does to the survey.
+ */
+enum class StationFields { NAME, COMMENT, PASSAGE }
+
+/**
  * Naming a station, and saying what is there.
  *
- * The extended-elevation direction is here because it belongs to a station and nowhere else: in an
- * extended elevation the passage unrolls onto a line, and at a junction the surveyor says which way
- * the branch unrolls. It propagates onward from here, so setting it on a junction sets it for the
- * whole branch.
+ * [StationFields.PASSAGE] is the one face with no counterpart upstream: the Android app books
+ * passage measurements while adding a leg and never afterwards, and being able to add them to a
+ * junction you have already walked past is what lets a cross-section be drawn from a hand-booked
+ * survey.
  */
 @Composable
 fun StationActionsDialog(
     survey: Survey,
     station: Station,
+    fields: StationFields,
     onDismiss: () -> Unit,
     onEdited: () -> Unit,
     /** Which bearing left and right go square to: `pref_lrud_direction`. */
@@ -52,68 +63,69 @@ fun StationActionsDialog(
     var direction by remember(station) { mutableStateOf(station.extendedElevationDirection) }
     val lrud = remember(station) { mutableStateListOf("", "", "", "") }
 
-    val problem = renameProblem(survey, station, name)
+    val problem = if (fields == StationFields.NAME) renameProblem(survey, station, name) else null
+    val focus = rememberOpeningFocus()
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Station ${station.name}") },
+        title = {
+            Text(
+                when (fields) {
+                    StationFields.NAME -> Strings.manualRenameStationTitle
+                    StationFields.COMMENT -> Strings.menuComment
+                    StationFields.PASSAGE -> Strings.settingsLrudFieldsTitle
+                },
+            )
+        },
         text = {
-                // Scrollable because this dialog is the tallest in the app - a name, a comment,
-                // four passage measurements and the elevation direction - and it opens with the
-                // keyboard up, taking a third of a phone screen. A scroll container that fits
-                // reports the height of its content, so this changes nothing where it doesn't.
+            // Scrollable because the passage face is four fields wide and opens with the keyboard
+            // up, taking a third of a phone screen. A scroll container that fits reports the
+            // height of its content, so this changes nothing where it doesn't.
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Name") },
-                    singleLine = true,
-                    isError = problem != null,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = comment,
-                    onValueChange = { comment = it },
-                    label = { Text("Comment") },
-                    placeholder = { Text("Continues, too tight") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text("Passage size", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "Four tape measurements instead of four instrument shots. They become ordinary " +
-                        "splays, so the cross-section is drawn from them like any other.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for ((index, side) in Lrud.entries.withIndex()) {
+                when (fields) {
+                    StationFields.NAME ->
                         OutlinedTextField(
-                            value = lrud[index],
-                            onValueChange = { lrud[index] = it },
-                            label = { Text(side.name.take(1)) },
+                            value = name,
+                            onValueChange = { name = it },
+                            label = { Text(Strings.manualRenameStationHint) },
                             singleLine = true,
-                            keyboardOptions =
-                                KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            modifier = Modifier.weight(1f),
+                            isError = problem != null,
+                            modifier = Modifier.fillMaxWidth().then(focus),
                         )
-                    }
-                }
 
-                Text(
-                    "In the extended elevation, this station's passage unrolls:",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (option in ExtendedElevationDirection.entries) {
-                        FilterChip(
-                            selected = direction == option,
-                            onClick = { direction = option },
-                            label = { Text(option.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                    StationFields.COMMENT ->
+                        OutlinedTextField(
+                            value = comment,
+                            onValueChange = { comment = it },
+                            label = { Text(Strings.manualEditStationComment) },
+                            placeholder = { Text("Continues, too tight") },
+                            modifier = Modifier.fillMaxWidth().then(focus),
                         )
+
+                    StationFields.PASSAGE -> {
+                        Text(
+                            "Four tape measurements instead of four instrument shots. They " +
+                                "become ordinary splays, so the cross-section is drawn from them " +
+                                "like any other.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            for ((index, side) in Lrud.entries.withIndex()) {
+                                OutlinedTextField(
+                                    value = lrud[index],
+                                    onValueChange = { lrud[index] = it },
+                                    label = { Text(lrudLabel(side)) },
+                                    singleLine = true,
+                                    keyboardOptions =
+                                        KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
                     }
                 }
                 problem?.let {
@@ -130,14 +142,25 @@ fun StationActionsDialog(
                 enabled = problem == null,
                 onClick = {
                     applyStationEdit(survey, station, name, comment, direction)
-                    addLruds(survey, station, lrud.toList(), lrudMode)
+                    if (fields == StationFields.PASSAGE) {
+                        addLruds(survey, station, lrud.toList(), lrudMode)
+                    }
                     onEdited()
                 },
-            ) { Text("Save") }
+            ) { Text(Strings.save) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
     )
 }
+
+/** `manual_edit_left` and its three siblings: the field labels, not the enum's initials. */
+private fun lrudLabel(side: Lrud): String =
+    when (side) {
+        Lrud.LEFT -> Strings.manualEditLeft
+        Lrud.RIGHT -> Strings.manualEditRight
+        Lrud.UP -> Strings.manualEditUp
+        Lrud.DOWN -> Strings.manualEditDown
+    }
 
 /**
  * Why the typed name cannot be used, or null if it can.

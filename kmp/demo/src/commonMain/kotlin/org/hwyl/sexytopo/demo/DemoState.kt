@@ -114,6 +114,7 @@ class DemoState(
         session.autoReconnect = preferences.reconnection
         session.settings = surveySettings
         restoreSelections()
+        session.inputMode = inputMode
     }
 
     /** Put the surveyor back where they left off, except for whatever the caller seeded itself. */
@@ -210,6 +211,20 @@ class DemoState(
     var storageProblem by mutableStateOf<String?>(null)
         private set
 
+    /**
+     * What the Android app would say in a `Toast` — *Saved*, *Started new survey* — shown as a
+     * strip under the app bar and cleared a moment later.
+     *
+     * Not an error channel: [storageProblem] is that. This is the confirmation that a menu item
+     * which changes nothing visible actually did something, without which *Save* is a button that
+     * appears to do nothing at all.
+     */
+    var notice by mutableStateOf<String?>(null)
+
+    fun note(message: String) {
+        notice = message
+    }
+
     val survey: Survey
         get() = if (mode == SurveyMode.EXAMPLE) exampleSurvey else liveSurvey
 
@@ -292,6 +307,25 @@ class DemoState(
         sketchRevision++
     }
 
+    /**
+     * `action_file_save_as`: the same survey under a second name, with the first left where it is.
+     *
+     * The difference from [renameLiveSurvey] is the one that matters underground — the old copy
+     * survives, which is what somebody branching a trip off yesterday's survey is asking for. The
+     * Android app does it by choosing a directory to write into; here the name *is* the directory.
+     */
+    fun saveLiveSurveyAs(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty() || trimmed == liveSurvey.name) return
+        liveSurvey.name = library.uniqueName(trimmed)
+        if (library.save(liveSurvey)) {
+            refreshLibrary()
+        } else {
+            storageProblem = library.lastError ?: "could not save"
+        }
+        sketchRevision++
+    }
+
     private fun adopt(survey: Survey) {
         liveSurvey = survey
         session = SurveySession(survey, surveySettings)
@@ -299,6 +333,7 @@ class DemoState(
         // would quietly turn auto-reconnect off.
         session.autoReconnect = preferences.reconnection
         session.traceFrames = preferences.developerMode
+        session.inputMode = inputMode
         session.onStationCreated = ::noteStationCreated
         mode = SurveyMode.LIVE
         storageProblem = null
@@ -378,6 +413,9 @@ class DemoState(
      */
     fun chooseInputMode(mode: InputMode) {
         inputMode = mode
+        // The session promotes readings from the instrument, so it has to be told too — see
+        // [SurveySession.inputMode].
+        session.inputMode = mode
         rememberSelections()
     }
 
@@ -461,42 +499,58 @@ class ViewToggle(
     val toggle: (DemoState) -> Unit,
 )
 
-/** `drawingMenuBehaviourToggles`: the four settings that change what the app does, not what's drawn. */
+/**
+ * `drawingMenuBehaviourToggles`: the four settings that change what the app does, not what's drawn.
+ *
+ * In `drawing.xml`'s own order, under its own labels.
+ */
 val BEHAVIOUR_TOGGLES =
     listOf(
         ViewToggle(
-            "Follow the survey",
+            Strings.sketchMenuAutoRecentre,
             { it.preferences.autoRecentre },
             { it.updatePreferences(it.preferences.copy(autoRecentre = !it.preferences.autoRecentre)) },
         ),
-        ViewToggle("Snap to lines", { it.snapToLines }, { it.snapToLines = !it.snapToLines }),
         ViewToggle(
-            "Water is blue",
+            Strings.sketchMenuSnapToLines,
+            { it.snapToLines },
+            { it.snapToLines = !it.snapToLines },
+        ),
+        ViewToggle(
+            Strings.sketchMenuBlueWater,
             { it.preferences.blueWater },
             { it.updatePreferences(it.preferences.copy(blueWater = !it.preferences.blueWater)) },
         ),
         ViewToggle(
-            "Pinch to zoom",
+            Strings.sketchMenuPinchToZoom,
             { it.preferences.pinchToZoom },
             { it.updatePreferences(it.preferences.copy(pinchToZoom = !it.preferences.pinchToZoom)) },
         ),
     )
 
 /**
- * `drawingMenuDisplayToggles`: the ones that change what is drawn. `buttonShowConnections` has
- * nothing behind it here — reaching a neighbouring survey needs a `content://` URI, out of scope
- * for this port.
+ * `drawingMenuDisplayToggles`: the ones that change what is drawn, in `drawing.xml`'s own order
+ * and under its own labels.
+ *
+ * `buttonShowConnections` has nothing behind it here — reaching a neighbouring survey needs a
+ * `content://` URI, out of scope for this port — so it is the one row of that group not carried
+ * across. `pref_highlight_latest_leg` is not on this menu in the Android app either: it is a
+ * Sketching preference, and this port had it here until the settings screens were squared up.
  */
 val DISPLAY_TOGGLES =
     listOf(
         ViewToggle(
-            "Fade all but the working end",
+            Strings.sketchMenuFadeNonActive,
             { it.preferences.fadeNonActive },
             { it.updatePreferences(it.preferences.copy(fadeNonActive = !it.preferences.fadeNonActive)) },
         ),
-        ViewToggle("Show splays", { it.showSplays }, { it.showSplays = !it.showSplays }),
         ViewToggle(
-            "Show cross-sections",
+            Strings.sketchMenuShowSplays,
+            { it.showSplays },
+            { it.showSplays = !it.showSplays },
+        ),
+        ViewToggle(
+            Strings.sketchMenuShowCrossSections,
             { it.preferences.showCrossSections },
             {
                 it.updatePreferences(
@@ -504,18 +558,21 @@ val DISPLAY_TOGGLES =
                 )
             },
         ),
-        ViewToggle("Show sketch", { it.showSketch }, { it.showSketch = !it.showSketch }),
-        ViewToggle("Show grid", { it.showGrid }, { it.showGrid = !it.showGrid }),
-        ViewToggle("Show station labels", { it.showLabels }, { it.showLabels = !it.showLabels }),
-        ViewToggle("Show north", { it.showCompass }, { it.showCompass = !it.showCompass }),
         ViewToggle(
-            "Mark the last leg taken",
-            { it.preferences.highlightLatestLeg },
-            {
-                it.updatePreferences(
-                    it.preferences.copy(highlightLatestLeg = !it.preferences.highlightLatestLeg),
-                )
-            },
+            Strings.sketchMenuShowSketch,
+            { it.showSketch },
+            { it.showSketch = !it.showSketch },
+        ),
+        ViewToggle(Strings.sketchMenuShowGrid, { it.showGrid }, { it.showGrid = !it.showGrid }),
+        ViewToggle(
+            Strings.sketchMenuShowStationLabels,
+            { it.showLabels },
+            { it.showLabels = !it.showLabels },
+        ),
+        ViewToggle(
+            Strings.sketchMenuShowCompass,
+            { it.showCompass },
+            { it.showCompass = !it.showCompass },
         ),
     )
 

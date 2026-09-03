@@ -41,20 +41,24 @@ class StationMenuTest {
         projection: Projection2D = Projection2D.PLAN,
         editor: SketchEditor? = null,
         fromTable: Boolean = false,
+        legacyCrossSections: Boolean = false,
     ) = stationActionsFor(
         survey,
         survey.getStationByName(name)!!,
         projection,
         editor?.sketch ?: survey.getSketch(projection),
         fromTable,
+        legacyCrossSections,
     )
 
     /**
-     * `menu_navigate` offers the two views you are *not* looking at, which is the same rule read
-     * from either end: never the one you are already in, and never nothing.
+     * `menu_navigate` offers every view except the one being looked at, which is exactly what
+     * `ViewContext` does: `TABLE` hides `action_jump_to_table`, `PLAN` hides
+     * `action_jump_to_plan`, `EXTENDED_ELEVATION` hides `action_jump_to_elevation`, and nothing
+     * hides more than that.
      */
     @Test
-    fun eachMenuOffersTheViewsTheOtherOneIsNotShowing() {
+    fun eachMenuOffersEveryViewButTheOneItWasOpenedIn() {
         val survey = passage()
 
         val fromTable = actions(survey, "2", fromTable = true)
@@ -62,10 +66,43 @@ class StationMenuTest {
         assertContains(fromTable, StationAction.SHOW_IN_ELEVATION)
         assertFalse(StationAction.SHOW_IN_TABLE in fromTable, "already in the table")
 
-        val fromSketch = actions(survey, "2")
-        assertContains(fromSketch, StationAction.SHOW_IN_TABLE)
-        assertFalse(StationAction.SHOW_IN_PLAN in fromSketch, "already on a drawing")
-        assertFalse(StationAction.SHOW_IN_ELEVATION in fromSketch)
+        val fromPlan = actions(survey, "2", Projection2D.PLAN)
+        assertContains(fromPlan, StationAction.SHOW_IN_TABLE)
+        assertContains(fromPlan, StationAction.SHOW_IN_ELEVATION)
+        assertFalse(StationAction.SHOW_IN_PLAN in fromPlan, "already on the plan")
+
+        val fromElevation = actions(survey, "2", Projection2D.EXTENDED_ELEVATION)
+        assertContains(fromElevation, StationAction.SHOW_IN_TABLE)
+        assertContains(fromElevation, StationAction.SHOW_IN_PLAN)
+        assertFalse(
+            StationAction.SHOW_IN_ELEVATION in fromElevation,
+            "already on the elevation",
+        )
+    }
+
+    /**
+     * `menu_elevation` is `ViewContext.EXTENDED_ELEVATION`'s alone, and its three rows are a
+     * `checkableBehavior="single"` group: which way this station's passage unrolls.
+     */
+    @Test
+    fun theUnrollDirectionIsOfferedInTheExtendedElevationOnly() {
+        val survey = passage()
+        val directions =
+            listOf(
+                StationAction.DIRECTION_LEFT,
+                StationAction.DIRECTION_RIGHT,
+                StationAction.DIRECTION_VERTICAL,
+            )
+
+        val onTheElevation = actions(survey, "2", Projection2D.EXTENDED_ELEVATION)
+        for (direction in directions) assertContains(onTheElevation, direction)
+
+        val onThePlan = actions(survey, "2", Projection2D.PLAN)
+        for (direction in directions) {
+            assertFalse(direction in onThePlan, "a plan does not unroll")
+        }
+        val fromTable = actions(survey, "2", fromTable = true)
+        for (direction in directions) assertFalse(direction in fromTable)
     }
 
     @Test
@@ -83,7 +120,8 @@ class StationMenuTest {
         val survey = passage()
         for (fromTable in listOf(true, false)) {
             val offered = actions(survey, "2", fromTable = fromTable)
-            assertContains(offered, StationAction.EDIT)
+            assertContains(offered, StationAction.RENAME)
+            assertContains(offered, StationAction.COMMENT)
             assertContains(offered, StationAction.INCOMING_LEG)
             assertContains(offered, StationAction.DELETE)
             assertContains(offered, StationAction.MAKE_ACTIVE)
@@ -122,10 +160,55 @@ class StationMenuTest {
         val survey = passage()
         for (name in listOf("1", "2", "3")) {
             assertTrue(
-                StationAction.EDIT in actions(survey, name),
+                StationAction.RENAME in actions(survey, name),
                 "$name should be nameable — that is the whole point of the menu",
             )
+            assertTrue(StationAction.COMMENT in actions(survey, name), name)
         }
+    }
+
+    /**
+     * `pref_legacy_cross_sections` turns the section editor off, so `configureMenuVisibility`
+     * hides the row that opens it — the other three stay, since moving, aiming and deleting a
+     * section all still work when it is drawn as bare splays.
+     */
+    @Test
+    fun legacyCrossSectionsTakeAwayTheRowThatOpensTheEditor() {
+        val survey = passage()
+        val editor = SketchEditor(survey.getSketch(Projection2D.PLAN))
+        val station = survey.getStationByName("2")!!
+        editor.addCrossSection(sectionFor(survey, station), Coord2D(20f, -5f))
+
+        val modern = actions(survey, "2", Projection2D.PLAN, editor)
+        assertContains(modern, StationAction.CROSS_SECTION_EDIT)
+
+        val legacy =
+            actions(survey, "2", Projection2D.PLAN, editor, legacyCrossSections = true)
+        assertFalse(StationAction.CROSS_SECTION_EDIT in legacy)
+        assertContains(legacy, StationAction.CROSS_SECTION_SET_DIRECTION)
+        assertContains(legacy, StationAction.CROSS_SECTION_DELETE)
+    }
+
+    /**
+     * `configureMenuVisibility` greys *Set Direction* out where there is no section to aim; this
+     * port leaves it off entirely, as it does everywhere else.
+     */
+    @Test
+    fun aimingASectionIsOfferedOnlyWhereThereIsOneToAim() {
+        val survey = passage()
+        val editor = SketchEditor(survey.getSketch(Projection2D.PLAN))
+        val station = survey.getStationByName("2")!!
+
+        assertFalse(
+            StationAction.CROSS_SECTION_SET_DIRECTION in
+                actions(survey, "2", Projection2D.PLAN, editor),
+        )
+
+        editor.addCrossSection(sectionFor(survey, station), Coord2D(20f, -5f))
+        assertContains(
+            actions(survey, "2", Projection2D.PLAN, editor),
+            StationAction.CROSS_SECTION_SET_DIRECTION,
+        )
     }
 
     @Test

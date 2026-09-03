@@ -105,7 +105,10 @@ class LegActionsTest {
     fun aSplayAsksForASplayCommentAndALegForALegOne() {
         assertEquals("Splay comment", LegAction.COMMENT.label(isSplay = true))
         assertEquals("Leg comment", LegAction.COMMENT.label(isSplay = false))
-        assertEquals("Delete", LegAction.DELETE.label(isSplay = true))
+        // `menu_delete_leg` on a leg and `menu_delete_splay` on a splay, which is what
+        // `table_full_leg_selected.xml` and `table_splay_selected.xml` say.
+        assertEquals("Delete", LegAction.DELETE.label(isSplay = false))
+        assertEquals("Delete Splay", LegAction.DELETE.label(isSplay = true))
     }
 
     @Test

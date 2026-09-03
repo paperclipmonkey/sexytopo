@@ -85,6 +85,7 @@ import org.hwyl.sexytopo.shared.sketch.hotCornerTopLefts
 import org.hwyl.sexytopo.shared.sketch.whollyOutside
 import org.hwyl.sexytopo.shared.sketch.zoomBetween
 import org.hwyl.sexytopo.shared.survey.CrossSectioner
+import org.hwyl.sexytopo.shared.survey.SurveyStats
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -922,6 +923,14 @@ class SurveyScene private constructor(
     val commentedStations: Set<String>,
     val originName: String,
     val surveyName: String,
+    /**
+     * `GraphView.setCachedStats`: the survey's length and vertical range, for the legend line.
+     *
+     * Cached with the scene rather than computed in the draw loop for the reason the Android app
+     * caches them — both walk the whole survey, and the loop runs on every frame of a drag.
+     */
+    val surveyLength: Float = 0f,
+    val surveyHeight: Float = 0f,
     /** Everything drawn, centreline and ink alike — what the opening zoom is fitted to. */
     val bounds: Bounds,
     /**
@@ -1001,6 +1010,8 @@ class SurveyScene private constructor(
                 space.stationMap.keys.filter { it.hasComment() }.map { it.name }.toSet(),
                 survey.origin.name,
                 survey.name,
+                SurveyStats.totalLength(survey),
+                SurveyStats.heightRange(survey),
                 bounds,
                 surveyBounds,
             )
@@ -2006,7 +2017,14 @@ private fun DrawScope.drawSurvey(
         drawHotCorners(modalMoving, palette)
     }
 
-    drawScaleBar(viewport.pixelsPerMetre, palette, textMeasurer, fontFamily, options.style.legendSizeSp)
+    drawLegend(
+        scene = scene,
+        pixelsPerMetre = viewport.pixelsPerMetre,
+        palette = palette,
+        textMeasurer = textMeasurer,
+        fontFamily = fontFamily,
+        legendSizeSp = options.style.legendSizeSp,
+    )
     // `drawCompass` is guarded on both the toggle and the projection, in that order. There is
     // no arrow on an elevation because there is no bearing to draw one for.
     if (options.showCompass && isPlan) {
@@ -2047,8 +2065,9 @@ private fun DrawScope.drawNorthArrow(
     // Above the scale bar *and its label*. The Java measures from its bar alone, but its label
     // hangs below the bar and this port's sits above it, so copying the formula put the arrow's
     // tail straight through the words "10 m".
-    val labelTop = size.height - 2f * SCALE_BAR_LABEL_UP_DP.dp.toPx() - textHeight
-    val centreY = labelTop - COMPASS_GAP_DP.dp.toPx() - arrowLength / 2f
+    // `scaleBarY = getHeight() - textSize * 4f`, and the arrow's centre one text height above it.
+    val scaleBarY = size.height - textSize * 4f
+    val centreY = scaleBarY - arrowLength / 2f - textHeight
     val stroke = SCALE_BAR_STROKE_DP.dp.toPx()
 
     rotate(-headingDegrees, pivot = Offset(centreX, centreY)) {
@@ -2073,6 +2092,44 @@ private fun DrawScope.drawPolyline(points: List<Offset>, colour: Color, width: F
     drawPath(path, colour, style = Stroke(width = width, cap = StrokeCap.Round))
 }
 
+/**
+ * `GraphView.drawLegend`: the survey's own name and size, then the scale bar under it.
+ *
+ * The label line is `<name> L<length> V<vertical range>`, in whole metres, which is the one thing
+ * on the screen that says which cave this is and how big it has got. This port drew the bar and
+ * left the line out — nothing looks wrong when a label is simply absent, which is why it survived
+ * so long, and it is also the reason the exported SVG carried a legend the screen did not.
+ */
+@OptIn(ExperimentalTextApi::class)
+private fun DrawScope.drawLegend(
+    scene: SurveyScene,
+    pixelsPerMetre: Float,
+    palette: Palette,
+    textMeasurer: TextMeasurer,
+    fontFamily: FontFamily,
+    legendSizeSp: Float = LEGEND_TEXT_SP,
+) {
+    val textSize = legendSizeSp.sp.toPx()
+    val style =
+        TextStyle(color = palette.scaleBar, fontSize = legendSizeSp.sp, fontFamily = fontFamily)
+
+    // `offsetX`/`offsetY`, both `legendSize * 1.25`, so a bigger legend moves further in.
+    val inset = textSize * 1.25f
+    // A cross-section has no survey name and no length of its own, and `CrossSectionView` draws
+    // no legend either — so nothing is drawn rather than "  L0 V0".
+    if (scene.surveyName.isNotEmpty()) {
+        val label =
+            scene.surveyName +
+                " L" + formatFixed(scene.surveyLength, 0) +
+                " V" + formatFixed(scene.surveyHeight, 0)
+        val layout = textMeasurer.measure(label, style)
+        // The Java positions text by its baseline and Compose by its top.
+        drawText(layout, topLeft = Offset(inset, size.height - inset - layout.size.height))
+    }
+
+    drawScaleBar(pixelsPerMetre, palette, textMeasurer, fontFamily, legendSizeSp)
+}
+
 @OptIn(ExperimentalTextApi::class)
 private fun DrawScope.drawScaleBar(
     pixelsPerMetre: Float,
@@ -2093,27 +2150,38 @@ private fun DrawScope.drawScaleBar(
 
     val barPixels = metres * pixelsPerMetre
     if (!barPixels.isFinite() || barPixels > size.width) return
-    val left = SCALE_BAR_LEFT_DP.dp.toPx()
-    val bottom = size.height - SCALE_BAR_LABEL_UP_DP.dp.toPx()
+
+    val textSize = legendSizeSp.sp.toPx()
+    val inset = textSize * 1.25f
+    val left = inset
+    // `scaleOffsetY = offsetY * 2`: the bar sits one legend-height above the label line.
+    val bottom = size.height - inset * 2f
     val stroke = SCALE_BAR_STROKE_DP.dp.toPx()
     val tick = SCALE_BAR_TICK_DP.dp.toPx()
 
+    // One path in the Java, and its ticks go *up* only — this port drew them both ways, which
+    // reads as a dimension line rather than a scale.
     drawLine(palette.scaleBar, Offset(left, bottom), Offset(left + barPixels, bottom), stroke)
-    drawLine(palette.scaleBar, Offset(left, bottom - tick), Offset(left, bottom + tick), stroke)
+    drawLine(palette.scaleBar, Offset(left, bottom - tick), Offset(left, bottom), stroke)
     drawLine(
         palette.scaleBar,
         Offset(left + barPixels, bottom - tick),
-        Offset(left + barPixels, bottom + tick),
+        Offset(left + barPixels, bottom),
         stroke,
     )
 
-    val label = if (metres >= 1f) "${metres.roundToInt()} m" else "${(metres * 100).roundToInt()} cm"
+    val label = if (metres >= 1f) "${metres.roundToInt()}m" else "${(metres * 100).roundToInt()}cm"
     val layout =
         textMeasurer.measure(
             label,
             TextStyle(color = palette.scaleBar, fontSize = legendSizeSp.sp, fontFamily = fontFamily),
         )
-    drawText(layout, topLeft = Offset(left, bottom - SCALE_BAR_LABEL_UP_DP.dp.toPx()))
+    // To the right of the bar, on its own line, as `drawLegend` places it — not above it.
+    drawText(
+        layout,
+        topLeft =
+            Offset(left + barPixels + 0.3f * textSize, bottom - layout.size.height * 0.8f),
+    )
 }
 
 class Palette(

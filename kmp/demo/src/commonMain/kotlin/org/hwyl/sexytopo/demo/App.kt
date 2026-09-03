@@ -1,5 +1,6 @@
 package org.hwyl.sexytopo.demo
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -23,7 +24,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
@@ -43,11 +47,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.demo.resources.Res
+import org.hwyl.sexytopo.demo.resources.add
+import org.hwyl.sexytopo.demo.resources.add_splay
 import org.hwyl.sexytopo.demo.resources.elevation
 import org.hwyl.sexytopo.demo.resources.plan
+import org.hwyl.sexytopo.demo.resources.save
 import org.hwyl.sexytopo.demo.resources.table
 import org.hwyl.sexytopo.shared.comms.ShotTrouble
 import org.hwyl.sexytopo.shared.demo.ExampleSurvey
+import org.hwyl.sexytopo.shared.io.store.SurveyZip
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -175,6 +183,8 @@ fun App(
                             SexyTopoAppBar(state)
                         }
 
+                        Notice(state)
+
                         ScreenContent(
                             state,
                             editor,
@@ -196,8 +206,12 @@ fun App(
 }
 
 /**
- * The app bar: the three always-visible actions from `action_bar.xml` this port can honour, plus
- * a subtitle — the demo's own addition — showing what the shared core counted.
+ * The app bar: `action_bar.xml`'s four `showAsAction="always"` actions — Save, Table, Plan,
+ * Elevation — then the overflow, plus a subtitle showing what the shared core counted.
+ *
+ * None of the four carries a selected state, as none of the Android app's does: they are four
+ * `startActivity` calls, and the screen you are on is the one you can see. Lighting the current
+ * one also made it invisible, since `buttonHighlight` is white and so is the icon.
  */
 @Composable
 private fun SexyTopoAppBar(state: DemoState) {
@@ -217,6 +231,10 @@ private fun SexyTopoAppBar(state: DemoState) {
     var deleting by remember { mutableStateOf<String?>(null) }
     var addingLeg by remember { mutableStateOf(false) }
     var addingSplay by remember { mutableStateOf(false) }
+    var finding by remember { mutableStateOf(false) }
+    var undoingLastLeg by remember { mutableStateOf(false) }
+    var editingGeneral by remember { mutableStateOf(false) }
+    var editingInstruments by remember { mutableStateOf(false) }
 
     // Always against `liveSurvey`, never `state.survey`: the demo cave is read-only.
     if (addingLeg || addingSplay) {
@@ -229,15 +247,17 @@ private fun SexyTopoAppBar(state: DemoState) {
                 addingLeg = false
                 addingSplay = false
             },
-            onAdd = { leg, toName, toComment, lrud ->
+            onAdd = { added ->
                 addLegOutright(
                     survey = state.liveSurvey,
-                    leg = leg,
+                    leg = added.leg,
                     asSplay = splay,
-                    toName = toName,
-                    toComment = toComment,
-                    lrud = lrud,
+                    toName = added.toName,
+                    toComment = added.toComment,
+                    lrud = added.lrud,
                     lrudMode = state.preferences.lrudMode,
+                    fromName = added.fromName,
+                    legComment = added.legComment,
                 )
                 if (!splay) state.noteStationCreated()
                 state.noteSketchEdited()
@@ -308,15 +328,54 @@ private fun SexyTopoAppBar(state: DemoState) {
         )
     }
 
+    if (finding) {
+        FindStationDialog(
+            survey = state.survey,
+            onDismiss = { finding = false },
+            onGo = { station ->
+                state.selectStation(station.name)
+                state.showOnDrawing(station, state.projection)
+                finding = false
+            },
+        )
+    }
+
+    if (undoingLastLeg) {
+        DeleteLastLegDialog(
+            survey = state.liveSurvey,
+            onDismiss = { undoingLastLeg = false },
+            onDelete = {
+                state.liveSurvey.undoAddLeg()
+                state.noteSketchEdited()
+                undoingLastLeg = false
+            },
+        )
+    }
+
+    if (editingGeneral) {
+        GeneralSettingsDialog(state = state, onDismiss = { editingGeneral = false })
+    }
+
     if (editingSettings) {
         SurveySettingsDialog(
+            sketch = state.survey.getSketch(state.projection),
+            onDismiss = { editingSettings = false },
+            onSaved = {
+                state.noteSketchEdited()
+                editingSettings = false
+            },
+        )
+    }
+
+    if (editingInstruments) {
+        InstrumentSettingsDialog(
             settings = state.surveySettings,
             preferences = state.preferences,
-            onDismiss = { editingSettings = false },
+            onDismiss = { editingInstruments = false },
             onSave = { settings, preferences ->
                 state.updateSettings(settings)
                 state.updatePreferences(preferences)
-                editingSettings = false
+                editingInstruments = false
             },
         )
     }
@@ -351,8 +410,14 @@ private fun SexyTopoAppBar(state: DemoState) {
             onDismiss = { naming = NamingIntent.NONE },
             onConfirm = { name ->
                 when (naming) {
-                    NamingIntent.NEW -> state.newSurvey(name)
-                    NamingIntent.RENAME -> state.renameLiveSurvey(name)
+                    NamingIntent.NEW -> {
+                        state.newSurvey(name)
+                        state.note(Strings.fileStartedNewSurvey)
+                    }
+                    NamingIntent.SAVE_AS -> {
+                        state.saveLiveSurveyAs(name)
+                        state.note(Strings.fileSurveySaved)
+                    }
                     NamingIntent.NONE -> Unit
                 }
                 naming = NamingIntent.NONE
@@ -371,8 +436,10 @@ private fun SexyTopoAppBar(state: DemoState) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+            // The screen's own name, as every one of the app's activities is labelled — not the
+            // survey's, which `GraphView.drawLegend` puts on the drawing itself.
             Text(
-                state.survey.name,
+                screenTitle(state),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = SexyTopoColours.onPanel,
@@ -388,18 +455,36 @@ private fun SexyTopoAppBar(state: DemoState) {
             )
         }
 
+        // `action_save`, the first of `action_bar.xml`'s four always-visible actions. This port
+        // writes after every change, so the button is a flush and a confirmation rather than the
+        // only thing standing between a trip and losing it — but it is where a SexyTopo user's
+        // thumb goes, and a survey saved on demand before leaving a cave is worth the column.
+        ToolbarButton(
+            painter = painterResource(Res.drawable.save),
+            description = Strings.actionFileSave,
+            modifier = Modifier.widthOfAnAction(),
+            onClick = {
+                state.mode = SurveyMode.LIVE
+                state.saveLiveSurvey()
+                state.note(
+                    if (state.storageProblem == null) {
+                        Strings.fileSurveySaved
+                    } else {
+                        Strings.fileSaveSurveyError
+                    },
+                )
+            },
+        )
         ToolbarButton(
             painter = painterResource(Res.drawable.table),
-            description = "Table",
+            description = Strings.actionTable,
             modifier = Modifier.widthOfAnAction(),
-            selected = state.screen == Screen.TABLE,
-            onClick = { state.screen = if (state.screen == Screen.TABLE) Screen.SKETCH else Screen.TABLE },
+            onClick = { state.screen = Screen.TABLE },
         )
         ToolbarButton(
             painter = painterResource(Res.drawable.plan),
-            description = "Plan",
+            description = Strings.actionPlan,
             modifier = Modifier.widthOfAnAction(),
-            selected = state.screen == Screen.SKETCH && state.projection == Projection2D.PLAN,
             onClick = {
                 state.screen = Screen.SKETCH
                 state.projection = Projection2D.PLAN
@@ -407,11 +492,8 @@ private fun SexyTopoAppBar(state: DemoState) {
         )
         ToolbarButton(
             painter = painterResource(Res.drawable.elevation),
-            description = "Extended elevation",
+            description = Strings.actionElevation,
             modifier = Modifier.widthOfAnAction(),
-            selected =
-                state.screen == Screen.SKETCH &&
-                    state.projection == Projection2D.EXTENDED_ELEVATION,
             onClick = {
                 state.screen = Screen.SKETCH
                 state.projection = Projection2D.EXTENDED_ELEVATION
@@ -433,266 +515,324 @@ private fun SexyTopoAppBar(state: DemoState) {
                 // 200dp fits "Instrument >" without the menu visibly resizing between pages.
                 modifier = Modifier.width(200.dp),
             ) {
-                // `action_bar.xml`'s own five submenus: File, View, Instrument, Tools, Settings,
-                // Help.
+                // `action_bar.xml`'s own submenus, one page at a time: Material 3 has no nested
+                // DropdownMenu, so the one menu swaps its contents.
                 if (page == MenuPage.TOP) {
-                    MenuGroup("File", MenuPage.FILE) { page = it }
-                    MenuGroup("View", MenuPage.VIEW) { page = it }
-                    MenuGroup("Instrument", MenuPage.INSTRUMENT) { page = it }
-                    MenuGroup("Tools", MenuPage.TOOLS) { page = it }
-                    MenuGroup("Settings", MenuPage.SETTINGS) { page = it }
-                    MenuGroup("Help", MenuPage.HELP) { page = it }
+                    MenuGroup(Strings.actionFile, MenuPage.FILE) { page = it }
+                    MenuGroup(Strings.actionView, MenuPage.VIEW) { page = it }
+                    MenuGroup(Strings.actionDevice, MenuPage.INSTRUMENT) { page = it }
+                    MenuGroup(Strings.actionInput, MenuPage.INPUT) { page = it }
+                    MenuGroup(Strings.actionTools, MenuPage.TOOLS) { page = it }
+                    MenuGroup(Strings.actionSettings, MenuPage.SETTINGS) { page = it }
+                    MenuGroup(Strings.actionHelp, MenuPage.HELP) { page = it }
+                    HorizontalDivider()
+                    // `connection_group`: checkable, and disabled until an instrument has been
+                    // chosen, exactly as `onPrepareOptionsMenu` leaves it.
+                    MenuAction(
+                        Strings.actionConnection,
+                        checked = state.session.connected,
+                        enabled = state.session.profile != null,
+                    ) {
+                        state.mode = SurveyMode.LIVE
+                        connecting = true
+                        menuOpen = false
+                    }
                 }
 
                 if (page != MenuPage.TOP) {
-                    DropdownMenuItem(
-                        text = { Text("< Back") },
-                        leadingIcon = { CheckDot(false) },
-                        onClick = { page = page.parent },
-                    )
+                    // The one row on this menu with no counterpart in `action_bar.xml`, because an
+                    // Android submenu has the system's own back. "‹" not "<": the bundled font has
+                    // it, and `FontCoverageTest` checks that.
+                    MenuAction(BACK_ROW) { page = page.parent }
+                    HorizontalDivider()
                 }
 
+                // `action_file`: `basic_file_handling`, then `import_export`.
+                if (page == MenuPage.FILE) {
+                    MenuAction(Strings.actionFileNew) {
+                        naming = NamingIntent.NEW
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    MenuGroup(Strings.actionFileOpen, MenuPage.OPEN) { page = it }
+                    MenuAction(Strings.actionFileSave) {
+                        state.mode = SurveyMode.LIVE
+                        state.saveLiveSurvey()
+                        state.note(
+                            if (state.storageProblem == null) {
+                                Strings.fileSurveySaved
+                            } else {
+                                Strings.fileSaveSurveyError
+                            },
+                        )
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    MenuAction(Strings.actionFileSaveAs) {
+                        state.mode = SurveyMode.LIVE
+                        naming = NamingIntent.SAVE_AS
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    MenuGroup(Strings.actionFileDelete, MenuPage.DELETE) { page = it }
+                    HorizontalDivider()
+                    MenuGroup(Strings.actionFileImport, MenuPage.IMPORT) { page = it }
+                    MenuAction(
+                        Strings.actionFileExport,
+                        checked = state.screen == Screen.EXPORT,
+                    ) {
+                        state.screen = Screen.EXPORT
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    // The same zip the export screen's own button writes: `SurveyZipSharer` is
+                    // reached from the app's File menu too, not only from the export screen.
+                    MenuAction(Strings.actionFileShare) {
+                        val where =
+                            saveBinaryFile(
+                                SurveyZip.fileNameFor(state.survey),
+                                SurveyZip.archive(state.survey),
+                            )
+                        state.note(where ?: Strings.fileSaveSurveyError)
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                }
+
+                // `action_file_open`: the Android app opens a folder chooser, which this port has
+                // no equivalent of — its surveys live in one place, so they are listed instead.
+                if (page == MenuPage.OPEN) {
+                    if (state.savedSurveys.isEmpty()) {
+                        MenuAction(Strings.noData, enabled = false) {}
+                    }
+                    for (name in state.savedSurveys) {
+                        MenuAction(
+                            name,
+                            checked = state.mode == SurveyMode.LIVE &&
+                                state.liveSurvey.name == name,
+                        ) {
+                            state.openSurvey(name)
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        }
+                    }
+                }
+
+                // `action_file_delete`, likewise: which survey, then the app's own confirmation.
+                if (page == MenuPage.DELETE) {
+                    if (state.savedSurveys.isEmpty()) {
+                        MenuAction(Strings.noData, enabled = false) {}
+                    }
+                    for (name in state.savedSurveys) {
+                        MenuAction(name) {
+                            deleting = name
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        }
+                    }
+                }
+
+                // `action_file_import`'s own submenu. Folder import is not offered: this port has
+                // one storage root and no folder chooser to point at another.
+                if (page == MenuPage.IMPORT) {
+                    MenuAction(Strings.actionFileImportFile) {
+                        importing = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                }
+
+                // `action_view`: the six views, then `view_display`.
+                if (page == MenuPage.VIEW) {
+                    MenuAction(Strings.actionTrip) {
+                        state.mode = SurveyMode.LIVE
+                        editingTrip = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    MenuAction(
+                        Strings.actionTable,
+                        checked = state.screen == Screen.TABLE,
+                    ) {
+                        state.screen = Screen.TABLE
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    MenuAction(
+                        Strings.actionPlan,
+                        checked = state.screen == Screen.SKETCH &&
+                            state.projection == Projection2D.PLAN,
+                    ) {
+                        state.screen = Screen.SKETCH
+                        state.projection = Projection2D.PLAN
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    MenuAction(
+                        Strings.actionElevation,
+                        checked = state.screen == Screen.SKETCH &&
+                            state.projection == Projection2D.EXTENDED_ELEVATION,
+                    ) {
+                        state.screen = Screen.SKETCH
+                        state.projection = Projection2D.EXTENDED_ELEVATION
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    MenuAction(Strings.action3d, checked = state.viewing3D) {
+                        state.viewing3D = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    MenuAction(Strings.actionStats) {
+                        showingStats = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    HorizontalDivider()
+                    // `view_display`, whose one member is `action_fullscreen`.
+                    MenuAction(
+                        Strings.actionFullscreen,
+                        checked = state.preferences.fullScreen,
+                    ) {
+                        state.updatePreferences(
+                            state.preferences.copy(fullScreen = !state.preferences.fullScreen),
+                        )
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    HorizontalDivider()
+                    // This port's own, and the one thing on this menu the Android app has no
+                    // counterpart for: a generated cave to look at before a real one exists.
+                    MenuAction(
+                        SurveyMode.EXAMPLE.label,
+                        checked = state.mode == SurveyMode.EXAMPLE,
+                    ) {
+                        state.mode = SurveyMode.EXAMPLE
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                }
+
+                // `action_device_menu`: *Connect…*, then whatever the connected instrument's own
+                // `getCustomCommands` adds. Only the DistoX family's calibration is carried here.
+                if (page == MenuPage.INSTRUMENT) {
+                    MenuAction(
+                        Strings.actionDeviceConnect,
+                        checked = state.session.connected,
+                    ) {
+                        state.mode = SurveyMode.LIVE
+                        connecting = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    MenuAction(
+                        Strings.deviceCommandCalibration,
+                        checked = state.session.calibrating,
+                    ) {
+                        state.mode = SurveyMode.LIVE
+                        calibrating = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                }
+
+                // `action_input`'s `input_mode_group`, which is `checkableBehavior="single"`.
+                if (page == MenuPage.INPUT) {
+                    for (mode in InputMode.entries) {
+                        MenuAction(
+                            labelFor(mode),
+                            checked = state.inputMode == mode,
+                        ) {
+                            state.chooseInputMode(mode)
+                            menuOpen = false
+                            page = MenuPage.TOP
+                        }
+                    }
+                }
+
+                // `action_tools`: `tools_group_edit`, `tools_group_manual_entry`,
+                // `tools_group_diagnostics`. *Generate Test Survey* is *View → Example cave*
+                // here, since this port ships one rather than generating one.
                 if (page == MenuPage.TOOLS) {
+                    MenuAction(Strings.actionUndoLastLeg) {
+                        undoingLastLeg = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    MenuAction(Strings.actionFindStation) {
+                        finding = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    HorizontalDivider()
                     // Unlike *Add reading* on the field bar, these write the leg down
                     // immediately rather than holding it to the instrument's rules.
-                    DropdownMenuItem(
-                        text = { Text("Add a leg") },
-                        leadingIcon = { CheckDot(false) },
-                        onClick = {
-                            addingLeg = true
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Add a splay") },
-                        leadingIcon = { CheckDot(false) },
-                        onClick = {
-                            addingSplay = true
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
+                    MenuAction(Strings.actionAddLeg) {
+                        addingLeg = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    MenuAction(Strings.actionAddSplay) {
+                        addingSplay = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    HorizontalDivider()
+                    MenuAction(Strings.actionSystemLog) {
+                        showingLog = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
                 }
 
+                // `action_settings`: *System* and *Survey*, exactly the app's two.
+                if (page == MenuPage.SETTINGS) {
+                    MenuGroup(Strings.actionSettingsSystem, MenuPage.SYSTEM_SETTINGS) { page = it }
+                    MenuAction(Strings.actionSettingsSurvey) {
+                        editingSettings = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                }
+
+                // `preferences_main.xml`: the sections of the Android settings screen this port
+                // carries. Export, Team, Copyright and Developer are not among them yet.
+                if (page == MenuPage.SYSTEM_SETTINGS) {
+                    MenuAction(Strings.settingsGeneralTitle) {
+                        editingGeneral = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    MenuAction(Strings.settingsSketchingTitle) {
+                        editingSketchStyle = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    MenuAction(Strings.settingsManualDataEntryTitle) {
+                        editingManualEntry = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    MenuAction(Strings.settingsInstrumentsTitle) {
+                        editingInstruments = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                }
+
+                // `help_menu`.
                 if (page == MenuPage.HELP) {
-                    DropdownMenuItem(
-                        text = { Text("Manual") },
-                        leadingIcon = { CheckDot(false) },
-                        onClick = {
-                            state.viewingManual = true
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
+                    MenuAction(Strings.actionGuide) {
+                        state.viewingManual = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
                     // Not decoration: this build carries GPL-3.0 code whose licence and authors
                     // need to be visible somewhere.
-                    DropdownMenuItem(
-                        text = { Text("About") },
-                        leadingIcon = { CheckDot(false) },
-                        onClick = {
-                            showingAbout = true
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
-                }
-
-                if (page == MenuPage.FILE) {
-                    DropdownMenuItem(
-                        text = { Text("New survey…") },
-                        leadingIcon = { CheckDot(false) },
-                        onClick = {
-                            naming = NamingIntent.NEW
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Rename survey…") },
-                        leadingIcon = { CheckDot(false) },
-                        onClick = {
-                            state.mode = SurveyMode.LIVE
-                            naming = NamingIntent.RENAME
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
-                    for (name in state.savedSurveys) {
-                        DropdownMenuItem(
-                            text = { Text(name) },
-                            leadingIcon = {
-                                CheckDot(
-                                    state.mode == SurveyMode.LIVE && state.liveSurvey.name == name,
-                                )
-                            },
-                            trailingIcon = {
-                                // "×" not "✕": the bundled font has Latin-1 and no Dingbats, so
-                                // the prettier cross renders as a missing-glyph box.
-                                Text(
-                                    "×",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    modifier = Modifier.clickable {
-                                        deleting = name
-                                        menuOpen = false
-                                        page = MenuPage.TOP
-                                    }.padding(horizontal = 8.dp, vertical = 4.dp),
-                                )
-                            },
-                            onClick = {
-                                state.openSurvey(name)
-                                menuOpen = false
-                                page = MenuPage.TOP
-                            },
-                        )
-                    }
-                    DropdownMenuItem(
-                        text = { Text("Import…") },
-                        leadingIcon = { CheckDot(false) },
-                        onClick = {
-                            importing = true
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Export") },
-                        leadingIcon = { CheckDot(state.screen == Screen.EXPORT) },
-                        onClick = {
-                            state.screen = Screen.EXPORT
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
-                }
-
-                if (page == MenuPage.VIEW) {
-                    DropdownMenuItem(
-                        text = { Text(SurveyMode.EXAMPLE.label) },
-                        leadingIcon = { CheckDot(state.mode == SurveyMode.EXAMPLE) },
-                        onClick = {
-                            state.mode = SurveyMode.EXAMPLE
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Trip details…") },
-                        leadingIcon = { CheckDot(state.liveSurvey.trip != null) },
-                        onClick = {
-                            state.mode = SurveyMode.LIVE
-                            editingTrip = true
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("3D") },
-                        leadingIcon = { CheckDot(state.viewing3D) },
-                        onClick = {
-                            state.viewing3D = true
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Statistics…") },
-                        leadingIcon = { CheckDot(false) },
-                        onClick = {
-                            showingStats = true
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
-                }
-
-                if (page == MenuPage.INSTRUMENT) {
-                    DropdownMenuItem(
-                        text = { Text("Connect…") },
-                        leadingIcon = { CheckDot(state.session.connected) },
-                        onClick = {
-                            state.mode = SurveyMode.LIVE
-                            connecting = true
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Calibrate…") },
-                        leadingIcon = { CheckDot(state.session.calibrating) },
-                        onClick = {
-                            state.mode = SurveyMode.LIVE
-                            calibrating = true
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Log…") },
-                        leadingIcon = { CheckDot(false) },
-                        onClick = {
-                            showingLog = true
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
-                }
-
-                if (page == MenuPage.SETTINGS) {
-                    DropdownMenuItem(
-                        text = { Text("Full screen") },
-                        leadingIcon = { CheckDot(state.preferences.fullScreen) },
-                        onClick = {
-                            state.updatePreferences(
-                                state.preferences.copy(fullScreen = !state.preferences.fullScreen),
-                            )
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Surveying…") },
-                        leadingIcon = { CheckDot(false) },
-                        onClick = {
-                            editingSettings = true
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Manual entry…") },
-                        leadingIcon = { CheckDot(false) },
-                        onClick = {
-                            editingManualEntry = true
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Sketching…") },
-                        leadingIcon = { CheckDot(false) },
-                        onClick = {
-                            editingSketchStyle = true
-                            menuOpen = false
-                            page = MenuPage.TOP
-                        },
-                    )
-                    MenuGroup("Theme: ${state.preferences.theme.label}", MenuPage.THEME) {
-                        page = it
-                    }
-                }
-
-                if (page == MenuPage.THEME) {
-                    for (theme in AppTheme.entries) {
-                        DropdownMenuItem(
-                            text = { Text(theme.label) },
-                            leadingIcon = { CheckDot(state.preferences.theme == theme) },
-                            onClick = {
-                                state.updatePreferences(state.preferences.copy(theme = theme))
-                                // Stays on the page: comparing two themes needs to see the
-                                // effect without navigating back each time.
-                            },
-                        )
+                    MenuAction(Strings.actionAbout) {
+                        showingAbout = true
+                        menuOpen = false
+                        page = MenuPage.TOP
                     }
                 }
             }
@@ -700,20 +840,71 @@ private fun SexyTopoAppBar(state: DemoState) {
     }
 }
 
+/**
+ * `android:label` on whichever of the app's activities this screen stands for.
+ *
+ * The export screen is the one with no counterpart: the Android app's export is a format-picker
+ * dialog over whatever screen was showing, and has no title of its own.
+ */
+private fun screenTitle(state: DemoState): String =
+    when {
+        state.screen == Screen.TABLE -> Strings.titleTable
+        state.screen == Screen.EXPORT -> Screen.EXPORT.label
+        state.projection == Projection2D.EXTENDED_ELEVATION -> Strings.titleElevation
+        else -> Strings.titlePlan
+    }
+
+/** What leaves a page of the overflow menu, since a `DropdownMenu` has no back of its own. */
+private const val BACK_ROW = "\u2039 Back"
+
 /** Which page of the overflow menu is showing: `action_bar.xml`'s submenus, one at a time. */
 enum class MenuPage {
     TOP,
     FILE,
+    OPEN,
+    DELETE,
+    IMPORT,
     VIEW,
     INSTRUMENT,
+    INPUT,
     TOOLS,
     SETTINGS,
+    SYSTEM_SETTINGS,
     HELP,
-    THEME,
 }
 
+/**
+ * Where *Back* goes: the menu that opened this one, which for the pages nested two deep is not the
+ * top of the menu.
+ */
 internal val MenuPage.parent: MenuPage
-    get() = if (this == MenuPage.THEME) MenuPage.SETTINGS else MenuPage.TOP
+    get() =
+        when (this) {
+            MenuPage.OPEN, MenuPage.DELETE, MenuPage.IMPORT -> MenuPage.FILE
+            MenuPage.SYSTEM_SETTINGS -> MenuPage.SETTINGS
+            else -> MenuPage.TOP
+        }
+
+/**
+ * One item of the overflow menu.
+ *
+ * Every row carries a [CheckDot] whether or not it is checkable, so labels line up in a column the
+ * way an Android menu's do — a row without one sits four pixels left of its neighbours.
+ */
+@Composable
+private fun MenuAction(
+    label: String,
+    checked: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        enabled = enabled,
+        leadingIcon = { CheckDot(checked) },
+        onClick = onClick,
+    )
+}
 
 @Composable
 private fun MenuGroup(label: String, opens: MenuPage, onOpen: (MenuPage) -> Unit) {
@@ -752,6 +943,39 @@ private fun FullScreenHandle(onExit: () -> Unit) {
 private fun Modifier.widthOfAnAction(): Modifier = this.width(44.dp)
 
 /**
+ * What the Android app would say in a `Toast`, in the one place this port can put it.
+ *
+ * The Android app confirms *Saved*, *Started new survey* and the rest with a toast, which is a
+ * platform affordance Compose Multiplatform has on none of its four targets. A strip under the app
+ * bar that clears itself is the same promise: a menu item that changes nothing on screen still
+ * says it did something.
+ */
+@Composable
+private fun Notice(state: DemoState) {
+    val message = state.notice ?: return
+
+    LaunchedEffect(message) {
+        delay(NOTICE_MILLIS)
+        // Only if it is still the same one: a second action while this is up replaces the text,
+        // and clearing unconditionally would cut the newer message short.
+        if (state.notice == message) state.notice = null
+    }
+
+    Text(
+        message,
+        Modifier
+            .fillMaxWidth()
+            .background(SexyTopoColours.innerPanel)
+            .padding(horizontal = 14.dp, vertical = 4.dp),
+        style = MaterialTheme.typography.bodySmall,
+        color = SexyTopoColours.legend,
+    )
+}
+
+/** Long enough to read at arm's length by head torch, short enough not to sit in the way. */
+private const val NOTICE_MILLIS = 2500L
+
+/**
  * The three-dot overflow, drawn rather than typed: `⋮` is not in Liberation Sans, which this app
  * bundles precisely so text renders identically everywhere.
  */
@@ -767,6 +991,72 @@ private fun OverflowGlyph(modifier: Modifier = Modifier) {
         }
     }
 }
+
+/**
+ * The table's two floating action buttons: `manuallyAddSplay` above `manuallyAddStation`.
+ *
+ * Its own composable because both of them open the same dialog the *Tools* menu does, and the
+ * dialog needs state that belongs beside the buttons rather than in the app bar.
+ */
+@Composable
+private fun ManualEntryFabs(state: DemoState, modifier: Modifier = Modifier) {
+    var addingLeg by remember { mutableStateOf(false) }
+    var addingSplay by remember { mutableStateOf(false) }
+
+    if (addingLeg || addingSplay) {
+        val splay = addingSplay
+        AddLegDialog(
+            survey = state.liveSurvey,
+            asSplay = splay,
+            lrudFields = state.preferences.lrudFields,
+            onDismiss = {
+                addingLeg = false
+                addingSplay = false
+            },
+            onAdd = { added ->
+                addLegOutright(
+                    survey = state.liveSurvey,
+                    leg = added.leg,
+                    asSplay = splay,
+                    toName = added.toName,
+                    toComment = added.toComment,
+                    lrud = added.lrud,
+                    lrudMode = state.preferences.lrudMode,
+                    fromName = added.fromName,
+                    legComment = added.legComment,
+                )
+                if (!splay) state.noteStationCreated()
+                state.noteSketchEdited()
+                addingLeg = false
+                addingSplay = false
+            },
+        )
+    }
+
+    Column(
+        modifier.padding(FAB_MARGIN_DP.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(FAB_MARGIN_DP.dp),
+    ) {
+        SmallFloatingActionButton(onClick = { addingSplay = true }) {
+            Image(
+                painter = painterResource(Res.drawable.add_splay),
+                contentDescription = Strings.manualAddSplayTitle,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        FloatingActionButton(onClick = { addingLeg = true }) {
+            Image(
+                painter = painterResource(Res.drawable.add),
+                contentDescription = Strings.manualAddStationTitle,
+                modifier = Modifier.size(26.dp),
+            )
+        }
+    }
+}
+
+/** `R.dimen.fab_margin` and `fab_vertical_spacing`, which are the same 16dp. */
+private const val FAB_MARGIN_DP = 16
 
 @Composable
 private fun ScreenContent(
@@ -790,16 +1080,27 @@ private fun ScreenContent(
 
     when (state.screen) {
         Screen.TABLE ->
-            SurveyTableView(
-                survey = state.survey,
-                revision = state.revision,
-                modifier = modifier,
-                onEdited = { state.noteSketchEdited() },
-                editable = state.mode == SurveyMode.LIVE,
-                onStation = { menuFromTable = true; menuFor = it.name },
-                scrollTo = state.pendingTableJump,
-                onScrolled = { state.tableJumpDone() },
-            )
+            Box(modifier) {
+                SurveyTableView(
+                    survey = state.survey,
+                    revision = state.revision,
+                    modifier = Modifier.fillMaxSize(),
+                    darkMode = state.darkMode,
+                    lrudFields = state.preferences.lrudFields,
+                    lrudMode = state.preferences.lrudMode,
+                    onEdited = { state.noteSketchEdited() },
+                    editable = state.mode == SurveyMode.LIVE,
+                    onStation = { menuFromTable = true; menuFor = it.name },
+                    scrollTo = state.pendingTableJump,
+                    onScrolled = { state.tableJumpDone() },
+                )
+                // `fabAddStation` and `fabAddSplay`, which `activity_table.xml` stacks in the
+                // bottom corner of the table and `updateManualReadingsFabVisibility` hides when
+                // `pref_manual_controls` is off.
+                if (state.mode == SurveyMode.LIVE && state.preferences.manualControls) {
+                    ManualEntryFabs(state, Modifier.align(Alignment.BottomEnd))
+                }
+            }
         Screen.EXPORT ->
             ExportView(
                 state.survey,
@@ -923,7 +1224,11 @@ private fun StationMenuFor(
             onClose()
         },
         onDeleteCrossSection = { editor.delete(it) },
+        // `handleRotateCrossSection`: the tool takes over the next drag, and the section swings
+        // round its station under the finger until it cuts the passage square.
+        onSetCrossSectionDirection = { state.chooseTool(SketchTool.ROTATE_CROSS_SECTION) },
         fromTable = fromTable,
+        legacyCrossSections = state.preferences.legacyCrossSections,
         onShowOn = { at, wanted -> state.showOnDrawing(at, wanted) },
         onShowInTable = { state.showInTable(it) },
         lrudMode = state.preferences.lrudMode,
@@ -973,9 +1278,12 @@ private fun FieldBar(state: DemoState) {
     }
 
     if (namingStation) {
+        // The chip on the field bar is about the active station's *name*; its comment and its
+        // passage measurements are on the station's own menu, a long press away, as upstream.
         StationActionsDialog(
             survey = state.liveSurvey,
             station = state.liveSurvey.activeStation,
+            fields = StationFields.NAME,
             onDismiss = { namingStation = false },
             onEdited = {
                 namingStation = false

@@ -10,8 +10,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 
-/** Whether the naming dialog is starting a survey or renaming the current one. */
-enum class NamingIntent { NONE, NEW, RENAME }
+/**
+ * Whether the naming dialog is starting a survey (`action_file_new`) or saving the current one
+ * under a second name (`action_file_save_as`, which leaves the first where it is).
+ */
+enum class NamingIntent { NONE, NEW, SAVE_AS }
 
 /**
  * Naming a survey.
@@ -27,14 +30,22 @@ fun SurveyNameDialog(
     onConfirm: (String) -> Unit,
 ) {
     var name by remember(intent) {
-        mutableStateOf(if (intent == NamingIntent.RENAME) current else "")
+        mutableStateOf(if (intent == NamingIntent.SAVE_AS) current else "")
     }
     val valid = name.isNotBlank()
     val focus = rememberOpeningFocus()
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (intent == NamingIntent.NEW) "New survey" else "Rename survey") },
+        title = {
+            Text(
+                if (intent == NamingIntent.NEW) {
+                    Strings.actionFileNew
+                } else {
+                    Strings.actionFileSaveAs
+                },
+            )
+        },
         text = {
             OutlinedTextField(
                 value = name,
@@ -46,7 +57,7 @@ fun SurveyNameDialog(
         },
         confirmButton = {
             TextButton(enabled = valid, onClick = { onConfirm(name) }) {
-                Text(if (intent == NamingIntent.NEW) "Create" else "Rename")
+                Text(if (intent == NamingIntent.NEW) "Create" else Strings.save)
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
@@ -63,18 +74,19 @@ fun DeleteSurveyDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Delete $name?") },
+        title = { Text(Strings.fileDeleteSurveyTitle) },
         text = {
             Text(
-                if (isOpen) {
-                    "This is the survey you have open. Deleting it starts a new empty one, and " +
-                        "there is no undo."
-                } else {
-                    "Everything in it goes: readings, sketch and trip details. There is no undo."
-                },
+                Strings.deleteSurveyContent(name) +
+                    if (isOpen) {
+                        ". This is the survey you have open, so deleting it starts a new empty " +
+                            "one. There is no undo."
+                    } else {
+                        ". There is no undo."
+                    },
             )
         },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Delete") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(Strings.delete) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
     )
 }

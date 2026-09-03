@@ -23,6 +23,35 @@ class AddLegOutrightTest {
         Survey("Swildons").also { SurveyBuilder.updateWithNewStation(it, Leg(5f, 90f, 0f)) }
 
     /**
+     * `editFromStation`: the Android form lets a leg hang off a station other than the active one,
+     * and this port always used the active one — so a party booking a side passage from a junction
+     * they had already walked past had to make it active first, which moves where the *next*
+     * instrument reading lands too.
+     */
+    @Test
+    fun aLegCanHangOffAStationOtherThanTheActiveOne() {
+        val survey = cave()
+        SurveyBuilder.updateWithNewStation(survey, Leg(5f, 90f, 0f))
+        assertEquals("3", survey.activeStation.name)
+
+        addLegOutright(
+            survey = survey,
+            leg = Leg(4f, 0f, 0f),
+            asSplay = false,
+            toName = "branch",
+            fromName = "2",
+            legComment = "up the side passage",
+        )
+
+        val two = survey.getStationByName("2")!!
+        val added = two.onwardLegs.single { it.hasDestination() && it.destination.name == "branch" }
+        assertEquals("up the side passage", added.comment, "`editLegComment` reaches the leg")
+        // `addLegFromStation` moves the active station to the far end whichever station the leg
+        // hung off, in both apps: the surveyor is now standing at the new one.
+        assertEquals("branch", survey.activeStation.name)
+    }
+
+    /**
      * Typed through the field bar, one reading in the default mode is *kept as a splay* — three
      * agreeing ones make a station, which is the rule an instrument's readings are held to and
      * which the dialog says out loud. The Android app's Tools menu does not go through that at

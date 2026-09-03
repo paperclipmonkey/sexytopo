@@ -30,6 +30,7 @@ import org.hwyl.sexytopo.shared.comms.sim.SimulatedInstrument
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
+import org.hwyl.sexytopo.shared.survey.InputMode
 import org.hwyl.sexytopo.shared.survey.SurveySettings
 import kotlin.time.TimeSource
 
@@ -76,6 +77,17 @@ class SurveySession(
      * [SurveySettings.DEFAULT] forever, whatever the dialog showed or the library had saved.
      */
     var settings: SurveySettings = initialSettings
+
+    /**
+     * `action_input`: how the surveyor is holding the instrument, and so what a run of readings
+     * means. Kept current by [DemoState], for the same reason [settings] is.
+     *
+     * Left out of the [SurveyUpdater.update] call at first, so every reading that arrived from an
+     * instrument or the simulator was promoted under [InputMode.FORWARD] whatever the field bar
+     * and the *Input Mode* menu said: *Backsights* built the cave the wrong way round and *Splays
+     * Only* — a run of wall shots round a chamber — still made stations out of them.
+     */
+    var inputMode: InputMode = InputMode.DEFAULT
 
     /**
      * Whether to chase a lost instrument, and for how long. Kept current by [DemoState].
@@ -369,7 +381,7 @@ class SurveySession(
                     trouble = null
                     troubleDetail = null
 
-                    val stationCreated = SurveyUpdater.update(survey, leg, settings = settings)
+                    val stationCreated = SurveyUpdater.update(survey, leg, inputMode, settings)
                     revision++
 
                     if (stationCreated) {

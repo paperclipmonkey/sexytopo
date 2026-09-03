@@ -499,8 +499,10 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
 
   The overflow menu went the same way an hour later, and for the same reason: flat, it was fourteen
   rows plus one per saved survey, and on an SE the last of them was drawn half off the bottom edge.
-  It is `action_bar.xml`'s own five now — File, View, Instrument, Settings, About — with the saved
-  surveys inside File where the app's own *Open* is.
+  It is now `action_bar.xml`'s own seven, in its own order and under its own labels — File, View,
+  Instrument, Input Mode, Tools, Settings, Help, and the checkable *Connection* item under them —
+  with the saved surveys inside File under the app's own *Open Survey…*, and its *Delete Survey…*
+  beside it.
 - **Give the drawing the whole screen.** *Full screen*, in Settings, takes the app bar away and
   leaves a slim handle in its place. It matters most turned sideways, which is how a wide passage
   gets drawn: on a phone in landscape the app's own chrome is about half the height, and the app
@@ -638,12 +640,13 @@ things in this app went past that limit. The drawing menu reached eighteen rows 
 popup, on a 667-pixel screen — and has been split: the seven items that *do* something stay on the
 menu, and the twelve toggles moved into a dialog of their own under `drawing.xml`'s own two group
 names. The overflow menu went the same way and for the same reason, back to `action_bar.xml`'s own
-File / View / Instrument / Settings / About, with the saved surveys inside File; flat, it was
-fourteen rows before a single survey was saved, and the last of them was drawn half off the bottom
-of the screen. And the station dialog — a name, a comment, four passage measurements and the elevation direction — is
-most of a screen before a keyboard takes a third of what is left. Material 3 scrolls a dropdown
-that does not fit and *clips* a dialog that does not, so the three dialogs with several fields in
-them were made scrollable: the station dialog, the reading dialog and the edit-reading dialog.
+File / View / Instrument / Input Mode / Tools / Settings / Help, with the saved surveys inside
+File; flat, it was fourteen rows before a single survey was saved, and the last of them was drawn
+half off the bottom of the screen. And the station menu's dialogs are `context_station.xml`'s own
+one-field ones — *Comment*, *Rename* — rather than the single tall form this port had, which was
+most of a screen before a keyboard took a third of what was left. Material 3 scrolls a dropdown
+that does not fit and *clips* a dialog that does not, so the dialogs with several fields in
+them are scrollable: the station dialogs, the reading dialog and the edit-reading dialog.
 
 Say plainly what that is worth. `field.mjs` finishes at 375x667: it checks the app still draws and
 still takes a stroke there, and then puts up the one dialog guaranteed to overflow that screen —
@@ -724,7 +727,9 @@ Honest limits, so nothing is a surprise in a cave:
 | `GraphView.dpToPixels` on every drawn size | `demo/.../SurveyCanvas.kt` (`CanvasSizes`), `ThreeDView.kt` | Finding 28: a plain number in a `DrawScope` is a physical pixel, so the whole drawing was a third of its size on a phone |
 | `Sketch.addSymbolDetail`'s blue-water override | `shared/sketch/SymbolColour.kt` | A rule about a preference, kept out of the generated `Symbol` enum |
 | `res/menu/context_leg.xml`, `ContextMenuManager.configureMenuVisibility`, `SurveyEditorActivity`'s leg handlers | `demo/.../LegActions.kt`, `SurveyUpdater.can{Downgrade,PromoteToAbove}Leg` | An action that cannot work is left out rather than shown greyed out or answered with a toast |
-| `res/menu/table_station_selected.xml`, `TableActivity.onCellClicked` | `demo/.../SurveyTableView.kt`, `StationMenu.kt` (`fromTable`) | One dialog reached two ways; the jump is left as a request for the sketch to pick up, because the viewport belongs to a canvas that does not exist yet |
+| `res/menu/table_station_selected.xml`, `TableActivity.onRowClick`/`onRowLongClick` | `demo/.../SurveyTableView.kt`, `StationMenu.kt` (`fromTable`) | One dialog reached two ways; a tap edits the reading and a long press opens a menu, as it does upstream. The jump is left as a request for the sketch to pick up, because the viewport belongs to a canvas that does not exist yet |
+| `TableRowAdapter.onBindViewHolder`, `@style/HeaderRow`/`BodyText` | `demo/.../SurveyTableView.kt` | The green header, the five short headings, alternating stripes, bold legs and plain splays, right-aligned numbers and the active station lit in `tableHighlight` |
+| `activity_table.xml`'s two FABs, `updateManualReadingsFabVisibility` | `demo/.../App.kt` (`ManualEntryFabs`) | Add Splay above Add Station, both gone when `pref_manual_controls` is off |
 | `menu_navigate` (`action_jump_to_table`) | `demo/.../SurveyTableView.kt` (`rowIndexFor`), `DemoState.showInTable` | The row a station is found at is the leg that arrived at it, which is also the row its splays sit under |
 | `values/about_text.xml`, `openAboutDialog` | `demo/.../AboutDialog.kt` | Verbatim but for the bullet character, plus a paragraph saying what this build is and is not |
 | `TableRowAdapter`'s `COMMENT_MARKER` | `demo/.../SurveyTableView.kt` | The dagger goes on the station the row *shows*, which for a backsight is not the one the leg starts at |
@@ -739,8 +744,14 @@ Honest limits, so nothing is a surprise in a cave:
 | `res/layout/activity_graph.xml` | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied |
 | `res/values/colors.xml` (+ `values-night`) | `demo/.../SexyTopoTheme.kt` | The app's own palette |
 | `res/drawable-hdpi/*.png` | `demo/src/commonMain/composeResources/drawable/` | The app's own icons |
-| `res/menu/action_bar.xml`'s submenus | `demo/.../App.kt` (`MenuPage`) | File, View, Instrument, Settings and About, one page at a time — Material 3 has no nested `DropdownMenu`, so the one menu swaps its contents |
-| `res/menu/drawing.xml` | `demo/.../SketchToolbar.kt`, `DemoState.BEHAVIOUR_TOGGLES`/`DISPLAY_TOGGLES` | Every checkable item on it except the neighbouring-survey one, in the menu's own three groups: the actions stay on the popup, the twelve toggles are a dialog. Hiding cross-sections stops them being tapped as well as drawn |
+| `res/values/strings.xml` | `demo/.../Strings.kt` | Every string this port shows, mirrored under the app's own resource name; `AndroidStringsTest` reads the real file and holds each one to it |
+| `res/menu/action_bar.xml`'s submenus | `demo/.../App.kt` (`MenuPage`) | File, View, Instrument, Input Mode, Tools, Settings and Help, one page at a time — Material 3 has no nested `DropdownMenu`, so the one menu swaps its contents. Nested pages (Open, Delete, Import, System settings) go back to the menu that opened them |
+| `res/menu/drawing.xml` | `demo/.../SketchToolbar.kt`, `DemoState.BEHAVIOUR_TOGGLES`/`DISPLAY_TOGGLES` | Every item on it except the neighbouring-survey toggle, under its own labels and in its own groups: `drawingMenuActions` stays on the popup, the twelve toggles are a dialog. Hiding cross-sections stops them being tapped as well as drawn |
+| `activity_graph.xml`'s `symbolToolbar`, `GraphActivity.selectSymbol` | `demo/.../SketchToolbar.kt` (`SymbolStrip`), `SymbolPalette.kt` | The app's own scrolling strip on `sexyTopoDarkGreen`, opening on the first-ever tap of the symbol button and toggling thereafter; the armed symbol is drawn on the button. `Symbol.TEXT` is `SketchTool.TEXT` here, and is the strip's first entry as it is the app's |
+| `res/xml/preferences_main.xml`'s sections | `demo/.../GeneralSettingsDialog.kt`, `SketchStyleDialog.kt`, `ManualEntrySettingsDialog.kt`, `InstrumentSettingsDialog.kt` | General, Sketching, Manual Data Entry and Instruments, each holding what its own preference screen holds. Export, Team, Copyright and Developer have no counterpart yet |
+| `openSurveySettingsDialog` | `demo/.../SurveySettingsDialog.kt` | *Settings → Survey*: the plan's own cross-section scale, one field, as upstream |
+| `GraphView.drawLegend`, `setCachedStats` | `demo/.../SurveyCanvas.kt` (`drawLegend`) | The survey's name, length and vertical range at the bottom-left, above the scale bar; the stats are cached on the scene as the Java caches them on the view |
+| `res/menu/cross_section.xml`, `ic_done`/`ic_cancel` | `demo/.../ActionIcons.kt`, `CrossSectionEditor.kt` | The two action-bar icons, drawn from the vector drawables' own path data through the shared SVG parser |
 | `SketchPreferences.Toggle` | `demo/.../AppPreferences.kt` | All twelve persisted, which five of them were not until the menu was split |
 | `action_fullscreen`, `GeneralPreferences.isImmersiveModeOn` | `demo/.../App.kt` (`FullScreenHandle`) | Hides the app's own bar rather than the system's, which is not this port's to hide; a drawn handle brings it back |
 | `GraphView.drawCompass` | `demo/.../SurveyCanvas.kt` (`drawNorthArrow`) | The arrow, plan-only, at a heading of zero — which is *correct* on a plan; the magnetometer that would turn it is not ported |
@@ -1147,10 +1158,10 @@ These are the things that would actually shape a real port.
    opened *Import a survey* instead, and the screenshot beside the failure is what said so.
 
    The fix is the one the drawing menu got, from the same source: `action_bar.xml` is seven
-   top-level items with submenus, and this port had flattened them. It is five rows now — File,
+   top-level items with submenus, and this port had flattened them. It became five rows — File,
    View, Instrument, Settings, About — with the saved surveys inside File where the app's own Open
    is. Twice in one sitting the answer to "this menu is too tall" was in the file being ported
-   from, and twice I had flattened it away first.
+   from, and twice I had flattened it away first. Five was still not seven, which is finding 101.
 
 35. **The Xcode project was the half nothing had ever compiled.** CI built Kotlin five ways —
    simulator, Kotlin/Native tests, the Compose framework, the device target, the platform code in a
@@ -3328,6 +3339,70 @@ These are the things that would actually shape a real port.
    `ComposeScenePointer` - the one API that can, and internal to Compose, hence the opt-in - and
    against the previous loop finds the second path.
 
+101. **Five was not seven, and nor was any of the wording: a parity audit of the whole UI.**
+   Findings 33 and 34 both ended by going back to the menu XML the port had flattened, and both
+   stopped a row or two short. Reading `action_bar.xml`, `drawing.xml`, `context_station.xml`,
+   `context_leg.xml` and the four table menus against what this app actually drew turned up rather
+   more than a couple of missing rows, and almost none of it was *wrong* — which is exactly why it
+   had survived. The port said *Statistics…* where the app says *Stats*, *Delete the last leg*
+   where it says *Undo Last Reading*, *Distance* over a column the app heads *Dist*. Every one of
+   those is a defensible label and none of them is this app.
+
+   The wording is now a mirror. `Strings.kt` declares every user-facing string under the resource
+   name `strings.xml` gives it, and `AndroidStringsTest` reads that file and holds each one to it —
+   so the next rename upstream is a failing test rather than a screenshot somebody notices a year
+   later. Two strings cannot be mirrored character for character: the app's jump-to labels use `➔`
+   and its backwards-shot marker `⬅`, and the bundled Liberation Sans has neither, so those go
+   through a `substituted` helper that still checks the Android value and types the nearest
+   character the font has. A third test names the phrases this port used to hardcode, so a reverted
+   edit is caught rather than merely regretted.
+
+   The structural half was larger than the wording. The overflow menu is `action_bar.xml`'s own
+   seven pages now, with the *Input Mode* group that had no UI at all, *Undo last reading*, *Find
+   Station…* and *System Log* back under Tools where the app has them, *Fullscreen* back under
+   View, and Save / Save As… / Delete Survey… / Share… back under File; the app bar has the fourth
+   `showAsAction="always"` action it was missing, and none of the four is lit, because none of the
+   app's is either — lighting the current one had made it invisible, `buttonHighlight` being white
+   and so is the icon. The sketch toolbar's third button is the symbol tool it is in
+   `activity_graph.xml`, opening the app's own scrolling symbol strip on the rule
+   `GraphActivity.handleAction` uses, with the chosen symbol drawn on the button as `selectSymbol`
+   draws it; selected buttons are tinted with `buttonHighlight` rather than an alpha wash of white,
+   the black swatch becomes the white one at night, and every sketch button is disabled with the
+   drawing hidden. The station menu is `context_station.xml`'s rows in its order, including the
+   `menu_elevation` direction group and the `menu_navigate` jumps the port had half of. The table
+   is the app's table: green header, its five short headings, alternating stripes, legs bold and
+   splays plain, numbers right-aligned, the active station lit in amber, chronological order rather
+   than tree order, its two floating action buttons, and tap-to-edit with long-press-for-a-menu the
+   right way round. The settings screens are `preferences_main.xml`'s own sections rather than four
+   dialogs whose contents had drifted between them, and *Settings → Survey* is the app's one-field
+   cross-section-scale dialog it is meant to be.
+
+   Three things in that list are worth separating out as defects rather than divergences. The
+   typed-reading dialogs restated `Leg`'s own bounds instead of asking it, and the restatement was
+   wrong three ways: it refused a distance of zero, which the model allows; it refused the
+   theodolite inclinations of 270 to 360 that `isInclinationLegal` accepts, so a survey booked with
+   a theodolite could not be typed in at all; and it *accepted* an azimuth of exactly 360, which
+   `Leg` rejects — so typing it threw out of the composition of the dialog whose whole job is to be
+   the way in when the radio will not play. `ReadingValidationTest` now walks a grid of boundary
+   values and constructs a `Leg` from every reading the dialog accepts, which is the assertion that
+   cannot drift. The
+   canvas drew a scale bar and no *legend*: `GraphView.drawLegend` writes the survey's name, length
+   and vertical range at the bottom-left, and this port had the same line in its exported SVG and
+   not on the screen, which is the sort of gap no test finds because nothing is *wrong* — something
+   is simply absent. And `SurveySession` called `SurveyUpdater.update` without an input mode, so
+   every reading that arrived from an instrument or the simulator was promoted under `FORWARD`
+   whatever the *Input Mode* menu said: *Backsights* built the cave the wrong way round and *Splays
+   Only* — a run of wall shots round a chamber, the whole point of the mode — made a station out of
+   every third one.
+
+   What is deliberately still not the app: the twelve drawing toggles are a dialog rather than
+   twelve menu rows, because eighteen rows do not fit an iPhone SE (finding 33); *Undo Last
+   Reading* asks, because the survey has no undo stack; undo and redo grey out when their stacks
+   are empty rather than doing nothing; the Example cave, the field bar and the export screen have
+   no counterpart upstream and the port would not be demonstrable without them; and *Linked
+   Surveys*, `Restore Autosave`, `Exit SexyTopo` and the per-instrument laser commands have nothing
+   behind them here to switch on.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3479,7 +3554,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 793
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 460 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 474 over the UI's own
 logic, 20 running the iOS half in a simulator,
 118 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
