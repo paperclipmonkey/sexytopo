@@ -135,6 +135,13 @@ object SexyTopoDimens {
     /** `R.dimen.toolbar_button_height`. */
     const val TOOLBAR_BUTTON_HEIGHT_DP = 40
 
-    /** `activity_graph.xml`'s `android:columnCount`. */
+    /**
+     * `activity_graph.xml`'s `android:columnCount`.
+     *
+     * What the Android layout says, which is not what this port draws: `SketchToolbar` is ten wide,
+     * the tenth column being the camera the app has no counterpart for. This stays at nine so
+     * `DimensionParityTest` goes on holding it to the XML, which is the whole point of it — a
+     * constant that drifted to match the port would stop reporting anything.
+     */
     const val TOOLBAR_COLUMNS = 9
 }
