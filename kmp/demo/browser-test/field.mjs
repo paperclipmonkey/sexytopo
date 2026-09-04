@@ -985,11 +985,26 @@ const LABEL_PLACE = [316, 518]
 const toolColumn = box.width / 9
 const TOOL_ROW_Y = box.height - 20
 const toolCell = (index) => [toolColumn * (index + 0.5), TOOL_ROW_Y]
-// The drawing menu, by name rather than by pixel — for the same reason as the overflow menu.
-//
-// It opens *upwards* from its toolbar cell, so its bottom row stays put and every row above it
-// moves when an item is added. Hard-coded y values for two of these rows had already survived one
-// such addition by silently clicking the wrong item.
+/**
+ * The drawing menu's rows, by name rather than by pixel — for the same reason as the overflow menu.
+ *
+ * It opens *upwards* from its toolbar cell, so its bottom row stays put and every row above it
+ * moves when an item is added. Hard-coded y values for two of these rows had already survived one
+ * such addition by silently clicking the wrong item. It is a popup, so it is in the accessibility
+ * tree whenever it is open, which is the only time anything here asks for one of its rows.
+ */
+const DRAWING_MENU_RESOURCES = {
+  'delete-last-leg': 'sketch_menu_delete_last_leg',
+  centre: 'sketch_menu_centre_view',
+  display: 'sketch_toolbar_settings',
+}
+const drawingMenuRow = (name) => {
+  const resource = DRAWING_MENU_RESOURCES[name]
+  if (resource === undefined) throw new Error(`no drawing-menu item called ${name}`)
+  const label = ANDROID_STRINGS[resource]
+  if (label === undefined) throw new Error(`strings.xml has no ${resource}`)
+  return nodeFor(`#${tagFor(label)}`)
+}
 // The eleven toggles behind that last row, in the order the dialog lists them: `drawing.xml`'s
 // `drawingMenuBehaviourToggles` first, then `drawingMenuDisplayToggles`.
 //
