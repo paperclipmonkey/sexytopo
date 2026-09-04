@@ -40,6 +40,28 @@
         android:name="android.hardware.bluetooth_le"
         android:required="false" />
 
+    <!--
+        Photographs, and the permission that is deliberately not here.
+
+        `PhotoCapture.android.kt` takes them with `ActivityResultContracts.TakePicture`, which is an
+        `ACTION_IMAGE_CAPTURE` intent: the camera app opens, takes the photograph and writes it to a
+        uri this app hands over. The camera is never opened from inside this process, so the runtime
+        camera permission is the camera app's own and it already holds it.
+
+        Declaring `android.permission.CAMERA` anyway would not merely be untidy - it would break the
+        feature. Android documents that an app which declares the camera permission must also have
+        been granted it before `ACTION_IMAGE_CAPTURE` will run for it, so adding the line here would
+        require a runtime request that nothing in this demo makes, and the camera would stop opening
+        on Android 6 and later. The permission is absent because the work is delegated.
+
+        The feature is declared not-required for the same reason the Bluetooth one above is: a
+        tablet with no camera is a device this app still runs on, and `whyNoCamera` says so on its
+        screen rather than the store hiding the app from it.
+    -->
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
+
     <application
         android:allowBackup="true"
         android:icon="@android:drawable/ic_menu_compass"
@@ -58,6 +80,33 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+            Where a photograph is handed to the camera app and handed back.
+
+            Copied in shape from the Android app's own manifest, which declares the same provider
+            for `SurveyZipSharer`. A `file://` uri has thrown `FileUriExposedException` since
+            Android 7, so a provider is the only way to give another app a path into this app's
+            storage; `grantUriPermissions` is what lets the camera app write to the one uri it is
+            given and nothing else, and the grant itself is made by the framework, which migrates
+            `EXTRA_OUTPUT` into the intent's clip data as it leaves the process.
+
+            The authority is built from the application id rather than written out, and
+            `photoUri` in `PhotoCapture.android.kt` reads it back the same way. Authorities are
+            unique across the device: a hardcoded one would collide with the real SexyTopo's
+            `org.hwyl.sexytopo.fileprovider` and the two apps could not be installed side by side,
+            which is exactly what the debug build's `applicationIdSuffix` exists to allow.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
     </application>
 
 </manifest>
