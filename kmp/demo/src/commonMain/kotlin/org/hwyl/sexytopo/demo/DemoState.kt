@@ -408,6 +408,37 @@ class DemoState(
     }
 
     /**
+     * The station whose cross-section is waiting to be put somewhere:
+     * `stationNameBeingCrossSectioned`.
+     */
+    var crossSectioning: Station? by mutableStateOf(null)
+        private set
+
+    /** What was in the surveyor's hand before, since positioning a section is a one-shot tool. */
+    private var toolBeforeCrossSection: SketchTool? = null
+
+    /**
+     * `handleNewCrossSection`: arm the tool and say what to do with it.
+     *
+     * The Android app does not decide where the section goes. It cannot: the only sensible place
+     * is wherever there is white paper next to the passage, which the app has no way of knowing
+     * and the surveyor can see. So *Create Cross Section* asks, and this is the asking.
+     */
+    fun beginCrossSection(station: Station) {
+        crossSectioning = station
+        toolBeforeCrossSection = tool
+        chooseTool(SketchTool.POSITION_CROSS_SECTION)
+        note(Strings.sketchPositionCrossSectionInstruction)
+    }
+
+    /** The tail of `handlePositionCrossSection`: one tap, then the previous tool comes back. */
+    fun finishCrossSection() {
+        crossSectioning = null
+        chooseTool(toolBeforeCrossSection ?: AppPreferences.DEFAULT_TOOL)
+        toolBeforeCrossSection = null
+    }
+
+    /**
      * Choose how the instrument is being held — the one setting here that changes what the
      * numbers mean, not just how they look.
      */

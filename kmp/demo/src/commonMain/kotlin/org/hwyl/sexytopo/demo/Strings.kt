@@ -169,6 +169,13 @@ object Strings {
     val sketchMenuShowStationLabels = s("sketch_menu_show_station_labels", "Station Labels")
     val sketchMenuShowCompass = s("sketch_menu_show_compass", "Compass")
 
+    /**
+     * The toast `handleNewCrossSection` puts up: choosing *Create Cross Section* arms the tool
+     * and then waits, rather than deciding for the surveyor where the section goes.
+     */
+    val sketchPositionCrossSectionInstruction =
+        s("sketch_position_cross_section_instruction", "Select where to draw cross-section")
+
     // -- The station menu, `res/menu/context_station.xml` ---------------------------------
 
     val menuSetActiveStation = s("menu_set_active_station", "Set Active")

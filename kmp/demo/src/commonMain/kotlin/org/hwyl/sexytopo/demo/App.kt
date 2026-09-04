@@ -1182,6 +1182,8 @@ private fun SketchScreen(
         symbol = state.symbol,
         onOpenCrossSection = { state.editingCrossSection = it },
         onLongPressStation = onLongPressStation,
+        crossSectioning = state.crossSectioning,
+        onCrossSectionPositioned = { state.finishCrossSection() },
     )
 }
 
@@ -1215,12 +1217,11 @@ private fun StationMenuFor(
         // where it started after a restart — saving is the caller's job.
         onMakeActive = { if (state.selectStation(it.name)) state.noteSketchEdited() },
         onOpenCrossSection = { state.editingCrossSection = it },
+        // `handleNewCrossSection`: the section is not drawn yet. The tool is armed for this
+        // station and the next tap on the paper says where it goes, which is the one thing about
+        // a cross-section only the surveyor can decide.
         onCreateCrossSection = { at ->
-            val position = crossSectionPositionFor(state.survey, at, state.projection)
-            if (position != null) {
-                editor.addCrossSection(sectionFor(state.survey, at), position)
-                state.noteSketchEdited()
-            }
+            state.beginCrossSection(at)
             onClose()
         },
         onDeleteCrossSection = { editor.delete(it) },

@@ -402,24 +402,6 @@ private fun setDirection(
     onEdited()
 }
 
-/** The bearing a cross-section created from this menu gets: the same call the position tool makes. */
+/** The bearing a cross-section gets, which is a guess `CROSS_SECTION_SET_DIRECTION` overrules. */
 fun sectionFor(survey: Survey, station: Station) = CrossSectioner.section(survey, station)
 
-/**
- * Where a cross-section created from the menu is drawn: beside the station, not on it, since from
- * a menu there is no finger position to place it at. *Move a cross-section* slides it from there.
- */
-fun crossSectionPositionFor(
-    survey: Survey,
-    station: Station,
-    projection: Projection2D,
-): Coord2D? {
-    val at = projection.project(survey).stationMap[station] ?: return null
-    return at.add(CROSS_SECTION_MENU_OFFSET_METRES, -CROSS_SECTION_MENU_OFFSET_METRES)
-}
-
-/**
- * `SketchDefaults.CROSS_SECTION_STARTING_SIZE`-ish, in metres of cave rather than pixels: far
- * enough from the centreline to read as a separate drawing at the zoom a plan is usually at.
- */
-private const val CROSS_SECTION_MENU_OFFSET_METRES = 3.0f

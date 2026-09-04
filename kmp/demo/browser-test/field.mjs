@@ -228,7 +228,69 @@ const CARD_ADD_LEG_X = 309
 const SKETCH_PANEL = [127, 175, 127]
 const TABLE_TAB = [281, 26]
 const PLAN_TAB = [325, 26]
-const TABLE_ROW = (n) => [210, 66 + 26 * n]
+/**
+ * Where each visible table row is, found rather than counted from the top of the screen.
+ *
+ * `onBindViewHolder` paints even rows on `tableBackground` and odd ones on `tableBackgroundAlt`,
+ * so the rows are drawn as literal stripes: white, then a grey a shade off it, all the way down. A
+ * column in the left margin — inside the row's background, clear of the *From* cell's text and of
+ * the amber an active station's own cell is lit with — changes colour at every row boundary and
+ * nowhere else. That gives the rows without knowing the row height, the height of the green column
+ * header above them, or how tall the app bar is on this phone: three numbers that were one
+ * arithmetic constant, and all three of which moved when the table gained its header.
+ */
+const TABLE_STRIPES = [[255, 255, 255], [245, 245, 245]]
+const tableRowCentres = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, stripes]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    const at = (y) => {
+      const i = (y * c.width + 4) * 4
+      return [px[i], px[i + 1], px[i + 2]]
+    }
+    const which = (y) => {
+      const p = at(y)
+      for (let i = 0; i < stripes.length; i++) {
+        if (stripes[i].every((v, k) => Math.abs(p[k] - v) < 3)) return i
+      }
+      return -1
+    }
+    const runs = []
+    let start = -1
+    let colour = -1
+    for (let y = 0; y < c.height; y++) {
+      const here = which(y)
+      if (here !== colour) {
+        if (colour >= 0 && start >= 0) runs.push([start, y - 1])
+        start = here >= 0 ? y : -1
+        colour = here
+      }
+    }
+    if (colour >= 0 && start >= 0) runs.push([start, c.height - 1])
+    // The empty space below the last row is the same white as an even row, so it comes back as one
+    // very tall run. Rows are all one height, so anything much taller than the commonest is not a
+    // row.
+    const heights = runs.map(([a, b]) => b - a + 1).sort((a, b) => a - b)
+    if (heights.length === 0) return []
+    const typical = heights[Math.floor(heights.length / 2)]
+    return runs
+      .filter(([a, b]) => Math.abs(b - a + 1 - typical) <= 3)
+      .map(([a, b]) => Math.round((a + b) / 2))
+  }, [b64, TABLE_STRIPES])
+}
+/** The nth row of the table, top to bottom, in the middle of its *Dist* column. */
+const tableRow = async (n) => {
+  const rows = await tableRowCentres()
+  if (n >= rows.length) throw new Error(`wanted table row ${n} but only ${rows.length} are drawn`)
+  return [210, rows[n]]
+}
 // The leg menu's buttons are found rather than counted from the top of the screen. The dialog is
 // centred, its height depends on how many actions the row can take, and the actions a row can take
 // depend on the survey — a leg with splays hanging off its far end cannot be made back into one.
@@ -265,50 +327,77 @@ const STATION_EE_LEFT = [102, 628]
 const STATION_SAVE = [317, 700]
 // The overflow menu, by name rather than by pixel.
 //
-// It lists the saved surveys in the middle, so every row below them moves when the library grows,
-// and every row moves when a menu item is added. Both have happened repeatedly, and each time the
-// checks that clicked a hard-coded y went on passing while testing the wrong thing or failed
-// somewhere unrelated. Computing the row from the menu's own order means one list to update.
-// `action_bar.xml`'s submenus, which this port went back to when the flat list grew past the
-// height of an iPhone SE. The top page opens one of the five groups; a group page is a Back row,
-// then the group's items, with the saved surveys inside File where the app's own Open is.
-const MENU_TOP = ['file', 'view', 'instrument', 'tools', 'settings', 'help']
-// `holdsSurveys` matters: only File grows with the library, and counting the surveys into the
-// other three pages put every row of them out by one per saved survey — which lands a tap outside
-// the menu, dismisses it, and reports itself several checks later as "no menu is open".
+// `action_bar.xml`'s own submenus, which this port went back to when the flat list grew past the
+// height of an iPhone SE. The top page opens one of the seven groups and then offers the
+// `connection_group` row; a group page is a Back row, then the group's items.
+//
+// Computing the row from the menu's own order means one list to update. Every time a check
+// clicked a hard-coded y instead, it went on passing while testing the wrong thing, or failed
+// somewhere unrelated several hundred lines later.
+const MENU_TOP = [
+  'file',
+  'view',
+  'instrument',
+  'input',
+  'tools',
+  'settings',
+  'help',
+  'connection',
+]
+// `holdsSurveys` matters: only *Open* and *Delete* grow with the library, and counting the
+// surveys into the other pages put every row of them out by one per saved survey — which lands a
+// tap outside the menu, dismisses it, and reports itself several checks later as "no menu is
+// open". The library used to sit on the File page itself; `action_file_open` is a submenu, so it
+// is one now, and *Delete Survey…* is the second page that lists them.
 const MENU_PAGES = {
-  file: { before: ['new', 'rename'], after: ['import', 'export'], holdsSurveys: true },
-  view: { before: ['demo', 'trip', '3d', 'stats'], after: [], holdsSurveys: false },
-  instrument: { before: ['connect', 'calibrate', 'log'], after: [], holdsSurveys: false },
-  settings: {
-    before: ['fullscreen', 'surveying', 'manual-entry', 'sketching', 'theme'],
+  // `action_file`: `basic_file_handling`, then `import_export`.
+  file: {
+    before: ['new', 'open', 'save', 'save-as', 'delete', 'import', 'export', 'share'],
     after: [],
     holdsSurveys: false,
   },
-  // `action_tools`'s `tools_group_manual_entry`. Its other two items are on the drawing menu
-  // instead — see the note in App.kt — so this page holds exactly these two.
-  tools: { before: ['add-leg', 'add-splay'], after: [], holdsSurveys: false },
-  // `pref_theme` is a three-value list, so it is a page rather than a checkbox — and the only
-  // page two levels down, which is why `menuRow` walks a chain of parents instead of assuming
-  // every group hangs off the top.
-  theme: {
+  // Two pages two levels down that are nothing but the library, which is why `menuRow` walks a
+  // chain of parents rather than assuming every group hangs off the top.
+  open: { under: 'file', before: [], after: [], holdsSurveys: true },
+  delete: { under: 'file', before: [], after: [], holdsSurveys: true },
+  import: { under: 'file', before: ['import-file'], after: [], holdsSurveys: false },
+  // `action_view`: the six views, then `view_display`, then this port's own demo cave.
+  view: {
+    before: ['trip', 'table', 'plan', 'elevation', '3d', 'stats', 'fullscreen', 'demo'],
+    after: [],
+    holdsSurveys: false,
+  },
+  // `action_device_menu`.
+  instrument: { before: ['connect', 'calibrate'], after: [], holdsSurveys: false },
+  // `action_input`'s `input_mode_group`, one row per `InputMode`.
+  input: {
+    before: ['forward', 'backward', 'combined', 'splays'],
+    after: [],
+    holdsSurveys: false,
+  },
+  // `action_tools`: `tools_group_edit`, `tools_group_manual_entry`, `tools_group_diagnostics`.
+  tools: {
+    before: ['undo-last-leg', 'find', 'add-leg', 'add-splay', 'log'],
+    after: [],
+    holdsSurveys: false,
+  },
+  // `action_settings`: *System* and *Survey*, exactly the app's two.
+  settings: { before: ['system', 'survey'], after: [], holdsSurveys: false },
+  // `preferences_main.xml`'s sections, which is the second page two levels down.
+  system: {
     under: 'settings',
-    before: ['automatic', 'light', 'dark'],
+    before: ['general', 'sketching', 'manual-entry', 'instruments'],
     after: [],
     holdsSurveys: false,
   },
-  // `help_menu`: Manual then About, which is the order action_bar.xml puts them in. About was a
-  // row on the top page while the manual was missing, so moving it here is what the app's own
-  // menu always said - and the only change any check needed is this line.
+  // `help_menu`: Manual then About, which is the order `action_bar.xml` puts them in.
   help: { before: ['manual', 'about'], after: [], holdsSurveys: false },
 }
 
-// The menu hangs off the overflow button at the right-hand edge and is 200 wide, so its middle
-// and the delete cross on a saved survey are both fixed distances in from that edge — not the
-// absolute 312 and 392 they were, which were the 420-wide layout's numbers and missed on both of
-// the sizes this file finishes at.
+// The menu hangs off the overflow button at the right-hand edge and is 200 wide, so its middle is
+// a fixed distance in from that edge — not the absolute 312 it was, which was the 420-wide
+// layout's number and missed on both of the sizes this file finishes at.
 const MENU_MIDDLE = () => box.width - 116
-const MENU_RIGHT = () => box.width - 28
 
 /** Which page a named item is on, and where in it. Back is row zero of every group page. */
 function menuPlace(name, savedSurveys) {
@@ -318,7 +407,9 @@ function menuPlace(name, savedSurveys) {
   const under = MENU_PAGES[name]?.under
   if (under !== undefined) return menuPlace(`${under}:${name}`, savedSurveys)
   for (const [page, { before, after, holdsSurveys }] of Object.entries(MENU_PAGES)) {
-    const surveys = holdsSurveys ? savedSurveys : 0
+    // An empty library is not an empty page: *Open* and *Delete* show a single disabled
+    // "No Data" row instead, so the page still has a row below Back.
+    const surveys = holdsSurveys ? Math.max(savedSurveys, 1) : 0
     const rows = 1 + before.length + surveys + after.length
     const wanted = name.startsWith(`${page}:`) ? name.slice(page.length + 1) : name
     const inBefore = before.indexOf(wanted)
@@ -358,13 +449,18 @@ async function menuRow(name, savedSurveys) {
   return menuRowAt(place.index, place.rows, MENU_MIDDLE())
 }
 
-/** The delete cross on the nth saved survey's row, which sits at the right-hand edge. */
+/**
+ * The nth saved survey on the *Delete Survey…* page.
+ *
+ * There is no delete cross any more: `action_file_delete` is a submenu of its own in
+ * `action_bar.xml`, so throwing a survey away is File → Delete Survey… → the one to throw away,
+ * and the confirmation that follows is the app's own.
+ */
 async function savedSurveyDelete(nth, savedSurveys) {
-  const place = menuPlace('file:survey', savedSurveys)
-  const group = menuPlace('file', savedSurveys)
-  await at(...(await menuRowAt(group.index, group.rows, MENU_MIDDLE())))
+  const place = menuPlace('delete:survey', savedSurveys)
+  await at(...(await menuRow('delete', savedSurveys)))
   await page.waitForTimeout(500)
-  return menuRowAt(place.index + nth, place.rows, MENU_RIGHT())
+  return menuRowAt(place.index + nth, place.rows, MENU_MIDDLE())
 }
 const IMPORT_CHOOSE = [284, 494]
 const IMPORT_FIRST_ROW = [210, 446]
@@ -380,13 +476,117 @@ const IMPORT_FIRST_ROW = [210, 446]
 // window, so it is now capped at the screen and scrolls — which means its top is the top of the
 // screen, and the offsets below are measured from there. The offsets themselves did not move,
 // because nothing was added above them; that is the whole point of anchoring to the dialog.
-const SETTINGS_DIALOG_HEIGHT = 900
-const settingsRow = (x, fromTop) => [x, (900 - SETTINGS_DIALOG_HEIGHT) / 2 + fromTop]
-const SETTING_DISTANCE = settingsRow(210, 271)
-const SETTING_ANGLE = settingsRow(210, 347)
-const SETTING_BUZZ = settingsRow(320, 503)
-const SETTING_HOT_CORNERS = settingsRow(320, 596)
-const SETTING_TWO_FINGER = settingsRow(320, 692)
+/**
+ * Every number field in the open dialog, top to bottom, found rather than measured.
+ *
+ * `preferences_main.xml` splits the app's settings across five screens, so the old single
+ * *Surveying* dialog is now three of them and no offset measured against it survived. Rather than
+ * re-measure three dialogs — and again the next time a row is added to any of them — this finds
+ * the fields the way `switchRows` finds the switches.
+ *
+ * How: an M3 `OutlinedTextField` with a value in it floats its label up onto its own top border,
+ * which leaves a gap in that line; its **bottom** border is unbroken and spans the card. So the
+ * bottom borders are the rows where nearly all of the card's width is not the card's colour. A
+ * `HorizontalDivider` looks the same from here, which is why the fields are taken as the longest
+ * run of those rows evenly spaced — a divider is on its own, and eight settings in a column are
+ * not.
+ */
+const numberFieldRows = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, card]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    const isCard = (x, y) => {
+      const i = (y * c.width + x) * 4
+      return (
+        Math.abs(px[i] - card[0]) < 4 &&
+        Math.abs(px[i + 1] - card[1]) < 4 &&
+        Math.abs(px[i + 2] - card[2]) < 4
+      )
+    }
+    // The card's own horizontal extent, so "nearly all of its width" means something.
+    let left = c.width
+    let right = -1
+    for (let y = 0; y < c.height; y++) {
+      let first = -1
+      let last = -1
+      for (let x = 0; x < c.width; x++) {
+        if (!isCard(x, y)) continue
+        if (first < 0) first = x
+        last = x
+      }
+      if (last - first > 200) {
+        if (first < left) left = first
+        if (last > right) right = last
+      }
+    }
+    if (right < 0) return []
+    const span = right - left
+    const borders = []
+    for (let y = 0; y < c.height; y++) {
+      let notCard = 0
+      for (let x = left; x <= right; x++) if (!isCard(x, y)) notCard++
+      if (notCard > span * 0.93) borders.push(y)
+    }
+    // The longest evenly spaced run of them, which is the block of fields.
+    let best = []
+    for (let i = 0; i < borders.length; i++) {
+      for (let j = i + 1; j < borders.length; j++) {
+        const step = borders[j] - borders[i]
+        if (step < 40 || step > 120) continue
+        const run = [borders[i], borders[j]]
+        let next = borders[j] + step
+        while (borders.some((b) => Math.abs(b - next) <= 2)) {
+          run.push(borders.find((b) => Math.abs(b - next) <= 2))
+          next = run[run.length - 1] + step
+        }
+        if (run.length > best.length) best = run
+      }
+    }
+    // A field's own middle is half its height above the border that closes it.
+    const step = best.length > 1 ? best[1] - best[0] : 76
+    return best.map((b) => Math.round(b - step * 0.36))
+  }, [b64, DIALOG_CARD])
+}
+
+/**
+ * The nth number field of the open dialog. **Negative counts from the end**, as with the switches.
+ *
+ * From the end where a dialog has to be scrolled to reach the field at all: what the run of rows
+ * begins with depends on whether a divider above the block happens to be one field-height clear of
+ * it, and what it ends with does not.
+ */
+const numberField = async (index) => {
+  const rows = await numberFieldRows()
+  const nth = index < 0 ? rows.length + index : index
+  if (nth < 0 || nth >= rows.length) {
+    throw new Error(`wanted number field ${index} but the dialog shows ${rows.length}: ${rows}`)
+  }
+  return [210, rows[nth]]
+}
+
+/**
+ * A theme chip in the *General* dialog: `pref_theme`, which is a three-value list.
+ *
+ * An `AlertDialog` sizes itself to its content and centres what it gets, and this one's widest row
+ * is the three chips — so the row is the same width whatever the window is, and a chip's middle is
+ * a fixed distance from the middle of the screen. Measured off a headless render at 420 by 900.
+ */
+const THEME_CHIP_BELOW_DIALOG_TOP = 129
+const THEME_CHIPS = { automatic: -73, light: 28, dark: 96 }
+const themeChip = async (name) => {
+  const offset = THEME_CHIPS[name]
+  if (offset === undefined) throw new Error(`no theme called ${name}`)
+  const top = await dialogTop()
+  if (top === null) throw new Error('the General dialog is not open')
+  return [Math.round(box.width / 2) + offset, top + THEME_CHIP_BELOW_DIALOG_TOP]
+}
 /**
  * Every switch in the open dialog, top to bottom, found rather than measured.
  *
@@ -482,9 +682,19 @@ const settingsSwitch = async (index) => {
   return [320, rows[nth]]
 }
 
-// *Surveying*'s last two switches, counted from that end.
+// *Instruments*'s last two switches, counted from that end: everything else on that screen is a
+// number field or the amalgamation chips, and both of these sit below all of it.
 const SWITCH_LOG_EVERY_FRAME = -1
 const SWITCH_CHASE_LOST_INSTRUMENT = -2
+
+// *Sketching*'s five, counted from the top and in `preferences_sketching.xml`'s own order. From
+// the top because that screen's eight number fields come after them, so the end of the dialog is
+// nowhere near these.
+const SWITCH_HOT_CORNERS = 0
+const SWITCH_DELETE_FRAGMENTS = 1
+const SWITCH_HIGHLIGHT_LATEST_LEG = 2
+const SWITCH_TWO_FINGER = 3
+const SWITCH_LEGACY_CROSS_SECTIONS = 4
 
 // *Manual entry*'s five switches, counted from the **top** and in the order the dialog lays them
 // out. From the top because that dialog opens at the top and its rows are added at the bottom;
@@ -504,16 +714,29 @@ const SWITCH_INCLINATIONS_IN_MINUTES = 4
 
 const chaseSwitch = async () => settingsSwitch(SWITCH_CHASE_LOST_INSTRUMENT)
 
-// The *Sketching* dialog's eight boxes, which are evenly spaced down it: leg width, splay width,
-// drawn line width, station size, station name size, legend size, symbol size, text size.
-// Anchored to the dialog's top and measured off a rendered frame, so adding a ninth means one more
-// index rather than eight re-measured numbers.
-const SKETCH_FIRST_FIELD_BELOW_TOP = 184
-const SKETCH_FIELD_SPACING = 76
-const sketchField = async (index) => {
-  const top = await dialogTop()
-  if (top === null) throw new Error('the sketching dialog is not open')
-  return [210, top + SKETCH_FIRST_FIELD_BELOW_TOP + SKETCH_FIELD_SPACING * index]
+/**
+ * The *Sketching* dialog's eight boxes, in `preferences_sketching.xml`'s order, counted from the
+ * end.
+ *
+ * Five switches now sit above them and the eight no longer fit on one screen with those, so the
+ * dialog scrolls and the first of the boxes is below the fold when it opens. Counting from the
+ * last one means the caller scrolls to the end — which it has to do anyway — and then asks for a
+ * field rather than for a pixel.
+ */
+const SKETCH_FIELDS = [
+  'text-size',
+  'symbol-size',
+  'line-width',
+  'leg-width',
+  'splay-width',
+  'station-size',
+  'station-label-size',
+  'legend-size',
+]
+const sketchField = async (name) => {
+  const index = SKETCH_FIELDS.indexOf(name)
+  if (index < 0) throw new Error(`no sketching field called ${name}`)
+  return numberField(index - SKETCH_FIELDS.length)
 }
 
 /**
@@ -565,19 +788,28 @@ const toolCell = (index) => [toolColumn * (index + 0.5), TOOL_ROW_Y]
 // It opens *upwards* from its toolbar cell, so its bottom row stays put and every row above it
 // moves when an item is added. Hard-coded y values for two of these rows had already survived one
 // such addition by silently clicking the wrong item.
+// `drawingMenuActions`, in its own order — and nothing else. `buttonRedo` is on that group too
+// but is `android:visible="false"`, and redo has a button of its own on the toolbar.
+//
+// The tools that used to be here are not gone, they are where the Android app keeps them: a
+// cross-section is created, re-aimed and deleted from the station's own long-press menu
+// (`context_station.xml`'s `menu_xsection`), the symbols are on the toolbar's own scrolling
+// strip, and *Find Station…* is on the overflow menu's Tools page.
 const DRAWING_MENU = [
-  'centre',
-  'symbol',
-  'cross-section',
-  're-aim',
-  'move',
-  'find',
   'delete-last-leg',
+  'centre',
   'display',
 ]
-// The twelve toggles behind that last row, in the order the dialog lists them: `drawing.xml`'s
-// display group first, then its behaviour group.
+// The eleven toggles behind that last row, in the order the dialog lists them: `drawing.xml`'s
+// `drawingMenuBehaviourToggles` first, then `drawingMenuDisplayToggles`.
+//
+// `buttonHighlightLatestLeg` is not among them — `pref_highlight_latest_leg` is a sketching
+// preference in the Android app, not a drawing-menu toggle, so it lives on that settings screen.
 const DRAWING_OPTIONS = [
+  'auto-recentre',
+  'snap',
+  'blue-water',
+  'pinch',
   'fade',
   'splays',
   'show-xsections',
@@ -585,11 +817,6 @@ const DRAWING_OPTIONS = [
   'grid',
   'labels',
   'north',
-  'latest-leg',
-  'auto-recentre',
-  'snap',
-  'blue-water',
-  'pinch',
 ]
 // Material 3's `surfaceContainer` in the light theme, which is the dropdown's own ground and is
 // not used by anything behind it.
@@ -602,9 +829,10 @@ const DRAWING_MENU_SURFACE = [243, 237, 247]
  * from a toolbar cell keeps its bottom edge. That held until the menu grew past the room above the
  * toolbar: at eighteen rows it was taller than the gap, so Compose repositioned the whole thing to
  * fit the screen and *every* row moved — which broke ten checks at once and none of them anywhere
- * near a menu. Same lesson as the dialogs (finding 27), learnt twice. The menu is eight rows now,
- * which fits, but the arithmetic stays found rather than assumed: that is what made it survive the
- * twelve toggles moving out of it without a single number in this file changing.
+ * near a menu. Same lesson as the dialogs (finding 27), learnt twice. The menu is three rows now,
+ * which fits easily, but the arithmetic stays found rather than assumed: that is what made it
+ * survive both the twelve toggles moving out of it and the five tools that followed them, without
+ * a single number in this file changing.
  *
  * So: find the menu's own surface, and divide it by the number of rows it is known to have. That
  * survives the menu being repositioned, and it fails loudly rather than quietly if the menu ever
@@ -763,6 +991,20 @@ async function drawingOptionRow(name) {
  * more often than by a surveyor: these are settings somebody changes once a trip, and the two taps
  * they lost bought them a menu that fits on the screen.
  */
+/**
+ * Flip one switch on the *Sketching* settings screen and save it.
+ *
+ * `pref_highlight_latest_leg` and the two movement gestures are preferences in the Android app,
+ * not drawing-menu toggles — `preferences_sketching.xml` is where they live — so reaching them is
+ * a trip through Settings rather than two taps on the toolbar.
+ */
+async function flipSketchingSwitch(index) {
+  await at(...overflowButton()); await page.waitForTimeout(500)
+  await at(...(await menuRow('sketching', 0))); await page.waitForTimeout(800)
+  await at(...(await settingsSwitch(index))); await page.waitForTimeout(300)
+  await at(...(await settingsSave())); await page.waitForTimeout(700)
+}
+
 async function toggleOption(name) {
   await at(...toolCell(5)); await page.waitForTimeout(500)
   await at(...(await drawingMenuRow('display'))); await page.waitForTimeout(700)
@@ -1020,9 +1262,118 @@ async function drag([x0, y0], [x1, y1]) {
   await page.mouse.move(box.x + x1, box.y + y1, { steps: 12 })
   await page.mouse.up()
 }
-// "Blocks" in the palette: fourth swatch, second column of the second row.
-const PALETTE_BLOCKS = [112, 388]
-const PALETTE_WATER = [112, 588]
+/**
+ * The symbol strip: `symbolToolbar`, which is where `activity_graph.xml` keeps the symbols.
+ *
+ * A `HorizontalScrollView` of button-sized squares between the drawing and the button grid, not a
+ * dialog. Its first square is the label tool — `Symbol.TEXT`'s place on the app's own strip — then
+ * the nineteen UIS symbols in `Symbol.entries` order, then the × that closes it.
+ *
+ * The toolbar is anchored to the bottom of the screen and the strip is the topmost of its three
+ * rows, so the strip sits two button-heights above the tool row wherever the window puts that.
+ */
+const STRIP_SQUARE = 40
+const SYMBOLS = [
+  'entrance',
+  'gradient',
+  'narrow-end',
+  'sand',
+  'clay',
+  'pebbles',
+  'blocks',
+  'stalactite',
+  'stalagmite',
+  'pillar',
+  'curtain',
+  'soda-straw',
+  'helictite',
+  'crystal',
+  'rimstone-dam',
+  'water-flow',
+  'air-draught',
+  'guano',
+  'debris',
+]
+/** Squares on the strip: the label tool, the symbols, then the close cross. */
+const STRIP = ['label', ...SYMBOLS, 'close']
+const stripRowY = () => TOOL_ROW_Y - 2 * STRIP_SQUARE
+/** The nth square, with the strip unscrolled — which is how it opens, every time. */
+const stripSquare = (name) => {
+  const index = STRIP.indexOf(name)
+  if (index < 0) throw new Error(`nothing called ${name} on the symbol strip`)
+  return [index * STRIP_SQUARE + STRIP_SQUARE / 2, stripRowY()]
+}
+/**
+ * The nth square once the strip has been dragged to its far end.
+ *
+ * Twenty-one squares is eight hundred and forty pixels and no phone is that wide, so the symbols
+ * past the middle can only be reached by scrolling. Measured back from the right-hand edge rather
+ * than forward from a computed scroll offset: at the end of the travel the last square is flush
+ * with that edge whatever the window's width and whatever the drag actually moved.
+ */
+const scrolledStripSquare = (name) => {
+  const index = STRIP.indexOf(name)
+  if (index < 0) throw new Error(`nothing called ${name} on the symbol strip`)
+  return [
+    box.width - (STRIP.length - 1 - index) * STRIP_SQUARE - STRIP_SQUARE / 2,
+    stripRowY(),
+  ]
+}
+/** `sexyTopoDarkGreen`, which the strip is the only thing on the screen drawn on. */
+const SYMBOL_STRIP_GREEN = [0x3a, 0x57, 0x38]
+/** Whether the strip is showing, by its own background rather than by counting taps. */
+const symbolStripIsOpen = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, green]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    for (let y = 0; y < c.height; y++) {
+      let run = 0
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        if (px[i] === green[0] && px[i + 1] === green[1] && px[i + 2] === green[2]) run++
+      }
+      if (run > c.width * 0.5) return true
+    }
+    return false
+  }, [b64, SYMBOL_STRIP_GREEN])
+}
+/**
+ * Open the strip, however many taps that takes.
+ *
+ * `buttonSymbol` arms the symbol tool on the first tap and opens the strip on the second, which is
+ * what the Android button does — a surveyor stamping the same symbol repeatedly does not want the
+ * strip in the way every time. Except the very first time, when it opens straight away, because
+ * nobody can pick a symbol from a strip they have not seen. Asking the screen rather than counting
+ * taps is what makes this work from either state.
+ */
+const openSymbolStrip = async () => {
+  for (let i = 0; i < 3; i++) {
+    if (await symbolStripIsOpen()) return
+    await at(...toolCell(2))
+    await page.waitForTimeout(500)
+  }
+  if (!(await symbolStripIsOpen())) throw new Error('the symbol strip would not open')
+}
+/** Shut it again, so the drawing gets its forty pixels back. */
+const closeSymbolStrip = async () => {
+  if (!(await symbolStripIsOpen())) return
+  await at(...stripSquare('close'))
+  await page.waitForTimeout(400)
+}
+/** Drag it to the far end, for the symbols no phone is wide enough to show at once. */
+const scrollSymbolStripToTheEnd = async () => {
+  for (let i = 0; i < 4; i++) {
+    await drag([box.width - 30, stripRowY()], [20, stripRowY()])
+    await page.waitForTimeout(250)
+  }
+}
 const CANCEL_DELETE_SURVEY = [237, 516]
 const CONFIRM_DELETE_SURVEY = [312, 516]
 // The export screen's own background, which its chips are the only thing drawn on.
@@ -1371,10 +1722,137 @@ await page.screenshot({ path: join(shotDir, 'field-readings.png') })
 // bottom left.
 //
 // The whole model, the projection and the bearing heuristic were ported and tested long ago; what
-// this checks is that the tool reaches them and that the result is saved with the sketch.
-await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...(await drawingMenuRow('cross-section'))); await page.waitForTimeout(500)
-await at(140, 712); await page.waitForTimeout(900)
+// this checks is that the menu reaches them and that the result is saved with the sketch.
+//
+// `context_station.xml`, not the drawing menu. `menu_xsection` is a submenu of the station's own
+// long-press menu in the Android app, which is the only place that knows *which* station a section
+// is being cut at — the drawing menu had to guess from wherever a finger landed.
+/**
+ * How many rows of the message strip are showing, by its own background colour.
+ *
+ * `innerPanelBackground`, 0xDDDDDD, which nothing else on this screen is drawn in. The strip sits
+ * between the app bar and the drawing rather than over it — an Android toast floats, and a floating
+ * message over a cave drawing hides the very thing it is talking about — so it is found by looking
+ * for a full-width band of that grey below the app bar.
+ */
+const noticeRows = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    let rows = 0
+    // The app bar is about fifty pixels tall; a hundred is well clear of it and well above
+    // anything else this colour.
+    for (let y = 0; y < Math.min(140, c.height); y++) {
+      let run = 0
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        if (px[i] === 0xdd && px[i + 1] === 0xdd && px[i + 2] === 0xdd) run++
+      }
+      if (run > c.width * 0.8) rows++
+    }
+    return rows
+  }, [b64])
+}
+
+/**
+ * The rows `stationActionsFor` builds for a station on the plan, worked out from what is saved
+ * rather than assumed.
+ *
+ * Which rows a station has depends on the station: the active one cannot be made active, the
+ * origin has no leg that made it and cannot be deleted, and `menu_xsection` offers *Create* or the
+ * three rows for the section already there. One hard-coded list meant a check that was silently a
+ * row out as soon as the survey grew a station somewhere else.
+ */
+const planStationMenuFor = (name) => page.evaluate((name) => {
+  const read = (suffix) => {
+    const key = Object.keys(localStorage).find((k) => k.endsWith(suffix))
+    return key ? JSON.parse(localStorage.getItem(key)) : null
+  }
+  const data = read('Swildons.data.json')
+  if (!data) return null
+  const stations = data.stations ?? []
+  const legs = stations.flatMap((station) => station.legs ?? [])
+  // "origin is whatever nothing leads to", which is `SurveyJson`'s own rule for finding it.
+  const destinations = new Set(legs.map((leg) => leg.destination).filter(Boolean))
+  const isOrigin = !destinations.has(name)
+  const sections = (read('Swildons.plan.json') ?? {})['x-sections'] ?? []
+  const hasSection = sections.some((section) => section['station-id'] === name)
+
+  const rows = []
+  if (data.activeStation !== name) rows.push('make-active')
+  rows.push('comment', 'rename', 'passage-size')
+  if (hasSection) {
+    rows.push('cross-section-edit', 'cross-section-set-direction', 'cross-section-delete')
+  } else {
+    rows.push('cross-section-create')
+  }
+  if (!isOrigin) rows.push('incoming-leg')
+  // `menu_navigate`, less the plan, which is the view this menu was opened in.
+  rows.push('show-in-table', 'show-in-elevation')
+  if (!isOrigin) rows.push('delete')
+  return rows
+}, name)
+
+/**
+ * A row of the open station menu, by name.
+ *
+ * The rows are `stationActionsFor`'s own list, which depends on where the menu was opened and what
+ * the station has — so each call site names the list it expects and this refuses to guess when the
+ * menu on screen is not that list. A silently mis-indexed station menu deletes a station instead of
+ * commenting on it.
+ */
+async function stationMenuRow(menu, name) {
+  const index = menu.indexOf(name)
+  if (index < 0) throw new Error(`no station-menu row called ${name}`)
+  const rows = await dialogTextRows()
+  if (rows.length !== menu.length) {
+    throw new Error(
+      `the station menu shows ${rows.length} rows, not the ${menu.length} of ` +
+        `${menu.join(', ')}`)
+  }
+  return [210, rows[index]]
+}
+
+// Station 1 on the plan: the origin, so there is no leg that made it and nothing to delete, and
+// the readings above left station 2 active. What rows it has is worked out from the saved survey
+// by `planStationMenuFor`, which is also what makes the difference between "before it has a
+// section" and "after" a fact rather than a second hard-coded list.
+const STATION_ONE = [140, 712]
+// Somewhere with no passage on it, which is the whole reason the app asks rather than choosing.
+const SECTION_GOES_HERE = [300, 600]
+
+await longPress(STATION_ONE)
+await at(...(await stationMenuRow(await planStationMenuFor('1'), 'cross-section-create')))
+await page.waitForTimeout(700)
+await page.screenshot({ path: join(shotDir, 'field-cross-section-armed.png') })
+
+// `sketch_position_cross_section_instruction`. The row arms a tool and then waits, so a surveyor
+// who is not told that is looking at an app that has apparently done nothing.
+const askedWhereToDrawIt = await noticeRows()
+const sectionsBeforeTheTap = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  if (!key) return null
+  return (JSON.parse(localStorage.getItem(key))['x-sections'] ?? []).length
+})
+if (askedWhereToDrawIt < 4) {
+  fail(`choosing "Create Cross Section" put up no instruction (${askedWhereToDrawIt} rows of it)`)
+} else if (sectionsBeforeTheTap !== 0) {
+  fail(`"Create Cross Section" drew the section itself instead of asking (${sectionsBeforeTheTap})`)
+} else {
+  pass('creating a cross-section asks where to draw it rather than choosing for the surveyor')
+}
+
+// Out of the way before the tap that places it, so the message strip is not still pushing the
+// drawing down when the coordinates below are taken.
+await page.waitForTimeout(2800)
+await at(...SECTION_GOES_HERE); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-cross-section.png') })
 
 const sections = await page.evaluate(() => {
@@ -1385,68 +1863,47 @@ const sections = await page.evaluate(() => {
 if (sections === null) {
   fail('the plan sketch was not saved, so the cross-section could not be checked')
 } else if (sections < 1) {
-  fail('tapping a station with the cross-section tool did not add one')
+  fail('tapping the paper with the cross-section tool armed did not add one')
 } else {
-  pass('a cross-section can be dropped at a station, and is saved with the sketch')
+  pass('a cross-section is drawn where the surveyor put it, and is saved with the sketch')
 }
 
-// ---- and a tap that misses a station says so, rather than doing nothing silently -------------
-// The tool is not modal — it stays armed after placing one section, which is what makes it
-// possible to place several without reopening the menu each time — so it is still active here.
-// A tap that lands nowhere near a station used to be indistinguishable from a tool that had
-// stopped responding at all.
-//
-// A small ink counter of its own rather than the shared `inkAround` below: `const` is not
-// hoisted, and this runs before that declaration is reached.
-const inkInSnackbarBand = async (span) => {
-  const b64 = (await page.screenshot({ clip: box })).toString('base64')
-  return page.evaluate(async ([data, span]) => {
-    const img = new Image()
-    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
-    const c = document.createElement('canvas')
-    c.width = img.width
-    c.height = img.height
-    const ctx = c.getContext('2d')
-    ctx.drawImage(img, 0, 0)
-    const px = ctx.getImageData(0, 0, c.width, c.height).data
-    let ink = 0
-    for (let y = span[1]; y < span[3]; y++) {
-      for (let x = span[0]; x < span[2]; x++) {
-        const i = (y * c.width + x) * 4
-        const lightest = Math.max(px[i], px[i + 1], px[i + 2])
-        if (lightest < 215) ink += 215 - lightest
-      }
-    }
-    return ink
-  }, [b64, span])
-}
-// Measured off a rendered frame: the snackbar sits at y 700-746, well above the field bar and
-// its own toolbar row below — the first guess here landed on that toolbar's colour swatches
-// instead, which are dark whether or not anything is showing.
-const SNACKBAR_BAND = [10, 698, 410, 748]
-const inkBeforeMissedTap = await inkInSnackbarBand(SNACKBAR_BAND)
-await at(210, 500); await page.waitForTimeout(600)
-const inkWithMessageShowing = await inkInSnackbarBand(SNACKBAR_BAND)
-await page.screenshot({ path: join(shotDir, 'field-cross-section-missed-tap.png') })
-await page.waitForTimeout(4600)
-const inkAfterMessageShouldHaveGone = await inkInSnackbarBand(SNACKBAR_BAND)
-
-if (!(inkWithMessageShowing > inkBeforeMissedTap + 200)) {
-  fail(
-    `a tap nowhere near a station left the message band as it was ` +
-      `(${inkBeforeMissedTap} before, ${inkWithMessageShowing} after) — the tap still does nothing`)
-} else if (!(inkAfterMessageShouldHaveGone < inkWithMessageShowing * 0.3)) {
-  fail(`the message did not go away on its own (${inkWithMessageShowing} then ${inkAfterMessageShouldHaveGone})`)
+// ---- and the tool is a one-shot, as the app's is ---------------------------------------------
+// `handlePositionCrossSection` ends with `setSketchTool(previousSketchTool)`. A tool that stayed
+// armed would put a second section down under the next stroke the surveyor drew, which is a
+// drawing they have to undo without knowing why it happened.
+// Counted inline rather than through `planStrokes`: that is a `const` declared several hundred
+// lines below, and `const` is not hoisted.
+const sketchPaths = () => page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  if (!key) return null
+  return (JSON.parse(localStorage.getItem(key)).paths ?? []).length
+})
+const strokesBeforeNextTap = await sketchPaths()
+await at(260, 560); await page.waitForTimeout(700)
+const sectionsAfterNextTap = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  if (!key) return null
+  return (JSON.parse(localStorage.getItem(key))['x-sections'] ?? []).length
+})
+if (sectionsAfterNextTap !== sections) {
+  fail(`the cross-section tool stayed armed and put down a second section (${sectionsAfterNextTap})`)
 } else {
-  pass('a tap that misses a station says so, and the message goes away on its own')
+  pass('positioning a section is one tap, and hands the previous tool back')
+}
+if ((await sketchPaths()) !== strokesBeforeNextTap) {
+  fail('the tap after a section was placed drew on the sketch')
 }
 
 // ---- and can be corrected afterwards ---------------------------------------------------
-// Both decisions the app makes when a section appears are guesses: the bearing comes from a
-// heuristic and the position comes from wherever a finger landed. A section cutting the passage at
-// the wrong angle is not a rough drawing, it is a wrong one — so being able to say so matters, and
-// the gesture wiring is exactly the sort of thing that can silently do nothing. (It has: the
-// symbol tool stamped nothing at all for a while, because a drag detector never fires for a tap.)
+// The bearing is a guess — `CrossSectioner` bisects the corner mid-passage and falls back to north
+// — and a section cutting the passage at the wrong angle is not a rough drawing, it is a wrong
+// one. `action_xsection_set_direction` is how a surveyor overrules it, and the gesture wiring it
+// arms is exactly the sort of thing that can silently do nothing. (It has: the symbol tool stamped
+// nothing at all for a while, because a drag detector never fires for a tap.)
+//
+// There is no *Move a cross-section* to check any more, and there should not be: `GraphView`
+// hit-tests the drag bar on every touch-down whatever tool is in hand, which the next check is.
 const firstSection = () => page.evaluate(() => {
   const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
   if (!key) return null
@@ -1455,39 +1912,22 @@ const firstSection = () => page.evaluate(() => {
 
 const placedSection = await firstSection()
 
-await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...(await drawingMenuRow('move'))); await page.waitForTimeout(500)
-await drag([140, 712], [210, 660]); await page.waitForTimeout(900)
-await page.screenshot({ path: join(shotDir, 'field-cross-section-moved.png') })
-
-const movedSection = await firstSection()
-if (!placedSection || !movedSection) {
-  fail('the plan sketch was not saved, so moving a cross-section could not be checked')
-} else if (
-  movedSection.location.x === placedSection.location.x &&
-  movedSection.location.y === placedSection.location.y
-) {
-  fail('dragging a cross-section with the move tool did not move it')
-} else if (movedSection.angle !== placedSection.angle) {
-  fail('moving a cross-section also changed its bearing')
-} else {
-  pass('a cross-section can be dragged somewhere clearer on the plan')
-}
-
-await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...(await drawingMenuRow('re-aim'))); await page.waitForTimeout(500)
-// Grab the section where it now is and swing it round its station.
-await drag([210, 660], [330, 760]); await page.waitForTimeout(900)
+await longPress(STATION_ONE)
+await at(...(await stationMenuRow(await planStationMenuFor('1'), 'cross-section-set-direction')))
+await page.waitForTimeout(700)
+// Grab the section where it was put down and swing it round its station.
+await drag(SECTION_GOES_HERE, [SECTION_GOES_HERE[0] + 90, SECTION_GOES_HERE[1] + 80])
+await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-cross-section-aimed.png') })
 
 const aimedSection = await firstSection()
-if (!aimedSection) {
+if (!placedSection || !aimedSection) {
   fail('the plan sketch was not saved, so re-aiming a cross-section could not be checked')
-} else if (aimedSection.angle === movedSection.angle) {
-  fail('dragging a cross-section with the re-aim tool did not change its bearing')
+} else if (aimedSection.angle === placedSection.angle) {
+  fail('dragging a cross-section after "Set Direction" did not change its bearing')
 } else if (
-  aimedSection.location.x !== movedSection.location.x ||
-  aimedSection.location.y !== movedSection.location.y
+  aimedSection.location.x !== placedSection.location.x ||
+  aimedSection.location.y !== placedSection.location.y
 ) {
   fail('re-aiming a cross-section also moved it')
 } else {
@@ -2226,12 +2666,15 @@ const jumpMenuTop = await dialogTop()
 if (jumpMenuTop === null) {
   fail('holding a station a second time did not open its menu')
 } else {
-  // The first row. "Start the next leg here" is offered only for a station that is *not* the
-  // active one, and the check above has just made this one active — so it is gone and "Show it in
-  // the table" is at the top. If that reasoning were wrong this would tap the row below it and
-  // open the station's own dialog, which is not the table: the check fails rather than passes.
-  const rows = await dialogTextRows()
-  await at(210, rows[0]); await page.waitForTimeout(1000)
+  // The check above has just made this station the active one, so *Set Active* is gone from its
+  // menu and every row below it has moved up. Which row *Show it in the table* is depends on the
+  // station, so it is worked out from the saved survey rather than counted.
+  const held = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
+    return key ? JSON.parse(localStorage.getItem(key)).activeStation : null
+  })
+  await at(...(await stationMenuRow(await planStationMenuFor(held), 'show-in-table')))
+  await page.waitForTimeout(1000)
   await page.screenshot({ path: join(shotDir, 'field-jumped-to-table.png') })
 
   if (!(await onTheTable())) {
@@ -2258,8 +2701,11 @@ const savedLegCount = () => page.evaluate(() => {
 })
 
 const beforeFinding = await page.screenshot({ clip: box })
-await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...(await drawingMenuRow('find'))); await page.waitForTimeout(900)
+// `action_find_station` is in `tools_group_edit`, not on the drawing menu. Nought saved surveys
+// passed deliberately: only the two pages that list the library shift with it, and Tools is not
+// one of them.
+await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...(await menuRow('find', 0))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-find-station.png') })
 
 if ((await dialogTop()) === null) {
@@ -2407,7 +2853,7 @@ if (splayRow < 0) {
   fail('the splay was not added, so editing could not be tested')
 } else {
   // Row 1 is the leg to station 2; row 2 is the splay.
-  await at(...TABLE_ROW(2)); await page.waitForTimeout(700)
+  await at(...(await tableRow(2))); await page.waitForTimeout(700)
   await page.screenshot({ path: join(shotDir, 'field-leg-actions.png') })
 
   // What a splay is offered, and what it is not. A splay cannot be reversed — reverseLeg is
@@ -2466,7 +2912,7 @@ if (splayRow < 0) {
   // so the edit below needs it opened again. The splay is still the second row: the table is in
   // survey order and it now hangs off station 2 rather than station 1, which is the row after the
   // leg that makes station 2 either way.
-  await at(...TABLE_ROW(2)); await page.waitForTimeout(700)
+  await at(...(await tableRow(2))); await page.waitForTimeout(700)
   const afterMoveActions = await legActionRows()
 
   await at(...afterMoveActions[0]); await page.waitForTimeout(700)
@@ -2490,7 +2936,7 @@ if (splayRow < 0) {
   }
 
   // ---- and a bad reading can be thrown away ------------------------------------------------
-  await at(...TABLE_ROW(2)); await page.waitForTimeout(700)
+  await at(...(await tableRow(2))); await page.waitForTimeout(700)
   const toDelete = await legActionRows()
   await at(...toDelete[toDelete.length - 1]); await page.waitForTimeout(600)
   await page.screenshot({ path: join(shotDir, 'field-confirm-delete.png') })
@@ -2539,9 +2985,9 @@ const distanceInk = async (y) => {
   }, [b64, y])
 }
 
-const inkBefore = await distanceInk(TABLE_ROW(1)[1])
+const inkBefore = await distanceInk((await tableRow(1))[1])
 
-await at(...TABLE_ROW(1)); await page.waitForTimeout(700)
+await at(...(await tableRow(1))); await page.waitForTimeout(700)
 const legActions = await legActionRows()
 if (legActions.length !== 5) {
   fail(`a leg with nothing beyond it offered ${legActions.length} actions, not five`)
@@ -2571,7 +3017,7 @@ if (!commented || commented.comment !== 'sump; do not follow') {
 // The Android app's own marker, and the only sign in the table that a comment exists at all. It
 // leads the distance, so the cell gains ink it did not have.
 await page.screenshot({ path: join(shotDir, 'field-leg-commented.png') })
-const inkAfter = await distanceInk(TABLE_ROW(1)[1])
+const inkAfter = await distanceInk((await tableRow(1))[1])
 if (!(inkAfter > inkBefore)) {
   fail(`the table shows no marker against the commented leg (ink ${inkBefore} then ${inkAfter})`)
 } else {
@@ -2579,7 +3025,7 @@ if (!(inkAfter > inkBefore)) {
 }
 
 // ---- reversing it, and reversing it back ---------------------------------------------------
-await at(...TABLE_ROW(1)); await page.waitForTimeout(700)
+await at(...(await tableRow(1))); await page.waitForTimeout(700)
 const reverseRow = (await legActionRows())[2]
 await at(...reverseRow); await page.waitForTimeout(900)
 
@@ -2598,7 +3044,7 @@ if (!reversed?.wasShotBackwards) {
   pass('a shot booked the wrong way round can be turned, and keeps what was written on it')
 }
 
-await at(...TABLE_ROW(1)); await page.waitForTimeout(700)
+await at(...(await tableRow(1))); await page.waitForTimeout(700)
 await at(...(await legActionRows())[2]); await page.waitForTimeout(900)
 const backAgain = (await savedLegs()).find(isConnecting)
 if (backAgain?.wasShotBackwards) {
@@ -2614,13 +3060,13 @@ if (backAgain?.wasShotBackwards) {
 const FROM_CELL_X = 25
 const TO_CELL_X = 88
 
-await at(TO_CELL_X, TABLE_ROW(1)[1]); await page.waitForTimeout(700)
+await at(TO_CELL_X, (await tableRow(1))[1]); await page.waitForTimeout(700)
 await page.screenshot({ path: join(shotDir, 'field-table-station.png') })
 const farEndRows = await dialogTextRows()
 // This station menu's only button is "Close", laid out where a lone confirmButton would be.
 await at(...(await dialogConfirm())); await waitForDialogToClose()
 
-await at(FROM_CELL_X, TABLE_ROW(1)[1]); await page.waitForTimeout(700)
+await at(FROM_CELL_X, (await tableRow(1))[1]); await page.waitForTimeout(700)
 const nearEndRows = await dialogTextRows()
 
 // The two ends of one leg offer different menus, which is the whole point of asking the column
@@ -2635,8 +3081,21 @@ if (farEndRows.length !== nearEndRows.length + 3) {
   pass('a tap on a station\'s name opens that station\'s menu, not the other end\'s')
 }
 
-// "Show it on the plan" — first row for the origin, which cannot be made active.
-await at(210, nearEndRows[0]); await page.waitForTimeout(1200)
+// *Show it on the plan*, which `context_station.xml` puts in `menu_navigate` near the foot of the
+// menu rather than at the top. The origin's table menu is these five rows and only these: it is
+// the active station by now so it cannot be made active, no leg made it so there is no
+// `menu_leg`, nothing may delete it, and `ViewContext.TABLE` hides the jump to the table itself.
+// The count above says the same thing a different way — five and eight are the three-row
+// difference it asserts — so if either is wrong both fail rather than one passing quietly.
+const ORIGIN_TABLE_MENU = [
+  'comment',
+  'rename',
+  'passage-size',
+  'show-in-plan',
+  'show-in-elevation',
+]
+await at(...(await stationMenuRow(ORIGIN_TABLE_MENU, 'show-in-plan')))
+await page.waitForTimeout(1200)
 await page.screenshot({ path: join(shotDir, 'field-jumped.png') })
 const jumped = (await stationSpots(sketchTop, sketchBottom)).active
 if (jumped === null) {
@@ -2785,7 +3244,8 @@ if (walls.length !== 2) {
 // "Boulder choke", "sump", "continues" — what a surveyor writes on the drawing rather than in the
 // table. The sketch model has carried text details since the port began and the canvas has always
 // drawn them; until now nothing could create one, and the toolbar button was disabled.
-await at(...toolCell(2)); await page.waitForTimeout(500)
+await openSymbolStrip()
+await at(...stripSquare('label')); await page.waitForTimeout(400)
 await at(200, 400); await page.waitForTimeout(700)
 await at(...LABEL_TEXT); await page.waitForTimeout(250)
 await page.keyboard.type('boulder choke', { delay: 15 })
@@ -2806,17 +3266,18 @@ if (labels === null) {
   pass('a label can be written onto the sketch, and is saved with it')
 }
 
-// Back to drawing, so nothing after this places a label by accident.
+// Back to drawing, so nothing after this places a label by accident — and the strip shut, so the
+// drawing gets its forty pixels back before anything below measures a coordinate on it.
+await closeSymbolStrip()
 await at(...toolCell(1)); await page.waitForTimeout(400)
 
 // ---- and the symbols that are not words either ----------------------------------------------
 // The nineteen UIS symbols, taken from the app's own vector drawables and drawn through a path
 // parser in commonMain. A stamped symbol has to carry the Therion name the canvas looks its
 // artwork up by; if those two ever disagreed every symbol would silently draw as a fallback dot.
-await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...(await drawingMenuRow('symbol'))); await page.waitForTimeout(800)
+await openSymbolStrip()
 await page.screenshot({ path: join(shotDir, 'field-symbol-palette.png') })
-await at(...PALETTE_BLOCKS); await page.waitForTimeout(700)
+await at(...stripSquare('blocks')); await page.waitForTimeout(700)
 await at(200, 300); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-symbol.png') })
 
@@ -2837,9 +3298,11 @@ if (symbols === null) {
 // The app quietly overrides the brush for the one water symbol, because water is drawn blue on
 // every published cave survey there has ever been. The brush here is black — nothing in this run
 // has changed it — so a stamp that comes out black would mean the rule never fired.
-await at(...toolCell(5)); await page.waitForTimeout(600)
-await at(...(await drawingMenuRow('symbol'))); await page.waitForTimeout(800)
-await at(...PALETTE_WATER); await page.waitForTimeout(700)
+await openSymbolStrip()
+// Sixteen squares along, which is off the right-hand edge of every phone this file runs at.
+await scrollSymbolStripToTheEnd()
+await page.screenshot({ path: join(shotDir, 'field-symbol-strip-scrolled.png') })
+await at(...scrolledStripSquare('water-flow')); await page.waitForTimeout(700)
 await at(250, 300); await page.waitForTimeout(900)
 
 const waterColour = await page.evaluate(() => {
@@ -2855,7 +3318,8 @@ if (waterColour !== 'BLUE') {
   pass('a stream is stamped blue whatever colour the brush is set to')
 }
 
-// Back to drawing, so nothing after this stamps by accident.
+// Back to drawing, so nothing after this stamps by accident, and the strip shut again.
+await closeSymbolStrip()
 await at(...toolCell(1)); await page.waitForTimeout(400)
 
 // ---- tolerances that suit the instrument in the surveyor's hand -----------------------------
@@ -2893,18 +3357,34 @@ if ((await connectingLegs()) !== beforeSloppy) {
 // view stopped following them after they adjusted a tolerance.
 await toggleOption('auto-recentre')
 
+// The tolerances are `preferences_instruments.xml`, which is a screen of its own — one of the five
+// `preferences_main.xml` lists, and not the one the buzz or the sketch gestures are on. Three
+// dialogs where this used to be one, which is three trips through the menu and is what the app
+// itself asks of a surveyor.
 await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
-await retype(SETTING_DISTANCE, '0.5')
-await retype(SETTING_ANGLE, '12')
-// And the preferences on this screen, on the way past: a buzz when a station is made, which is how
-// a surveyor with the phone in a pocket learns the leg went in, and the two ways of moving the
-// drawing without changing tool. All three are flipped from their defaults, so the file that comes
-// out says the screen was actually read rather than that the defaults happened to be written.
-await at(...SETTING_BUZZ); await page.waitForTimeout(300)
-await at(...SETTING_HOT_CORNERS); await page.waitForTimeout(300)
-await at(...SETTING_TWO_FINGER); await page.waitForTimeout(300)
-await page.screenshot({ path: join(shotDir, 'field-surveying-settings.png') })
+await at(...(await menuRow('instruments', 1))); await page.waitForTimeout(800)
+await retype(await numberField(0), '0.5')
+await retype(await numberField(1), '12')
+await page.screenshot({ path: join(shotDir, 'field-instrument-settings.png') })
+await at(...(await settingsSave())); await page.waitForTimeout(700)
+
+// `pref_vibrate_on_new_station`, which is on *General*: how a surveyor with the phone in a pocket
+// learns the leg went in. Its only switch, so the last one is the only one.
+await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...(await menuRow('general', 1))); await page.waitForTimeout(800)
+await at(...(await settingsSwitch(-1))); await page.waitForTimeout(300)
+await page.screenshot({ path: join(shotDir, 'field-general-settings.png') })
+await at(...(await settingsSave())); await page.waitForTimeout(700)
+
+// And the two ways of moving the drawing without changing tool, which are `pref_hot_corners` and
+// `pref_two_finger_movement` on *Sketching*. Both flipped from their defaults, so the file that
+// comes out says the screen was actually read rather than that the defaults happened to be
+// written.
+await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...(await menuRow('sketching', 1))); await page.waitForTimeout(800)
+await at(...(await settingsSwitch(SWITCH_HOT_CORNERS))); await page.waitForTimeout(300)
+await at(...(await settingsSwitch(SWITCH_TWO_FINGER))); await page.waitForTimeout(300)
+await page.screenshot({ path: join(shotDir, 'field-sketching-settings-switches.png') })
 await at(...(await settingsSave())); await page.waitForTimeout(700)
 
 const savedPreferences = await page.evaluate(() => {
@@ -2954,8 +3434,8 @@ if (leftCorners.length === 2) {
 
 // Back on, because the rest of this file is written for the app's own defaults.
 await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
-await at(...SETTING_HOT_CORNERS); await page.waitForTimeout(300)
+await at(...(await menuRow('sketching', 1))); await page.waitForTimeout(800)
+await at(...(await settingsSwitch(SWITCH_HOT_CORNERS))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(700)
 
 // ---- chasing a lost instrument -------------------------------------------------------------
@@ -2972,7 +3452,7 @@ await at(...(await settingsSave())); await page.waitForTimeout(700)
 // it has to be scrolled to — which is itself worth checking, because a setting that exists only
 // off the bottom of a dialog that does not scroll is a setting nobody can reach.
 await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
+await at(...(await menuRow('instruments', 1))); await page.waitForTimeout(800)
 await scrollSettingsToTheEnd()
 await page.screenshot({ path: join(shotDir, 'field-settings-reconnect.png') })
 
@@ -2991,7 +3471,7 @@ if (!savedReconnect || !savedReconnect.includes('autoReconnect=true')) {
 
 // Back off, because the rest of this file is written for the app's own defaults.
 await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
+await at(...(await menuRow('instruments', 1))); await page.waitForTimeout(800)
 await scrollSettingsToTheEnd()
 await at(...(await chaseSwitch())); await page.waitForTimeout(400)
 await at(...(await settingsSave())); await page.waitForTimeout(700)
@@ -3088,14 +3568,14 @@ if (magentaBefore < 20) {
   pass('the leg just taken is drawn in the app\'s magenta, so the working end is findable')
 }
 
-await toggleOption('latest-leg')
+await flipSketchingSwitch(SWITCH_HIGHLIGHT_LATEST_LEG)
 const magentaOff = await magentaPixels()
 if (magentaOff !== 0) {
   fail(`turning the mark off left ${magentaOff} magenta pixels on the plan`)
 } else {
   pass('and it can be turned off, for a surveyor who would rather it were not there')
 }
-await toggleOption('latest-leg')
+await flipSketchingSwitch(SWITCH_HIGHLIGHT_LATEST_LEG)
 
 const litBeforeFade = await centrelinePixels()
 await toggleOption('fade')
@@ -3131,8 +3611,10 @@ const thinCentreline = await centrelinePixels()
 
 await at(...overflowButton()); await page.waitForTimeout(500)
 await at(...(await menuRow('sketching', 1))); await page.waitForTimeout(800)
+// The boxes are below the five switches now, so the dialog has to be wound down to them.
+await scrollSettingsToTheEnd()
 await page.screenshot({ path: join(shotDir, 'field-sketching-settings.png') })
-await retype(await sketchField(0), '8')
+await retype(await sketchField('leg-width'), '8')
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-fat-centreline.png') })
 
@@ -3154,7 +3636,8 @@ if (!(fatCentreline > thinCentreline * 1.8)) {
 // Back to the app's own width, because every check below reads this plan.
 await at(...overflowButton()); await page.waitForTimeout(500)
 await at(...(await menuRow('sketching', 1))); await page.waitForTimeout(800)
-await retype(await sketchField(0), '2')
+await scrollSettingsToTheEnd()
+await retype(await sketchField('leg-width'), '2')
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 
 // ---- north is on the plan, and can be taken off it ---------------------------------------
@@ -3184,7 +3667,7 @@ if (!(northDrawn - northHidden > 8000 && northHidden < northDrawn / 2)) {
 await toggleOption('north')
 
 // ---- the sketch toggles are remembered ---------------------------------------------------
-// Five of the twelve were session-only until the menu was split: a surveyor who turned the splays
+// Five of the eleven were session-only until the menu was split: a surveyor who turned the splays
 // off got them back on the next run, which for a preference is the same as not having it. Every
 // one is a persisted `SketchPreferences.Toggle` in the Android app. So: turn the grid off and look
 // in storage for it, the same way the tolerances are checked below. What is being tested is that
@@ -4022,7 +4505,7 @@ if (left.length > 0) {
 // it exactly as iOS does with a file dropped into the Files app.
 await at(...overflowButton()); await page.waitForTimeout(600)
 await page.screenshot({ path: join(shotDir, 'field-import-menu.png') })
-await at(...(await menuRow('import', 0))); await page.waitForTimeout(800)
+await at(...(await menuRow('import-file', 0))); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-import-dialog.png') })
 
 // The survey's drawing, put beside it in the app's own storage, which is exactly where the four
@@ -4086,7 +4569,7 @@ await page.evaluate((svx) => {
 }, EXAMPLE_SURVEX)
 await at(...overflowButton()); await page.waitForTimeout(600)
 // One saved survey now: the Eastwater just imported.
-await at(...(await menuRow('import', 1))); await page.waitForTimeout(1000)
+await at(...(await menuRow('import-file', 1))); await page.waitForTimeout(1000)
 await page.screenshot({ path: join(shotDir, 'field-import-survex-dialog.png') })
 await at(...IMPORT_FIRST_ROW); await page.waitForTimeout(1400)
 await page.screenshot({ path: join(shotDir, 'field-import-survex.png') })
@@ -4126,7 +4609,7 @@ await page.evaluate(() => {
   }
 })
 await at(...overflowButton()); await page.waitForTimeout(600)
-await at(...(await menuRow('import', 2))); await page.waitForTimeout(900)
+await at(...(await menuRow('import-file', 2))); await page.waitForTimeout(900)
 
 chosenFile = { name: 'CeiledUp.top', mimeType: 'application/octet-stream', buffer: topFile }
 const choosersBeforeTop = fileChoosersOpened
@@ -5039,12 +5522,13 @@ const themeSaved0 = await page.evaluate(() => {
     .map((k) => k.slice(prefix.length).split('/')[0])
   return new Set(names).size
 })
+// `pref_theme` is a three-value list preference on `preferences_general.xml`, not a menu page:
+// Settings → System → General, and three chips on the dialog that opens.
 await at(...overflowButton()); await page.waitForTimeout(600)
-await at(...(await menuRow('dark', themeSaved0))); await page.waitForTimeout(900)
-// The menu stays open on the theme page on purpose — comparing two themes should not mean walking
-// back down the menu — so it has to be dismissed before the screen can be measured. The app bar's
-// title takes a tap without doing anything, which the canvas underneath would not.
-await at(20, 20); await page.waitForTimeout(700)
+await at(...(await menuRow('general', themeSaved0))); await page.waitForTimeout(900)
+await at(...(await themeChip('dark'))); await page.waitForTimeout(400)
+await at(...(await settingsSave())); await waitForDialogToClose()
+await page.waitForTimeout(500)
 await page.screenshot({ path: join(shotDir, 'field-theme-dark.png') })
 
 const themeChosen = await meanBrightness()
