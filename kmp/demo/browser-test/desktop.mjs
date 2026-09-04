@@ -283,8 +283,8 @@ const strokeInk = async () => {
   }, [b64, 70, Math.round(box.height) - 100])
 }
 
-// The sketch toolbar is nine equal columns along the bottom; the second is the pencil.
-const toolColumn = box.width / 9
+// The sketch toolbar is ten equal columns along the bottom; the second is the pencil.
+const toolColumn = box.width / 10
 await at(toolColumn * 1.5, box.height - 20)
 await page.waitForTimeout(400)
 
