@@ -745,9 +745,11 @@ const numberField = async (index) => {
  */
 const settingRow = async (name) => {
   const resource = SETTING_RESOURCES[name]
-  if (resource === undefined) throw new Error(`no setting called ${name}`)
-  const label = ANDROID_STRINGS[resource]
-  if (label === undefined) throw new Error(`strings.xml has no ${resource}`)
+  const label = resource === undefined ? SETTING_LABELS[name] : ANDROID_STRINGS[resource]
+  if (label === undefined) {
+    throw new Error(
+      resource === undefined ? `no setting called ${name}` : `strings.xml has no ${resource}`)
+  }
   const handle = await page.$(`#${tagFor(label)}`)
   if (handle === null) throw new Error(`no settings row called ${label}`)
   const rect = await handle.boundingBox()
@@ -860,6 +862,18 @@ const SETTING_RESOURCES = {
   'bearings-in-minutes': 'settings_key_deg_mins_secs_title',
   'inclinations-in-minutes': 'settings_key_inc_deg_mins_secs_title',
   vibrate: 'settings_new_station_vibration_title',
+}
+
+/**
+ * The export dialogs' switches, which have no `strings.xml` entry to take a label from.
+ *
+ * `SvgExportDialog` and the Therion one are this port's own screens — the Android app writes its
+ * SVG with no options at all — so their wording lives in the composable and is repeated here.
+ */
+const SETTING_LABELS = {
+  'svg-draw-sketch': 'Draw the sketch',
+  'therion-stations-in-plan': 'Stations in the first plan scrap',
+  'therion-cross-sections': 'Export cross-sections',
 }
 
 const chaseSwitch = async () => settingRow('chase-lost-instrument')
@@ -4423,9 +4437,8 @@ if (svgAsShipped === null) {
 
 await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-export-svg-options.png') })
-// The first switch in the dialog: *Draw the sketch*. Found rather than measured, like every other
-// switch in this file — see switchRows().
-await at(...(await settingRow('manual-entry'))); await page.waitForTimeout(300)
+// *Draw the sketch*, by name like every other switch in this file.
+await at(...(await settingRow('svg-draw-sketch'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 const svgWithoutSketch = await savedExport()
@@ -4454,7 +4467,7 @@ if (savedOptions === null || !savedOptions.includes('svgShowSketch=false')) {
 
 // Put it back, so the exports checked after this one are the drawing they were written for.
 await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
-await at(...(await settingRow('manual-entry'))); await page.waitForTimeout(300)
+await at(...(await settingRow('svg-draw-sketch'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 // ---- and the Therion project is laid out the way the surveyor's other trips are ---------------
@@ -4475,10 +4488,9 @@ if (th2WithSections === null) {
 
 await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-export-therion-options.png') })
-// The dialog's three switches are its last three rows: cross-sections, symbols, text. Wheeled to
-// the end first, because ten settings do not fit on a phone.
+// Wheeled to the end first, because ten settings do not fit on a phone.
 await scrollSettingsToTheEnd()
-await at(...(await settingRow('walls-square-to-next-leg'))); await page.waitForTimeout(300)
+await at(...(await settingRow('therion-cross-sections'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 const th2WithoutSections = await savedExport()
@@ -4511,9 +4523,7 @@ if (therionSwitches !== 5) {
   fail(`the Therion options show ${therionSwitches} switches, not the five this check counts from`)
   await at(...(await settingsSave())); await page.waitForTimeout(900)
 } else {
-  // Fifth from the end: stations in the first plan scrap, then the elevation's, then the three
-  // that were already here — cross-sections, symbols, text.
-  await at(...(await settingRow('manual-entry'))); await page.waitForTimeout(300)
+  await at(...(await settingRow('therion-stations-in-plan'))); await page.waitForTimeout(300)
   await at(...(await settingsSave())); await page.waitForTimeout(900)
 
   const th2WithoutStations = await savedExport()
@@ -4537,14 +4547,14 @@ if (therionSwitches !== 5) {
   // Back on, for the same reason as everything else here.
   await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
   await scrollSettingsToTheEnd()
-  await at(...(await settingRow('manual-entry'))); await page.waitForTimeout(300)
+  await at(...(await settingRow('therion-stations-in-plan'))); await page.waitForTimeout(300)
   await at(...(await settingsSave())); await page.waitForTimeout(900)
 }
 
 // Put it back, for the same reason as above.
 await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
 await scrollSettingsToTheEnd()
-await at(...(await settingRow('walls-square-to-next-leg'))); await page.waitForTimeout(300)
+await at(...(await settingRow('therion-cross-sections'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 await at(...PLAN_TAB); await page.waitForTimeout(600)
