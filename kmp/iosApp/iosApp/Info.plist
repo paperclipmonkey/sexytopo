@@ -42,6 +42,16 @@
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>SexyTopo connects to your cave survey instrument to read distance, compass and clino measurements.</string>
 	<!--
+	    Required from iOS 10, and the same shape of trap as the Bluetooth key above: without it,
+	    presenting a UIImagePickerController with the camera source type does not refuse
+	    politely, it terminates the process. An iOS build that forgets this does not merely fail
+	    to take a photograph, it dies the first time a surveyor taps the camera button. The
+	    string is shown verbatim in the permission prompt, so it says what the app wants the
+	    camera for rather than restating that it wants the camera.
+	-->
+	<key>NSCameraUsageDescription</key>
+	<string>SexyTopo photographs cave passages and formations to keep alongside the survey sketch.</string>
+	<!--
 	    Surveys are a folder of plain JSON files, and a caver has to get them off the phone and
 	    into Therion or Survex. These two keys put that folder in the Files app, which is the iOS
 	    counterpart of the Storage Access Framework folder the Android app asks for - and, unlike
