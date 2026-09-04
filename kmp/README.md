@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 793 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 799 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and eight more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -303,10 +303,11 @@ compiles the Kotlin/Native framework and embeds it. `kmp/iosApp/project.yml` and
 below it describe a fully manual alternative if you would rather install nothing.
 
 The iOS-specific surface is small and every file in it is one screen long:
-`demo/src/iosMain/` holds thirteen — `MainViewController.kt` is one function, and the rest are the
+`demo/src/iosMain/` holds fifteen — `MainViewController.kt` is one function, and the rest are the
 `actual` halves of things a phone has and a browser does not: the Documents file store, the
 clipboard, the file picker, keeping the screen awake, the date and the timestamp, the haptic, the
-two exports (a text file and a zip), the storage-durability answer and the instrument transports. `iosApp/` holds two Swift
+compass, the keyboard nudge the browser needs and iOS does not, the two exports (a text file and
+a zip), the storage-durability answer and the instrument transports. `iosApp/` holds two Swift
 files. `shared/src/iosMain/` holds one more, `CoreBluetoothTransport.kt`, for when you want real
 instruments. Everything else — the whole survey engine, every importer and exporter, the sketch
 editor, the calibration solver, the 3D camera and the entire user interface — is the same code the
@@ -488,8 +489,9 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
 - **Know which way is north.** The plan carries the app's own north arrow, above the scale bar, and
   *Show north* takes it off again for anyone who wants the corner of the screen back. It had one in
   the exported SVG and not on the screen, which is the kind of gap no test finds because nothing is
-  *wrong* — something is simply absent. It does not yet swing with the phone; on a plan north is
-  up, so it is right rather than approximate, and what is missing is the sensor.
+  *wrong* — something is simply absent. It swings, too: turn round in the passage and it turns with
+  you, off the phone's own compass on Android, iOS and in the browser. A desktop has nothing to ask
+  and gets the arrow pointing up, which on a plan is exactly where north is anyway.
 - **Find the switch you are after.** The drawing menu is the app's own, and this port reaches more
   from it than the app does — a nine-column toolbar has no room left — so at eighteen rows it was
   taller than an iPhone SE. It is now what `drawing.xml` always said it was: seven things that
@@ -754,7 +756,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `res/menu/cross_section.xml`, `ic_done`/`ic_cancel` | `demo/.../ActionIcons.kt`, `CrossSectionEditor.kt` | The two action-bar icons, drawn from the vector drawables' own path data through the shared SVG parser |
 | `SketchPreferences.Toggle` | `demo/.../AppPreferences.kt` | All twelve persisted, which five of them were not until the menu was split |
 | `action_fullscreen`, `GeneralPreferences.isImmersiveModeOn` | `demo/.../App.kt` (`FullScreenHandle`) | Hides the app's own bar rather than the system's, which is not this port's to hide; a drawn handle brings it back |
-| `GraphView.drawCompass` | `demo/.../SurveyCanvas.kt` (`drawNorthArrow`) | The arrow, plan-only, at a heading of zero — which is *correct* on a plan; the magnetometer that would turn it is not ported |
+| `GraphView.drawCompass` | `demo/.../SurveyCanvas.kt` (`drawNorthArrow`) | The arrow, plan-only, turning with the phone. `GraphActivity`'s `TYPE_ROTATION_VECTOR` listener becomes `demo/.../DeviceHeading.kt` — the rotation vector on Android, `CLHeading` on iOS, `DeviceOrientationEvent` in a browser, and nothing on a desktop |
 | `model/sketch/Sketch`'s twin history stacks | `shared/sketch/SketchEditor.kt` | `DeletedDetail` becomes a sealed type |
 | `control/io/thirdparty/{survex,therion,survextherion}` | `shared/io/export/` | Golden-tested, metadata block included |
 | `ThconfigExporter`, `SurvexTherionUtil.getInputText` | `shared/io/export/SurvexTherion.kt` | The project file Therion actually compiles, and the `input` lines that pull the scraps into the `.th` |
@@ -3490,6 +3492,138 @@ These are the things that would actually shape a real port.
    of this would have been a red `:demo:jvmTest` before anything was pushed, instead of a red CI
    run and a morning of reading screenshots.
 
+103. **A compass that was drawn but never turned.** `GraphActivity` has listened to
+   `TYPE_ROTATION_VECTOR` since the arrow was added — register in `onResume`, unregister in
+   `onPause`, remap the rotation matrix for the display's own rotation, and invalidate — and this
+   port drew the arrow with nothing behind it. That is a defensible half: on a plan `Projection2D
+   .PLAN` maps the northing to minus the screen y, so an arrow that always points up is *correct*
+   rather than approximate. It is also only half of what a compass is for. Underground the useful
+   question is not "which way is north on this paper" but "which way am I facing", and the fixed
+   arrow answers the first and refuses the second.
+
+   `demo/.../DeviceHeading.kt` is the missing half, as one `expect` per platform. Android is the
+   Java's own algorithm, remap and all, moved into a `DisposableEffect` so the sensor registers and
+   unregisters with the *arrow* rather than with the activity — the fused rotation vector rather
+   than a bare magnetometer, because a cave is full of steel and the fused sensor recovers from a
+   lump of it instead of swinging round to it. iOS is `CLHeading.magneticHeading`, which is also
+   the bearing every leg in the file is already booked in, and which needs no location
+   authorisation, so turning on a compass rose does not put a location prompt in front of a
+   surveyor. The browser is `DeviceOrientationEvent`, in both of the dialects the browsers speak:
+   Chrome's `deviceorientationabsolute` with an `alpha` measured anticlockwise from north, and
+   Safari's own `webkitCompassHeading` — and an `alpha` is only believed when the event says it is
+   absolute, because Safari's is measured from wherever the page happened to start. A desktop
+   reports null, which is not zero: zero is a real heading and drawing it would tell somebody at a
+   desk that the arrow was tracking something.
+
+   Two details are worth the words. The heading is a `State` read in the *draw* phase rather than a
+   value read during composition, so ten readings a second repaint the canvas without recomposing
+   it — on a large cave that is the difference between a compass and a slideshow. And the top of
+   the *screen* is not the top of the *device*: a sensor knows nothing about which way round the
+   picture is being drawn, so a phone turned on its side swings the arrow ninety degrees with it
+   unless the platform's own quarter turn is added back. Android does that by remapping the matrix,
+   which stays correct on a tilted phone; the other two share one tested function.
+
+   Checked at both ends. `DeviceHeadingTest` has the arithmetic — the wrap, and the quarter turn.
+   `NorthArrowTest` renders the arrow through Skia at four headings and reads the ink back: facing
+   east puts more of it on the left of the box than facing west does, and facing north matches, to
+   the pixel, what a device with no compass gets. And `field.mjs` dispatches a real
+   `DeviceOrientationEvent` at the real page and watches the arrow move, so everything between the
+   browser's API and the pixels is exercised — only the sensor is faked.
+
+104. **Every stamped symbol was drawn half its own size down and to the right.** Found by looking
+   at the demo cave rather than at the code, which is the only way it was ever going to be found:
+   the symbols are small, and a symbol that is offset by half of *small* looks like a symbol.
+
+   `Symbol.paths` are SVG path data on a 40-by-40 grid, and the canvas translated to the stamp's
+   position, then scaled, then drew the paths — so the artwork hung off its top-left corner. The
+   Java centres (`offset = size / 2f`, and a `RotateDrawable` pivoted at `0.5, 0.5`), this port's
+   own SVG exporter centres (`x = centreX - size / 2`, rotating about the centre), and
+   `SymbolDetail.getDistanceFrom` measures from the centre — so the screen disagreed with the file
+   it exports, with the app it is a port of, and with its own hit test. A directional symbol was
+   worse than displaced: it swung about that corner rather than turning on the spot, so aiming a
+   water flow moved it as well.
+
+   The fix is one more `translate` at the end of the transform, and no test caught its absence
+   because nothing had ever pinned where a symbol lands relative to where it was put.
+
+   What made it visible was giving the demo cave something worth reading. It used to carry four
+   formation symbols at four stations picked at random, which proves the artwork draws and nothing
+   else — a symbol is how a sketch records what the centreline cannot, and scattered at random they
+   record a cave that makes no sense. Now each is placed against something the cave has: the
+   entrance arrow on the entrance, the stream running on down the main passage, the gradient at the
+   lip of the pitch and the boulders at the landing, and the passages that simply stop carrying the
+   reason they stopped, aimed the way they were still going. The directional ones take the local
+   passage bearing, which is what a surveyor's drag across the screen would have given them, and
+   the water comes out blue through `colourForSymbol` rather than through a hand-picked constant,
+   so the demo shows the rule the app actually applies. They are drawn two and a half metres across
+   for the same reason the cross-sections are drawn at four times scale: a whole cave fitted to a
+   phone screen puts a metre at about a dozen pixels.
+
+105. **A cursor in the box and no keyboard under it.** Reported from a phone browser: tapping *New
+   Survey* puts a caret in the name field and nothing comes up to type with, and the same for the
+   label box — *unless* a keyboard happened to be open already when the app came to the front, in
+   which case everything works. That last clause is the whole diagnosis, and it is not a Compose
+   bug so much as a browser rule nobody had read.
+
+   A browser opens its keyboard when focus moves to an editable element **and** the page holds
+   transient user activation, and the HTML specification is picky about which events grant that: a
+   touch grants it on `pointerup` and `touchend`, and pointedly not on `pointerdown` or
+   `touchstart`. Compose Multiplatform 1.12.0 paints into a canvas and types through a hidden
+   `input` of its own, focused from the text input session — a coroutine, so a frame or more after
+   the tap, by which time the browser has forgotten there was one. Its own recovery path, a
+   `touchstart` listener in `ComposeWindow.initEvents` that re-focuses that input, is on the one
+   touch event that grants no activation either. So the keyboard can be *kept* open and never
+   *opened*, which is exactly what a surveyor sees.
+
+   `rememberOpeningFocus` asked on the way down. It now asks on the way up as well, which costs a
+   no-op call on the platforms that were already working and is the only moment a browser will
+   listen. `Keyboard.wasmJs.kt` is the rest: from inside that same dispatch it calls
+   `navigator.virtualKeyboard.show()` where Chromium offers it — the only route that works on a
+   field that is *already* focused, which the auto-focused dialog's is — and otherwise focuses
+   Compose's hidden input, or, on the first tap of a session when Compose has not built one yet, a
+   decoy input of our own. The keyboard comes up for the decoy, Compose takes the focus back a
+   moment later, and the keyboard stays up: the "unless it was already open" case, arranged on
+   purpose.
+
+   What CI can prove here is bounded, and worth saying rather than implying. `field.mjs` drives a
+   *desktop* Chromium, which has no on-screen keyboard at all, so no check can watch one appear.
+   What it can do is guard the risk the fix introduces — a decoy that keeps the focus is a box
+   every letter disappears into — so there is now a check that the focus is back in the field, and
+   the two existing "there is a DOM input to type through" checks ask for `input:not(#…decoy)` so
+   they cannot be satisfied by our own element. The phone is the only thing that can confirm the
+   rest.
+
+106. **A sweep for the rest of the compass's family, and one more found.** The compass was a
+   feature that was drawn, switched on by default, offered in a menu — and could not work, because
+   the one piece that had to come from the platform was missing. That is a shape worth hunting
+   rather than a one-off, so: every `res/menu/*.xml` item against the port's menus, every
+   `android:key` in `preferences_*.xml`, every `draw*` method in `GraphView`, every activity and
+   service in the Android manifest, every `getSystemService` the app makes, and every preference
+   the port declares checked for whether anything actually *reads* it.
+
+   Most of it came back clean, and two near-misses are worth recording as *not* defects. `buttonRedo`
+   is on `drawing.xml` and not on the port's drawing menu — but it is `android:visible="false"` in
+   the app too, and redo has a toolbar button of its own. The table's splay menu names its upgrade
+   *Force New Station* where the sketch's names it *Upgrade to Leg*; the port unified the two
+   menus, so it shows one name for one action.
+
+   The one real find is the same shape as the compass exactly. `Haptics.android.kt` asks the
+   `Vibrator` for two hundred milliseconds when a station is made, `AppPreferences` defaults that
+   switch to on, the general settings screen offers it — and `androidApp/src/main/AndroidManifest
+   .xml` had never declared `VIBRATE`. `hasVibrator()` answers yes without it, so nothing anywhere
+   says no; the buzz simply does not happen. One line of manifest.
+
+   `AndroidManifestTest` is the guard, and it is deliberately not a list of permissions somebody
+   has to remember to update: it reads the Android sources and asks what they *do* — a `.vibrate(`,
+   a `.startScan(`, a `.connectGatt(` — and requires that each has been declared. Removing the line
+   again fails it, which is the only way to know a test like that works.
+
+   The sweep also caught the README lying about the code: it said there was no Android transport,
+   and `AndroidBleTransport` has been wired into `platformTransportFor` for some time. That bullet
+   now says what is actually missing there, which is the same shape once more — `BLUETOOTH_SCAN`
+   and `BLUETOOTH_CONNECT` are declared and never *requested* at runtime, so on Android 12 and
+   later the scan finds nothing and explains nothing.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3640,10 +3774,10 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 793
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 488 over the UI's own
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 799
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 495 over the UI's own
 logic, 20 running the iOS half in a simulator,
-119 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
+121 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.
@@ -3670,11 +3804,6 @@ things that are missing are missing on purpose and are listed below.
 
 **Not done, and nothing is stopping it.**
 
-- **The compass *swinging*.** The arrow is drawn, it has its own toggle, and on a plan north
-  genuinely is up — `Projection2D.PLAN` maps the northing to minus the screen y — so a fixed one is
-  correct rather than approximate. What is missing is the magnetometer that turns it as the phone
-  turns: an `expect`/`actual` on three platforms and, on iOS, a usage-description key that crashes
-  the app on launch if it is wrong.
 - **The last four Android preferences.** Every other key in `preferences_*.xml` is offered here;
   these four are not, and each for its own reason rather than because it was missed.
   `pref_orientation` locks the screen to portrait or landscape, which on iOS is a change to the
@@ -3709,11 +3838,15 @@ per drawing, each naming the next — Compass `.dat`, PocketTopo `.txt`, SVG and
 
 What it does **not** include:
 
-- **Real Bluetooth on any platform.** `CoreBluetoothTransport` and `WebBluetoothTransport` are
-  both written, both reachable from the app, and both driven end to end against a *fake*
-  instrument — but neither has met a radio. The iOS simulator has no Bluetooth stack, so this one
-  genuinely needs an instrument in hand. There is no Android transport here either (the Android app
-  keeps its own).
+- **Real Bluetooth on any platform.** `CoreBluetoothTransport`, `WebBluetoothTransport` and
+  `AndroidBleTransport` are all written, all reachable from the app, and all driven end to end
+  against a *fake* instrument — but none has met a radio. The iOS simulator has no Bluetooth stack,
+  so this one genuinely needs an instrument in hand.
+
+  The Android one has a second thing missing, and it is the same shape as the compass was:
+  `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT` are declared in the manifest but nothing asks the
+  surveyor for them at runtime, which on Android 12 and later means the scan returns nothing and
+  says nothing about why. The permission dialog is the work, not the transport.
 - **Cross-survey links.** The other half of `Name.metadata.json`. The file itself is no longer a
   gap — it is written on save and on export and read on load and on import, which is finding 73 and
   was the whole of this bullet until today: a survey written here used to open on Android at the

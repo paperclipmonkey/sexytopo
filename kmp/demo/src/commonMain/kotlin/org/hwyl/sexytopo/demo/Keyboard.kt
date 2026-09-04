@@ -37,6 +37,19 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
  * state is concerned. The `pointerInput` below re-asks anyway, on every tap, without consuming
  * the event - so the caret still moves normally underneath it - because there is no other way for
  * a surveyor mid-survey to unstick that OS-side failure themselves.
+ *
+ * ## Why the ask happens on the way up as well as on the way down
+ *
+ * A browser will only open its on-screen keyboard for a page that has *transient user activation*,
+ * and the HTML specification is picky about which events grant it: a touch grants it on `pointerup`
+ * and `touchend`, and **not** on `pointerdown` or `touchstart`. So the press-time ask above, and
+ * the focus request the dialog makes when it opens, can never open a keyboard that is shut — they
+ * can only keep one open that already is, which is exactly the symptom: the box has a cursor in
+ * it, and nothing to type with.
+ *
+ * Asking again when the finger lifts costs a no-op call on the platforms that were already working
+ * and is the only moment a browser will listen. [askForTheKeyboard] is the rest of it, on the one
+ * platform that needs more than asking Compose nicely.
  */
 @Composable
 internal fun rememberOpeningFocus(): Modifier {
@@ -51,6 +64,22 @@ internal fun rememberOpeningFocus(): Modifier {
         awaitEachGesture {
             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
             keyboardController?.show()
+            // Every pass here is Initial, so this runs before the text field's own tap detector
+            // and consumes nothing: the caret still lands where the finger did.
+            do {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+            } while (event.changes.any { it.pressed })
+            keyboardController?.show()
+            askForTheKeyboard()
         }
     }
 }
+
+/**
+ * Open the on-screen keyboard, from inside the gesture that asked for it.
+ *
+ * A no-op wherever [LocalSoftwareKeyboardController] is enough, which is everywhere except the
+ * browser. Call it only from a touch or click handler: off one, the platforms that gate this on a
+ * user gesture will ignore it, which is the whole reason it exists.
+ */
+internal expect fun askForTheKeyboard()

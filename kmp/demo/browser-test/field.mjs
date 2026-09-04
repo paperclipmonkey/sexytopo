@@ -86,6 +86,12 @@ const EXAMPLE_SURVEX = [
   '',
 ].join('\n')
 
+// `Keyboard.wasmJs.kt`'s decoy input, and how to ask for the one Compose actually types through.
+// Both live in the page at once once a text field has been tapped, and a check that means "there
+// is somewhere for the on-screen keyboard to attach" has to mean Compose's, not ours.
+const DECOY_ID = 'sexytopo-keyboard-decoy'
+const REAL_INPUT = `input:not(#${DECOY_ID})`
+
 const failures = []
 const fail = (m) => { failures.push(m); console.error(`FAIL  ${m}`) }
 const pass = (m) => console.log(`ok    ${m}`)
@@ -1956,7 +1962,7 @@ await at(...START_SURVEYING); await page.waitForTimeout(700)
 await at(...ADD_READING); await page.waitForTimeout(700)
 await at(...(await onCard(CARD_DISTANCE))); await page.waitForTimeout(300)
 await page.screenshot({ path: join(shotDir, 'field-started.png') })
-if ((await page.$$('input')).length === 0) {
+if ((await page.$$(REAL_INPUT)).length === 0) {
   fail('the demo cave has no working way through to a survey you can record into')
 } else {
   pass('the app opens on the demo cave and offers a way through to your own survey')
@@ -1974,11 +1980,23 @@ await at(...NAME_FIELD); await page.waitForTimeout(250)
 // canvas and drives text through a hidden DOM input, which is what iOS attaches its on-screen
 // keyboard to; no input while focused means nothing can be typed on a phone. Checking after the
 // dialog closes finds nothing and says so, which is a broken test rather than a broken app.
-const focusedInputs = await page.$$('input')
+const focusedInputs = await page.$$(REAL_INPUT)
 if (focusedInputs.length === 0) {
   fail('no DOM input while a text field is focused — the on-screen keyboard has nothing to attach to')
 } else {
   pass('text entry is wired to a DOM input the on-screen keyboard can use')
+}
+
+// `Keyboard.wasmJs.kt` focuses a decoy input on the way up out of a tap, because a browser will
+// only open its keyboard for a focus change that happens while the page holds user activation and
+// Compose focuses its own input a frame too late for that. The decoy is a means of opening the
+// keyboard and never a place to type: Compose has to have the focus back by the time anything is
+// typed, or every letter goes into a one-pixel box off the bottom of the screen. Nothing else here
+// would say so in as many words - the typing below would simply produce a survey called nothing.
+if (await page.evaluate((id) => document.activeElement && document.activeElement.id === id, DECOY_ID)) {
+  fail('the keyboard decoy kept the focus, so there is nowhere for typing to land')
+} else {
+  pass('opening the keyboard leaves the focus in the field, not in the decoy')
 }
 
 await page.keyboard.type('Swildons', { delay: 25 })
@@ -4103,10 +4121,10 @@ await retype(await sketchField('leg-width'), '2')
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 
 // ---- north is on the plan, and can be taken off it ---------------------------------------
-// A plan with no north on it is a picture rather than a survey. The arrow does not swing with the
-// phone — there is no magnetometer behind it — but `Projection2D.PLAN` maps the northing to minus
-// the screen y, so north on a plan really is up and a fixed arrow is correct rather than
-// approximate. The check is that it is drawn at all, and that `buttonShowCompass` reaches it.
+// A plan with no north on it is a picture rather than a survey. `Projection2D.PLAN` maps the
+// northing to minus the screen y, so north on a plan is up, and the arrow turns away from that by
+// however far round the surveyor is facing. The checks are that it is drawn at all, that
+// `buttonShowCompass` reaches it, and — below — that it swings.
 //
 // The window is the bottom-left corner above the scale bar's own label, measured off a rendered
 // frame rather than guessed: the arrow occupies roughly forty pixels by fifty there, and the
@@ -4127,6 +4145,62 @@ if (!(northDrawn - northHidden > 8000 && northHidden < northDrawn / 2)) {
   pass('the plan is drawn with north on it, and north can be taken off it')
 }
 await toggleOption('north')
+
+// ---- and it swings with the phone --------------------------------------------------------
+// The other half of a compass, and the half this port did not have: `GraphActivity` has listened
+// to `TYPE_ROTATION_VECTOR` since the arrow was added, and here the arrow was drawn with nothing
+// turning it. `DeviceHeading.wasmJs.kt` is the browser's version — `DeviceOrientationEvent`,
+// which a headless Chromium has no sensor behind but will dispatch on request.
+//
+// Faked, then, but only the sensor is faked: the event goes into the same listener a phone's
+// magnetometer feeds, through the same polling, the same state and the same draw. Everything
+// between the browser's API and the pixels is the real thing.
+//
+// Which way it swung is read off the two halves of the arrow's own patch rather than off any one
+// pixel. Facing east puts north on the left of the screen and the arrow with it; facing west puts
+// it on the right. The comparison is between the two headings rather than against a number, so
+// whatever else is drawn in that corner counts the same in both and cancels.
+const NORTH_LEFT = [16, box.height - 250, 34, box.height - 200]
+const NORTH_RIGHT = [34, box.height - 250, 52, box.height - 200]
+
+const faceTowards = async (heading) => {
+  await page.evaluate((heading) => {
+    // alpha turns anticlockwise from north; the app turns it back into a bearing.
+    const alpha = (360 - heading) % 360
+    let event
+    try {
+      event = new DeviceOrientationEvent('deviceorientationabsolute', {
+        alpha,
+        absolute: true,
+      })
+    } catch (e) {
+      // Not every engine exposes the constructor. The listener reads two plain properties.
+      event = new Event('deviceorientationabsolute')
+      event.alpha = alpha
+      event.absolute = true
+    }
+    window.dispatchEvent(event)
+  }, heading)
+  // The reading is parked by the listener and picked up on a 100 ms timer, then drawn.
+  await page.waitForTimeout(500)
+}
+
+await faceTowards(90)
+const facingEast = [await inkAround(NORTH_LEFT), await inkAround(NORTH_RIGHT)]
+await faceTowards(270)
+const facingWest = [await inkAround(NORTH_LEFT), await inkAround(NORTH_RIGHT)]
+
+if (!(facingEast[0] > facingWest[0] && facingWest[1] > facingEast[1])) {
+  fail(
+    `the north arrow did not swing with the phone (east ${facingEast}, west ${facingWest})`,
+  )
+} else {
+  pass('the north arrow swings round to keep pointing north as the phone turns')
+}
+
+// Back to facing north, so the screenshots the rest of this run takes hold the arrow where every
+// other check has always found it.
+await faceTowards(0)
 
 // ---- the sketch toggles are remembered ---------------------------------------------------
 // Five of the eleven were session-only until the menu was split: a surveyor who turned the splays

@@ -153,6 +153,15 @@ fun SurveyCanvas(
     crossSectioning: Station? = null,
     /** The one-shot has fired, so the tool that was in hand before it comes back. */
     onCrossSectionPositioned: () -> Unit = {},
+    /**
+     * Which way the top of the screen is pointing, instead of asking the device.
+     *
+     * For the callers that have no device to ask: the headless renderer, which has no
+     * magnetometer, and the tests, which need the same picture twice running. Left null — which is
+     * everything the surveyor ever runs — the canvas asks the platform through
+     * [rememberDeviceHeading].
+     */
+    headingDegrees: Float? = null,
 ) {
     val textMeasurer = rememberTextMeasurer()
     val fontFamily = LocalAppFontFamily.current
@@ -172,6 +181,18 @@ fun SurveyCanvas(
             if (sceneOverride == null) SurveyScene.from(survey, projection) else null
         }
     val scene = sceneOverride ?: projected!!
+
+    // North is meaningless anywhere else: the extended elevation is unrolled onto a line and a
+    // cross-section is drawn across the passage. `GraphView.drawCompass` returns immediately
+    // unless the projection is the plan, and so does this.
+    val isPlan = sceneOverride == null && projection == Projection2D.PLAN
+    // Asked for only while the arrow is on screen, so the magnetometer stops with it. Read in the
+    // draw block below rather than here, so a heading arriving ten times a second redraws the
+    // canvas without recomposing it.
+    val deviceHeading =
+        rememberDeviceHeading(
+            enabled = options.showCompass && isPlan && headingDegrees == null,
+        )
 
     // What the gesture loops below hit-test against. They are not restarted when the scene is
     // rebuilt (see the keys on `gestures`), so they read the newest one through this rather than
@@ -868,12 +889,12 @@ fun SurveyCanvas(
                 tool,
                 sectionDrag,
                 modalMoving,
-                // North is meaningless anywhere else: the extended elevation is unrolled onto a
-                // line and a cross-section is drawn across the passage. `GraphView.drawCompass`
-                // returns immediately unless the projection is the plan, and so does this.
-                isPlan = sceneOverride == null && projection == Projection2D.PLAN,
+                isPlan = isPlan,
                 projection = projection,
                 handleRects = handleRects,
+                // A missing heading means no compass on this device, so the arrow is drawn as a
+                // label: north is up, because that is where the plan puts it.
+                headingDegrees = headingDegrees ?: deviceHeading.value ?: 0f,
             )
         }
 
@@ -1641,6 +1662,8 @@ private fun DrawScope.drawSurvey(
      * coordinates.
      */
     handleRects: MutableMap<CrossSectionDetail, Rect>? = null,
+    /** Which way the top of the screen is pointing, or zero where nothing can say. */
+    headingDegrees: Float = 0f,
 ) {
     val palette = if (options.darkMode) DarkPalette else LightPalette
 
@@ -1866,12 +1889,22 @@ private fun DrawScope.drawSurvey(
                 continue
             }
 
-            // Scale from the 40-unit grid to the stamp's size in metres, then to pixels.
+            // Scale from the 40-unit grid to the stamp's size in metres, then to pixels, and
+            // hang the artwork off its own middle rather than its top-left corner.
+            //
+            // That last step was missing, and it put every symbol in the wrong place: the paths
+            // are drawn in a box running from (0, 0) to (40, 40), so without it a stamp landed
+            // down and to the right of where it was put by half its own size, and a directional
+            // one swung about that corner instead of turning on the spot. `GraphView` centres
+            // (`offset = size / 2f`, and a `RotateDrawable` pivoted at 0.5, 0.5), the SVG export
+            // centres, and `SymbolDetail.getDistanceFrom` measures from the centre — so the eraser
+            // was already reaching for a symbol where this was not drawing one.
             val scale = symbol.size * viewport.pixelsPerMetre / Symbol.VIEWPORT
             withTransform({
                 translate(centre.x, centre.y)
                 rotate(symbol.angle, pivot = Offset.Zero)
                 scale(scale, scale, pivot = Offset.Zero)
+                translate(-Symbol.VIEWPORT / 2f, -Symbol.VIEWPORT / 2f)
             }) {
                 drawPath(
                     artwork,
@@ -2047,18 +2080,26 @@ private fun DrawScope.drawSurvey(
     // `drawCompass` is guarded on both the toggle and the projection, in that order. There is
     // no arrow on an elevation because there is no bearing to draw one for.
     if (options.showCompass && isPlan) {
-        drawNorthArrow(palette, textMeasurer, fontFamily, options.style.legendSizeSp)
+        drawNorthArrow(
+            palette,
+            textMeasurer,
+            fontFamily,
+            options.style.legendSizeSp,
+            headingDegrees,
+        )
     }
 }
 
 /**
  * The north arrow, above the scale bar and to the left, as `GraphView.drawCompass` draws it.
  *
- * **It does not swing with the phone yet.** The original rotates it by the device's heading; an
- * arrow that always points up is correct rather than approximate since `Projection2D.PLAN` maps
- * north to *minus* the screen y, but what is missing is the *magnetometer*, which needs an
- * `expect`/`actual` on three platforms and, on iOS, a usage-description key that crashes the app
- * on launch if it is wrong.
+ * [headingDegrees] is which way the top of the screen is pointing, and the arrow turns back
+ * against it: face north and it points up the screen, turn a quarter circle to your right and
+ * north is now to your left, so the arrow swings the same quarter circle the other way. Zero is
+ * both "facing north" and "this device has no compass", and they want the same picture — north
+ * up, which is where `Projection2D.PLAN` puts it on the paper anyway.
+ *
+ * See [rememberDeviceHeading] for where the heading comes from on each platform.
  */
 @OptIn(ExperimentalTextApi::class)
 private fun DrawScope.drawNorthArrow(
