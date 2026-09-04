@@ -13,7 +13,8 @@ import org.hwyl.sexytopo.shared.io.store.FileStore
  * a cache in front of it that has its own consistency problems. A cave survey is text - a few tens
  * of kilobytes of JSON - and `localStorage` holds around 5 MB per origin, so the simpler thing is
  * also the sufficient thing. If a survey ever outgrows that, [save] reports the failure rather than
- * losing data quietly.
+ * losing data quietly - which is no longer hypothetical now that a survey can carry photographs;
+ * see [writeBytes].
  *
  * Keys are the joined path under a prefix, so one origin can hold this app's surveys without
  * colliding with anything else the page stores.
@@ -83,6 +84,25 @@ class BrowserFileStore(private val prefix: String = "sexytopo:") : FileStore {
         // Throws QuotaExceededError when the origin's storage is full; SurveyLibrary turns that
         // into a message rather than letting it reach the surveyor as a crash.
         storage.setItem(fileKey(path), content)
+    }
+
+    /**
+     * Bytes, base64-encoded under [binaryKey] — the mirror image of what [readBytes] decodes.
+     *
+     * Throws QuotaExceededError when the origin's storage is full, exactly as [writeText] does,
+     * and for the same reason it is left to throw: SurveyLibrary turns it into a message rather
+     * than letting it reach the surveyor as a crash. Worth saying twice here, because this is the
+     * call that will actually hit the limit — a survey's JSON is tens of kilobytes, a photograph
+     * is megabytes, and base64 adds a third to it again, so a handful of pictures fills the ~5 MB
+     * an origin gets.
+     */
+    @OptIn(ExperimentalEncodingApi::class)
+    override fun writeBytes(path: List<String>, bytes: ByteArray) {
+        createDirectory(path.dropLast(1))
+        // The text key first, so a path that held text and now holds bytes cannot be found as
+        // both: readBytes prefers the binary key, and a stale twin would only mislead readText.
+        storage.removeItem(fileKey(path))
+        storage.setItem(binaryKey(path), Base64.encode(bytes))
     }
 
     override fun createDirectory(path: List<String>) {
