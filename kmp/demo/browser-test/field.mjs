@@ -993,9 +993,9 @@ async function drawingMenuRow(name) {
  *
  * Which also means the test asserts the dialog has twelve rows without being told where they are.
  */
-const drawingOptionSwitches = async () => {
+const drawingOptionSwitches = async (below) => {
   const b64 = (await page.screenshot({ clip: box })).toString('base64')
-  return page.evaluate(async ([data, card]) => {
+  return page.evaluate(async ([data, card, below]) => {
     const img = new Image()
     await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
     const c = document.createElement('canvas')
@@ -1034,7 +1034,14 @@ const drawingOptionSwitches = async () => {
       if (end - start >= 8) bands.push(Math.round((start + end) / 2))
       start = -1
     }
-    for (let y = top; y <= bottom; y++) {
+    // Stopping above the dialog's own buttons, which is also above the rounded corner beneath
+    // them: a card's bottom corners curve away from its bounding box, so the last thirty rows of
+    // that box have the *outside* of the dialog in this margin — a long run of not-card, tall
+    // enough to be a switch, and reported as a thirteenth row. The corner has always been there;
+    // it only became a separate band when the twelfth toggle left and the last row stopped
+    // touching it.
+    const foot = below ?? bottom
+    for (let y = top; y <= Math.min(bottom, foot); y++) {
       let longest = 0
       let run = 0
       for (let x = marginLeft; x <= right; x++) {
@@ -1045,16 +1052,18 @@ const drawingOptionSwitches = async () => {
       if (onASwitch && start < 0) start = y
       if (!onASwitch && start >= 0) close(y - 1)
     }
-    if (start >= 0) close(bottom)
+    if (start >= 0) close(Math.min(bottom, foot))
     return { x: Math.round((left + right) / 2), bands }
-  }, [b64, DIALOG_CARD])
+  }, [b64, DIALOG_CARD, below])
 }
 
 /** Where to tap for a named drawing option, with the dialog already open. */
 async function drawingOptionRow(name) {
   const index = DRAWING_OPTIONS.indexOf(name)
   if (index < 0) throw new Error(`no drawing option called ${name}`)
-  const found = await drawingOptionSwitches()
+  // Bounded above the *Done* button, which is the lowest thing on the card that is not a toggle.
+  const buttons = await dialogTextRows()
+  const found = await drawingOptionSwitches(buttons.length ? buttons[buttons.length - 1] - 20 : null)
   if (found === null) throw new Error('the drawing-options dialog is not open')
   if (found.bands.length !== DRAWING_OPTIONS.length) {
     throw new Error(
