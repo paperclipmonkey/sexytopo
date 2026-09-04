@@ -5,6 +5,7 @@ import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.sketch.CrossSection
 import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.PathDetail
+import org.hwyl.sexytopo.shared.model.sketch.PhotoDetail
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.sketch.SketchDetail
 import org.hwyl.sexytopo.shared.model.sketch.SymbolDetail
@@ -168,6 +169,27 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
         colour: Colour = activeColour,
     ): TextDetail {
         val detail = sketch.addTextDetail(position, text, size, colour)
+        record(SketchEdit.Add(detail.asItem()))
+        return detail
+    }
+
+    /**
+     * Pin a photo at [position]. [size] is in metres, like a symbol's, so the pin is stamped at a
+     * constant size on screen and then scales with the sketch; [angle] orients a pin that points at
+     * what was photographed.
+     *
+     * Only [photoId] is recorded — the image file itself is written separately (see PhotoStore), so
+     * undoing a pin leaves the picture on disc and redoing it finds it still there.
+     */
+    fun addPhoto(
+        position: Coord2D,
+        photoId: String,
+        size: Float,
+        angle: Float = 0f,
+        caption: String = "",
+        colour: Colour = activeColour,
+    ): PhotoDetail {
+        val detail = sketch.addPhotoDetail(position, photoId, size, angle, caption, colour)
         record(SketchEdit.Add(detail.asItem()))
         return detail
     }
@@ -395,6 +417,7 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
                     is PathDetail -> sketch.pathDetails.add(detail)
                     is SymbolDetail -> sketch.symbolDetails.add(detail)
                     is TextDetail -> sketch.textDetails.add(detail)
+                    is PhotoDetail -> sketch.photoDetails.add(detail)
                     else -> Unit
                 }
         }
@@ -408,6 +431,7 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
                     is PathDetail -> sketch.pathDetails.removeFirstIdentical(detail)
                     is SymbolDetail -> sketch.symbolDetails.removeFirstIdentical(detail)
                     is TextDetail -> sketch.textDetails.removeFirstIdentical(detail)
+                    is PhotoDetail -> sketch.photoDetails.removeFirstIdentical(detail)
                     else -> Unit
                 }
         }
