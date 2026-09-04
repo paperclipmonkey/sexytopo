@@ -919,20 +919,39 @@ const menuBox = async () => {
     }
     let top = -1
     let bottom = -1
+    let left = c.width
+    let right = -1
     for (let y = 0; y < c.height; y++) {
       let run = 0
-      for (let x = 0; x < c.width; x++) if (is(x, y)) run++
+      let first = -1
+      let last = -1
+      for (let x = 0; x < c.width; x++) {
+        if (!is(x, y)) continue
+        run++
+        if (first < 0) first = x
+        last = x
+      }
       // A wide run of it: narrower things on screen share the colour here and there.
       if (run > 120) {
         if (top < 0) top = y
         bottom = y
+        if (first < left) left = first
+        if (last > right) right = last
       }
     }
-    return top < 0 ? null : { top, bottom }
+    return top < 0 ? null : { top, bottom, left, right }
   }, [b64, DRAWING_MENU_SURFACE])
 }
 
-/** The nth row of a menu with `rows` rows, wherever Compose has put it. */
+/**
+ * The nth row of a menu with `rows` rows, wherever Compose has put it.
+ *
+ * A null `x` means the middle of the menu, found rather than assumed. A `DropdownMenu` is as wide
+ * as its widest row, and Compose hangs it off its anchor — so the drawing menu moved a long way
+ * right when five of its items left it for the places the Android app keeps them, and a fixed x
+ * that had been comfortably inside it landed on the scrim instead. A tap on the scrim shuts the
+ * menu, which is why that surfaced as a dialog that would not open rather than as a missed row.
+ */
 async function menuRowAt(index, rows, x) {
   // Polled rather than checked once: a caller that just tapped the button opening this menu has
   // already waited out the usual case, but concurrent rendering (on by default since Compose
@@ -952,14 +971,15 @@ async function menuRowAt(index, rows, x) {
     throw new Error('no menu is open')
   }
   const rowHeight = (menu.bottom - menu.top) / rows
-  return [x, Math.round(menu.top + (index + 0.5) * rowHeight)]
+  const middle = x ?? Math.round((menu.left + menu.right) / 2)
+  return [middle, Math.round(menu.top + (index + 0.5) * rowHeight)]
 }
 
 /** The row for a named drawing-menu item, in the menu as it is currently drawn. */
 async function drawingMenuRow(name) {
   const index = DRAWING_MENU.indexOf(name)
   if (index < 0) throw new Error(`no drawing-menu item called ${name}`)
-  return menuRowAt(index, DRAWING_MENU.length, 186)
+  return menuRowAt(index, DRAWING_MENU.length, null)
 }
 
 /**
@@ -1906,8 +1926,13 @@ async function stationMenuRow(menu, name) {
 // by `planStationMenuFor`, which is also what makes the difference between "before it has a
 // section" and "after" a fact rather than a second hard-coded list.
 const STATION_ONE = [140, 712]
-// Somewhere with no passage on it, which is the whole reason the app asks rather than choosing.
-const SECTION_GOES_HERE = [300, 600]
+// Somewhere with no passage on it, which is the whole reason the app asks rather than choosing —
+// and far enough from the right-hand edge that the frame drawn round it fits on the screen. A
+// section is four metres across, which at this zoom is most of the width of a phone, so a section
+// dropped in the middle has its frame cut off by the edge; `handleSpot` then measures the middle
+// of what is left of the drag bar rather than the middle of the bar, and the check that the bar
+// follows its section fails by exactly half of what the frame overhangs.
+const SECTION_GOES_HERE = [180, 520]
 
 await longPress(STATION_ONE)
 await at(...(await stationMenuRow(await planStationMenuFor('1'), 'cross-section-create')))
@@ -1961,7 +1986,9 @@ const sketchPaths = () => page.evaluate(() => {
   return (JSON.parse(localStorage.getItem(key)).paths ?? []).length
 })
 const strokesBeforeNextTap = await sketchPaths()
-await at(260, 560); await page.waitForTimeout(700)
+// Well clear of the frame just drawn: a tap inside a section opens its editor, which would be a
+// second thing happening and would leave that editor over everything below.
+await at(380, 200); await page.waitForTimeout(700)
 const sectionsAfterNextTap = await page.evaluate(() => {
   const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
   if (!key) return null
@@ -3069,13 +3096,20 @@ const distanceInk = async (y) => {
 const inkBefore = await distanceInk((await tableRow(1))[1])
 
 await at(...(await tableRow(1))); await page.waitForTimeout(700)
+// `context_leg.xml`'s own order, which is Edit, then the rows that change the survey, then the
+// comment, with Delete in a group of its own below a divider. The comment used to be second,
+// above the five rows that rewrite the survey, which is not where the app puts the row nobody is
+// in a hurry to reach.
+const LEG_MENU = ['edit', 'reverse', 'downgrade', 'comment', 'delete']
 const legActions = await legActionRows()
-if (legActions.length !== 5) {
-  fail(`a leg with nothing beyond it offered ${legActions.length} actions, not five`)
+if (legActions.length !== LEG_MENU.length) {
+  fail(
+    `a leg with nothing beyond it offered ${legActions.length} actions, not the ` +
+      `${LEG_MENU.length} of ${LEG_MENU.join(', ')}`)
 } else {
   pass('a leg with nothing surveyed beyond it can be taken back down to a splay')
 }
-await at(...legActions[1]); await page.waitForTimeout(700)
+await at(...legActions[LEG_MENU.indexOf('comment')]); await page.waitForTimeout(700)
 await page.screenshot({ path: join(shotDir, 'field-leg-comment.png') })
 // One purple row, holding Cancel and Save; the field sits a fixed distance above it. Anchoring on
 // the row rather than on the screen keeps this right if the dialog gains a line of explanation.
