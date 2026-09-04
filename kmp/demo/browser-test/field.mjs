@@ -2179,20 +2179,25 @@ const inkAround = async (span) => {
   }, [b64, span])
 }
 
-// A tight box round where the section now sits, clear of station 1, of the leg and of the metre
-// grid. Tight because at this point in the run the section is only its centre dot: it was dropped
-// at a station whose wall shots are not booked until much later, so it has no arms to draw yet,
-// and the whole of it is twenty pixels across.
-const SECTION_PATCH = [194, 652, 214, 676]
+// A tight box round where the section now sits — `SECTION_GOES_HERE`, which the drag-bar check
+// above put back after borrowing it. Tight because at this point in the run the section is only
+// its centre dot and the frame drawn round it: it was dropped at a station whose wall shots are
+// not booked until much later, so it has no arms to draw yet.
+const sectionPatch = () => [
+  SECTION_GOES_HERE[0] - 10,
+  SECTION_GOES_HERE[1] - 12,
+  SECTION_GOES_HERE[0] + 10,
+  SECTION_GOES_HERE[1] + 12,
+]
 // The purple of the "Add reading" pill, sampled off the pill rather than off the white lettering
 // across the middle of it.
 const FIELD_BAR_PILL = [40, 790]
 
-const withSection = await inkAround(SECTION_PATCH)
+const withSection = await inkAround(sectionPatch())
 await toggleOption('show-xsections')
 await page.screenshot({ path: join(shotDir, 'field-cross-section-hidden.png') })
 
-const withoutSection = await inkAround(SECTION_PATCH)
+const withoutSection = await inkAround(sectionPatch())
 // Not "the window is empty", which is what this used to ask. The station keeps its cross-section
 // indicator when sections are hidden, because the Android app keeps it: only `drawCrossSections`
 // is behind the toggle, while `drawStations` reads the sketch directly and draws the mark for any
@@ -2229,7 +2234,7 @@ const fieldBarIsShowing = async () => {
   }, [b64, FIELD_BAR_PILL])
 }
 
-await at(210, 660); await page.waitForTimeout(900)
+await at(...SECTION_GOES_HERE); await page.waitForTimeout(900)
 if (!(await fieldBarIsShowing())) {
   fail('a tap on a hidden cross-section opened its editor anyway')
 } else {
@@ -2243,7 +2248,7 @@ await toggleOption('show-xsections')
 // A star of splays is not a passage; the outline drawn round it is what makes it one. Tapping a
 // section opens its own editor, exactly as the Android app's does from any tool but pan and erase.
 await at(...toolCell(1)); await page.waitForTimeout(400)
-await at(210, 660); await page.waitForTimeout(1000)
+await at(...SECTION_GOES_HERE); await page.waitForTimeout(1000)
 await page.screenshot({ path: join(shotDir, 'field-cross-section-editor.png') })
 
 const subSketchPaths = async () => {
@@ -2273,7 +2278,7 @@ if ((await subSketchPaths()) < 2) {
 // at all, these strokes would have landed on the *plan* instead — which is exactly the failure the
 // first version of this check could not tell apart from a working cancel.
 const planPathsBefore = await planPaths()
-await at(210, 660); await page.waitForTimeout(1000)
+await at(...SECTION_GOES_HERE); await page.waitForTimeout(1000)
 await drag([120, 300], [300, 300]); await page.waitForTimeout(400)
 await at(...EDITOR_CANCEL()); await page.waitForTimeout(1000)
 
@@ -2289,9 +2294,11 @@ if ((await subSketchPaths()) !== 2) {
 // `CrossSectionActivity.disableUnsupportedTools` hides only *Select* — every other tool the
 // Android app offers here, including the full colour row, this port had simply never wired up.
 // The row sits one 40dp button-height above the tools row this file already reaches by name.
+// Nine cells, not eight: the editor's colour row is the plan's, which is the eight brushes and
+// then zoom-in, because `disableUnsupportedTools` takes away *Select* and nothing else.
 const CROSS_SECTION_COLOUR_ROW_Y = box.height - 60
-const crossSectionColourCell = (index) => [(box.width / 8) * (index + 0.5), CROSS_SECTION_COLOUR_ROW_Y]
-await at(210, 660); await page.waitForTimeout(1000)
+const crossSectionColourCell = (index) => [(box.width / 9) * (index + 0.5), CROSS_SECTION_COLOUR_ROW_Y]
+await at(...SECTION_GOES_HERE); await page.waitForTimeout(1000)
 await at(...crossSectionColourCell(3)); await page.waitForTimeout(400) // red
 await drag([120, 330], [300, 330]); await page.waitForTimeout(400)
 await at(...EDITOR_DONE()); await page.waitForTimeout(1000)
