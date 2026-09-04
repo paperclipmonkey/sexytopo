@@ -4,6 +4,7 @@ import org.hwyl.sexytopo.shared.math.getDistance
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.PathDetail
+import org.hwyl.sexytopo.shared.model.sketch.PhotoDetail
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.sketch.SketchDetail
 import org.hwyl.sexytopo.shared.model.sketch.SymbolDetail
@@ -29,6 +30,8 @@ fun boundsOf(detail: SketchDetail): DetailBounds =
         is TextDetail -> boundsOfText(detail)
         // A symbol's box is just its position; size is handled by the visibility rule instead.
         is SymbolDetail -> DetailBounds.EMPTY + detail.position
+        // A photograph's pin is a stamp like a symbol, and is measured like one.
+        is PhotoDetail -> DetailBounds.EMPTY + detail.position
         else -> DetailBounds.EMPTY
     }
 
@@ -77,6 +80,7 @@ fun boundsOf(sketch: Sketch): DetailBounds {
     for (path in sketch.pathDetails) bounds += boundsOf(path)
     for (symbol in sketch.symbolDetails) bounds += boundsOf(symbol)
     for (text in sketch.textDetails) bounds += boundsOf(text)
+    for (photo in sketch.photoDetails) bounds += boundsOf(photo)
     for (section in sketch.crossSectionDetails) bounds += boundsOf(section)
     return bounds
 }
@@ -98,12 +102,20 @@ fun distanceFrom(detail: SketchDetail, point: Coord2D): Float =
         is PathDetail -> detail.getDistanceFrom(point)
         is SymbolDetail -> distanceFromSymbol(detail, point)
         is TextDetail -> distanceFromText(detail, point)
+        // A photograph's pin is drawn as a stamp of its own size, so it earns the same
+        // inside-the-body advantage a symbol gets: a pin dropped on a passage wall wins the
+        // eraser over the wall it sits on.
+        is PhotoDetail -> distanceFromStamp(detail.size, detail.position, point)
         else -> detail.getDistanceFrom(point)
     }
 
-private fun distanceFromSymbol(detail: SymbolDetail, point: Coord2D): Float {
-    val radius = detail.size / 2
-    val distance = getDistance(point, detail.position)
+private fun distanceFromSymbol(detail: SymbolDetail, point: Coord2D): Float =
+    distanceFromStamp(detail.size, detail.position, point)
+
+/** The rule both stamps share: halved inside the body, and the gap to it from outside. */
+private fun distanceFromStamp(size: Float, position: Coord2D, point: Coord2D): Float {
+    val radius = size / 2
+    val distance = getDistance(point, position)
     return if (distance <= radius) distance * 0.5f else distance - radius
 }
 
@@ -142,6 +154,9 @@ fun couldBeVisibleAtScale(detail: SketchDetail, pixelsPerMetre: Float): Boolean 
     when (detail) {
         // A symbol's box is a point, so it uses its drawn size rather than its bounds.
         is SymbolDetail -> detail.size * pixelsPerMetre >= 1
+        // And so is a photograph's pin. Without this it measures an empty box, is never visible
+        // at any zoom, and so can never be erased — the eraser skips what it cannot see.
+        is PhotoDetail -> detail.size * pixelsPerMetre >= 1
         else -> boundsOf(detail).maxDimension * pixelsPerMetre >= 1
     }
 
