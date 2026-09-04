@@ -247,12 +247,22 @@ const namedNodes = async () => {
  */
 const CHROME = new Map()
 const rememberChrome = async (...selectors) => {
-  for (const selector of selectors) CHROME.set(selector, await nodeFor(selector))
+  for (const selector of selectors) {
+    const [x, y] = await nodeFor(selector)
+    // Both ways round, because the checks at the end of this file turn the phone sideways and
+    // shrink it: what an app bar keeps through that is its distance in from the right-hand edge,
+    // and what a toolbar keeps is its distance up from the bottom.
+    CHROME.set(selector, { x, y, fromRight: box.width - x, fromBottom: box.height - y })
+  }
 }
-const chrome = (selector) => {
+const remembered = (selector) => {
   const where = CHROME.get(selector)
   if (where === undefined) throw new Error(`${selector} was never taken down before a menu opened`)
   return where
+}
+const chrome = (selector) => {
+  const where = remembered(selector)
+  return [where.x, where.y]
 }
 
 /**
@@ -388,8 +398,19 @@ async function retype(where, text) {
   await page.waitForTimeout(200)
 }
 
-/** The three dots at the end of the app bar, which is the way into every menu. */
-const overflowButton = () => chrome('#overflow')
+/**
+ * The three dots at the end of the app bar, which is the way into every menu.
+ *
+ * Measured in from the right-hand edge rather than kept as the x the app gave for it: the checks
+ * near the end of this file resize the window, and the app bar's right-hand end moves with it
+ * while the bar's height does not. Kept as an absolute x, this pressed whatever the wider bar had
+ * put at 404 instead — which turned out to be *About*, and the check after it went looking for the
+ * overflow menu in a dialog about who wrote the app.
+ */
+const overflowButton = () => {
+  const where = remembered('#overflow')
+  return [box.width - where.fromRight, where.y]
+}
 const NAME_FIELD = [210, 442]
 const NAME_CONFIRM = [312, 518]
 const ADD_READING = [74, 790]
