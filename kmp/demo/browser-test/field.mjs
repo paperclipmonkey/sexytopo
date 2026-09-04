@@ -195,10 +195,36 @@ const nodeAt = async (selector) => {
 const nodeFor = async (selector) => {
   const where = await nodeAt(selector)
   if (where !== null) return where
-  const offered = await page.evaluate(() =>
-    [...document.querySelectorAll('[id]')].map((e) => e.id).filter(Boolean).slice(0, 40))
+  const offered = await namedNodes()
   throw new Error(
-    `nothing on screen answers to ${selector}. The app offers: ${offered.join(', ') || '(nothing)'}`)
+    `nothing on screen answers to ${selector}. ` +
+      `The app offers: ${offered.slice(0, 40).join(', ') || '(nothing)'}`)
+}
+
+/**
+ * Everything the app has named, as the accessibility tree lays it out.
+ *
+ * Asked through Playwright's own selectors rather than `document.querySelectorAll`, because
+ * `ComposeViewport` puts the canvas, the hidden text input and this tree inside an open shadow
+ * root: the page's own DOM query stops at that boundary and reports an app with nothing in it.
+ */
+const namedNodes = async () => {
+  const handles = await page.$$('[id], [aria-label]')
+  const rows = []
+  for (const handle of handles) {
+    rows.push(
+      await handle.evaluate((e) => {
+        const bits = []
+        if (e.id) bits.push(`#${e.id}`)
+        const label = e.getAttribute('aria-label')
+        if (label) bits.push(`"${label}"`)
+        const text = (e.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 24)
+        if (text) bits.push(text)
+        return bits.join(' ')
+      }),
+    )
+  }
+  return rows.filter(Boolean)
 }
 
 /**
@@ -1643,9 +1669,8 @@ const EDITOR_DONE = () => [box.width - 29, 15]
 // DOM nodes over that canvas — the same one a screen reader reads — and `Main.wasmJs.kt` turns it
 // on. Everything below asks for controls by name because of it, so if it ever stopped being built
 // every one of those checks would fail at once and none of them would say why. This one says why.
-const namedControls = await page.evaluate(() =>
-  [...document.querySelectorAll('[id]')].map((e) => e.id).filter(Boolean))
-if (!namedControls.includes('overflow')) {
+const namedControls = await namedNodes()
+if (!namedControls.some((n) => n.startsWith('#overflow'))) {
   fail(
     'the app is not exposing its accessibility tree, so nothing can be found by name ' +
       `(the page offers: ${namedControls.slice(0, 20).join(', ') || 'nothing'})`)
@@ -1653,6 +1678,29 @@ if (!namedControls.includes('overflow')) {
   pass(
     'the app names its controls for a screen reader, and for this file ' +
       `(${namedControls.length} of them)`)
+}
+
+// ---- TEMPORARY: what the accessibility tree holds, and for how long --------------------
+const probe = async (when) => {
+  const rows = await namedNodes()
+  console.log(`PROBE [${when}] ${rows.length} nodes :: ${rows.slice(0, 70).join(' | ')}`)
+}
+await probe('startup')
+const probeOverflow = await nodeAt('#overflow')
+if (probeOverflow === null) {
+  console.log('PROBE #overflow is not in the tree at startup')
+} else {
+  await at(...probeOverflow); await page.waitForTimeout(600)
+  await probe('overflow menu open')
+  await page.keyboard.press('Escape'); await page.waitForTimeout(600)
+  await probe('overflow menu closed')
+  const again = await nodeAt('#overflow')
+  console.log(`PROBE #overflow once a popup has closed: ${again === null ? 'GONE' : 'still there'}`)
+  if (again !== null) {
+    await at(...again); await page.waitForTimeout(600)
+    await probe('overflow menu reopened')
+    await page.keyboard.press('Escape'); await page.waitForTimeout(600)
+  }
 }
 
 // ---- the app opens on the demo cave, and offers a way out of it ------------------------
