@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.hwyl.sexytopo.shared.model.survey.Leg
@@ -197,6 +198,7 @@ fun SurveyTableView(
                     StationCell(
                         row.fromShown,
                         row.fromStationShown,
+                        row.fromStationShown,
                         active,
                         row.isSplay,
                         editable,
@@ -207,7 +209,13 @@ fun SurveyTableView(
                     )
                     StationCell(
                         row.toShown,
+                        // Shown: nothing on a splay, so the "-" never lights as the active
+                        // station — `isActiveStation` asks that of `Survey.NULL_STATION` and
+                        // always gets no.
                         row.toStationShown,
+                        // `onRowLongClick`: on a splay both station columns answer with the
+                        // station it hangs off. This cell had been inert.
+                        row.toStationShown ?: row.fromStationShown,
                         active,
                         row.isSplay,
                         editable,
@@ -271,7 +279,13 @@ private fun HeaderCell(text: String, width: androidx.compose.ui.unit.Dp) {
 @Composable
 private fun StationCell(
     text: String,
+    /** The station this cell *shows*, which is what decides the active-station highlight. */
     station: Station?,
+    /**
+     * The station its menu is about, which on a splay's To cell is not the one it shows: the cell
+     * reads "-" and `onRowLongClick` still answers with the station the splay hangs off.
+     */
+    menuStation: Station?,
     active: Station?,
     isSplay: Boolean,
     editable: Boolean,
@@ -280,7 +294,7 @@ private fun StationCell(
     onStation: ((Station) -> Unit)?,
     onEdit: () -> Unit,
 ) {
-    val handler = if (editable && station != null) onStation else null
+    val handler = if (editable && menuStation != null) onStation else null
     val lit = station != null && station === active
 
     Box(
@@ -305,7 +319,7 @@ private fun StationCell(
                 } else {
                     Modifier.combinedClickable(
                         onClick = onEdit,
-                        onLongClick = { handler(station!!) },
+                        onLongClick = { handler(menuStation!!) },
                     )
                 },
             ),
@@ -319,6 +333,10 @@ private fun StationCell(
             textAlign = TextAlign.Center,
             fontWeight = if (isSplay) FontWeight.Normal else FontWeight.Bold,
             color = cellInk(lit, darkMode),
+            // `singleLine="true" ellipsize="end"`: a long name shortens rather than making its
+            // row twice as tall as every other one.
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -339,6 +357,8 @@ private fun Cell(
         textAlign = TextAlign.End,
         fontWeight = if (isSplay) FontWeight.Normal else FontWeight.Bold,
         color = cellInk(lit = false, darkMode = darkMode),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
     )
 }
 

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
@@ -72,8 +73,11 @@ enum class LegAction(private val legLabel: String, private val splayLabel: Strin
 
 /** Which actions this row can actually take, in the order the dialog offers them. */
 fun legActionsFor(survey: Survey, row: SurveyTableRow): List<LegAction> = buildList {
+    // `context_leg.xml`'s own order — Edit, Reverse, Upgrade to Leg, Add to Leg Above,
+    // Downgrade to Splay, then the comment — with the two groups' divider before Delete, and
+    // *Move to Different Station* after it where the table's own menus put it. The comment used
+    // to be second, which put the rarely-wanted row above the five that change the survey.
     add(LegAction.EDIT)
-    add(LegAction.COMMENT)
     if (row.isSplay) {
         add(LegAction.UPGRADE)
         if (SurveyUpdater.canPromoteToAboveLeg(survey, row.leg)) add(LegAction.PROMOTE)
@@ -81,8 +85,9 @@ fun legActionsFor(survey: Survey, row: SurveyTableRow): List<LegAction> = buildL
         add(LegAction.REVERSE)
         if (SurveyUpdater.canDowngradeLeg(row.leg)) add(LegAction.DOWNGRADE)
     }
-    if (legMoveTargets(survey, row).isNotEmpty()) add(LegAction.MOVE)
+    add(LegAction.COMMENT)
     add(LegAction.DELETE)
+    if (legMoveTargets(survey, row).isNotEmpty()) add(LegAction.MOVE)
 }
 
 /**
@@ -225,6 +230,8 @@ fun LegActionsDialog(
                 confirmButton = {
                     Column(horizontalAlignment = Alignment.End) {
                         for (action in legActionsFor(survey, row)) {
+                            // `setGroupDividerEnabled`: `group_leg_delete` is its own group.
+                            if (action == LegAction.DELETE) HorizontalDivider()
                             TextButton(
                                 onClick = {
                                     when (action) {
