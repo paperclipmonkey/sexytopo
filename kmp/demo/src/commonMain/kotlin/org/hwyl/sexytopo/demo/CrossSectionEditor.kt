@@ -375,7 +375,7 @@ private fun CrossSectionSymbolStrip(
                     .padding(4.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                SymbolGlyph(option, SexyTopoColours.onPanel, size - 8.dp)
+                SymbolGlyph(option, SexyTopoColours.symbolGlyph, size - 8.dp)
             }
         }
         Box(

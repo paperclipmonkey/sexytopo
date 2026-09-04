@@ -38,6 +38,16 @@ object SexyTopoColours {
      */
     val symbolToolbarBackground = Color(0xFF3A5738)
 
+    /**
+     * What a symbol on the toolbar is drawn in: the `#000000` every `symbol_uis_*.xml` gives its
+     * `strokeColor`, which `Symbol.createDrawable` hands to an `ImageButton` untinted, in both
+     * themes. Not [onPanel] — this port drew the glyphs white on the strip's green so they would
+     * stand out, and the selected one then sat white on `buttonHighlight`'s white, which is a
+     * blank square where the symbol should be. The tool icons beside them are black PNGs on the
+     * same green; the glyphs are now the same.
+     */
+    val symbolGlyph = Color(0xFF000000)
+
     /** `innerPanelBackground` / `dividerColour`. */
     val innerPanel = Color(0xFFDDDDDD)
     val innerPanelNight = Color(0xFF2A2A2A)

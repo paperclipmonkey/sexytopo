@@ -1549,7 +1549,7 @@ const closeSymbolStrip = async () => {
  */
 const stripInk = async () => {
   const b64 = (await page.screenshot({ clip: box })).toString('base64')
-  return page.evaluate(async ([data, row]) => {
+  return page.evaluate(async ([data, row, green]) => {
     const img = new Image()
     await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
     const c = document.createElement('canvas')
@@ -1558,17 +1558,20 @@ const stripInk = async () => {
     const ctx = c.getContext('2d')
     ctx.drawImage(img, 0, 0)
     const px = ctx.getImageData(0, 0, c.width, c.height).data
-    // The squares are drawn pale on the strip's dark green, so anything light in that band is a
-    // symbol; weighting by x turns where they fall into one number that changes as it scrolls.
+    // Anything in that band that is not the strip's own green is a symbol - black now, as the
+    // app draws them, where this once looked for pale ones; weighting by x turns where they fall
+    // into one number that changes as the strip scrolls, whatever colour they are.
     let ink = 0
     for (let y = row - 18; y < row + 18; y++) {
       for (let x = 0; x < c.width; x++) {
         const i = (y * c.width + x) * 4
-        if (px[i] > 150 && px[i + 1] > 150 && px[i + 2] > 150) ink += x
+        const onStrip = Math.abs(px[i] - green[0]) < 12 && Math.abs(px[i + 1] - green[1]) < 12 &&
+          Math.abs(px[i + 2] - green[2]) < 12
+        if (!onStrip) ink += x
       }
     }
     return ink
-  }, [b64, Math.round(stripRowY())])
+  }, [b64, Math.round(stripRowY()), SYMBOL_STRIP_GREEN])
 }
 const scrollSymbolStripToTheEnd = async () => {
   const before = await stripInk()
