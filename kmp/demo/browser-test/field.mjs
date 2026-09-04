@@ -1462,8 +1462,48 @@ const scrollSymbolStripToTheEnd = async () => {
     await page.waitForTimeout(250)
   }
 }
-const CANCEL_DELETE_SURVEY = [237, 516]
-const CONFIRM_DELETE_SURVEY = [312, 516]
+/**
+ * The buttons along the foot of the open dialog, left to right, found rather than measured.
+ *
+ * `dialogConfirm` measures in from the card's right-hand edge, which is right for the button that
+ * is always in the same place whatever it says. The *second* button is not: a dialog lays them out
+ * end to end, so where *Cancel* sits depends on how wide the word beside it is — and on how many
+ * lines the message above them runs to, which is what moved these when the delete dialog started
+ * saying `file_dialog_delete_survey_content` instead of a sentence of this port's own.
+ */
+const dialogButtons = async () => {
+  const rows = await dialogTextRows()
+  if (rows.length === 0) return []
+  const y = rows[rows.length - 1]
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, y]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    // The same primary the rows themselves are found by, across the whole height of the lettering.
+    const lit = new Set()
+    for (let row = Math.max(0, y - 8); row <= Math.min(c.height - 1, y + 8); row++) {
+      for (let x = 0; x < c.width; x++) {
+        const i = (row * c.width + x) * 4
+        const [r, g, b] = [px[i], px[i + 1], px[i + 2]]
+        if (b > r && r > g && b - g > 30 && b < 230) lit.add(x)
+      }
+    }
+    // Letters of one word are a pixel or two apart; two buttons are twenty or more.
+    const xs = [...lit].sort((a, b) => a - b)
+    const words = []
+    for (const x of xs) {
+      if (words.length && x - words[words.length - 1][1] <= 12) words[words.length - 1][1] = x
+      else words.push([x, x])
+    }
+    return words.map(([from, to]) => Math.round((from + to) / 2))
+  }, [b64, y])
+}
 // The export screen's own background, which its chips are the only thing drawn on.
 const EXPORT_BACKGROUND = [245, 245, 245]
 // The chips, in the order ExportFormat declares them. They wrap, so which row a chip lands on
@@ -4623,7 +4663,11 @@ await page.screenshot({ path: join(shotDir, 'field-confirm-delete-survey.png') }
 // this check on its own could pass for the wrong reason. What gives it teeth is the real delete
 // below: that only works from a dismissed dialog, so if Cancel did nothing, the next check fails.
 const beforeCancel = await savedLegs()
-await at(...CANCEL_DELETE_SURVEY); await page.waitForTimeout(700)
+const deleteButtons = await dialogButtons()
+if (deleteButtons.length !== 2) {
+  fail(`the delete confirmation offered ${deleteButtons.length} buttons, not Cancel and Delete`)
+}
+await at(deleteButtons[0], (await dialogTextRows()).pop()); await page.waitForTimeout(700)
 if ((await savedLegs()).length !== beforeCancel.length) {
   fail('cancelling the delete removed the survey anyway')
 } else {
@@ -4632,7 +4676,7 @@ if ((await savedLegs()).length !== beforeCancel.length) {
 
 await at(...overflowButton()); await page.waitForTimeout(600)
 await at(...(await savedSurveyDelete(0, 1))); await page.waitForTimeout(700)
-await at(...CONFIRM_DELETE_SURVEY); await page.waitForTimeout(900)
+await at(...(await dialogConfirm())); await page.waitForTimeout(900)
 
 const left = await page.evaluate(() =>
   Object.keys(localStorage).filter((k) => k.includes('Swildons')),
