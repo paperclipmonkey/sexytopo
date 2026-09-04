@@ -201,6 +201,19 @@ const nodeFor = async (selector) => {
     `nothing on screen answers to ${selector}. The app offers: ${offered.join(', ') || '(nothing)'}`)
 }
 
+/**
+ * Anything the app has named for a screen reader, by the `strings.xml` entry the name comes from.
+ *
+ * Every button on the sketch toolbar has a `contentDescription` — they are pictures, so they have
+ * to — and Compose puts those on the accessibility node as `aria-label`. So the toolbar needs no
+ * test tags of its own: it is already named, for a better reason than testing.
+ */
+const labelled = (resource) => {
+  const label = ANDROID_STRINGS[resource]
+  if (label === undefined) throw new Error(`no string called ${resource}`)
+  return `[aria-label="${label}"]`
+}
+
 /** A menu row by the label it is drawn with, which is what `tagFor` in App.kt makes its id from. */
 const tagFor = (label) =>
   'menu-' +
@@ -2662,6 +2675,17 @@ const sketchBottom = (leftCorners[1]?.top ?? Math.round(box.height)) + cornerSid
 // the app's own default.
 await toggleOption('show-xsections')
 
+// `buttonCentreView` centres the view on the active station and keeps the zoom the surveyor
+// chose, which is what `centreViewOnActiveStation` does — it does not fit the whole cave on the
+// screen, which is what this port used to do under the same menu row. So after the corner-pan
+// checks above there is no promise that a *second* station is on the paper at all, and this check
+// needs one. Zoom out until there is, which is what a surveyor looking for one would do.
+for (let i = 0; i < 5; i++) {
+  if ((await stationSpots(sketchTop, sketchBottom)).other) break
+  await at(...(await nodeFor(labelled('sketch_toolbar_zoom_out'))))
+  await page.waitForTimeout(500)
+}
+
 const spots = await stationSpots(sketchTop, sketchBottom)
 if (!spots.other) {
   fail(`could not find a station on the plan that is not the active one (${JSON.stringify(spots)})`)
@@ -2908,7 +2932,7 @@ if (splayRow < 0) {
   fail('the splay was not added, so editing could not be tested')
 } else {
   // Row 1 is the leg to station 2; row 2 is the splay.
-  await at(...(await tableRow(2))); await page.waitForTimeout(700)
+  await at(...(await tableRow(1))); await page.waitForTimeout(700)
   await page.screenshot({ path: join(shotDir, 'field-leg-actions.png') })
 
   // What a splay is offered, and what it is not. A splay cannot be reversed — reverseLeg is
@@ -2967,7 +2991,7 @@ if (splayRow < 0) {
   // so the edit below needs it opened again. The splay is still the second row: the table is in
   // survey order and it now hangs off station 2 rather than station 1, which is the row after the
   // leg that makes station 2 either way.
-  await at(...(await tableRow(2))); await page.waitForTimeout(700)
+  await at(...(await tableRow(1))); await page.waitForTimeout(700)
   const afterMoveActions = await legActionRows()
 
   await at(...afterMoveActions[0]); await page.waitForTimeout(700)
@@ -2991,7 +3015,7 @@ if (splayRow < 0) {
   }
 
   // ---- and a bad reading can be thrown away ------------------------------------------------
-  await at(...(await tableRow(2))); await page.waitForTimeout(700)
+  await at(...(await tableRow(1))); await page.waitForTimeout(700)
   const toDelete = await legActionRows()
   await at(...toDelete[toDelete.length - 1]); await page.waitForTimeout(600)
   await page.screenshot({ path: join(shotDir, 'field-confirm-delete.png') })
@@ -3040,9 +3064,9 @@ const distanceInk = async (y) => {
   }, [b64, y])
 }
 
-const inkBefore = await distanceInk((await tableRow(1))[1])
+const inkBefore = await distanceInk((await tableRow(0))[1])
 
-await at(...(await tableRow(1))); await page.waitForTimeout(700)
+await at(...(await tableRow(0))); await page.waitForTimeout(700)
 // `context_leg.xml`'s own order, which is Edit, then the rows that change the survey, then the
 // comment, with Delete in a group of its own below a divider. The comment used to be second,
 // above the five rows that rewrite the survey, which is not where the app puts the row nobody is
@@ -3079,7 +3103,7 @@ if (!commented || commented.comment !== 'sump; do not follow') {
 // The Android app's own marker, and the only sign in the table that a comment exists at all. It
 // leads the distance, so the cell gains ink it did not have.
 await page.screenshot({ path: join(shotDir, 'field-leg-commented.png') })
-const inkAfter = await distanceInk((await tableRow(1))[1])
+const inkAfter = await distanceInk((await tableRow(0))[1])
 if (!(inkAfter > inkBefore)) {
   fail(`the table shows no marker against the commented leg (ink ${inkBefore} then ${inkAfter})`)
 } else {
@@ -3087,7 +3111,7 @@ if (!(inkAfter > inkBefore)) {
 }
 
 // ---- reversing it, and reversing it back ---------------------------------------------------
-await at(...(await tableRow(1))); await page.waitForTimeout(700)
+await at(...(await tableRow(0))); await page.waitForTimeout(700)
 const reverseRow = (await legActionRows())[2]
 await at(...reverseRow); await page.waitForTimeout(900)
 
@@ -3106,7 +3130,7 @@ if (!reversed?.wasShotBackwards) {
   pass('a shot booked the wrong way round can be turned, and keeps what was written on it')
 }
 
-await at(...(await tableRow(1))); await page.waitForTimeout(700)
+await at(...(await tableRow(0))); await page.waitForTimeout(700)
 await at(...(await legActionRows())[2]); await page.waitForTimeout(900)
 const backAgain = (await savedLegs()).find(isConnecting)
 if (backAgain?.wasShotBackwards) {
@@ -3122,13 +3146,13 @@ if (backAgain?.wasShotBackwards) {
 const FROM_CELL_X = 25
 const TO_CELL_X = 88
 
-await at(TO_CELL_X, (await tableRow(1))[1]); await page.waitForTimeout(700)
+await at(TO_CELL_X, (await tableRow(0))[1]); await page.waitForTimeout(700)
 await page.screenshot({ path: join(shotDir, 'field-table-station.png') })
 const farEndRows = await dialogTextRows()
 // This station menu's only button is "Close", laid out where a lone confirmButton would be.
 await at(...(await dialogConfirm())); await waitForDialogToClose()
 
-await at(FROM_CELL_X, (await tableRow(1))[1]); await page.waitForTimeout(700)
+await at(FROM_CELL_X, (await tableRow(0))[1]); await page.waitForTimeout(700)
 const nearEndRows = await dialogTextRows()
 
 // The two ends of one leg offer different menus, which is the whole point of asking the column
