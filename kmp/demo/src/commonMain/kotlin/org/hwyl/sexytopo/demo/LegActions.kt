@@ -229,7 +229,14 @@ fun LegActionsDialog(
                     }
                 },
                 confirmButton = {
-                    Column(horizontalAlignment = Alignment.End) {
+                    // Full width, as the station menu's column is. A column only as wide as its
+                    // widest row leaves room beside it, and `AlertDialog` puts the dismiss button
+                    // there — drawing *Cancel* on top of the second action, where a tap meant for
+                    // *Reverse* dismissed the menu instead of turning the leg round.
+                    Column(
+                        Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.End,
+                    ) {
                         for (action in legActionsFor(survey, row)) {
                             // `setGroupDividerEnabled`: `group_leg_delete` is its own group.
                             if (action == LegAction.DELETE) HorizontalDivider()

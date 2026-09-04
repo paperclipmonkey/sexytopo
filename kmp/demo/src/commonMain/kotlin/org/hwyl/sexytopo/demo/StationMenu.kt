@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
@@ -341,7 +342,10 @@ fun StationMenuDialog(
                                         }
                                     }
                                 },
-                                modifier = Modifier.fillMaxWidth(),
+                                // Named after the row it is drawn as, so a screen reader and the
+                                // browser checks find it whatever `stationActionsFor` decides this
+                                // station is allowed to do.
+                                modifier = Modifier.fillMaxWidth().testTag(tagFor(action.label)),
                             ) {
                                 Row(
                                     Modifier.fillMaxWidth(),

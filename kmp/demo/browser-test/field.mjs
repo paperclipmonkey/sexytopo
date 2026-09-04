@@ -432,6 +432,7 @@ const CARD_ADD_LEG_X = 309
 const SKETCH_PANEL = [127, 175, 127]
 const TABLE_TAB = [281, 26]
 const PLAN_TAB = [325, 26]
+const ELEVATION_TAB = [369, 26]
 /**
  * The nth row of the table, in the middle of its *Dist* column.
  *
@@ -524,12 +525,6 @@ const addLegRow = async (which) => {
 const COMMENT_FIELD_ABOVE_SAVE = 76
 const COMMENT_SAVE_X = 317
 const CONFIRM_DELETE = [292, 496]
-const STATION_NAME = [210, 260]
-const STATION_COMMENT = [210, 336]
-const STATION_LRUD_LEFT = [106, 520]
-const STATION_LRUD_RIGHT = [175, 520]
-const STATION_EE_LEFT = [102, 628]
-const STATION_SAVE = [317, 700]
 /**
  * The overflow menu, by name.
  *
@@ -1681,15 +1676,6 @@ const dialogTextRows = async () => {
 }
 
 /**
- * The clickable rows of the leg menu, top to bottom, as [x, y] pairs ready for `at`.
- *
- * Row 0 is "Edit reading" — "Close" sits on the same line, further left, so a click at [ACT_X, y]
- * lands on the action rather than the dismissal. Every label in the column is right-aligned to the
- * same edge, so one x works for "Delete" and for "Add it to the leg above" alike.
- */
-const legActionRows = async () => (await dialogTextRows()).map((y) => [ACT_X, y])
-
-/**
  * One row of the leg's menu, by the action it offers rather than by where it sits.
  *
  * The dialog is a popup, so its rows are in the accessibility tree while it is open, and each
@@ -1712,12 +1698,32 @@ const LEG_ACTION_RESOURCES = {
   'delete-splay': 'menu_delete_splay',
   move: 'menu_move_row',
 }
-const legActionRow = (name) => {
+const legActionSelector = (name) => {
   const resource = LEG_ACTION_RESOURCES[name]
   if (resource === undefined) throw new Error(`no leg action called ${name}`)
   const label = ANDROID_STRINGS[resource]
   if (label === undefined) throw new Error(`strings.xml has no ${resource}`)
-  return nodeFor(`#${tagFor(label)}`)
+  return `#${tagFor(label)}`
+}
+const legActionRow = (name) => nodeFor(legActionSelector(name))
+
+/**
+ * What the open leg menu offers, asked row by row rather than counted.
+ *
+ * Counting the rows counted the dialog's own *Cancel* along with them, and told nothing about
+ * which rows they were: a menu that had gained *Move to Different Station* and lost *Reverse*
+ * would have the same number as one that had not.
+ */
+const legMenuOffers = async (expected, forbidden) => {
+  const missing = []
+  for (const name of expected) {
+    if ((await nodeAt(legActionSelector(name))) === null) missing.push(name)
+  }
+  const unwanted = []
+  for (const name of forbidden) {
+    if ((await nodeAt(legActionSelector(name))) !== null) unwanted.push(name)
+  }
+  return { missing, unwanted }
 }
 
 const dialogTop = async () => {
@@ -2038,6 +2044,33 @@ const planStationMenuFor = (name) => page.evaluate((name) => {
   if (!isOrigin) rows.push('delete')
   return rows
 }, name)
+
+/**
+ * A row of the open station menu, by the action it offers.
+ *
+ * The dialog is a popup, so its rows are in the accessibility tree while it is open, and each
+ * carries `tagFor` of the label it is drawn with. Only the rows this file reaches for by name are
+ * listed; the rest are still found through `stationMenuRow`, which checks the whole menu against
+ * what the survey says the station should be offered.
+ */
+const STATION_ACTION_RESOURCES = {
+  'make-active': 'menu_set_active_station',
+  comment: 'menu_comment',
+  rename: 'menu_rename_station',
+  'passage-size': 'settings_key_lrud_fields_title',
+  'draw-left': 'menu_draw_left',
+  'draw-right': 'menu_draw_right',
+  'draw-vertical': 'menu_draw_vertical',
+  'incoming-leg': 'menu_incoming_leg',
+  delete: 'menu_delete_station',
+}
+const stationAction = (name) => {
+  const resource = STATION_ACTION_RESOURCES[name]
+  if (resource === undefined) throw new Error(`no station-menu row called ${name}`)
+  const label = ANDROID_STRINGS[resource]
+  if (label === undefined) throw new Error(`strings.xml has no ${resource}`)
+  return nodeFor(`#${tagFor(label)}`)
+}
 
 /**
  * A row of the open station menu, by name.
@@ -3173,9 +3206,14 @@ if (splayRow < 0) {
   // addressed by the station a leg arrives at, and a splay arrives nowhere — and it is already
   // what a downgrade would make it. Getting this wrong is not a cosmetic fault: every one of
   // these buttons rewrites the survey.
-  const splayActions = await legActionRows()
-  if (splayActions.length !== 6) {
-    fail(`a splay offered ${splayActions.length} actions, not the expected six`)
+  const splayMenu = await legMenuOffers(
+    ['edit', 'upgrade', 'promote', 'comment-splay', 'delete-splay', 'move'],
+    ['reverse', 'downgrade'],
+  )
+  if (splayMenu.missing.length > 0 || splayMenu.unwanted.length > 0) {
+    fail(
+      `a splay's menu is missing ${splayMenu.missing.join(', ') || 'nothing'} and ` +
+        `should not offer ${splayMenu.unwanted.join(', ') || 'nothing'}`)
   } else {
     pass('a splay is offered every way of promoting it, and neither of the leg-only actions')
   }
@@ -3306,14 +3344,14 @@ await longPress(await tableRow(0)); await page.waitForTimeout(700)
 // comment, with Delete in a group of its own below a divider. The comment used to be second,
 // above the five rows that rewrite the survey, which is not where the app puts the row nobody is
 // in a hurry to reach.
-// *Move to Different Station* is not among them: this leg's only other station is the one it
-// arrives at, and `legMoveTargets` excludes a leg's own subtree, so the row is not offered.
-const LEG_MENU = ['edit', 'reverse', 'downgrade', 'comment', 'delete']
-const legActions = await legActionRows()
-if (legActions.length !== LEG_MENU.length) {
+const legMenu = await legMenuOffers(
+  ['edit', 'reverse', 'downgrade', 'comment', 'delete'],
+  ['upgrade', 'promote'],
+)
+if (legMenu.missing.length > 0 || legMenu.unwanted.length > 0) {
   fail(
-    `a leg with nothing beyond it offered ${legActions.length} actions, not the ` +
-      `${LEG_MENU.length} of ${LEG_MENU.join(', ')}`)
+    `a leg with nothing beyond it is missing ${legMenu.missing.join(', ') || 'nothing'} and ` +
+      `should not offer ${legMenu.unwanted.join(', ') || 'nothing'}`)
 } else {
   pass('a leg with nothing surveyed beyond it can be taken back down to a splay')
 }
@@ -3519,19 +3557,42 @@ const fieldStatusChipSpot = async () => {
 // next trip's. The comment is the same argument — a lead nobody wrote down is a lead nobody goes
 // back for.
 const statusChip = await fieldStatusChipSpot()
-if (!statusChip) fail('the field bar\'s status text was not found, so the station menu could not be opened')
+if (!statusChip) fail('the field bar\'s status text was not found, so the station could not be named')
 await at(...statusChip); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-station.png') })
-await retype(STATION_NAME, 'Sump')
-await at(...STATION_COMMENT); await page.waitForTimeout(250)
+await retype(await nodeFor('#station-name'), 'Sump')
+await at(...(await dialogConfirm())); await waitForDialogToClose()
+
+// The comment and the passage measurements are on the station's own menu, reached from the table
+// rather than from the drawing: the row is in the same place whatever the plan is scrolled to, and
+// the From cell of the first row is the station this has just renamed.
+await at(...TABLE_TAB); await page.waitForTimeout(900)
+await longPress([FROM_CELL_X, (await tableRow(0))[1]]); await page.waitForTimeout(700)
+await at(...(await stationAction('comment'))); await page.waitForTimeout(700)
+await at(...(await nodeFor('#station-comment'))); await page.waitForTimeout(250)
 await page.keyboard.type('Continues, too tight for me', { delay: 15 })
+await at(...(await dialogConfirm())); await waitForDialogToClose()
+
 // Passage size from a tape rather than an instrument: two numbers become two splays, square to
 // the passage, and a cross-section can then be drawn from a hand-booked survey.
-await retype(STATION_LRUD_LEFT, '1.5')
-await retype(STATION_LRUD_RIGHT, '2')
-await at(...STATION_EE_LEFT); await page.waitForTimeout(250)
+await longPress([FROM_CELL_X, (await tableRow(0))[1]]); await page.waitForTimeout(700)
+await at(...(await stationAction('passage-size'))); await page.waitForTimeout(700)
+await retype(await nodeFor('#station-passage-left'), '1.5')
+await retype(await nodeFor('#station-passage-right'), '2')
 await page.screenshot({ path: join(shotDir, 'field-station-named.png') })
-await at(...STATION_SAVE); await page.waitForTimeout(900)
+await at(...(await dialogConfirm())); await waitForDialogToClose()
+
+// And which way the passage unrolls, which `menu_elevation` puts on the station's menu in the
+// extended elevation and nowhere else — so this is the one that has to be done over there.
+await at(...ELEVATION_TAB); await page.waitForTimeout(900)
+const onElevation = (await stationSpots(sketchTop, sketchBottom)).active
+if (!onElevation) {
+  fail('the active station is not drawn on the extended elevation, so its direction cannot be set')
+} else {
+  await longPress(onElevation)
+  await at(...(await stationAction('draw-left'))); await page.waitForTimeout(800)
+}
+await at(...PLAN_TAB); await page.waitForTimeout(700)
 
 const named = await page.evaluate(() => {
   const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
