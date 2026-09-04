@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 799 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 813 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and eight more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -3676,6 +3676,42 @@ These are the things that would actually shape a real port.
    on-screen keyboard, the compass, the buzz — and the honest list of what wants a device is in
    the previous three findings.
 
+108. **The tests that were worth adding, added — and the four Android tests that had never been
+   ported.** Finding 107 ended with a list of tests that would make faithfulness checkable rather
+   than asserted. Three of the four are now in; the fourth, a screenshot comparison against the
+   running Android app, needs an emulator this CI does not have and is not attempted.
+
+   `PreferenceDefaultsTest` reads every `android:defaultValue` across the preference screens and
+   `SketchPreferences.Toggle`, and holds each of this port's defaults to it — with the
+   complication that is the Android app's rather than this port's. Nothing there calls
+   `PreferenceManager.setDefaultValues`, so on a fresh install each getter's own fallback wins over
+   what the screen declares, and for six keys the two disagree: the screen says the SVG grid is
+   off and the app exports it on; the screen says symbols are 35 and the app draws 25; the screen
+   says the calibration algorithm is *auto* and the app uses *linear*. What a surveyor gets is the
+   getter, so the getter is the oracle, and the six are listed with both values so the
+   disagreement is on record. `SketchStyleTest` had reached this for its four numbers; this
+   reaches it for all fifty-five, and every default here matches — bar the one this port takes the
+   screen's side on deliberately, the buzz, whose getter defaults to *off* against a switch that
+   has always been drawn *on*.
+
+   `PortedTestsTest` is the ledger the README's "ported test suite" claim never had. The Kotlin
+   tests were renamed to say what they test rather than `testFoo`, and nothing linked an Android
+   test class to the class here that carries its cases — so thirty-two of the app's fifty-seven
+   were cited nowhere in this module, and nobody could say which were ported under another name
+   and which were not ported at all. The ledger says, per class, and checks that every class it
+   names exists. Building it found four that genuinely were not: `Coord2DTest` and `Coord3DTest`
+   (one case each, now `CoordTest`), `PathDetailTest` (the four rectangle-intersection cases the
+   eraser depends on, against a `DetailBounds.intersects` that existed with no test on it, now
+   `DetailBoundsTest`), and `SurveyToolsTest` (the eight `isInSubtree` cases that stop a moved
+   leg making a cycle, against a function likewise untested, now `SurveyTreeTest`). One more is
+   not ported and now says so: `OldStyleLoaderTest`, for the pre-JSON tab-separated survey format
+   the Android app still reads and this port does not — a real gap, listed under deliberate gaps.
+
+   `DimensionParityTest` is five lines of `dimens.xml` against `SexyTopoDimens`, and is cheap
+   enough to exist. And "What needs a phone" above the deliberate gaps is the list of what none of
+   this can check — the compass, the keyboard, the buzz, a radio — so that "tested" is never read
+   to include them.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3826,8 +3862,8 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 799
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 501 over the UI's own
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 813
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 508 over the UI's own
 logic, 20 running the iOS half in a simulator,
 121 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
@@ -3881,6 +3917,28 @@ before it is a branch to write.
 
 ---
 
+## What needs a phone
+
+Every check above runs on a build server, and three things cannot: they need a sensor, a
+keyboard or a motor that no runner has. They are listed here so that a release is not called
+done without somebody holding a device, and so that "tested" is never read to include them.
+
+- **The compass swings.** Open the plan on a phone, turn on the spot: the north arrow turns the
+  other way, and points at the top of the screen when you face north. Then turn the phone on its
+  side and check it still points north rather than swinging a quarter turn with the case. Android,
+  iOS and the browser each have their own sensor path (`DeviceHeading.*.kt`); the browser one needs
+  HTTPS, and on an iPhone's Safari needs one tap before it starts.
+- **The keyboard opens.** In the browser on a phone, tap *New Survey*: a keyboard should come up
+  on the first tap on the name box, not only when one was already open. Then the label tool, then a
+  station rename. `Keyboard.wasmJs.kt` is the code; the desktop Chromium the tests drive has no
+  keyboard to open.
+- **The buzz happens.** With *Vibrate on new station* on, three agreeing readings should be felt.
+  `AndroidManifestTest` proves the permission is declared; only a phone proves the motor runs.
+- **Bluetooth, at all.** Every transport has been driven end to end against a fake instrument and
+  none against a radio; see the next section.
+
+---
+
 ## Deliberate gaps
 
 This is a proof of concept. File formats are no longer one of the gaps: every importer and every
@@ -3913,6 +3971,10 @@ What it does **not** include:
   is exactly what the Android app writes for a survey with no links, so the file is the shape the
   other end expects rather than one it has to tolerate. Nothing here draws a neighbouring survey
   either.
+- **The old-style survey format.** Before the JSON files, SexyTopo wrote a survey as tab-separated
+  lines — `from to distance azimuth inclination` — and `OldStyleLoader` still reads them. This port
+  does not; `PortedTestsTest` records `OldStyleLoaderTest` as unported for that reason. A survey
+  old enough to be in that format wants opening in the Android app and saving again.
 - **The Android app adopting this core.** That is the step that would make the work pay for itself
   regardless of the iOS outcome, and it is deliberately not attempted yet.
 
