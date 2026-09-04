@@ -3403,6 +3403,43 @@ These are the things that would actually shape a real port.
    Surveys*, `Restore Autosave`, `Exit SexyTopo` and the per-instrument laser commands have nothing
    behind them here to switch on.
 
+102. **The browser checks were measuring a picture of the app, and the app can just be asked.**
+   The audit in finding 101 moved most of this UI to where the Android XML puts it, and every one
+   of those moves broke `demo/browser-test/field.mjs` — which had no way to press anything except
+   by working out which pixel it was drawn at. The first failure is the shape of the whole
+   problem: the overflow menu gained a row, so the tap meant for *New Survey* landed on *Open
+   Survey…*, the survey that followed was never named, and a hundred later checks reported that the
+   sketch had never been saved. Nothing in that chain mentions a menu. A card's rounded corner was
+   counted as a twelfth toggle for the same reason, and a section's frame running off the edge of
+   the screen made a drag look like it had moved half as far as it did.
+
+   The reason it was pixels is real rather than lazy: Compose paints the whole app into one
+   `<canvas>` and there are no elements to point at. But it *also* builds an accessibility tree —
+   real DOM nodes laid over that canvas, where `Modifier.testTag` becomes an element's id, a
+   `contentDescription` its `aria-label`, and a Compose `Role` its ARIA role — and
+   `ComposeViewport` takes an `isA11YEnabled` flag that is off by default. Turning it on is one
+   line, and it is worth more than the tests: without it a screen reader cannot read this app at
+   all.
+
+   So the app names what had no name — the overflow button, the cross-section editor's two action
+   icons, the 3D view's close, every square of the symbol strip — and the checks ask for controls
+   by name. The menu labels are read out of `strings.xml` itself, so a rename upstream moves the
+   tests with it rather than breaking them. `menuBox`, `menuRowAt`, the `holdsSurveys` bookkeeping
+   that counted the saved surveys into every row below them, and the stripe-counting table finder
+   are all gone, along with the class of failure they produced.
+
+   What stays on pixels is what pixels are the right instrument for: that the centreline got
+   thicker, that north is drawn, that the rubber rubbed something out, that a section's drag bar
+   followed the section it belongs to. Those are questions about drawing, and an accessibility node
+   cannot answer them.
+
+   The other half is that none of this needed a browser. `MenuStructureUiTest` and
+   `DialogStructureUiTest` drive the real composables through the same semantics tree on the JVM,
+   headlessly, in a couple of seconds — `action_bar.xml`'s seven groups and their pages, and the
+   settings screens holding what `preferences_main.xml` says they do. The failure that started all
+   of this would have been a red `:demo:jvmTest` before anything was pushed, instead of a red CI
+   run and a morning of reading screenshots.
+
 ---
 
 ## A defect worth reporting upstream
