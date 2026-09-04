@@ -106,14 +106,10 @@ fun App(
     val editor = rememberSketchEditor(state)
     val canvas = rememberCanvasController(state)
 
-    // A second handle on the same place surveys are kept. [SurveyLibrary] holds its own store
-    // privately and deals in surveys rather than files, which is the right shape for four JSON
-    // files that share a name and the wrong one for a photograph; `platformFileStore` names a
-    // place rather than opening anything, so this reaches the same directory — or the same
-    // `localStorage` — as the library's. The exception is the in-memory fallback a machine with
-    // nowhere writable gets, where a second call is a second empty store; nothing survives being
-    // closed on such a machine anyway.
-    val store = remember { platformFileStore() }
+    // The app's one handle on the surveys directory, since a photograph is a file rather than a
+    // survey and [SurveyLibrary] deals only in surveys. See [surveyFileStore] for why it is shared
+    // rather than made here.
+    val store = surveyFileStore
     val photos = remember(state, store) { PhotoPlacement(state, store) }
 
     // Remembered here rather than beside the button that opens it. The photograph arrives on a
@@ -731,7 +727,9 @@ private fun SexyTopoAppBar(state: DemoState) {
                         val where =
                             saveBinaryFile(
                                 SurveyZip.fileNameFor(state.survey),
-                                SurveyZip.archive(state.survey),
+                                // Photographs included: see [surveyArchive]. A zip of pins with
+                                // nothing behind them is not the survey somebody was handed.
+                                surveyArchive(state.survey),
                             )
                         state.note(where ?: Strings.fileSaveSurveyError)
                         menuOpen = false

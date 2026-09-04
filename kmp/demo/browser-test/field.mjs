@@ -1012,8 +1012,15 @@ const tripLicenceField = async () => {
 }
 const LABEL_TEXT = [210, 442]
 const LABEL_PLACE = [316, 518]
-// The sketch toolbar is nine equal columns; the bottom row's third cell is the label tool.
-const toolColumn = box.width / 9
+// The sketch toolbar is ten equal columns; the bottom row's third cell is the label tool.
+//
+// Ten and not nine since the camera joined the bottom row. Every index below kept its cell — the
+// camera went on the end — so only this divisor changed, and it had to: at nine, `toolCell(8)`
+// computed a point inside the tenth cell and would have opened the camera instead of zooming out.
+// The nearer misses are the reason to fix all of it rather than the two that were caught. A cell
+// centre worked out over the wrong number of columns drifts further right the further right it
+// is, so the low indices stayed inside the button they meant by luck rather than by arithmetic.
+const toolColumn = box.width / 10
 const TOOL_ROW_Y = box.height - 20
 const toolCell = (index) => [toolColumn * (index + 0.5), TOOL_ROW_Y]
 /**
@@ -2586,6 +2593,10 @@ if ((await subSketchPaths()) !== 2) {
 // The row sits one 40dp button-height above the tools row this file already reaches by name.
 // Nine cells, not eight: the editor's colour row is the plan's, which is the eight brushes and
 // then zoom-in, because `disableUnsupportedTools` takes away *Select* and nothing else.
+//
+// Nine and not the ten the main toolbar now has. `CrossSectionEditor` draws its own rows rather
+// than reusing `SketchToolbar`, so the camera that widened that one did not widen this: there is
+// nowhere in a cross-section to stand and take a photograph of.
 const CROSS_SECTION_COLOUR_ROW_Y = box.height - 60
 const crossSectionColourCell = (index) => [(box.width / 9) * (index + 0.5), CROSS_SECTION_COLOUR_ROW_Y]
 await at(...SECTION_PARKED); await page.waitForTimeout(1000)
@@ -5562,7 +5573,7 @@ box = await (await page.$('canvas')).boundingBox()
 let small = box
 const tapSmall = (x, y) => page.mouse.click(small.x + x, small.y + y)
 const smallToolRow = small.height - 20
-const smallColumn = small.width / 9
+const smallColumn = small.width / 10
 
 await page.screenshot({ path: join(shotDir, 'field-small-screen.png') })
 
@@ -5922,7 +5933,7 @@ const wide = box
 await page.screenshot({ path: join(shotDir, 'field-landscape.png') })
 
 // The sketch still works sideways: same toolbar arithmetic, same stroke.
-const wideColumn = wide.width / 9
+const wideColumn = wide.width / 10
 const wideToolRow = wide.height - 20
 const wideInk = async () => {
   const b64 = (await page.screenshot({ clip: wide })).toString('base64')
