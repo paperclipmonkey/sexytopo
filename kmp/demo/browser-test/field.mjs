@@ -12,6 +12,7 @@ import { chromium } from 'playwright'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
+import { deflateSync } from 'node:zlib'
 
 const url = process.argv[2] ?? 'http://localhost:8080/index.html'
 const shotDir = process.argv[3] ?? 'field-screenshots'
@@ -1960,6 +1961,24 @@ if (!namedControls.some((n) => n.startsWith('#overflow'))) {
 // The app bar and the toolbar, taken down now, for the reason `rememberChrome` gives.
 await rememberChrome('#overflow', '#symbol-tool', '#drawing-menu')
 
+// The camera on the end of the second row, taken down with the rest of the toolbar's furniture
+// and for the same reason: the photograph checks are several hundred lines below here, long after
+// the first menu has taken the app's own names out of the accessibility tree.
+//
+// Asked for by name rather than counted in cells because this row has been miscounted before —
+// see the note on `toolCell`, where a divisor of nine put the zoom-out tap inside the camera's
+// cell. Softly, though, and not through `rememberChrome`: that throws, and a camera button that
+// has lost its test tag should cost the photograph checks rather than every check below them.
+// The arithmetic is the fallback, so those checks still run and still say what went wrong.
+const namedCamera = await nodeAt('#camera-tool')
+if (namedCamera === null) {
+  fail(
+    'nothing on the sketch toolbar answers to #camera-tool, so the photograph checks below are ' +
+      'tapping the cell the camera used to be in rather than the button itself',
+  )
+}
+const CAMERA_TOOL = namedCamera ?? toolCell(9)
+
 // ---- the app opens on the demo cave, and offers a way out of it ------------------------
 // The first screen a new surveyor sees is an example survey that is deliberately never saved.
 // Recording controls must not be on it, and something that leads to their own survey must be, or
@@ -3814,6 +3833,487 @@ if (waterColour !== 'BLUE') {
 await closeSymbolStrip()
 await at(...toolCell(1)); await page.waitForTimeout(400)
 
+// ---- a photograph of what the drawing cannot say ---------------------------------------------
+// A sketch says where the passage goes. It cannot say what the rock looks like, and the surveyor
+// standing at the junction is the only person who will ever see that: whoever draws the survey up
+// at home is working from lines. So the camera is on the toolbar, the photograph is written beside
+// the survey's own files, and a tap says where it was taken from.
+//
+// The whole journey is walked here rather than sampled, because every step of it fails quietly on
+// its own. The browser's camera is a hidden file input; the picture is written under an id nothing
+// else knows; the tool that pins it is armed for exactly one tap and hands the pencil back
+// afterwards; and the file is taken out again if that tap never comes, because this build keeps
+// its files in `localStorage` and a photograph nothing points at is a real fraction of the five
+// megabytes the whole survey has to grow into. Half of that working is a pin with nothing behind
+// it, which is a photograph somebody took underground and cannot get back.
+
+/**
+ * What the app shrinks a photograph to, read from the file that decides it.
+ *
+ * The same thought as `ANDROID_STRINGS`: the number is taken from the source the app takes it
+ * from, so changing it moves this check rather than breaking it. Softly, because a constant that
+ * has been renamed is one wrong number in one check, and throwing from here would take every
+ * check below this section with it.
+ */
+const PHOTO_LONGEST_EDGE = (() => {
+  const source = readFileSync(
+    new URL('../src/commonMain/kotlin/org/hwyl/sexytopo/demo/PhotoCapture.kt', import.meta.url),
+    'utf8',
+  )
+  const found = source.match(/const val PHOTO_LONGEST_EDGE\s*=\s*(\d+)/)
+  if (found !== null) return Number(found[1])
+  fail('PhotoCapture.kt no longer declares PHOTO_LONGEST_EDGE, so the size below is a guess')
+  return 1280
+})()
+
+/** A PNG chunk's checksum, written out rather than imported: `zlib.crc32` is too new to rely on. */
+const crc32 = (bytes) => {
+  let crc = ~0
+  for (const byte of bytes) {
+    crc ^= byte
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1))
+  }
+  return ~crc >>> 0
+}
+
+/** Length, type, body, checksum — the four fields every PNG chunk is made of. */
+const pngChunk = (type, body) => {
+  const head = Buffer.alloc(8)
+  head.writeUInt32BE(body.length, 0)
+  head.write(type, 4, 'ascii')
+  const tail = Buffer.alloc(4)
+  tail.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), body])), 0)
+  return Buffer.concat([head, body, tail])
+}
+
+/**
+ * A photograph for the camera to hand back, built here rather than committed as a file.
+ *
+ * A PNG because one can be written from the standard library — `deflateSync` and the chunk framing
+ * above — where a JPEG would need an encoder, which is a fixture in disguise. Its being the wrong
+ * format is the point rather than a compromise: a phone hands back JPEG, an iPhone hands back
+ * HEIC, and `PhotoCapture.wasmJs.kt` draws whatever arrives into a canvas and re-encodes it so
+ * that the sketch, the zip and whoever opens it only ever have to know about one format. Feeding
+ * the app something that is not a JPEG is the only way to watch that happen.
+ *
+ * Larger than `PHOTO_LONGEST_EDGE` because a photograph is shrunk before it is kept, and this is
+ * the size that shrinking is measured against. A smooth gradient rather than noise for the same
+ * reason a real cave photograph is not noise: it re-encodes to a few tens of kilobytes, and this
+ * check has no business eating the storage the survey needs.
+ */
+const examplePhotograph = (width, height) => {
+  const stride = 1 + width * 3
+  const raw = Buffer.alloc(height * stride)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const at = y * stride + 1 + x * 3
+      raw[at] = Math.round((x * 255) / (width - 1))
+      raw[at + 1] = Math.round((y * 255) / (height - 1))
+      raw[at + 2] = 128
+    }
+  }
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(width, 0)
+  header.writeUInt32BE(height, 4)
+  header[8] = 8 // eight bits a channel
+  header[9] = 2 // three channels, no palette, no alpha
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', header),
+    pngChunk('IDAT', deflateSync(raw)),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ])
+}
+
+const PHOTO_WIDTH = PHOTO_LONGEST_EDGE + 320
+const PHOTO_HEIGHT = Math.round((PHOTO_WIDTH * 3) / 4)
+const EXAMPLE_PHOTOGRAPH = examplePhotograph(PHOTO_WIDTH, PHOTO_HEIGHT)
+
+/**
+ * The picture behind a pin, as `BrowserFileStore` keeps it: base64 under its own binary key.
+ *
+ * Read from storage rather than off the screen because that is what the promise actually is. A
+ * photograph drawn on a canvas and never written down is one the surveyor loses the moment the
+ * tab is reloaded, and nothing on the screen would tell them which of the two they had.
+ */
+const storedPhotograph = (photoId) =>
+  page.evaluate(
+    (photoId) => localStorage.getItem(`sexytopo:b:surveys/Swildons/Swildons.photo-${photoId}.jpg`),
+    photoId,
+  )
+
+/** The pins on the plan: `SketchJson`'s own "photos", each naming the picture it points at. */
+const savedPins = () => page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  return key ? (JSON.parse(localStorage.getItem(key)).photos ?? []) : null
+})
+
+/**
+ * What is in the surveyor's hand, as `rememberSelections` writes it down on every change.
+ *
+ * The toolbar is painted into the canvas and the armed tool is not the sort of thing a screenshot
+ * can be asked about, but every tool change goes straight to `preferences.txt` — so the file the
+ * app would reopen on is also the honest answer to which tool is armed now.
+ */
+const savedTool = () => page.evaluate(() => {
+  const text = localStorage.getItem('sexytopo:f:preferences.txt') ?? ''
+  const line = text.split('\n').find((row) => row.startsWith('tool='))
+  return line ? line.slice('tool='.length).trim() : null
+})
+
+/**
+ * How much of the photograph itself is on the screen.
+ *
+ * `examplePhotograph` has a corner nothing this app draws comes anywhere near: red at full
+ * strength, no green, and blue held at half — a strong pink, where the sketch's own red legs have
+ * no blue in them at all and everything else on the screen is grey, lavender, black or the
+ * toolbar's green. Counting those pixels says the picture was decoded and drawn, which is what the
+ * viewer is for and the one thing an accessibility node cannot promise: a dialog reporting that
+ * the picture is missing has every node in place.
+ */
+const photographOnScreen = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    let count = 0
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i] > 200 && px[i + 1] < 80 && px[i + 2] > 90 && px[i + 2] < 170) count++
+    }
+    return count
+  }, [b64])
+}
+
+/**
+ * Press the camera, answer the picker with `EXAMPLE_PHOTOGRAPH`, and wait for the picture to land.
+ *
+ * The wait is not politeness. Nothing about this is synchronous: the picker is a native chooser
+ * Playwright intercepts, the decode and the re-encode happen in the page, and the bytes cross into
+ * Kotlin through a global that `rememberPhotoCapture` reads on a quarter-second timer — so the tap
+ * returns long before the photograph exists. Polling storage rather than sleeping means the checks
+ * that follow start the moment it is there, which matters: the instruction strip they read next
+ * clears itself after two and a half seconds.
+ */
+const takeAPhotograph = async (photoId) => {
+  const choosersBefore = fileChoosersOpened
+  await at(...CAMERA_TOOL)
+  for (let i = 0; i < 40; i++) {
+    await page.waitForTimeout(200)
+    const stored = await storedPhotograph(photoId)
+    if (stored !== null) return { stored, chooserOpened: fileChoosersOpened > choosersBefore }
+  }
+  return { stored: null, chooserOpened: fileChoosersOpened > choosersBefore }
+}
+
+// Where the surveyor stood for each of the two photographs, and which way they were looking for
+// the second. Both are well clear of the cross-section parked at the foot of the drawing, whose
+// drag bar is hit-tested on every touch-down whatever tool is in hand and would swallow a drag
+// that started on it.
+const PHOTO_TAKEN_HERE = [130, 200]
+const PHOTO_LOOKED_FROM = [320, 380]
+// Eighty pixels right and eighty up, which is a bearing of 45 degrees: `bearingOf` measures
+// clockwise from up the screen, and up the screen is north on a plan.
+const PHOTO_LOOKED_TOWARDS = [400, 300]
+
+chosenFile = {
+  name: 'passage.png',
+  mimeType: 'image/png',
+  buffer: EXAMPLE_PHOTOGRAPH,
+}
+
+const stripBeforeTheCamera = await noticeRows()
+const strokesBeforeTheCamera = await planStrokes()
+const firstPhoto = await takeAPhotograph('1')
+// Read the instant the picture lands, for the reason `takeAPhotograph` gives.
+const askedWhereToPinIt = await noticeRows()
+const armedTool = await savedTool()
+await page.screenshot({ path: join(shotDir, 'field-photo-armed.png') })
+
+if (!firstPhoto.chooserOpened) {
+  fail('the camera button opened no picker at all, so there is no way to take a photograph here')
+} else if (firstPhoto.stored === null) {
+  fail(
+    'the photograph the picker was handed never reached storage: nothing is saved under ' +
+      'sexytopo:b:surveys/Swildons/Swildons.photo-1.jpg, so a pin would point at nothing',
+  )
+} else {
+  pass('the camera opens a picker, and the photograph it comes back with is kept beside the survey')
+}
+
+// Whatever went in, a JPEG comes out. The one check here that is about the picture rather than the
+// journey, and the reason the fixture above is deliberately a PNG: an iPhone stores HEIC and the
+// re-encode is what stops that reaching the sketch, the zip and whoever is sent it.
+if (firstPhoto.stored !== null && !firstPhoto.stored.startsWith('/9j/')) {
+  fail(
+    'a PNG handed to the camera was stored as it arrived rather than re-encoded: the stored file ' +
+      `begins ${JSON.stringify(firstPhoto.stored.slice(0, 8))}, which is not a JPEG`,
+  )
+} else if (firstPhoto.stored !== null) {
+  pass('a photograph is stored as a JPEG whatever the camera handed over')
+}
+
+// And it is shrunk on the way in. Not a nicety: this build keeps its files in `localStorage`,
+// base64 and all, so one untouched phone photograph would fill the origin and the second would
+// fail to save — with the surveyor a hundred metres past the thing they photographed.
+if (firstPhoto.stored !== null) {
+  const kept = await page.evaluate(async (encoded) => {
+    const img = new Image()
+    const loaded = await new Promise((resolve) => {
+      img.onload = () => resolve(true)
+      img.onerror = () => resolve(false)
+      img.src = 'data:image/jpeg;base64,' + encoded
+    })
+    return loaded ? [img.naturalWidth, img.naturalHeight] : null
+  }, firstPhoto.stored)
+
+  if (kept === null) {
+    fail('the stored photograph will not decode, so the pin points at a file nothing can open')
+  } else if (Math.max(kept[0], kept[1]) !== PHOTO_LONGEST_EDGE) {
+    fail(
+      `a ${PHOTO_WIDTH} by ${PHOTO_HEIGHT} photograph was kept at ${kept[0]} by ${kept[1]}, whose ` +
+        `longest edge is not the ${PHOTO_LONGEST_EDGE} the app shrinks to — a survey with a few ` +
+        'of these in it will not fit in the browser at all',
+    )
+  } else if (Math.abs(kept[0] / kept[1] - PHOTO_WIDTH / PHOTO_HEIGHT) > 0.01) {
+    fail(`the photograph came back ${kept[0]} by ${kept[1]}, which is squashed rather than shrunk`)
+  } else {
+    pass(`a photograph is shrunk to fit the phone's storage before it is kept (${kept.join(' by ')})`)
+  }
+}
+
+// Armed and said so. A one-shot tool that arms silently is an app that has apparently done
+// nothing: the surveyor is looking at their drawing with a camera button that flashed and a tap
+// waiting to be spent, and nothing on the screen to say which.
+if (armedTool !== 'PLACE_PHOTO') {
+  fail(
+    `taking a photograph left ${armedTool} in the surveyor's hand rather than PLACE_PHOTO, so ` +
+      'the tap meant to pin it would draw on the cave instead',
+  )
+} else if (askedWhereToPinIt < 4 || askedWhereToPinIt <= stripBeforeTheCamera) {
+  fail(
+    'taking a photograph armed the pin tool and said nothing about it ' +
+      `(${stripBeforeTheCamera} rows of message strip before the camera, ${askedWhereToPinIt} after)`,
+  )
+} else {
+  pass('a photograph taken arms the tool that pins it, and says what to do with it')
+}
+
+// The strip out of the way before anything is tapped. It sits between the app bar and the drawing
+// rather than over it — a message floating over a cave drawing hides the thing it is talking about
+// — so while it is up the whole sketch is pushed down and a tap lands somewhere other than where
+// it was aimed. `NOTICE_MILLIS` is 2500.
+await page.waitForTimeout(2800)
+await at(...PHOTO_TAKEN_HERE); await page.waitForTimeout(900)
+await page.screenshot({ path: join(shotDir, 'field-photo-pinned.png') })
+
+const pinned = await savedPins()
+const strokesAfterPinning = await planStrokes()
+const toolAfterPinning = await savedTool()
+
+if (pinned === null) {
+  fail('the plan sketch was not saved, so the pin could not be checked')
+} else if (pinned.length !== 1) {
+  fail(`tapping the paper with a photograph in hand left ${pinned.length} pins on the plan, not one`)
+} else if (pinned[0]['photo-id'] !== '1') {
+  fail(
+    `the pin points at photograph ${JSON.stringify(pinned[0]['photo-id'])} rather than the "1" ` +
+      'the picture was written under, so tapping it would open nothing',
+  )
+} else if (pinned[0].angle !== 0) {
+  fail(`a pin dropped with a tap rather than a drag came out facing ${pinned[0].angle}, not north`)
+} else if (strokesAfterPinning !== strokesBeforeTheCamera) {
+  fail(
+    'the tap that pinned the photograph also drew on the cave ' +
+      `(${strokesBeforeTheCamera} strokes before it, ${strokesAfterPinning} after)`,
+  )
+} else {
+  pass('a tap pins the photograph where the surveyor stood, facing north, and marks nothing')
+}
+
+// And the pencil comes back. `handlePositionCrossSection` ends the same way and for the same
+// reason: a tool that stayed armed would spend the surveyor's next tap on a photograph that is not
+// there, which is a tap that does nothing at all and no way of telling why.
+if (toolAfterPinning !== 'DRAW') {
+  fail(
+    `pinning a photograph left ${toolAfterPinning} in the surveyor's hand rather than the pencil ` +
+      'they were drawing with before they reached for the camera',
+  )
+} else {
+  pass('pinning a photograph is one tap, and hands the previous tool back')
+}
+
+// ---- and which way the surveyor was looking ---------------------------------------------------
+// A photograph was always taken looking somewhere, and a pin that cannot say which way is half a
+// record: the passage in the picture is one of the four the surveyor could see from that spot. The
+// drag says it, exactly as a water-flow arrow is aimed, and through the same `bearingOf`.
+//
+// It also says where they stood, which is the half that can silently go wrong: the pin is dropped
+// where the finger *landed*, not where it left off. Both pins are read together below, and a pin
+// dropped at the end of the drag rather than its start disagrees with the first one by a mile.
+const secondPhoto = await takeAPhotograph('2')
+await page.waitForTimeout(2800)
+await drag(PHOTO_LOOKED_FROM, PHOTO_LOOKED_TOWARDS); await page.waitForTimeout(900)
+await page.screenshot({ path: join(shotDir, 'field-photo-aimed.png') })
+
+const both = await savedPins()
+if (secondPhoto.stored === null) {
+  fail('the second photograph never reached storage, so the drag that aims one could not be checked')
+} else if ((both ?? []).length !== 2) {
+  fail(`dragging with a photograph in hand left ${(both ?? []).length} pins on the plan, not two`)
+} else if (both[1]['photo-id'] !== '2') {
+  fail(
+    `the second pin points at photograph ${JSON.stringify(both[1]['photo-id'])}, so the two pins ` +
+      'do not have a picture each',
+  )
+} else if (Math.abs(both[1].angle - 45) > 3) {
+  fail(
+    `a photograph dragged towards the top right came out facing ${both[1].angle} degrees rather ` +
+      'than 45, so the pin says the surveyor was looking somewhere they were not',
+  )
+} else {
+  pass('a drag pins the photograph facing whichever way the surveyor was looking')
+}
+
+// Where the two pins are in the survey against where the two fingers were on the glass. Both
+// distances are divided rather than compared to a number: this file has no business knowing the
+// zoom, and the mapping from pixels to metres is the same for both pins, so the two ratios have to
+// agree. They do not if a pin lands at the end of a drag instead of its start, or under some
+// stale layout of the screen — which is what a message strip left up would do to it.
+if ((both ?? []).length === 2) {
+  const acrossInPixels = PHOTO_LOOKED_FROM[0] - PHOTO_TAKEN_HERE[0]
+  const downInPixels = PHOTO_LOOKED_FROM[1] - PHOTO_TAKEN_HERE[1]
+  const acrossInMetres = both[1].location.x - both[0].location.x
+  const downInMetres = both[1].location.y - both[0].location.y
+  const acrossScale = acrossInMetres / acrossInPixels
+  const downScale = downInMetres / downInPixels
+  if (!Number.isFinite(acrossScale) || !Number.isFinite(downScale)) {
+    fail(
+      `a pin was saved without a position: ${JSON.stringify(both[0].location)} and ` +
+        `${JSON.stringify(both[1].location)}`,
+    )
+  } else if (acrossScale <= 0 || downScale <= 0) {
+    fail(
+      `the second pin is ${acrossInMetres.toFixed(3)} m across and ${downInMetres.toFixed(3)} m ` +
+        `down from the first, for a finger that moved ${acrossInPixels} right and ` +
+        `${downInPixels} down — the drawing is mirrored somewhere between the two`,
+    )
+  } else if (Math.abs(acrossScale - downScale) > 0.02 * Math.max(acrossScale, downScale)) {
+    fail(
+      `the pins are ${acrossScale.toFixed(4)} m to the pixel across and ${downScale.toFixed(4)} ` +
+        'down, so a photograph does not land under the finger that placed it',
+    )
+  } else {
+    pass('a pin lands under the finger that placed it, at the scale the drawing is shown at')
+  }
+}
+
+// ---- and tapping it opens the photograph again ------------------------------------------------
+// Which is what a pin is for. Tapped with the *pencil* in hand, because that is where a surveyor
+// actually is when they want to look at what they photographed, and because the pencil's own tap
+// leaves a dot: the pin has to be found before the dot is drawn, or looking at a photograph costs
+// a mark on the drawing and an undo to get rid of it.
+const strokesBeforeOpening = await planStrokes()
+const pictureBeforeOpening = await photographOnScreen()
+await at(...PHOTO_TAKEN_HERE); await page.waitForTimeout(1000)
+await page.screenshot({ path: join(shotDir, 'field-photo-viewer.png') })
+
+// Which dialog this is comes from the accessibility tree — a popup is in it while it is open, and
+// *Close* carries a test tag no other dialog has. Whether the picture is in it comes from the
+// screen, because that is the one thing a node cannot promise: a viewer showing the sentence it
+// puts up for a picture that is missing or damaged is a dialog with every node in place and
+// nothing behind the pin.
+const closeViewer = await nodeAt('#photo-close')
+const pictureShowing = await photographOnScreen()
+const strokesWithTheViewerOpen = await planStrokes()
+
+if (closeViewer === null) {
+  fail(
+    'tapping a photo pin with the pencil in hand opened no photo viewer ' +
+      `(the app offers: ${(await namedNodes()).slice(0, 20).join(', ') || 'nothing'})`,
+  )
+} else if (pictureShowing - pictureBeforeOpening < 500) {
+  fail(
+    `the viewer opened with no photograph in it (${pictureBeforeOpening} pixels of the picture on ` +
+      `the screen before it opened, ${pictureShowing} after)` +
+      ((await nodeAt('#photo-message')) === null
+        ? ''
+        : ', and it is showing the sentence it puts up when a picture is missing or damaged'),
+  )
+} else if (strokesWithTheViewerOpen !== strokesBeforeOpening) {
+  fail(
+    'tapping the pin drew a dot on the cave as well as opening the photograph ' +
+      `(${strokesBeforeOpening} strokes before it, ${strokesWithTheViewerOpen} after)`,
+  )
+} else {
+  pass('tapping a pin opens the photograph behind it, and leaves no mark for having looked')
+}
+
+// And out again. Whether the dialog has actually gone is asked of the screen and not of the tree:
+// Compose keeps one semantics owner, so a popup that has closed is left in the tree exactly as it
+// was and would answer yes forever. Its card is the thing that leaves.
+//
+// Nested rather than run regardless, so that a viewer which never opened is one failure above
+// rather than a second check reporting that closing it changed nothing.
+if (closeViewer !== null) {
+  await at(...closeViewer); await waitForDialogToClose()
+  const afterClosing = await savedPins()
+  if ((await dialogTextRows()).length !== 0) {
+    fail('tapping Close left the photograph on the screen, over the drawing it was taken of')
+  } else if ((afterClosing ?? []).length !== 2) {
+    fail(
+      `closing the photograph left ${(afterClosing ?? []).length} pins on the plan rather than ` +
+        'the two that were there, so a look at a picture cost the surveyor a pin',
+    )
+  } else {
+    pass('closing a photograph leaves the drawing and its pins exactly as they were')
+  }
+}
+
+// ---- and one nobody pins is taken back out again ----------------------------------------------
+// The cost of writing the picture before it has anywhere to go — which is the right order round,
+// since a photograph taken underground cannot be taken again and holding the bytes in memory until
+// the surveyor gets round to tapping is how a reloaded tab loses one. The tap may simply never
+// come: the surveyor reaches for the camera, thinks better of it, and picks up the pencil. That
+// leaves a file nothing will ever point at, in an origin that holds about five megabytes for the
+// whole survey, so the app takes it back out the moment the tool changes.
+const thirdPhoto = await takeAPhotograph('3')
+// The move tool, which is the one tool that cannot mark the drawing if the tap goes astray.
+await at(...toolCell(0)); await page.waitForTimeout(1000)
+const strayPhoto = await storedPhotograph('3')
+const pinsAfterAbandoning = await savedPins()
+const toolAfterAbandoning = await savedTool()
+await page.screenshot({ path: join(shotDir, 'field-photo-abandoned.png') })
+
+if (thirdPhoto.stored === null) {
+  fail('a third photograph never reached storage, so abandoning one could not be checked')
+} else if (strayPhoto !== null) {
+  fail(
+    `choosing another tool instead of pinning left ${Math.round(strayPhoto.length / 1024)} KB of ` +
+      'unreachable photograph in storage, which the survey needs and can never get back',
+  )
+} else if ((pinsAfterAbandoning ?? []).length !== 2) {
+  fail(
+    `abandoning a photograph changed the pins on the plan: ${(pinsAfterAbandoning ?? []).length} ` +
+      'rather than the two already placed',
+  )
+} else if (toolAfterAbandoning !== 'MOVE') {
+  fail(`the tool chosen instead of pinning did not stick (${toolAfterAbandoning} is in hand)`)
+} else {
+  pass('a photograph that is never pinned is taken back out of storage rather than left there')
+}
+
+// The pencil back, and the strip given time to clear, so the rest of this file finds the drawing
+// where it left it and the tool it was drawing with.
+await at(...toolCell(1)); await page.waitForTimeout(400)
+chosenFile = null
+await page.waitForTimeout(2800)
+
 // ---- tolerances that suit the instrument in the surveyor's hand -----------------------------
 // The defaults assume a DistoX: 1.7 degrees of spread. A hand-held compass does not come close, so
 // on a trip with compass and tape three readings of the same leg never agree, nothing is ever
@@ -4975,6 +5475,44 @@ if (!restored) {
   fail('the survey did not survive a restart')
 } else {
   pass('the survey survives closing and reopening the app')
+}
+
+// ---- and so do the photographs pinned to it ---------------------------------------------------
+// Asked across the restart above rather than across one of its own section's, because a reload is
+// expensive in the middle of this file: the app comes back on the demo cave rather than on
+// whatever was in hand, so every check after one would be working on the wrong survey. This
+// restart has happened anyway, so the pins can be asked about for nothing. Storage only and no
+// tapping, since what a reload restores from is exactly what is read here.
+//
+// Both halves have to come back, and together. A sketch full of pins with no pictures behind them
+// is the survey somebody is handed when the images were not sent, which the viewer explains
+// politely; the same thing after a *reload* is a photograph that was taken in a cave, looked at on
+// the screen, and quietly lost.
+const survivingPins = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  if (!key) return null
+  return (JSON.parse(localStorage.getItem(key)).photos ?? []).map((pin) => pin['photo-id'])
+})
+const survivingPictures = await page.evaluate(() =>
+  Object.keys(localStorage)
+    .filter((k) => k.startsWith('sexytopo:b:surveys/Swildons/Swildons.photo-'))
+    .sort(),
+)
+
+if (survivingPins === null) {
+  fail('the plan sketch did not survive the restart at all, so its pins could not be checked')
+} else if (survivingPins.join(',') !== '1,2') {
+  fail(
+    `the pins that came back point at photographs ${JSON.stringify(survivingPins)} rather than ` +
+      'the two that were placed',
+  )
+} else if (survivingPictures.length !== 2) {
+  fail(
+    `${survivingPictures.length} of the two photographs survived the restart ` +
+      `(${survivingPictures.join(', ') || 'none'}), so at least one pin now points at nothing`,
+  )
+} else {
+  pass('the photographs and the pins that point at them both survive the app being closed')
 }
 
 // ---- and the browser has been asked not to throw it away ---------------------------------
