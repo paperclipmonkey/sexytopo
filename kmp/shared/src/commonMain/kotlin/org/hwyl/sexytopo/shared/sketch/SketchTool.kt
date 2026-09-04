@@ -32,6 +32,27 @@ enum class SketchTool(val usesColour: Boolean, val isModal: Boolean) {
 
     MOVE_CROSS_SECTION(usesColour = false, isModal = true),
 
+    /**
+     * One-shot: the next touch pins the photograph just taken to that point, and a drag turns it
+     * to face whatever was photographed.
+     *
+     * Both flags are chosen to match [POSITION_CROSS_SECTION], which is the same shape of tool —
+     * armed elsewhere, spent by one gesture, and then out of the way again.
+     *
+     * Not [usesColour], even though the pin is drawn in the brush's colour like any other detail.
+     * The flag asks what the tool is *for*, and this one is for a photograph: it was armed by
+     * taking a picture, not by choosing ink. So a tap on a colour swatch while it is armed means
+     * the surveyor has gone back to drawing, and `GraphActivity.handleAction`'s rule — switch to
+     * [DRAW] — is the right thing to happen, exactly as it is for a cross-section waiting to be
+     * placed.
+     *
+     * Not [isModal] either, and for the reason that flag's own documentation gives: a modal tool
+     * reverts on *touch-up*, whereas this one must revert only once a photograph has actually been
+     * pinned. The host ends it instead, when the placement callback tells it the one-shot has
+     * fired.
+     */
+    PLACE_PHOTO(usesColour = false, isModal = false),
+
     PINCH_TO_ZOOM(usesColour = false, isModal = true),
 
     /** Entered by a hot-corner or two-finger touch: pan without leaving the current tool. */
