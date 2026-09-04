@@ -3440,10 +3440,12 @@ These are the things that would actually shape a real port.
    every row below them are gone, along with the class of failure they produced.
 
    The screen *behind* a popup cannot be asked once one has opened, so the app bar and the toolbar
-   are read once at startup — before anything opens — and their positions kept. They do not move,
-   so that is as good as a constant, and better: the numbers come from where the app actually drew
-   them, and a control that has lost its name fails at the top of the file rather than as a mis-tap
-   four hundred lines down.
+   are read once at startup — before anything opens — and kept as a distance in from the edge each
+   one follows, since the checks at the end of the file turn the phone sideways and shrink it. That
+   is as good as a constant and better: the numbers come from where the app actually drew the
+   control, and one that has lost its name fails at the top of the file rather than as a mis-tap
+   four hundred lines down. Kept as an absolute x, the three dots pressed whatever a 667-pixel bar
+   had put at 404 — which was *About*.
 
    What stays on pixels is what pixels are the right instrument for: that the centreline got
    thicker, that north is drawn, that the rubber rubbed something out, that a section's drag bar
@@ -3451,6 +3453,35 @@ These are the things that would actually shape a real port.
    cannot answer them. The symbol strip and the table are measured for the duller reason that they
    are screens rather than popups — though the table finder now reads the row height and the top of
    the first row off the screen instead of assuming them, which is what `66 + 26 * n` got wrong.
+
+   And it found things. Not test bugs: three defects in the app, each of which a surveyor would
+   have met before a test did.
+
+   - **The leg menu drew *Cancel* on top of its second action.** `AlertDialog` lays the dismiss
+     button out beside the confirm one, and that column is taller than a button and narrower than
+     the card, so *Cancel* sat over *Upgrade to Leg* on a splay's menu and over *Reverse* on a
+     leg's. A tap meant for *Reverse* dismissed the menu. This file had a comment explaining that
+     it clicked well right of centre to get past it, which is how long that had been true. There is
+     no `dismissButton` now: *Cancel* is the last row of the same column, where the station menu's
+     *Close* already was.
+   - **Setting a station's direction from its menu did not carry down the passage.** The dialog's
+     path goes through `SurveyUpdater.setExtendedElevationDirection`, which floods the subtree
+     because LEFT and RIGHT propagate; the menu's `setDirection` assigned the field, and its own
+     comment said it propagated. Everything past the junction went on unrolling the old way — a
+     drawing that is wrong and does not look wrong.
+   - **The reading dialog could be dismissed by a tap meant for one of its boxes.** Which is by
+     design, and the reason it mattered: `EditLegDialog` is a state of the leg menu rather than a
+     screen of its own, so dismissing it puts the menu back, and a correction typed into nothing
+     looks exactly like a correction that was not saved.
+
+   The headless renderer had a real race too, and one this branch made likelier rather than found
+   by luck. `ImageComposeScene.render` measures, lays out and draws on the thread that calls it,
+   while Compose Desktop's main dispatcher is the AWT event thread — so a `LaunchedEffect` body and
+   the snapshot observer's flush run there while the caller is inside a draw, and Compose throws
+   *Detected multithreaded access to SnapshotStateObserver*. The stack goes through
+   `calculateSemanticsConfiguration`: every `testTag` added here is one more thing for the observer
+   to invalidate, which is why a once-in-a-blue-moon failure became a once-in-six one. `RenderPng`
+   does its work on the event thread now.
 
    The other half is that none of this needed a browser. `MenuStructureUiTest` and
    `DialogStructureUiTest` drive the real composables through the same semantics tree on the JVM,
