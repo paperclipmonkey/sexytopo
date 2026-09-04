@@ -5508,10 +5508,17 @@ const smallTable = [small.width - (420 - TABLE_TAB[0]), TABLE_TAB[1]]
 const smallPlan = [small.width - (420 - PLAN_TAB[0]), PLAN_TAB[1]]
 await tapSmall(...smallTable); await page.waitForTimeout(900)
 
-/** The x of the rightmost ink in a band of rows, or null if the band is blank. */
-const rightmostInk = async (fromY, toY) => {
+/**
+ * The x of the rightmost ink in a band of rows, or null if the band is blank.
+ *
+ * The column header is white lettering on the app's green and the rows are dark on white, so what
+ * counts as ink depends on which band is being asked. Looking for dark pixels in the header band
+ * found none at all once the audit gave the table a header of its own — which is what "the table
+ * showed nothing on the small phone" was reporting.
+ */
+const rightmostInk = async (fromY, toY, ink = 'dark') => {
   const b64 = (await page.screenshot({ clip: small })).toString('base64')
-  return page.evaluate(async ([data, top, bottom]) => {
+  return page.evaluate(async ([data, top, bottom, wanted]) => {
     const img = new Image()
     await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
     const c = document.createElement('canvas')
@@ -5523,17 +5530,75 @@ const rightmostInk = async (fromY, toY) => {
     for (let x = c.width - 1; x >= 0; x--) {
       for (let y = top; y <= Math.min(bottom, c.height - 1); y++) {
         const i = (y * c.width + x) * 4
-        if (Math.max(px[i], px[i + 1], px[i + 2]) < 150) return x
+        const dark = Math.max(px[i], px[i + 1], px[i + 2]) < 150
+        const light = Math.min(px[i], px[i + 1], px[i + 2]) > 200
+        if (wanted === 'light' ? light : dark) return x
       }
     }
     return null
-  }, [b64, fromY, toY])
+  }, [b64, fromY, toY, ink])
 }
+
+/**
+ * How far a band of the picture moved sideways between two shots of it.
+ *
+ * The header and the rows have to move together — that is the whole check — and the obvious way to
+ * measure it, "how far did the rightmost ink move", cannot: the numbers in the last column are cut
+ * off by the edge of the screen before the drag, which is the very thing being scrolled into view,
+ * so their rightmost ink starts pinned to that edge and the header's does not. The two would then
+ * report different distances for the same scroll.
+ *
+ * This slides one picture over the other instead and reports the offset that matches best, which
+ * is the scroll itself and says nothing about what is drawn in the band.
+ */
+const bandShift = async (before, after, top, bottom) =>
+  page.evaluate(async ([a, b, t, bot]) => {
+    const load = async (data) => {
+      const img = new Image()
+      await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+      return img
+    }
+    const first = await load(a)
+    const second = await load(b)
+    const c = document.createElement('canvas')
+    c.width = first.width
+    c.height = first.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(first, 0, 0)
+    const pa = ctx.getImageData(0, 0, c.width, c.height).data
+    ctx.clearRect(0, 0, c.width, c.height)
+    ctx.drawImage(second, 0, 0)
+    const pb = ctx.getImageData(0, 0, c.width, c.height).data
+    const grey = (p, x, y) => {
+      const i = (y * c.width + x) * 4
+      return (p[i] + p[i + 1] + p[i + 2]) / 3
+    }
+    let best = null
+    let bestScore = Infinity
+    const last = Math.min(bot, c.height - 1)
+    for (let shift = 0; shift <= 90; shift++) {
+      let score = 0
+      let counted = 0
+      for (let y = t; y <= last; y += 2) {
+        for (let x = 0; x + shift < c.width; x++) {
+          score += Math.abs(grey(pb, x, y) - grey(pa, x + shift, y))
+          counted++
+        }
+      }
+      if (counted === 0) break
+      score /= counted
+      if (score < bestScore) {
+        bestScore = score
+        best = shift
+      }
+    }
+    return best
+  }, [before, after, top, bottom])
 
 // The header band and a band of data rows, measured from the rendered page.
 const HEADER_BAND = [58, 76]
 const ROWS_BAND = [140, 260]
-const headerBefore = await rightmostInk(...HEADER_BAND)
+const beforeShot = (await page.screenshot({ clip: small })).toString('base64')
 const rowsBefore = await rightmostInk(...ROWS_BAND)
 
 const cdp = await ctx.newCDPSession(page)
@@ -5549,8 +5614,10 @@ await touchAt('touchEnd', 180, 200)
 await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-small-table-scrolled.png') })
 
-const headerAfter = await rightmostInk(...HEADER_BAND)
+const afterShot = (await page.screenshot({ clip: small })).toString('base64')
 const rowsAfter = await rightmostInk(...ROWS_BAND)
+const headerMoved = await bandShift(beforeShot, afterShot, ...HEADER_BAND)
+const rowsMoved = await bandShift(beforeShot, afterShot, ...ROWS_BAND)
 await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false })
 await cdp.detach()
 
@@ -5566,22 +5633,24 @@ await page.setViewportSize({ width: 374, height: 667 }); await page.waitForTimeo
 await page.setViewportSize({ width: 375, height: 667 }); await page.waitForTimeout(600)
 small = await (await page.$('canvas')).boundingBox()
 
-if (headerBefore === null || rowsBefore === null) {
+if (rowsBefore === null) {
   fail('the table showed nothing on the small phone, so this check cannot fail')
-} else if (headerBefore < small.width - 4) {
+} else if (rowsBefore < small.width - 4) {
   fail(
-    `the table's last column was already clear of the edge (${headerBefore} of ${small.width}),` +
+    `the table's last column was already clear of the edge (${rowsBefore} of ${small.width}),` +
       ' so there is nothing here to scroll to')
-} else if (headerAfter === null || headerAfter >= small.width - 4) {
+} else if (rowsAfter === null || rowsAfter >= small.width - 4) {
   fail('dragging the table sideways did not bring the last column into view')
-} else if (Math.abs((headerBefore - headerAfter) - (rowsBefore - rowsAfter)) > 6) {
+} else if (!rowsMoved) {
+  fail('the table did not scroll sideways at all under a finger')
+} else if (Math.abs(headerMoved - rowsMoved) > 2) {
   fail(
     'the header and the rows moved by different amounts, so the labels no longer sit over the' +
-      ` numbers (header ${headerBefore}->${headerAfter}, rows ${rowsBefore}->${rowsAfter})`)
+      ` numbers (header ${headerMoved}, rows ${rowsMoved})`)
 } else {
   pass(
     'the table scrolls sideways as one on a small phone, so the last column can be read' +
-      ` (${headerBefore} to ${headerAfter} of ${small.width})`)
+      ` (${rowsMoved} pixels, header and rows together)`)
 }
 
 await tapSmall(...smallPlan); await page.waitForTimeout(700)
