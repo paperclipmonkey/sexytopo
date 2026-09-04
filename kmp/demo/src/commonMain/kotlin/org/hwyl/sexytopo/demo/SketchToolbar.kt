@@ -80,7 +80,7 @@ import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.jetbrains.compose.resources.painterResource
 
 /**
- * SexyTopo's sketch toolbar: nine columns by two rows of icon buttons on a green panel, with the
+ * SexyTopo's sketch toolbar: ten columns by two rows of icon buttons on a green panel, with the
  * symbol strip above it.
  *
  * A deliberate copy of `activity_graph.xml`, down to the order of the buttons and the artwork on
@@ -88,6 +88,12 @@ import org.jetbrains.compose.resources.painterResource
  *
  * Row one is the eight brush colours and zoom in. Row two is the tools — move, draw, symbol, erase,
  * select — then the drawing menu, undo, redo and zoom out.
+ *
+ * Ten and not the app's nine because of the camera on the end of row two, which is this port's own
+ * button and has no counterpart upstream. Everything before it keeps the column
+ * `activity_graph.xml` puts it in, so the copy is still a copy; row one gets a [Spacer] in the
+ * tenth cell so the two rows still line up under each other. [SexyTopoDimens.TOOLBAR_COLUMNS] stays
+ * at nine, because it is a record of what the Android layout says rather than of what this draws.
  *
  * `buttonSymbol` behaves as `GraphActivity.handleAction` makes it behave: it selects the symbol
  * tool, opens the strip the first time it is ever tapped, and toggles the strip when tapped while
@@ -667,8 +673,9 @@ private fun RowScope.ToolButton(
  * One button in the grid.
  *
  * `toolbar_button_height` is 40dp in the Android app, and the buttons share the width evenly across
- * nine columns — so on a narrow phone they are square-ish and on a tablet they spread out, which is
- * what the GridLayout with `layout_columnWeight="1"` does.
+ * the row — so on a narrow phone they are square-ish and on a tablet they spread out, which is what
+ * the GridLayout with `layout_columnWeight="1"` does. Ten of them here rather than the app's nine;
+ * see [SketchToolbar].
  */
 @Composable
 fun ToolbarButton(
