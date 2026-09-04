@@ -743,7 +743,9 @@ const numberField = async (index) => {
  * right-hand end, where the switch is: the row is the full width of the card and its middle is the
  * wording.
  */
-const settingRow = async (resource) => {
+const settingRow = async (name) => {
+  const resource = SETTING_RESOURCES[name]
+  if (resource === undefined) throw new Error(`no setting called ${name}`)
   const label = ANDROID_STRINGS[resource]
   if (label === undefined) throw new Error(`strings.xml has no ${resource}`)
   const handle = await page.$(`#${tagFor(label)}`)
@@ -837,53 +839,30 @@ const switchRows = async () => {
   }, [b64, 320])
 }
 
-/**
- * The nth switch in the dialog. **Negative counts from the end**, which is what these checks use.
- *
- * From the end because they wheel to the bottom first and because new settings get added *above*
- * the ones already there — so counting down from the top would drift for the same reason the
- * pixel offsets did, while counting up from the last switch does not.
- */
-const settingsSwitch = async (index) => {
-  const rows = await switchRows()
-  const nth = index < 0 ? rows.length + index : index
-  if (nth < 0 || nth >= rows.length) {
-    throw new Error(`wanted switch ${index} but the dialog shows ${rows.length}: ${rows}`)
-  }
-  return [320, rows[nth]]
+// Every switch on every settings screen, by the setting it is.
+//
+// These were five blocks of indices with a paragraph each explaining which end of which dialog
+// they were counted from, and what had already gone wrong when a dialog gained a row or grew too
+// tall to show them all at once. `Toggle` names itself after its title now, so none of that has
+// to be written down or kept true.
+const SETTING_RESOURCES = {
+  // The one that goes looking for an instrument that has dropped out: `pref_auto_reconnect`.
+  'chase-lost-instrument': 'settings_auto_reconnect_title',
+  'log-every-frame': 'settings_key_developer_mode_title',
+  'hot-corners': 'settings_hot_corners_title',
+  'delete-fragments': 'settings_delete_path_fragments_title',
+  'highlight-latest-leg': 'settings_highlight_latest_leg_title',
+  'two-finger': 'settings_two_finger_movement_title',
+  'legacy-cross-sections': 'settings_legacy_cross_sections_title',
+  'manual-entry': 'settings_manual_data_controls_title',
+  'book-passage-size': 'settings_key_lrud_fields_title',
+  'walls-square-to-next-leg': 'settings_lrud_direction_title',
+  'bearings-in-minutes': 'settings_key_deg_mins_secs_title',
+  'inclinations-in-minutes': 'settings_key_inc_deg_mins_secs_title',
+  vibrate: 'settings_new_station_vibration_title',
 }
 
-// *Instruments*'s last two switches, counted from that end: everything else on that screen is a
-// number field or the amalgamation chips, and both of these sit below all of it.
-const SWITCH_LOG_EVERY_FRAME = -1
-const SWITCH_CHASE_LOST_INSTRUMENT = -2
-
-// *Sketching*'s five, counted from the top and in `preferences_sketching.xml`'s own order. From
-// the top because that screen's eight number fields come after them, so the end of the dialog is
-// nowhere near these.
-const SWITCH_HOT_CORNERS = 0
-const SWITCH_DELETE_FRAGMENTS = 1
-const SWITCH_HIGHLIGHT_LATEST_LEG = 2
-const SWITCH_TWO_FINGER = 3
-const SWITCH_LEGACY_CROSS_SECTIONS = 4
-
-// *Manual entry*'s five switches, counted from the **top** and in the order the dialog lays them
-// out. From the top because that dialog opens at the top and its rows are added at the bottom;
-// from the end in *Surveying* because that one's rows are added above the reconnect pair.
-//
-// The five used to be the tail of *Surveying*, and the reason they are not any more is worth
-// keeping: that dialog reached eleven settings, and eleven do not fit on a 420-by-900 screen at
-// once. `switchRows()` finds switches by scanning the pixels that are actually drawn, so "the
-// last switch but five" silently became a switch that was off the bottom of the card — the check
-// reported *"wanted switch -6 but the dialog shows 5"*, which is the good version of that failure
-// and only happened because the finder counts what it can see rather than what it remembers.
-const SWITCH_MANUAL_ENTRY = 0
-const SWITCH_BOOK_PASSAGE_SIZE = 1
-const SWITCH_WALLS_SQUARE_TO_NEXT_LEG = 2
-const SWITCH_BEARINGS_IN_MINUTES = 3
-const SWITCH_INCLINATIONS_IN_MINUTES = 4
-
-const chaseSwitch = async () => settingsSwitch(SWITCH_CHASE_LOST_INSTRUMENT)
+const chaseSwitch = async () => settingRow('chase-lost-instrument')
 
 /**
  * The *Sketching* dialog's eight boxes, in `preferences_sketching.xml`'s order, counted from the
@@ -1137,10 +1116,10 @@ async function drawingOptionRow(name) {
  * not drawing-menu toggles — `preferences_sketching.xml` is where they live — so reaching them is
  * a trip through Settings rather than two taps on the toolbar.
  */
-async function flipSketchingSwitch(index) {
+async function flipSketchingSwitch(name) {
   await at(...(await overflowButton())); await page.waitForTimeout(500)
   await at(...(await menuRow('sketching'))); await page.waitForTimeout(800)
-  await at(...(await settingsSwitch(index))); await page.waitForTimeout(300)
+  await at(...(await settingRow(name))); await page.waitForTimeout(300)
   await at(...(await settingsSave())); await page.waitForTimeout(700)
 }
 
@@ -3818,7 +3797,7 @@ await at(...(await settingsSave())); await page.waitForTimeout(700)
 // switch-shaped run of primary colour can find.
 await at(...(await overflowButton())); await page.waitForTimeout(500)
 await at(...(await menuRow('general'))); await page.waitForTimeout(800)
-await at(...(await settingRow('settings_new_station_vibration_title'))); await page.waitForTimeout(300)
+await at(...(await settingRow('vibrate'))); await page.waitForTimeout(300)
 await page.screenshot({ path: join(shotDir, 'field-general-settings.png') })
 await at(...(await settingsSave())); await page.waitForTimeout(700)
 
@@ -3828,8 +3807,8 @@ await at(...(await settingsSave())); await page.waitForTimeout(700)
 // written.
 await at(...(await overflowButton())); await page.waitForTimeout(500)
 await at(...(await menuRow('sketching'))); await page.waitForTimeout(800)
-await at(...(await settingsSwitch(SWITCH_HOT_CORNERS))); await page.waitForTimeout(300)
-await at(...(await settingsSwitch(SWITCH_TWO_FINGER))); await page.waitForTimeout(300)
+await at(...(await settingRow('hot-corners'))); await page.waitForTimeout(300)
+await at(...(await settingRow('two-finger'))); await page.waitForTimeout(300)
 await page.screenshot({ path: join(shotDir, 'field-sketching-settings-switches.png') })
 await at(...(await settingsSave())); await page.waitForTimeout(700)
 
@@ -3881,7 +3860,7 @@ if (leftCorners.length === 2) {
 // Back on, because the rest of this file is written for the app's own defaults.
 await at(...(await overflowButton())); await page.waitForTimeout(500)
 await at(...(await menuRow('sketching'))); await page.waitForTimeout(800)
-await at(...(await settingsSwitch(SWITCH_HOT_CORNERS))); await page.waitForTimeout(300)
+await at(...(await settingRow('hot-corners'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(700)
 
 // ---- chasing a lost instrument -------------------------------------------------------------
@@ -4014,14 +3993,14 @@ if (magentaBefore < 20) {
   pass('the leg just taken is drawn in the app\'s magenta, so the working end is findable')
 }
 
-await flipSketchingSwitch(SWITCH_HIGHLIGHT_LATEST_LEG)
+await flipSketchingSwitch('highlight-latest-leg')
 const magentaOff = await magentaPixels()
 if (magentaOff !== 0) {
   fail(`turning the mark off left ${magentaOff} magenta pixels on the plan`)
 } else {
   pass('and it can be turned off, for a surveyor who would rather it were not there')
 }
-await flipSketchingSwitch(SWITCH_HIGHLIGHT_LATEST_LEG)
+await flipSketchingSwitch('highlight-latest-leg')
 
 const litBeforeFade = await centrelinePixels()
 await toggleOption('fade')
@@ -4446,7 +4425,7 @@ await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-export-svg-options.png') })
 // The first switch in the dialog: *Draw the sketch*. Found rather than measured, like every other
 // switch in this file — see switchRows().
-await at(...(await settingsSwitch(0))); await page.waitForTimeout(300)
+await at(...(await settingRow('manual-entry'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 const svgWithoutSketch = await savedExport()
@@ -4475,7 +4454,7 @@ if (savedOptions === null || !savedOptions.includes('svgShowSketch=false')) {
 
 // Put it back, so the exports checked after this one are the drawing they were written for.
 await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
-await at(...(await settingsSwitch(0))); await page.waitForTimeout(300)
+await at(...(await settingRow('manual-entry'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 // ---- and the Therion project is laid out the way the surveyor's other trips are ---------------
@@ -4499,7 +4478,7 @@ await page.screenshot({ path: join(shotDir, 'field-export-therion-options.png') 
 // The dialog's three switches are its last three rows: cross-sections, symbols, text. Wheeled to
 // the end first, because ten settings do not fit on a phone.
 await scrollSettingsToTheEnd()
-await at(...(await settingsSwitch(-3))); await page.waitForTimeout(300)
+await at(...(await settingRow('walls-square-to-next-leg'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 const th2WithoutSections = await savedExport()
@@ -4534,7 +4513,7 @@ if (therionSwitches !== 5) {
 } else {
   // Fifth from the end: stations in the first plan scrap, then the elevation's, then the three
   // that were already here — cross-sections, symbols, text.
-  await at(...(await settingsSwitch(-5))); await page.waitForTimeout(300)
+  await at(...(await settingRow('manual-entry'))); await page.waitForTimeout(300)
   await at(...(await settingsSave())); await page.waitForTimeout(900)
 
   const th2WithoutStations = await savedExport()
@@ -4558,14 +4537,14 @@ if (therionSwitches !== 5) {
   // Back on, for the same reason as everything else here.
   await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
   await scrollSettingsToTheEnd()
-  await at(...(await settingsSwitch(-5))); await page.waitForTimeout(300)
+  await at(...(await settingRow('manual-entry'))); await page.waitForTimeout(300)
   await at(...(await settingsSave())); await page.waitForTimeout(900)
 }
 
 // Put it back, for the same reason as above.
 await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
 await scrollSettingsToTheEnd()
-await at(...(await settingsSwitch(-3))); await page.waitForTimeout(300)
+await at(...(await settingRow('walls-square-to-next-leg'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 await at(...PLAN_TAB); await page.waitForTimeout(600)
@@ -4629,7 +4608,7 @@ if (grew.length > 0) {
 // splays either way, on a station that exists, at a bearing that really was measured.
 await at(...(await overflowButton())); await page.waitForTimeout(500)
 await at(...(await menuRow('manual-entry'))); await page.waitForTimeout(900)
-await at(...(await settingsSwitch(SWITCH_BOOK_PASSAGE_SIZE))); await page.waitForTimeout(300)
+await at(...(await settingRow('book-passage-size'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 /** Every station in the saved survey, by name, with how many splays hang off it. */
@@ -4689,7 +4668,7 @@ await at(...(await cardButton(CARD_CANCEL_X))); await page.waitForTimeout(600)
 // Put it back, so the dialogs checked after this one are the ones they were written for.
 await at(...(await overflowButton())); await page.waitForTimeout(500)
 await at(...(await menuRow('manual-entry'))); await page.waitForTimeout(900)
-await at(...(await settingsSwitch(SWITCH_BOOK_PASSAGE_SIZE))); await page.waitForTimeout(300)
+await at(...(await settingRow('book-passage-size'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 // ---- the manual entry button can be put away --------------------------------------------------
@@ -4727,7 +4706,7 @@ const withManualButton = await fieldBarInk()
 
 await at(...(await overflowButton())); await page.waitForTimeout(500)
 await at(...(await menuRow('manual-entry'))); await page.waitForTimeout(800)
-await at(...(await settingsSwitch(SWITCH_MANUAL_ENTRY))); await page.waitForTimeout(300)
+await at(...(await settingRow('manual-entry'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-no-manual-entry.png') })
 
@@ -4753,7 +4732,7 @@ if (!(withManualButton > 400)) {
 // Back on, because the checks below type readings.
 await at(...(await overflowButton())); await page.waitForTimeout(500)
 await at(...(await menuRow('manual-entry'))); await page.waitForTimeout(800)
-await at(...(await settingsSwitch(SWITCH_MANUAL_ENTRY))); await page.waitForTimeout(300)
+await at(...(await settingRow('manual-entry'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 
 // ---- a bearing can be typed the way a compass reads it ---------------------------------------
@@ -4768,8 +4747,8 @@ await at(...(await settingsSave())); await page.waitForTimeout(800)
 // what is typed into the three boxes reaches the survey as one angle.
 await at(...(await overflowButton())); await page.waitForTimeout(500)
 await at(...(await menuRow('manual-entry'))); await page.waitForTimeout(800)
-await at(...(await settingsSwitch(SWITCH_BEARINGS_IN_MINUTES))); await page.waitForTimeout(300)
-await at(...(await settingsSwitch(SWITCH_INCLINATIONS_IN_MINUTES)))
+await at(...(await settingRow('bearings-in-minutes'))); await page.waitForTimeout(300)
+await at(...(await settingRow('inclinations-in-minutes')))
 await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 
@@ -4808,8 +4787,8 @@ if (dmsSplays.length !== splaysBeforeDms + 1) {
 // Back to decimal, because every check below reads the ordinary card.
 await at(...(await overflowButton())); await page.waitForTimeout(500)
 await at(...(await menuRow('manual-entry'))); await page.waitForTimeout(800)
-await at(...(await settingsSwitch(SWITCH_BEARINGS_IN_MINUTES))); await page.waitForTimeout(300)
-await at(...(await settingsSwitch(SWITCH_INCLINATIONS_IN_MINUTES)))
+await at(...(await settingRow('bearings-in-minutes'))); await page.waitForTimeout(300)
+await at(...(await settingRow('inclinations-in-minutes')))
 await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 
