@@ -177,9 +177,16 @@ class TripDetailsTest {
         assertTrue(survex.startsWith("*begin Swildons"))
     }
 
+    /**
+     * `trip_role_*`: what each role *is*, not an abbreviation of it. This port had "Book", "Dog"
+     * and "Explo", which are three of the four the Android app spells out — and a caver who has
+     * not filled this screen in before cannot tell what "Dog" is a role for.
+     */
     @Test
-    fun roleLabelsAreReadable() {
+    fun roleLabelsAreTheAndroidAppsOwn() {
+        assertEquals("Book (drawing)", labelFor(Trip.Role.BOOK))
         assertEquals("Instruments", labelFor(Trip.Role.INSTRUMENTS))
-        assertEquals("Explo", labelFor(Trip.Role.EXPLORATION))
+        assertEquals("Dog (assistant)", labelFor(Trip.Role.DOG))
+        assertEquals("Explorer", labelFor(Trip.Role.EXPLORATION))
     }
 }

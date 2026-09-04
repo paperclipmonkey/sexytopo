@@ -510,7 +510,6 @@ private fun LegCommentDialog(
                         },
                     )
                 },
-                placeholder = { Text("Sump; do not follow") },
                 modifier = Modifier.fillMaxWidth().then(focus),
             )
         },

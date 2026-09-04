@@ -77,7 +77,7 @@ fun TripDetailsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Trip details") },
+        title = { Text(Strings.actionTrip) },
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
@@ -86,7 +86,7 @@ fun TripDetailsDialog(
                 OutlinedTextField(
                     value = date,
                     onValueChange = { date = it },
-                    label = { Text("Survey date") },
+                    label = { Text(Strings.tripSurveyDateLabel) },
                     singleLine = true,
                     isError = dateProblem != null,
                     supportingText = dateProblem?.let { { Text(it) } },
@@ -106,7 +106,7 @@ fun TripDetailsDialog(
                             if (!linked) explorationDate = date
                         },
                     )
-                    Text("Explored on the day it was surveyed")
+                    Text(Strings.tripSameAsSurveyDate)
                 }
                 if (!explorationDateLinked) {
                     Row(
@@ -116,7 +116,7 @@ fun TripDetailsDialog(
                         OutlinedTextField(
                             value = explorationDate,
                             onValueChange = { explorationDate = it },
-                            label = { Text("Exploration date") },
+                            label = { Text(Strings.tripExplorationDateLabel) },
                             singleLine = true,
                             isError = explorationDateProblem != null,
                             supportingText = explorationDateProblem?.let { { Text(it) } },
@@ -127,7 +127,7 @@ fun TripDetailsDialog(
                     }
                 }
 
-                Text("Team", style = MaterialTheme.typography.titleSmall)
+                Text(Strings.tripTeam, style = MaterialTheme.typography.titleSmall)
                 for ((index, member) in team.withIndex()) {
                     TeamMemberRow(
                         member = member,
@@ -139,11 +139,19 @@ fun TripDetailsDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // `trip_dialog_add_to_team_name_hint` and `trip_dialog_name_required`:
+                    // `TeamMemberForm.performValidation` refuses a blank name, and says so.
                     OutlinedTextField(
                         value = newMember,
                         onValueChange = { newMember = it },
-                        label = { Text("Add someone") },
+                        label = { Text(Strings.tripAddToTeamNameHint) },
                         singleLine = true,
+                        isError = newMember.isNotEmpty() && newMember.isBlank(),
+                        supportingText = {
+                            if (newMember.isNotEmpty() && newMember.isBlank()) {
+                                Text(Strings.tripNameRequired)
+                            }
+                        },
                         modifier = Modifier.weight(1f),
                     )
                     TextButton(
@@ -152,13 +160,13 @@ fun TripDetailsDialog(
                             team.add(Trip.TeamEntry(newMember.trim()))
                             newMember = ""
                         },
-                    ) { Text("Add") }
+                    ) { Text(Strings.add) }
                 }
 
                 OutlinedTextField(
                     value = instrument,
                     onValueChange = { instrument = it },
-                    label = { Text("Instrument") },
+                    label = { Text(Strings.tripInstrumentLabel) },
                     placeholder = { Text("DistoX2") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -166,13 +174,13 @@ fun TripDetailsDialog(
                 OutlinedTextField(
                     value = comments,
                     onValueChange = { comments = it },
-                    label = { Text("Trip comments") },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp),
+                    label = { Text(Strings.tripComments) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp),
                 )
                 OutlinedTextField(
                     value = copyrightHolder,
                     onValueChange = { copyrightHolder = it },
-                    label = { Text("Copyright holder") },
+                    label = { Text(Strings.tripCopyrightLabel) },
                     placeholder = { Text("Your caving club") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -185,7 +193,7 @@ fun TripDetailsDialog(
                         // field is the unanswered state, and "No licence" is its own chip.
                         if (it.isNotBlank()) isLicenceChosen = true
                     },
-                    label = { Text("Licence") },
+                    label = { Text(Strings.tripLicenceLabel) },
                     placeholder = { Text("CC-BY-SA-4.0") },
                     singleLine = true,
                     isError = !isLicenceChosen,
@@ -268,9 +276,9 @@ fun TripDetailsDialog(
                     survey.isSaved = false
                     onSaved()
                 },
-            ) { Text("Save") }
+            ) { Text(Strings.save) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
     )
 }
 
@@ -312,13 +320,16 @@ private fun TeamMemberRow(
     }
 }
 
-/** Sentence case rather than the file format's shouting. */
+/**
+ * `trip_role_book` and its three siblings, which say what each role *is* rather than abbreviating
+ * it: a caver who has not filled this screen in before does not know what "Book" or "Dog" means.
+ */
 internal fun labelFor(role: Trip.Role): String =
     when (role) {
-        Trip.Role.BOOK -> "Book"
-        Trip.Role.INSTRUMENTS -> "Instruments"
-        Trip.Role.DOG -> "Dog"
-        Trip.Role.EXPLORATION -> "Explo"
+        Trip.Role.BOOK -> Strings.tripRoleBook
+        Trip.Role.INSTRUMENTS -> Strings.tripRoleInstruments
+        Trip.Role.DOG -> Strings.tripRoleDog
+        Trip.Role.EXPLORATION -> Strings.tripRoleExploration
     }
 
 /**

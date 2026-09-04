@@ -103,7 +103,8 @@ fun CrossSectionEditor(
     var brushColour by remember(detail) { mutableStateOf(working.activeColour) }
     var menuOpen by remember(detail) { mutableStateOf(false) }
 
-    val scene = remember(detail, revision) { SurveyScene.forCrossSection(detail, working) }
+    val scene =
+        remember(detail, revision) { SurveyScene.forCrossSection(detail, working, survey) }
 
     fun pickColour(colour: Colour) {
         brushColour = colour

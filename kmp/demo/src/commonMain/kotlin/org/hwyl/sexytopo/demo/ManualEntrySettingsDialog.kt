@@ -56,14 +56,15 @@ fun ManualEntrySettingsDialog(
                     onCheckedChange = { manualControls = it },
                 )
 
-                // Disabled rather than hidden when there's no hand-typed reading to put it in:
-                // a row that vanishes is one nobody can find again to see why it did nothing.
+                // `preferences_manual_data_entry.xml` declares no `android:dependency` between
+                // these two, and the LRUD fields reach more than the hand-typed reading dialog —
+                // the station menu's own passage-size face uses them too. Greying it out with
+                // *Manual Data Controls* off was this port's invention, and a wrong one.
                 Toggle(
                     title = Strings.settingsLrudFieldsTitle,
                     detail = Strings.settingsLrudFieldsSummary,
                     checked = lrudFields,
                     onCheckedChange = { lrudFields = it },
-                    enabled = manualControls,
                 )
 
                 // `pref_lrud_direction`: the Android app reads this key but declares it nowhere,

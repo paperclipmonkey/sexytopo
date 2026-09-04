@@ -1030,7 +1030,15 @@ class SurveyScene private constructor(
          * @param working the sketch being edited, which is a copy of the section's own — see
          *   [Sketch.copy].
          */
-        fun forCrossSection(detail: CrossSectionDetail, working: Sketch): SurveyScene {
+        fun forCrossSection(
+            detail: CrossSectionDetail,
+            working: Sketch,
+            /**
+             * The survey the section belongs to, for the legend line `CrossSectionView` draws.
+             * Null draws no legend, which is what a caller with nothing to name wants.
+             */
+            survey: Survey? = null,
+        ): SurveyScene {
             val projection = detail.crossSection.getProjection()
             val station = detail.station
             // Every splay in a cross-section radiates from the station this view is centred on,
@@ -1052,11 +1060,14 @@ class SurveyScene private constructor(
                 splays = splays,
                 sketch = working,
                 activeStationName = station.name,
-                // No comment icon or survey name in brackets: those belong to the plan, not to
-                // the profile of the passage at this station.
+                // No comment icon, and no "(survey name)" after the origin's own label: those
+                // belong to the plan, not to the profile of the passage at this station. The
+                // legend line below is a different thing, and `CrossSectionView` does draw it.
                 commentedStations = emptySet(),
                 originName = "",
-                surveyName = "",
+                surveyName = survey?.name ?: "",
+                surveyLength = survey?.let(SurveyStats::totalLength) ?: 0f,
+                surveyHeight = survey?.let(SurveyStats::heightRange) ?: 0f,
                 bounds = crossSectionFitBounds(splays),
                 surveyBounds = Bounds.of(points),
             )
@@ -1249,6 +1260,12 @@ private const val ERASER_INSET_DP = 40f
 
 /** The faint metre grid. */
 private const val GRID_STROKE_DP = 1f
+
+/** `gridPaint.setStrokeWidth(... ? 3 : 1)`: what every tenth line is drawn at. */
+private const val MAJOR_GRID_STROKE_DP = 3f
+
+/** `GraphView.BOX_SIZE`: "every grid box is 10 units square". */
+private const val GRID_BOX_LINES = 10
 
 /** The scale bar: the rule itself, its two end ticks, and where its label sits. */
 private const val SCALE_BAR_TARGET_DP = 120f
@@ -1553,19 +1570,27 @@ private fun DrawScope.drawGrid(viewport: SketchViewport, palette: Palette) {
     val rows = (bottomRight.y - topLeft.y) / spacing
     if (!columns.isFinite() || !rows.isFinite() || columns > 400f || rows > 400f) return
 
-    val gridStroke = GRID_STROKE_DP.dp.toPx()
-    var x = floor(topLeft.x / spacing) * spacing
-    while (x <= bottomRight.x) {
-        val screenX = viewport.toScreen(Coord2D(x, topLeft.y)).x
-        drawLine(palette.grid, Offset(screenX, 0f), Offset(screenX, size.height), gridStroke)
-        x += spacing
+    val minor = GRID_STROKE_DP.dp.toPx()
+    val major = MAJOR_GRID_STROKE_DP.dp.toPx()
+
+    // `drawGrid` widens every tenth line: `gridPaint.setStrokeWidth(n % BOX_SIZE == 0 ? 3 : 1)`,
+    // where n is the line's ordinal in survey coordinates, not its position on screen. That is
+    // what makes the paper read as ten-metre boxes divided into metres rather than as an
+    // undifferentiated mesh — and it is what tells a surveyor the scale at a glance.
+    var line = floor(topLeft.x / spacing)
+    while (line * spacing <= bottomRight.x) {
+        val screenX = viewport.toScreen(Coord2D(line * spacing, topLeft.y)).x
+        val stroke = if (line.toInt() % GRID_BOX_LINES == 0) major else minor
+        drawLine(palette.grid, Offset(screenX, 0f), Offset(screenX, size.height), stroke)
+        line += 1f
     }
 
-    var y = floor(topLeft.y / spacing) * spacing
-    while (y <= bottomRight.y) {
-        val screenY = viewport.toScreen(Coord2D(topLeft.x, y)).y
-        drawLine(palette.grid, Offset(0f, screenY), Offset(size.width, screenY), gridStroke)
-        y += spacing
+    line = floor(topLeft.y / spacing)
+    while (line * spacing <= bottomRight.y) {
+        val screenY = viewport.toScreen(Coord2D(topLeft.x, line * spacing)).y
+        val stroke = if (line.toInt() % GRID_BOX_LINES == 0) major else minor
+        drawLine(palette.grid, Offset(0f, screenY), Offset(size.width, screenY), stroke)
+        line += 1f
     }
 }
 
@@ -2001,7 +2026,12 @@ private fun DrawScope.drawSurvey(
         }
     }
 
-    if (tool == SketchTool.ERASE) {
+    // `CrossSectionView.onDraw` is `drawGrid`, `drawSurvey`, `drawLegend` — and nothing else. No
+    // hot corners, and no eraser ring: there is one station and its wall shots in here, and the
+    // corners of a section drawn at four metres across are inside the passage.
+    val isCrossSection = projection == Projection2D.CROSS_SECTION
+
+    if (tool == SketchTool.ERASE && !isCrossSection) {
         // The eraser's real reach, drawn at the size a tap would actually clear.
         drawCircle(
             palette.station,
@@ -2013,7 +2043,7 @@ private fun DrawScope.drawSurvey(
 
     // Last, so they sit on top of the drawing rather than under it: a corner you cannot see
     // because a passage wall is drawn across it is a corner that will eat a stroke.
-    if (options.hotCorners) {
+    if (options.hotCorners && !isCrossSection) {
         drawHotCorners(modalMoving, palette)
     }
 
@@ -2115,8 +2145,9 @@ private fun DrawScope.drawLegend(
 
     // `offsetX`/`offsetY`, both `legendSize * 1.25`, so a bigger legend moves further in.
     val inset = textSize * 1.25f
-    // A cross-section has no survey name and no length of its own, and `CrossSectionView` draws
-    // no legend either — so nothing is drawn rather than "  L0 V0".
+    // `CrossSectionView.onDraw` calls `drawLegend` as the plan's does, so the section's editor
+    // carries the same line — it is the only thing on that screen naming the cave. Guarded on the
+    // name only so a scene built without one draws nothing rather than "  L0 V0".
     if (scene.surveyName.isNotEmpty()) {
         val label =
             scene.surveyName +

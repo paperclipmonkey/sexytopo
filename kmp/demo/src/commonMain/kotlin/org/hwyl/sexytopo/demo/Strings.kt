@@ -380,6 +380,24 @@ object Strings {
     fun deleteSurveyContent(name: String): String =
         fileDeleteSurveyContent.replace("%1\$s", name)
 
+    // -- Trip details ---------------------------------------------------------------------
+
+    val tripTeam = s("trip_team", "Team")
+    val tripComments = s("trip_comments", "Comments")
+    val tripRoleBook = s("trip_role_book", "Book (drawing)")
+    val tripRoleInstruments = s("trip_role_instruments", "Instruments")
+    val tripRoleDog = s("trip_role_dog", "Dog (assistant)")
+    val tripRoleExploration = s("trip_role_exploration", "Explorer")
+    val tripInstrumentLabel = s("trip_instrument_label", "Instrument")
+    val tripSurveyDateLabel = s("trip_survey_date_label", "Survey Date")
+    val tripExplorationDateLabel = s("trip_exploration_date_label", "Exploration Date")
+    val tripSameAsSurveyDate = s("trip_same_as_survey_date", "Same as survey date")
+    val tripCopyrightLabel = s("trip_copyright_label", "Copyright holder")
+    val tripLicenceLabel = s("trip_licence_label", "Licence")
+    val tripAddToTeamTitle = s("trip_dialog_title_add_to_team", "Add to Team")
+    val tripAddToTeamNameHint = s("trip_dialog_add_to_team_name_hint", "Name")
+    val tripNameRequired = s("trip_dialog_name_required", "Name is required")
+
     // -- Manual entry ---------------------------------------------------------------------
 
     val manualAddStationTitle = s("manual_add_station_title", "Add Station")
