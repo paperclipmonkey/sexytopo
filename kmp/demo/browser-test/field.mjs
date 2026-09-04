@@ -1933,6 +1933,11 @@ const STATION_ONE = [140, 712]
 // of what is left of the drag bar rather than the middle of the bar, and the check that the bar
 // follows its section fails by exactly half of what the frame overhangs.
 const SECTION_GOES_HERE = [180, 520]
+const SECTION_PARKED = [210, 660]
+// And where it is parked afterwards, which is where every check below this reaches for it. The two
+// are different on purpose: a section is drawn inside a frame two hundred and seventy pixels
+// across, and a frame round the parking place covers station 1 — so the long press that re-aims it
+// would land on the section rather than on the station whose menu it needs.
 
 await longPress(STATION_ONE)
 await at(...(await stationMenuRow(await planStationMenuFor('1'), 'cross-section-create')))
@@ -2138,11 +2143,25 @@ if (!grip) {
     fail(`the drag bar stayed where the section used to be (${grip} then ${movedGrip})`)
   } else {
     pass('the drag bar follows the section it belongs to')
-    // Put it back where the rest of the checks expect to find it — by the bar, which is the
-    // gesture being tested, so the restoring drag is a second run of it.
+    // Put it back where it was — by the bar, which is the gesture being tested, so the restoring
+    // drag is a second run of it.
     await drag([movedGrip[0], movedGrip[1]], [movedGrip[0] - 70, movedGrip[1] + 60])
     await page.waitForTimeout(900)
   }
+}
+
+// And then park it where the rest of this file expects to find it: hiding it, tapping through it
+// and opening its editor are all done by coordinate, and those were measured with the section
+// here. Moved by its own bar, which is the only thing that moves one.
+const parkingGrip = await handleSpot()
+if (parkingGrip === null) {
+  fail('the section could not be parked, because its drag bar was not found')
+} else {
+  await drag(parkingGrip, [
+    parkingGrip[0] + SECTION_PARKED[0] - SECTION_GOES_HERE[0],
+    parkingGrip[1] + SECTION_PARKED[1] - SECTION_GOES_HERE[1],
+  ])
+  await page.waitForTimeout(900)
 }
 
 // ---- and taken off the drawing altogether ------------------------------------------------
@@ -2179,15 +2198,15 @@ const inkAround = async (span) => {
   }, [b64, span])
 }
 
-// A tight box round where the section now sits — `SECTION_GOES_HERE`, which the drag-bar check
-// above put back after borrowing it. Tight because at this point in the run the section is only
-// its centre dot and the frame drawn round it: it was dropped at a station whose wall shots are
-// not booked until much later, so it has no arms to draw yet.
+// A tight box round where the section now sits — `SECTION_PARKED`, which the drag bar put it at.
+// Tight because at this point in the run the section is only its centre dot: it was dropped at a
+// station whose wall shots are not booked until much later, so it has no arms to draw yet, and the
+// whole of it is twenty pixels across.
 const sectionPatch = () => [
-  SECTION_GOES_HERE[0] - 10,
-  SECTION_GOES_HERE[1] - 12,
-  SECTION_GOES_HERE[0] + 10,
-  SECTION_GOES_HERE[1] + 12,
+  SECTION_PARKED[0] - 16,
+  SECTION_PARKED[1] - 8,
+  SECTION_PARKED[0] + 4,
+  SECTION_PARKED[1] + 16,
 ]
 // The purple of the "Add reading" pill, sampled off the pill rather than off the white lettering
 // across the middle of it.
@@ -2234,7 +2253,7 @@ const fieldBarIsShowing = async () => {
   }, [b64, FIELD_BAR_PILL])
 }
 
-await at(...SECTION_GOES_HERE); await page.waitForTimeout(900)
+await at(...SECTION_PARKED); await page.waitForTimeout(900)
 if (!(await fieldBarIsShowing())) {
   fail('a tap on a hidden cross-section opened its editor anyway')
 } else {
@@ -2248,7 +2267,7 @@ await toggleOption('show-xsections')
 // A star of splays is not a passage; the outline drawn round it is what makes it one. Tapping a
 // section opens its own editor, exactly as the Android app's does from any tool but pan and erase.
 await at(...toolCell(1)); await page.waitForTimeout(400)
-await at(...SECTION_GOES_HERE); await page.waitForTimeout(1000)
+await at(...SECTION_PARKED); await page.waitForTimeout(1000)
 await page.screenshot({ path: join(shotDir, 'field-cross-section-editor.png') })
 
 const subSketchPaths = async () => {
@@ -2278,7 +2297,7 @@ if ((await subSketchPaths()) < 2) {
 // at all, these strokes would have landed on the *plan* instead — which is exactly the failure the
 // first version of this check could not tell apart from a working cancel.
 const planPathsBefore = await planPaths()
-await at(...SECTION_GOES_HERE); await page.waitForTimeout(1000)
+await at(...SECTION_PARKED); await page.waitForTimeout(1000)
 await drag([120, 300], [300, 300]); await page.waitForTimeout(400)
 await at(...EDITOR_CANCEL()); await page.waitForTimeout(1000)
 
@@ -2298,7 +2317,7 @@ if ((await subSketchPaths()) !== 2) {
 // then zoom-in, because `disableUnsupportedTools` takes away *Select* and nothing else.
 const CROSS_SECTION_COLOUR_ROW_Y = box.height - 60
 const crossSectionColourCell = (index) => [(box.width / 9) * (index + 0.5), CROSS_SECTION_COLOUR_ROW_Y]
-await at(...SECTION_GOES_HERE); await page.waitForTimeout(1000)
+await at(...SECTION_PARKED); await page.waitForTimeout(1000)
 await at(...crossSectionColourCell(3)); await page.waitForTimeout(400) // red
 await drag([120, 330], [300, 330]); await page.waitForTimeout(400)
 await at(...EDITOR_DONE()); await page.waitForTimeout(1000)
