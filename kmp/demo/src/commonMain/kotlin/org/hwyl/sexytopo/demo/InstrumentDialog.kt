@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
 
@@ -130,7 +131,11 @@ fun InstrumentDialog(state: DemoState, onDismiss: () -> Unit) {
                 ) { Text(Strings.titleActivityDevice) }
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.close) } },
+        dismissButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag(INSTRUMENT_CLOSE)) {
+                Text(Strings.close)
+            }
+        },
     )
 }
 
@@ -148,3 +153,6 @@ internal fun status(state: DemoState): String {
 
 /** Often enough that a fifteen-second timeout lands within a second of when it should. */
 internal const val TICK_MILLIS = 500L
+
+/** The instrument dialog's Close, by name, for the browser tests. */
+const val INSTRUMENT_CLOSE: String = "instrument-close"
