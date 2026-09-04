@@ -1835,12 +1835,7 @@ if (!namedControls.some((n) => n.startsWith('#overflow'))) {
 }
 
 // The app bar and the toolbar, taken down now, for the reason `rememberChrome` gives.
-await rememberChrome(
-  '#overflow',
-  '#symbol-tool',
-  '#drawing-menu',
-  labelled('sketch_toolbar_zoom_out'),
-)
+await rememberChrome('#overflow', '#symbol-tool', '#drawing-menu')
 
 // ---- the app opens on the demo cave, and offers a way out of it ------------------------
 // The first screen a new surveyor sees is an example survey that is deliberately never saved.
@@ -2869,9 +2864,15 @@ await toggleOption('show-xsections')
 // needs one. Zoom out until there is, which is what a surveyor looking for one would do.
 //
 // Not merely on the paper: reachable. A station drawn against the bottom edge of the sketch is
-// half off it, so the mean of its cross sits above where the station actually is and the press
-// misses — which is what "holding a station did not open its menu (pressed [131,759])" was. A
-// finger's width of margin is what a surveyor would want too.
+// half off it, so the mean of its cross sits above where the station actually is, and a press
+// aimed at the mean can miss the station entirely. A finger's width of margin is what a surveyor
+// would want too.
+//
+// Best effort, not a precondition: `zoomOut` is 0.9 of the scale a tap, which the app can refuse
+// at the limits, and a station that is on the paper at all is usually pressable. So the loop says
+// what each tap did and then the check goes ahead with wherever the station ended up — a press
+// that lands on nothing is reported by the menu that does not open, which is a more useful
+// sentence than this one refusing to try.
 const REACHABLE_MARGIN = 40
 const reachable = (spot) =>
   spot !== null &&
@@ -2879,17 +2880,22 @@ const reachable = (spot) =>
   spot[0] < box.width - REACHABLE_MARGIN &&
   spot[1] > sketchTop + REACHABLE_MARGIN &&
   spot[1] < sketchBottom - REACHABLE_MARGIN
-for (let i = 0; i < 5; i++) {
-  if (reachable((await stationSpots(sketchTop, sketchBottom)).other)) break
-  await at(...chrome(labelled('sketch_toolbar_zoom_out')))
-  await page.waitForTimeout(500)
+// The sketch toolbar's last cell — `buttonZoomOut`, the same arithmetic every other tap on that
+// row uses.
+const TOOL_ZOOM_OUT = 8
+let spots = await stationSpots(sketchTop, sketchBottom)
+for (let i = 0; i < 6 && !reachable(spots.other); i++) {
+  await at(...toolCell(TOOL_ZOOM_OUT))
+  await page.waitForTimeout(600)
+  const after = await stationSpots(sketchTop, sketchBottom)
+  console.log(
+    `      zoomed out: ${JSON.stringify(spots.other)} -> ${JSON.stringify(after.other)} ` +
+      `(sketch ${sketchTop}..${sketchBottom})`)
+  spots = after
 }
 
-const spots = await stationSpots(sketchTop, sketchBottom)
-if (!reachable(spots.other)) {
-  fail(
-    'could not get a station that is not the active one far enough onto the plan to press ' +
-      `(${JSON.stringify(spots)})`)
+if (!spots.other) {
+  fail(`could not find a station on the plan that is not the active one (${JSON.stringify(spots)})`)
 } else {
   const activeBefore = await page.evaluate(() => {
     const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
@@ -2897,6 +2903,7 @@ if (!reachable(spots.other)) {
   })
   const strokesBefore = await planStrokes()
 
+  await page.screenshot({ path: join(shotDir, 'field-station-before-hold.png') })
   await longPress(spots.other)
   await page.screenshot({ path: join(shotDir, 'field-station-menu.png') })
 
