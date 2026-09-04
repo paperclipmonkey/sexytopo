@@ -37,7 +37,7 @@ fun InstrumentDialog(state: DemoState, onDismiss: () -> Unit) {
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Instrument") },
+        title = { Text(Strings.actionDevice) },
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
@@ -127,10 +127,10 @@ fun InstrumentDialog(state: DemoState, onDismiss: () -> Unit) {
                 TextButton(
                     enabled = chosen != null,
                     onClick = { chosen?.let { session.useInstrument(it) } },
-                ) { Text("Connect") }
+                ) { Text(Strings.titleActivityDevice) }
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.close) } },
     )
 }
 

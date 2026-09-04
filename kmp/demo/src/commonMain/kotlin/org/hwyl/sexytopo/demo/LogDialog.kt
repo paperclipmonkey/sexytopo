@@ -103,7 +103,7 @@ fun LogDialog(
                         onClear()
                         copied = null
                     },
-                ) { Text("Clear") }
+                ) { Text(Strings.clear) }
                 TextButton(onClick = onDismiss) { Text("Close") }
             }
         },

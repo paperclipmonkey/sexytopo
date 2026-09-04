@@ -106,6 +106,32 @@ object Strings {
     val cancel = s("cancel", "Cancel")
     val delete = s("delete", "Delete")
     val save = s("save", "Save")
+    val clear = s("clear", "Clear")
+    val appName = s("app_name", "SexyTopo")
+
+    /** The device screen's own title, which this port's connect button says. */
+    val titleActivityDevice = s("title_activity_device", "Connect")
+
+    /** `symbol_text`: the label tool's entry in the symbol strip, and the label box's own label. */
+    val symbolText = s("symbol_text", "Text")
+
+    val tripClearDate = s("trip_clear_date", "Clear date")
+    val tripLicenceNone = s("trip_licence_none", "No licence")
+
+    // `activity_calibration.xml`'s buttons, in the order it lays them out.
+    val calibrationStart = s("calibration_start", "Disto Cal Mode On")
+    val calibrationStop = s("calibration_stop", "Disto Cal Mode Off")
+    val calibrationDeleteLast = s("calibration_delete_last", "Delete Reading")
+    val calibrationUpdate = s("calibration_update", "Write")
+
+    // `activity_stats.xml`, in its order. The unit is in the label, not the number.
+    val statsLength = s("stats_length", "Length (m)")
+    val statsVerticalRange = s("stats_vertical_range", "Vertical Range (m)")
+    val statsNumberStations = s("stats_number_stations", "Number of Stations")
+    val statsNumberLegs = s("stats_number_legs", "Number of Legs")
+    val statsNumberSplays = s("stats_number_splays", "Number of Splays")
+    val statsLongestLeg = s("stats_longest_leg", "Longest Leg (m)")
+    val statsShortestLeg = s("stats_shortest_leg", "Shortest Leg (m)")
     val add = s("add", "Add")
     val station = s("station", "Station")
     val leg = s("leg", "Leg")

@@ -227,8 +227,8 @@ fun SvgExportDialog(
                         ),
                     )
                 },
-            ) { Text("Save") }
+            ) { Text(Strings.save) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
     )
 }

@@ -123,7 +123,7 @@ fun TripDetailsDialog(
                             modifier = Modifier.weight(1f),
                         )
                         // `clear_exploration_date_button`: back to "not recorded", not to linked.
-                        TextButton(onClick = { explorationDate = "" }) { Text("Clear") }
+                        TextButton(onClick = { explorationDate = "" }) { Text(Strings.tripClearDate) }
                     }
                 }
 
@@ -219,7 +219,7 @@ fun TripDetailsDialog(
                             licence = ""
                             isLicenceChosen = true
                         },
-                        label = { Text("No licence") },
+                        label = { Text(Strings.tripLicenceNone) },
                     )
                     for (option in Licence.entries) {
                         FilterChip(

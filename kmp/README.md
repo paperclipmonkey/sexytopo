@@ -3624,6 +3624,58 @@ These are the things that would actually shape a real port.
    and `BLUETOOTH_CONNECT` are declared and never *requested* at runtime, so on Android 12 and
    later the scan finds nothing and explains nothing.
 
+107. **Are we there? A third sweep, this time of what the buttons *do*, and the sweeps turned into
+   tests.** Finding 106 checked that every menu item and preference existed. This one read the
+   handlers: `SexyTopoActivity.onOptionsItemSelected`, `GraphActivity.handleAction` and
+   `onMenuItemClick`, `TableActivity.onRowClick` and `onRowLongClick`, the calibration, device,
+   trip, stats and 3D activities, and every `draw*` in `GraphView` — against what this port does
+   for the same tap.
+
+   The honest answer is *nearly*, and the remainder is written down. What the buttons do matches
+   in every case checked but three. Two are small and are now the same: the Android toolbar
+   buzzes on every press — `handleAction` opens with `performHapticFeedback(VIRTUAL_KEY)` before
+   it looks at which button it is — and this port's did not, which on a phone in a wet glove is
+   the difference between knowing a tap landed and wondering; and nineteen pieces of wording were
+   typed inline where `strings.xml` already had a name for them (*Close*, *Cancel*, *Save* on a
+   handful of dialogs, and the whole calibration screen saying *Start*, *Stop*, *Undo* where the
+   app says *Disto Cal Mode On*, *Disto Cal Mode Off*, *Delete Reading*; the stats screen saying
+   *Depth* against *Vertical Range (m)*, with the unit on the number instead of in the label, and
+   no thousands separator where `TextTools.formatTo2dpWithComma` puts one). The third is real and
+   remains: a connected instrument adds its own commands to the Instrument menu at runtime —
+   *Laser On*, *Take Shot*, *Device Off*, the DistoX's silent mode, the BRIC's power-off and
+   clear-memory — through `getCustomCommands`, and this port carries only the DistoX family's
+   calibration. It is the one menu the Android app builds from code rather than XML, which is why
+   no XML sweep found it; and it wants an instrument in hand to do properly, which is the same
+   thing everything else about the transports wants.
+
+   Two more things checked and found to match, recorded so nobody checks them again: picking a
+   colour switches a tool that does not use one to the pencil (`pickColour` does what
+   `handleAction`'s colour loop does); and hiding the sketch disables every drawing button and
+   drops the tool to *Move* (`setSketchButtonsStatus`, mirrored in `SketchToolbar`). The
+   cross-section editor hides *Select* here because the app does (`toolsToHide`). The 3D screen
+   has two buttons the app's has none of, on purpose, and says so where they are drawn.
+
+   On *near-perfect UI replication*: the geometry is the app's — a nine-column toolbar of 40dp
+   buttons over a colour row, the selected one tinted with `buttonHighlight`, the app bar in
+   `panelBackground`, the same swatch PNGs and symbol artwork — and `ColourParityTest` now holds
+   every colour in the theme to a value in `colors.xml` or `values-night/colors.xml`, which found
+   one the port had invented (a night hot-corner colour, kept and listed). What is not replicated
+   is the widget kit: this is Material 3 where the app is AppCompat, so a dialog's corner radius,
+   a switch's shape and the ripple are Compose's. Nobody should mistake it for a pixel-identical
+   port and it does not claim to be one.
+
+   And the sweeps are tests now, because a sweep that finds things is a test that has not been
+   written. `MenuParityTest` reads every XML file under `res/menu/` and requires each visible item
+   to be *shown* by a composable — not merely mirrored in `Strings.kt`, which was the loophole
+   *Restore Autosave* fell through: mirrored, offered nowhere, and counted as present by a search
+   for its wording. Its exceptions are listed with a reason each, and a second test insists every
+   exception still names a real Android item. `AndroidStringsTest` gained the general form of its
+   own blacklist: any `Text("…")` whose wording `strings.xml` already names fails, which is how the
+   nineteen above were found and how the twentieth will be. `AndroidManifestTest` (finding 106)
+   and `ColourParityTest` round out the set. What none of them can do is watch a phone — the
+   on-screen keyboard, the compass, the buzz — and the honest list of what wants a device is in
+   the previous three findings.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3775,7 +3827,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 799
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 495 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 501 over the UI's own
 logic, 20 running the iOS half in a simulator,
 121 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The

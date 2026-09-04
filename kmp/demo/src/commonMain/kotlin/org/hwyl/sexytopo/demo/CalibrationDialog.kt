@@ -118,11 +118,11 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
                                     "This instrument cannot be calibrated from the app"
                                 }
                         },
-                    ) { Text("Start") }
+                    ) { Text(Strings.calibrationStart) }
                     TextButton(
                         enabled = session.calibrating,
                         onClick = { session.stopCalibration() },
-                    ) { Text("Stop") }
+                    ) { Text(Strings.calibrationStop) }
                     TextButton(
                         enabled = session.calibrating,
                         onClick = { session.simulateCalibrationReading() },
@@ -130,7 +130,7 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
                     TextButton(
                         enabled = run.count > 0,
                         onClick = { session.deleteLastCalibrationReading() },
-                    ) { Text("Undo") }
+                    ) { Text(Strings.calibrationDeleteLast) }
                     TextButton(
                         enabled = run.count > 0,
                         onClick = {
@@ -138,7 +138,7 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
                             result = null
                             written = 0
                         },
-                    ) { Text("Clear") }
+                    ) { Text(Strings.clear) }
                 }
 
                 HorizontalDivider()
@@ -209,7 +209,7 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
                     TextButton(
                         enabled = quality != CalibrationQuality.DID_NOT_SETTLE,
                         onClick = { written = session.writeCalibration(fitted) },
-                    ) { Text("Write to instrument") }
+                    ) { Text(Strings.calibrationUpdate) }
                     if (written > 0) {
                         Text(
                             "$written coefficient blocks written",
@@ -229,7 +229,7 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
                     if (session.calibrating) session.stopCalibration()
                     onDismiss()
                 },
-            ) { Text("Close") }
+            ) { Text(Strings.close) }
         },
     )
 }

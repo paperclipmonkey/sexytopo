@@ -139,14 +139,14 @@ fun ManualReadingDialog(
                 TextButton(
                     enabled = parsed.leg != null,
                     onClick = { parsed.leg?.let { onAdd(it, true, emptyList()) } },
-                ) { Text("Add splay") }
+                ) { Text(Strings.manualAddSplayTitle) }
                 TextButton(
                     enabled = parsed.leg != null,
                     onClick = { parsed.leg?.let { onAdd(it, false, lrud.toList()) } },
                 ) { Text("Add leg") }
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
     )
 }
 

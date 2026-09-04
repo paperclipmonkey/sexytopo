@@ -39,7 +39,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.demo.resources.Res
 import org.hwyl.sexytopo.demo.resources.black
@@ -538,6 +540,7 @@ fun ToolbarButton(
     darkMode: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val haptics = LocalHapticFeedback.current
     Box(
         modifier
             .height(SexyTopoDimens.TOOLBAR_BUTTON_HEIGHT_DP.dp)
@@ -545,7 +548,13 @@ fun ToolbarButton(
                 // `buttonHighlight`, the colour `selectSketchTool` tints the background with.
                 if (selected) Modifier.background(highlightFor(darkMode)) else Modifier,
             )
-            .clickable(enabled = enabled, onClick = onClick)
+            .clickable(enabled = enabled) {
+                // `handleAction` starts with `performHapticFeedback(VIRTUAL_KEY)`, before it has
+                // looked at which button this is: every press on the toolbar is felt, which on
+                // a phone held in a wet glove is how the surveyor knows it registered.
+                haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                onClick()
+            }
             .padding(6.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -606,6 +615,7 @@ internal fun RowScope.ColourButton(
             else -> painterResource(Res.drawable.purple)
         }
 
+    val haptics = LocalHapticFeedback.current
     Box(
         modifier
             .height(SexyTopoDimens.TOOLBAR_BUTTON_HEIGHT_DP.dp)
@@ -615,7 +625,12 @@ internal fun RowScope.ColourButton(
                 // swatch instead, which is not what the app looks like.
                 if (selected) Modifier.background(highlightFor(darkMode)) else Modifier,
             )
-            .clickable(enabled = enabled, onClick = onClick)
+            .clickable(enabled = enabled) {
+                // The same `VIRTUAL_KEY` buzz as every other toolbar button; a colour goes
+                // through `handleAction` too.
+                haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                onClick()
+            }
             .padding(6.dp),
         contentAlignment = Alignment.Center,
     ) {

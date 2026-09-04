@@ -114,6 +114,48 @@ class AndroidStringsTest {
             "use Strings.kt so the wording stays the Android app's",
         )
     }
+
+    /**
+     * The general form of the check above, which a blacklist cannot be: any text typed straight
+     * into a composable that `strings.xml` already has a name for.
+     *
+     * The list above was written after the fact and could only ever catch a reversion. This reads
+     * every `Text("…")` in the Compose sources and asks whether the Android app has that exact
+     * wording as a resource — and if it does, the resource is what should be typed, so a rename
+     * upstream reaches here. It found nineteen on the day it was written: *Close* on three
+     * dialogs, *Cancel* on five, and the calibration screen's buttons saying *Start* and *Stop*
+     * where the app says *Disto Cal Mode On* and *Off*.
+     *
+     * Case-insensitive, because "Add splay" against the app's "Add Splay" is exactly the drift
+     * this is for. Only `Text(` literals: a content description or a test tag is not wording.
+     */
+    @Test
+    fun noComposableTypesWordingTheAndroidAppAlreadyNames() {
+        // Plain strings only: an array item is a value in a picker, not wording of its own.
+        val byWording =
+            declared.entries.filter { '[' !in it.key }.groupBy({ it.value.lowercase() }, { it.key })
+        val literal = Regex("""\bText\(\s*"([^"${'$'}]{2,60})"""")
+
+        val offences =
+            File("src/commonMain/kotlin/org/hwyl/sexytopo/demo")
+                .walkTopDown()
+                .filter { it.extension == "kt" && it.name != "Strings.kt" }
+                .flatMap { source ->
+                    literal.findAll(source.readText()).mapNotNull { match ->
+                        val typed = match.groupValues[1]
+                        byWording[typed.lowercase()]?.let { names ->
+                            "${source.name} types \"$typed\", which strings.xml calls ${names.first()}"
+                        }
+                    }
+                }
+                .toList()
+
+        assertEquals(
+            emptyList(),
+            offences.sorted(),
+            "the Android app already has a name for this wording; mirror it in Strings.kt",
+        )
+    }
 }
 
 /**

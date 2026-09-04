@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.dp
 fun AboutDialog(onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("SexyTopo") },
+        title = { Text(Strings.appName) },
         text = {
             // Material clips a dialog that doesn't fit rather than shrinking it.
             Column(
@@ -46,7 +46,7 @@ fun AboutDialog(onDismiss: () -> Unit) {
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(Strings.ok) } },
     )
 }
 
