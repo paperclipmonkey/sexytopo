@@ -27,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.Dp
@@ -447,6 +448,11 @@ data class AngleEntry(
  * downward shot would be untypable. [KeyboardType.Decimal] rather than [KeyboardType.Number] for
  * the same reason: `Number` maps to iOS `numberPad`, which has no decimal point either.
  */
+/** What the three reading boxes answer to, wherever a dialog lays them out. */
+const val READING_DISTANCE: String = "reading-distance"
+const val READING_AZIMUTH: String = "reading-azimuth"
+const val READING_INCLINATION: String = "reading-inclination"
+
 @Composable
 fun ReadingFields(
     distance: String,
@@ -463,12 +469,17 @@ fun ReadingFields(
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (azimuthInDms) {
-            ReadingField(distance, onDistance, Strings.manualEditDistance)
+            ReadingField(distance, onDistance, Strings.manualEditDistance, tag = READING_DISTANCE)
             DmsFields(Strings.manualEditAzimuthDms, azimuth, onAzimuth, signed = false)
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ReadingField(distance, onDistance, Strings.manualEditDistance)
-                ReadingField(azimuth, onAzimuth, Strings.manualEditAzimuth)
+                ReadingField(
+                    distance,
+                    onDistance,
+                    Strings.manualEditDistance,
+                    tag = READING_DISTANCE,
+                )
+                ReadingField(azimuth, onAzimuth, Strings.manualEditAzimuth, tag = READING_AZIMUTH)
             }
         }
         if (inclinationInDms) {
@@ -484,7 +495,13 @@ fun ReadingFields(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ReadingField(inclination, onInclination, Strings.manualEditInclination, lastImeAction)
+                ReadingField(
+                    inclination,
+                    onInclination,
+                    Strings.manualEditInclination,
+                    lastImeAction,
+                    tag = READING_INCLINATION,
+                )
                 OutlinedButton(onClick = { onInclination(withSignFlipped(inclination)) }) {
                     Text("+/-")
                 }
@@ -572,6 +589,12 @@ private fun ReadingField(
     label: String,
     imeAction: ImeAction = ImeAction.Next,
     width: Dp = 140.dp,
+    /**
+     * A name for the box, for a screen reader and for anything driving the app through one. The
+     * label is drawn beside it and read out already; this is what survives the label being
+     * reworded, and what tells the three boxes apart wherever they are laid out.
+     */
+    tag: String? = null,
 ) {
     OutlinedTextField(
         value = value,
@@ -580,7 +603,7 @@ private fun ReadingField(
         singleLine = true,
         keyboardOptions =
             KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = imeAction),
-        modifier = Modifier.width(width),
+        modifier = Modifier.width(width).then(if (tag == null) Modifier else Modifier.testTag(tag)),
     )
 }
 

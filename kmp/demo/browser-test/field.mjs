@@ -521,13 +521,6 @@ const addLegRow = async (which) => {
   const [x, index] = ADD_LEG_FIELDS[which]
   return [x, (await numberField(index))[1]]
 }
-/**
- * The distance box of *Edit reading*, which `leg_edit_dialog_unified.xml` puts below the stations
- * rather than at the top: for a splay that is the station it hangs off and that station's comment,
- * so the reading is the third box down.
- */
-const EDIT_SPLAY_DISTANCE = 2
-const EDIT_DISTANCE_X = 140
 const COMMENT_FIELD_ABOVE_SAVE = 76
 const COMMENT_SAVE_X = 317
 const CONFIRM_DELETE = [292, 496]
@@ -3234,7 +3227,11 @@ if (splayRow < 0) {
   // leg that makes station 2 either way.
   await longPress(await tableRow(1)); await page.waitForTimeout(700)
   await at(...(await legActionRow('edit'))); await page.waitForTimeout(700)
-  await retype([EDIT_DISTANCE_X, (await numberField(EDIT_SPLAY_DISTANCE))[1]], '2.75')
+  await page.screenshot({ path: join(shotDir, 'field-edit-open.png') })
+  // By name. Counting boxes down the card put the click somewhere that was not the distance box,
+  // and a click inside the card that is not in a field dismisses the editor — which took the run
+  // back to the menu behind it and left the reading as it was.
+  await retype(await nodeFor('#reading-distance'), '2.75')
   await page.screenshot({ path: join(shotDir, 'field-edit-reading.png') })
   await at(...(await dialogConfirm())); await page.waitForTimeout(900)
 
