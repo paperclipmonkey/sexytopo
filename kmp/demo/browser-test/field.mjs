@@ -1696,6 +1696,37 @@ const dialogTextRows = async () => {
  */
 const legActionRows = async () => (await dialogTextRows()).map((y) => [ACT_X, y])
 
+/**
+ * One row of the leg's menu, by the action it offers rather than by where it sits.
+ *
+ * The dialog is a popup, so its rows are in the accessibility tree while it is open, and each
+ * carries `tagFor` of the label it is drawn with. Which matters because the order is
+ * `legActionsFor`'s and has changed: *Move to Different Station* is below *Delete* now, where the
+ * table's own menus put it, and picking the fifth row got the delete confirmation instead.
+ *
+ * The labels are the splay ones where a splay has its own — `configureMenuVisibility` swaps the
+ * comment and the delete titles — so those are named separately.
+ */
+const LEG_ACTION_RESOURCES = {
+  edit: 'menu_edit_leg',
+  reverse: 'menu_reverse',
+  upgrade: 'menu_upgrade_splay',
+  promote: 'menu_promote_to_above_leg',
+  downgrade: 'menu_downgrade_leg',
+  comment: 'menu_comment_leg',
+  'comment-splay': 'menu_comment_splay',
+  delete: 'menu_delete_leg',
+  'delete-splay': 'menu_delete_splay',
+  move: 'menu_move_row',
+}
+const legActionRow = (name) => {
+  const resource = LEG_ACTION_RESOURCES[name]
+  if (resource === undefined) throw new Error(`no leg action called ${name}`)
+  const label = ANDROID_STRINGS[resource]
+  if (label === undefined) throw new Error(`strings.xml has no ${resource}`)
+  return nodeFor(`#${tagFor(label)}`)
+}
+
 const dialogTop = async () => {
   const b64 = (await page.screenshot({ clip: box })).toString('base64')
   return page.evaluate(async ([data, card]) => {
@@ -3173,7 +3204,7 @@ if (splayRow < 0) {
   })
 
   const hostBefore = await splayHost()
-  await at(...splayActions[4]); await page.waitForTimeout(700)
+  await at(...(await legActionRow('move'))); await page.waitForTimeout(700)
   await page.screenshot({ path: join(shotDir, 'field-move-leg.png') })
   // The picker is the explanation, the Name box, one row per candidate station, then Cancel — so
   // the first text row is the first station it will let you move to, and on this survey the only
@@ -3202,9 +3233,7 @@ if (splayRow < 0) {
   // survey order and it now hangs off station 2 rather than station 1, which is the row after the
   // leg that makes station 2 either way.
   await longPress(await tableRow(1)); await page.waitForTimeout(700)
-  const afterMoveActions = await legActionRows()
-
-  await at(...afterMoveActions[0]); await page.waitForTimeout(700)
+  await at(...(await legActionRow('edit'))); await page.waitForTimeout(700)
   await retype([EDIT_DISTANCE_X, (await numberField(EDIT_SPLAY_DISTANCE))[1]], '2.75')
   await page.screenshot({ path: join(shotDir, 'field-edit-reading.png') })
   await at(...(await dialogConfirm())); await page.waitForTimeout(900)
@@ -3226,8 +3255,7 @@ if (splayRow < 0) {
 
   // ---- and a bad reading can be thrown away ------------------------------------------------
   await longPress(await tableRow(1)); await page.waitForTimeout(700)
-  const toDelete = await legActionRows()
-  await at(...toDelete[toDelete.length - 1]); await page.waitForTimeout(600)
+  await at(...(await legActionRow('delete-splay'))); await page.waitForTimeout(600)
   await page.screenshot({ path: join(shotDir, 'field-confirm-delete.png') })
   await at(...CONFIRM_DELETE); await page.waitForTimeout(900)
 
@@ -3281,6 +3309,8 @@ await longPress(await tableRow(0)); await page.waitForTimeout(700)
 // comment, with Delete in a group of its own below a divider. The comment used to be second,
 // above the five rows that rewrite the survey, which is not where the app puts the row nobody is
 // in a hurry to reach.
+// *Move to Different Station* is not among them: this leg's only other station is the one it
+// arrives at, and `legMoveTargets` excludes a leg's own subtree, so the row is not offered.
 const LEG_MENU = ['edit', 'reverse', 'downgrade', 'comment', 'delete']
 const legActions = await legActionRows()
 if (legActions.length !== LEG_MENU.length) {
@@ -3290,7 +3320,7 @@ if (legActions.length !== LEG_MENU.length) {
 } else {
   pass('a leg with nothing surveyed beyond it can be taken back down to a splay')
 }
-await at(...legActions[LEG_MENU.indexOf('comment')]); await page.waitForTimeout(700)
+await at(...(await legActionRow('comment'))); await page.waitForTimeout(700)
 await page.screenshot({ path: join(shotDir, 'field-leg-comment.png') })
 // One purple row, holding Cancel and Save; the field sits a fixed distance above it. Anchoring on
 // the row rather than on the screen keeps this right if the dialog gains a line of explanation.
@@ -3322,8 +3352,7 @@ if (!(inkAfter > inkBefore)) {
 
 // ---- reversing it, and reversing it back ---------------------------------------------------
 await longPress(await tableRow(0)); await page.waitForTimeout(700)
-const reverseRow = (await legActionRows())[2]
-await at(...reverseRow); await page.waitForTimeout(900)
+await at(...(await legActionRow('reverse'))); await page.waitForTimeout(900)
 
 const reversed = (await savedLegs()).find(isConnecting)
 const legStations = async () => (await page.evaluate(() => {
@@ -3341,7 +3370,7 @@ if (!reversed?.wasShotBackwards) {
 }
 
 await longPress(await tableRow(0)); await page.waitForTimeout(700)
-await at(...(await legActionRows())[2]); await page.waitForTimeout(900)
+await at(...(await legActionRow('reverse'))); await page.waitForTimeout(900)
 const backAgain = (await savedLegs()).find(isConnecting)
 if (backAgain?.wasShotBackwards) {
   fail('reversing the leg a second time did not put it back')

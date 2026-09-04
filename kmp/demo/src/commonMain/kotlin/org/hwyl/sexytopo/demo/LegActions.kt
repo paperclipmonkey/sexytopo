@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -233,6 +234,10 @@ fun LegActionsDialog(
                             // `setGroupDividerEnabled`: `group_leg_delete` is its own group.
                             if (action == LegAction.DELETE) HorizontalDivider()
                             TextButton(
+                                // Named after the row it is drawn as, like every other menu row,
+                                // so a screen reader and the browser checks can both find it
+                                // whatever order `legActionsFor` puts it in.
+                                modifier = Modifier.testTag(tagFor(action.label(row.isSplay))),
                                 onClick = {
                                     when (action) {
                                         LegAction.EDIT -> editing = true
