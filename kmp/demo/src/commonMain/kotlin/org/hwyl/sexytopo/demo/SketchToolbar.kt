@@ -280,7 +280,7 @@ private fun SymbolStrip(state: DemoState, onClose: () -> Unit) {
                     .padding(4.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                SymbolGlyph(symbol, SexyTopoColours.onPanel, size - 8.dp)
+                SymbolGlyph(symbol, SexyTopoColours.symbolGlyph, size - 8.dp)
             }
         }
 
@@ -340,31 +340,25 @@ private fun RowScope.SymbolButton(state: DemoState, enabled: Boolean, onClick: (
                 modifier = Modifier.fillMaxHeight().aspectRatio(1f).alpha(dim),
             )
         } else {
+            // `selectSymbol` draws the border in `Color.BLACK` and the artwork untinted, lit or
+            // not; the black-on-green of the unselected face is what the app looks like.
             Box(
                 Modifier
                     .fillMaxHeight()
                     .aspectRatio(1f)
                     .alpha(dim)
-                    .border(1.dp, inkOn(selected)),
+                    .border(1.dp, SexyTopoColours.symbolGlyph),
                 contentAlignment = Alignment.Center,
             ) {
                 SymbolGlyph(
                     state.symbol,
-                    inkOn(selected),
+                    SexyTopoColours.symbolGlyph,
                     SexyTopoDimens.TOOLBAR_BUTTON_HEIGHT_DP.dp - 14.dp,
                 )
             }
         }
     }
 }
-
-/**
- * The ink a glyph on the toolbar is drawn in: black once the button is lit — `buttonHighlight` is
- * white, and `selectSymbol` draws its border in black — and white on the green panel, where black
- * would be a hole.
- */
-private fun inkOn(lit: Boolean): Color =
-    if (lit) SexyTopoColours.legend else SexyTopoColours.onPanel
 
 /** `buttonHighlight`, which is what the app tints a selected button's background with. */
 private fun highlightFor(darkMode: Boolean): Color =

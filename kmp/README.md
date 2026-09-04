@@ -3712,6 +3712,34 @@ These are the things that would actually shape a real port.
    this can check — the compass, the keyboard, the buzz, a radio — so that "tested" is never read
    to include them.
 
+108. **The symbol in hand was a white square.** Reported from a phone with a screenshot: open the
+   symbol strip and the selected symbol is a blank white box, while the *A* beside it and the
+   symbol-tool button below it read fine. The strip drew its glyphs in white on its dark green,
+   `selectSymbol`'s `buttonHighlight` is white, and white on white is nothing.
+
+   The Android app cannot have this problem, and looking at why is the fix. Every
+   `symbol_uis_*.xml` gives its paths `strokeColor="#000000"`, `Symbol.createDrawable` hands that
+   to an `ImageButton` untinted, and neither `selectSymbol` nor the night theme ever changes the
+   glyph's colour — only the button *behind* it is tinted. So the glyph is black whether or not it
+   is lit, and a white highlight behind a black glyph is exactly what a selected symbol looks like.
+   This port had reasoned the other way — white "on the green panel, where black would be a hole"
+   — while drawing every tool icon beside the strip as a black PNG on that same green, and the
+   *A* on the strip itself from one.
+
+   Three places drew it that way and all three now draw it the app's: the strip on the plan, the
+   strip in the cross-section editor, and the symbol-tool button's own face, which had been
+   swapping between white and black with its selection state where `selectSymbol` draws black and
+   a black border regardless. `SexyTopoColours.symbolGlyph` names the value and says why, and
+   `ColourParityTest` holds it to `colors.xml` like the rest.
+
+   `SymbolStripUiTest` is the guard, and it looks rather than reasons: it opens the strip the way
+   a surveyor does, captures the lit square's own pixels through `captureToImage`, and requires
+   both `buttonHighlight` white and the glyph's black to be present — before the fix the second
+   count was zero — and that an unselected square is the strip's green with a black glyph and no
+   white at all. `field.mjs`'s scroll check, which had been counting *pale* pixels as symbols,
+   now counts anything that is not the strip's own green, so it no longer cares what colour the
+   glyphs are.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3863,7 +3891,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 813
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 508 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 510 over the UI's own
 logic, 20 running the iOS half in a simulator,
 121 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
