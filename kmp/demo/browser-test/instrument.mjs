@@ -163,22 +163,38 @@ if (!(await ready())) {
 const box = await (await page.$('canvas')).boundingBox()
 const at = (x, y) => page.mouse.click(box.x + x, box.y + y)
 const OVERFLOW = [box.width - 16, 26]
-// The overflow menu, by name. It is `action_bar.xml`'s own two levels again: five rows at the top,
-// and everything this test wants is one tap inside *Instrument* — which is why the saved surveys
-// no longer move any of it, having gone into *File* where the app's own Open is.
-const MENU_TOP = ['file', 'view', 'instrument', 'settings', 'about']
-const INSTRUMENT_PAGE = ['connect', 'calibrate', 'log']
+// The overflow menu, by name. It is `action_bar.xml`'s own two levels again: its seven groups and
+// the `connection_group` row at the top, and a group page is a Back row and then the group.
+//
+// The saved surveys move none of this: they are inside *Open* and *Delete Survey…*, which are
+// pages of their own under File, where `action_file_open` and `action_file_delete` put them.
+const MENU_TOP = [
+  'file',
+  'view',
+  'instrument',
+  'input',
+  'tools',
+  'settings',
+  'help',
+  'connection',
+]
+// `action_device_menu` is *Connect…* and the connected instrument's own commands, and nothing
+// else. The system log is `tools_group_diagnostics`, on the Tools page.
+const INSTRUMENT_PAGE = ['connect', 'calibrate']
+const TOOLS_PAGE = ['undo-last-leg', 'find', 'add-leg', 'add-splay', 'log']
 const menuRowY = (index) => 80 + 48 * index
 
-/** Open the Instrument submenu and return the row for one of its items. */
-async function instrumentMenuRow(name) {
-  const index = INSTRUMENT_PAGE.indexOf(name)
-  if (index < 0) throw new Error(`no instrument-menu item called ${name}`)
-  await at(312, menuRowY(MENU_TOP.indexOf('instrument')))
+/** Open a group of the overflow menu and return the row for one of its items. */
+async function groupMenuRow(group, page_, name) {
+  const index = page_.indexOf(name)
+  if (index < 0) throw new Error(`no ${group} item called ${name}`)
+  await at(312, menuRowY(MENU_TOP.indexOf(group)))
   await page.waitForTimeout(500)
-  // Row zero of a submenu is Back.
+  // Row zero of a group page is Back.
   return [312, menuRowY(1 + index)]
 }
+const instrumentMenuRow = (name) => groupMenuRow('instrument', INSTRUMENT_PAGE, name)
+const toolsMenuRow = (name) => groupMenuRow('tools', TOOLS_PAGE, name)
 // The calibration dialog. Its layout is fixed once the first reading has arrived and added the
 // "Last:" line; before that the buttons sit one line higher.
 const INSTRUMENT_CLOSE = [212, 759]
@@ -406,7 +422,7 @@ if (storedLog === null) {
 
 await at(...CALIBRATION_CLOSE); await page.waitForTimeout(700)
 await at(...OVERFLOW); await page.waitForTimeout(600)
-await at(...(await instrumentMenuRow('log'))); await page.waitForTimeout(900)
+await at(...(await toolsMenuRow('log'))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'instrument-log.png') })
 
 // Copy, and then read back what landed on the clipboard - which is how a log gets off a phone that

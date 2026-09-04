@@ -1460,7 +1460,14 @@ const EXPORT_FORMATS = [
   'json',
 ]
 // The cross-section editor's own bar: Cancel at the left, Done at the right.
-const EDITOR_CANCEL = [46, 24]
+/**
+ * The cross-section editor's own bar: the activity's title on the left, then `cross_section.xml`'s
+ * two `showAsAction="always"` icons on the right where an app bar puts them.
+ *
+ * Cancel used to be a text button on the far left, which is not where either icon is now. Both are
+ * measured in from the right-hand edge so they survive this file's two smaller windows.
+ */
+const EDITOR_CANCEL = () => [box.width - 71, 15]
 // The station menu's rows are found rather than hard-coded. A dialog is centred, so its rows move
 // with its height — and this dialog's height depends on the station: the origin has no incoming
 // leg and cannot be deleted, so it is two rows shorter than one in the middle of a passage. A
@@ -1689,9 +1696,10 @@ const dialogConfirm = async () => {
 }
 
 
-// The 3D view's own bar: Close at the left, Reset at the right.
-const THREE_D_CLOSE = [42, 24]
-const EDITOR_DONE = [382, 24]
+// The 3D view's own bar, which now reads like the rest of the app's: the title on the left, then
+// *Reset*, then the close cross at the right-hand end where an app bar's actions go.
+const THREE_D_CLOSE = () => [box.width - 29, 15]
+const EDITOR_DONE = () => [box.width - 29, 15]
 
 // ---- the app opens on the demo cave, and offers a way out of it ------------------------
 // The first screen a new surveyor sees is an example survey that is deliberately never saved.
@@ -2223,7 +2231,7 @@ const planPaths = () => page.evaluate(() => {
 await drag([120, 400], [300, 400]); await page.waitForTimeout(400)
 await drag([300, 400], [300, 560]); await page.waitForTimeout(400)
 await page.screenshot({ path: join(shotDir, 'field-cross-section-drawn.png') })
-await at(...EDITOR_DONE); await page.waitForTimeout(1000)
+await at(...EDITOR_DONE()); await page.waitForTimeout(1000)
 await page.screenshot({ path: join(shotDir, 'field-cross-section-done.png') })
 
 if ((await subSketchPaths()) < 2) {
@@ -2240,7 +2248,7 @@ if ((await subSketchPaths()) < 2) {
 const planPathsBefore = await planPaths()
 await at(210, 660); await page.waitForTimeout(1000)
 await drag([120, 300], [300, 300]); await page.waitForTimeout(400)
-await at(...EDITOR_CANCEL); await page.waitForTimeout(1000)
+await at(...EDITOR_CANCEL()); await page.waitForTimeout(1000)
 
 if ((await subSketchPaths()) !== 2) {
   fail('cancelling the cross-section editor kept the stroke anyway')
@@ -2259,7 +2267,7 @@ const crossSectionColourCell = (index) => [(box.width / 8) * (index + 0.5), CROS
 await at(210, 660); await page.waitForTimeout(1000)
 await at(...crossSectionColourCell(3)); await page.waitForTimeout(400) // red
 await drag([120, 330], [300, 330]); await page.waitForTimeout(400)
-await at(...EDITOR_DONE); await page.waitForTimeout(1000)
+await at(...EDITOR_DONE()); await page.waitForTimeout(1000)
 
 const lastSectionStrokeColour = await page.evaluate(() => {
   const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
@@ -2698,7 +2706,7 @@ if (!spots.other) {
     fail(`holding a station did not open its menu (pressed ${JSON.stringify(spots.other)})`)
     // A press that did not become a long press is a plain tap, and a tap near a cross-section
     // opens its editor over everything that follows — so back out of whatever did happen.
-    await at(...EDITOR_CANCEL); await page.waitForTimeout(600)
+    await at(...EDITOR_CANCEL()); await page.waitForTimeout(600)
   } else {
     // The pencil is down: holding still must open the menu rather than leave a dot behind.
     if ((await planStrokes()) !== strokesBefore) {
@@ -5024,7 +5032,7 @@ if (Buffer.compare(beforeTurning, afterTurning) === 0) {
   pass('one finger turns the cave, and it is still there afterwards')
 }
 
-await at(...THREE_D_CLOSE); await page.waitForTimeout(900)
+await at(...THREE_D_CLOSE()); await page.waitForTimeout(900)
 // Not a timing problem after all: the DEBUG screenshot this captured on failure was byte-identical
 // whether taken after 8 seconds of waiting or 15 - the plan view was already fully rendered,
 // toolbar, palette, cross-section boxes and all, every single time. The canvas was never gone; the
