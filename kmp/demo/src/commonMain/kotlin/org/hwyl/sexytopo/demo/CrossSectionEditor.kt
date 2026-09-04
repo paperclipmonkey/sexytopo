@@ -26,6 +26,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.demo.resources.Res
@@ -136,8 +139,13 @@ fun CrossSectionEditor(
                 style = MaterialTheme.typography.titleMedium,
                 color = SexyTopoColours.onPanel,
             )
+            // Named, because an icon drawn from path data has nothing for a screen reader to
+            // read out and nothing for a check to ask for. `cross_section.xml` gives both a title
+            // even though it shows neither; these are those titles.
             Box(
                 Modifier
+                    .semantics { contentDescription = Strings.actionCrossSectionCancel }
+                    .testTag("cross-section-cancel")
                     .clickable(onClick = onCancel)
                     .padding(horizontal = 10.dp, vertical = 6.dp),
             ) {
@@ -145,6 +153,8 @@ fun CrossSectionEditor(
             }
             Box(
                 Modifier
+                    .semantics { contentDescription = Strings.actionCrossSectionDone }
+                    .testTag("cross-section-done")
                     .clickable {
                         commitCrossSectionSketch(survey, detail, working)
                         onDone()

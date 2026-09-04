@@ -32,7 +32,13 @@ fun main() {
     // otherwise the bundled font is never fetched.
     configureWebResources { resourcePathMapping { path -> "./$path" } }
     try {
-        ComposeViewport(document.body!!) {
+        // The accessibility tree, which Compose builds as real DOM nodes laid over the canvas:
+        // `testTag` becomes an element's id, `contentDescription` its aria-label, and a Compose
+        // `Role` its aria role. Off by default. On, a screen reader can read this app at all — and
+        // the browser tests can ask for a control by name instead of working out which pixel it is
+        // drawn at, which is the difference between a check that survives a redesign and one that
+        // does not.
+        ComposeViewport(document.body!!, configure = { isA11YEnabled = true }) {
             when {
                 mode.contains("min") -> Text("compose wasm is alive")
                 mode.contains("canvas") ->

@@ -25,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -178,6 +179,9 @@ fun SurveyTableView(
                 Row(
                     Modifier
                         .fillMaxWidth()
+                        // A handle per row, so a check can ask for the third leg rather than
+                        // working out which stripe it is drawn in.
+                        .testTag("table-row-$index")
                         .background(stripe)
                         .then(
                             if (editable) {

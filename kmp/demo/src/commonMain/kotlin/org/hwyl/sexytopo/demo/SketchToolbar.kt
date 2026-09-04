@@ -33,6 +33,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
@@ -184,7 +187,7 @@ fun SketchToolbar(
                     painter = painterResource(Res.drawable.settings),
                     description = Strings.toolbarSettings,
                     darkMode = state.darkMode,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("drawing-menu"),
                     onClick = { menuOpen = true },
                 )
                 DrawingMenu(state, canvas, menuOpen) { menuOpen = false }
@@ -245,6 +248,7 @@ private fun SymbolStrip(state: DemoState, onClose: () -> Unit) {
                         Modifier
                     },
                 )
+                .testTag("symbol-label")
                 .clickable { state.chooseTool(SketchTool.TEXT) }
                 .padding(6.dp),
             contentAlignment = Alignment.Center,
@@ -265,6 +269,8 @@ private fun SymbolStrip(state: DemoState, onClose: () -> Unit) {
                     .then(
                         if (lit) Modifier.background(highlightFor(state.darkMode)) else Modifier,
                     )
+                    .semantics { contentDescription = symbol.therionName }
+                    .testTag("symbol-${symbol.therionName}")
                     .clickable {
                         state.chooseSymbol(symbol)
                         state.chooseTool(SketchTool.SYMBOL)
@@ -277,7 +283,12 @@ private fun SymbolStrip(state: DemoState, onClose: () -> Unit) {
         }
 
         Box(
-            Modifier.size(size).clickable(onClick = onClose).padding(10.dp),
+            Modifier
+                .size(size)
+                .semantics { contentDescription = Strings.toolbarSymbolClose }
+                .testTag("symbol-close")
+                .clickable(onClick = onClose)
+                .padding(10.dp),
             contentAlignment = Alignment.Center,
         ) {
             // "×" not "✕": the bundled font has Latin-1 and no Dingbats.
@@ -314,6 +325,7 @@ private fun RowScope.SymbolButton(state: DemoState, enabled: Boolean, onClick: (
                     Modifier
                 },
             )
+            .testTag("symbol-tool")
             .clickable(enabled = enabled, onClick = onClick)
             .padding(6.dp),
         contentAlignment = Alignment.Center,
@@ -399,6 +411,7 @@ private fun DrawingMenu(
         // `android:visible="false"`, and redo has a button of its own on the toolbar.
         DropdownMenuItem(
             text = { Text(Strings.sketchMenuDeleteLastLeg) },
+            modifier = Modifier.testTag(tagFor(Strings.sketchMenuDeleteLastLeg)),
             onClick = {
                 deletingLastLeg = true
                 onDismiss()
@@ -406,6 +419,7 @@ private fun DrawingMenu(
         )
         DropdownMenuItem(
             text = { Text(Strings.sketchMenuCentreView) },
+            modifier = Modifier.testTag(tagFor(Strings.sketchMenuCentreView)),
             onClick = {
                 // `centreViewOnActiveStation`, not a refit: the app keeps the surveyor's zoom.
                 stationPositionIn(state.survey, state.projection, state.survey.activeStation)
@@ -419,6 +433,7 @@ private fun DrawingMenu(
         // of popup on an iPhone SE's 667-pixel screen.
         DropdownMenuItem(
             text = { Text(Strings.toolbarSettings) },
+            modifier = Modifier.testTag(tagFor(Strings.toolbarSettings)),
             onClick = {
                 adjustingDisplay = true
                 onDismiss()

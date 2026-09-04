@@ -364,7 +364,7 @@ fun StationMenuDialog(
                     }
                 },
                 confirmButton = {},
-                dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+                dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.close) } },
             )
     }
 }

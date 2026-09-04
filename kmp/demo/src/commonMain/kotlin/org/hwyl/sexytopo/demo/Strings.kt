@@ -51,6 +51,55 @@ object Strings {
         return shown
     }
 
+    /**
+     * Wording this port needs that `strings.xml` has no counterpart for.
+     *
+     * Deliberately not registered for the mirroring check — there is nothing upstream to hold it
+     * to. It is here rather than inline so that there is one place to look for the handful of
+     * things this port has to say for itself, and so the difference between "should match the
+     * Android app" and "cannot" is written down rather than guessed at.
+     */
+    private fun local(value: String) = value
+
+    // -- This port's own ------------------------------------------------------------------
+
+    /**
+     * The overflow button's name, which the Android app never writes down because appcompat
+     * supplies it: `abc_action_menu_overflow_description`, which reads exactly this. Here the app
+     * bar is drawn from scratch, so the button had no name at all — nothing for a screen reader to
+     * announce, and nothing for a test to ask for.
+     */
+    val actionOverflow = local("More options")
+
+    /** What closes a menu that is a dialog here and a context menu on Android. */
+    val close = local("Close")
+
+    /** The 3D view's own control: `SurveyView3D` has no camera to put back, and this does. */
+    val reset = local("Reset")
+
+    /**
+     * The field bar's two buttons.
+     *
+     * `pref_manual_controls` puts two floating action buttons on the Android app's table, drawn as
+     * icons with no words on them; here the same control is a labelled button on the field bar, so
+     * there is wording to choose and nothing upstream to copy. *Simulate* has no counterpart at
+     * all — it stands in for an instrument this port can be run without.
+     */
+    val addReading = local("Add reading")
+
+    val simulate = local("Simulate")
+
+    /**
+     * The demo cave's own bar, which the Android app has nothing like: it opens on the survey you
+     * were last working on, and this port opens on a cave to look at so that a first run has
+     * something in it.
+     */
+    val startSurveying = local("Start surveying")
+
+    val mySurvey = local("My survey")
+
+    val demoCaveIsNotKept = local("An example. Nothing recorded here is kept.")
+
     // -- Common ---------------------------------------------------------------------------
 
     val ok = s("ok", "OK")

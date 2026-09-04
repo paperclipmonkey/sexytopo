@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
 /**
@@ -58,6 +59,7 @@ fun GeneralSettingsDialog(
                 ) {
                     for (theme in AppTheme.entries) {
                         FilterChip(
+                            modifier = Modifier.testTag("theme-${theme.name.lowercase()}"),
                             selected = state.preferences.theme == theme,
                             onClick = {
                                 state.updatePreferences(state.preferences.copy(theme = theme))
