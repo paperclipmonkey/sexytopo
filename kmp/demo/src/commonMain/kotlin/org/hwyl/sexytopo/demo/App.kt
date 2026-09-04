@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -58,9 +59,12 @@ import org.hwyl.sexytopo.demo.resources.save
 import org.hwyl.sexytopo.demo.resources.table
 import org.hwyl.sexytopo.shared.comms.ShotTrouble
 import org.hwyl.sexytopo.shared.demo.ExampleSurvey
+import org.hwyl.sexytopo.shared.io.store.FileStore
+import org.hwyl.sexytopo.shared.io.store.PhotoStore
 import org.hwyl.sexytopo.shared.io.store.SurveyZip
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
+import org.hwyl.sexytopo.shared.model.sketch.PhotoDetail
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
@@ -101,6 +105,23 @@ fun App(
         }
     val editor = rememberSketchEditor(state)
     val canvas = rememberCanvasController(state)
+
+    // A second handle on the same place surveys are kept. [SurveyLibrary] holds its own store
+    // privately and deals in surveys rather than files, which is the right shape for four JSON
+    // files that share a name and the wrong one for a photograph; `platformFileStore` names a
+    // place rather than opening anything, so this reaches the same directory — or the same
+    // `localStorage` — as the library's. The exception is the in-memory fallback a machine with
+    // nowhere writable gets, where a second call is a second empty store; nothing survives being
+    // closed on such a machine anyway.
+    val store = remember { platformFileStore() }
+    val photos = remember(state, store) { PhotoPlacement(state, store) }
+
+    // Remembered here rather than beside the button that opens it. The photograph arrives on a
+    // later frame — the surveyor has been in the camera app meanwhile, and on Android the process
+    // may have been rebuilt behind it — by which time the toolbar may be gone, because the app bar
+    // can put them on the table or in the 3D view while the camera is open. See
+    // [rememberPhotoCapture], which says the same thing from the other end.
+    val camera = rememberPhotoCapture { bytes -> photos.taken(bytes) }
 
     // `SideEffect`, not a plain assignment: writing to state during composition would make the
     // UI recompose forever.
@@ -193,18 +214,129 @@ fun App(
                             editor,
                             canvas,
                             Modifier.weight(1f).fillMaxWidth().heightIn(min = 120.dp),
+                            photos,
+                            store,
                         )
 
                         FieldBar(state)
 
                         if (state.screen == Screen.SKETCH) {
-                            SketchToolbar(state, editor, canvas)
+                            SketchToolbar(state, editor, canvas, camera)
                         }
                     }
                 }
             }
         }
       }
+    }
+}
+
+/**
+ * A photograph on its way from the camera to the paper.
+ *
+ * `handleNewCrossSection` is the shape this follows, because it is the same shape of problem. The
+ * Android app does not decide where a cross-section goes — it cannot, only the surveyor can see
+ * where there is white paper next to the passage — so it arms a one-shot tool, says in a toast
+ * what to do with it, and puts the previous tool back once the tap has come. [DemoState] does
+ * exactly that in `beginCrossSection` and `finishCrossSection`, and this is deliberately the same
+ * three steps for the same reason: only the surveyor knows which bit of the drawing the
+ * photograph is of.
+ *
+ * ## The picture is written before it has anywhere to go
+ *
+ * [taken] writes the JPEG the moment it arrives, under the id the pin will carry, and arms the
+ * tool afterwards. That is the right order round. A photograph taken underground cannot be taken
+ * again — the surveyor is a hundred metres further on by the time anyone notices — and holding the
+ * bytes in memory until they get round to tapping the paper is how a browser tab reload or an
+ * Android process death loses one.
+ *
+ * The cost of that order is a file with nothing pointing at it if the tap never comes, and on the
+ * browser build that is not a triviality: `localStorage` holds about five megabytes for the whole
+ * origin, base64 and all, so an abandoned photograph is a real fraction of the room the survey has
+ * to grow into. So [abandon] deletes it, and the effect in [SketchScreen] that watches the tool
+ * calls that as soon as the tool leaves PLACE_PHOTO by any route other than a placement.
+ *
+ * The one case nothing here can catch is the app dying while the tool is still armed. That leaves
+ * at most one stray file: `PhotoStore.nextPhotoId` counts the pins on the sketches rather than the
+ * files in the folder, so the next photograph is given the same id and writes over it, and
+ * `SurveyZip` packs only the ids the sketches actually name, so a stray never travels with the
+ * survey either.
+ */
+private class PhotoPlacement(private val state: DemoState, private val store: FileStore) {
+
+    /** The id of the photograph waiting for somewhere to go, or null when none is. */
+    var pending by mutableStateOf<String?>(null)
+        private set
+
+    /**
+     * Which survey it was taken for. Held by name rather than by object because the name is what
+     * the file is called: deleting an abandoned photograph after the surveyor has opened a
+     * different survey must delete the file that was written, not the same id under the new name.
+     */
+    private var takenFor: String? = null
+
+    /** What was in the surveyor's hand before, since pinning a photograph is a one-shot tool. */
+    private var previousTool: SketchTool? = null
+
+    fun isFor(survey: Survey): Boolean = takenFor == survey.name
+
+    /** The camera has handed something back: keep it, then ask where it goes. */
+    fun taken(bytes: ByteArray) {
+        val survey = state.survey
+        val photoId = PhotoStore.nextPhotoId(survey)
+        val written =
+            runCatching {
+                PhotoStore.save(store, SURVEYS_ROOT + survey.name, survey.name, photoId, bytes)
+            }
+        if (written.isFailure) {
+            // Nothing is armed, and nothing is said about placing a photograph that is not there.
+            // A full browser origin is how this fails in practice, and the surveyor needs to hear
+            // it now rather than find a pin with nothing behind it later. Said through [note] and
+            // not through [DemoState.storageProblem]: that one is about the survey, and reading
+            // "not saved" across the status line would be a claim about the readings.
+            state.note(Strings.photoNotSaved)
+            return
+        }
+        pending = photoId
+        takenFor = survey.name
+        // Only when it is not this tool already, the same care `SketchToolState.select` takes: a
+        // second photograph taken before the first has been placed must not leave PLACE_PHOTO as
+        // the tool to go back to, or [placed] hands the surveyor an armed camera with nothing
+        // waiting behind it.
+        if (state.tool != SketchTool.PLACE_PHOTO) previousTool = state.tool
+        state.chooseTool(SketchTool.PLACE_PHOTO)
+        state.note(Strings.placePhotoInstruction)
+    }
+
+    /** The tap has come and the pin is made, so the surveyor's own tool comes back. */
+    fun placed() {
+        pending = null
+        takenFor = null
+        state.chooseTool(previousTool ?: AppPreferences.DEFAULT_TOOL)
+        previousTool = null
+    }
+
+    /**
+     * The tap never came. Take the file back out again, since nothing will ever point at it.
+     *
+     * The tool is left alone: it has already moved on, and that is what abandonment *is* here.
+     * Failure is swallowed for the same reason [SurveyLibrary] swallows it — a photograph that
+     * could not be deleted is a wasted quarter of a megabyte, and taking the app down over one
+     * in the middle of a survey would be a considerably worse outcome.
+     */
+    fun abandon() {
+        val photoId = pending ?: return
+        val surveyName = takenFor
+        pending = null
+        takenFor = null
+        previousTool = null
+        if (surveyName != null) {
+            runCatching {
+                store.delete(
+                    SURVEYS_ROOT + surveyName + PhotoStore.fileNameFor(surveyName, photoId),
+                )
+            }
+        }
     }
 }
 
@@ -1096,6 +1228,8 @@ private fun ScreenContent(
     editor: SketchEditor,
     canvas: CanvasController,
     modifier: Modifier,
+    photos: PhotoPlacement,
+    store: FileStore,
 ) {
     // Held by name rather than by object: an edit that renames or deletes the station would
     // otherwise leave a menu holding a reference to a station no longer in the survey.
@@ -1154,21 +1288,53 @@ private fun ScreenContent(
                 editor,
                 canvas,
                 modifier,
+                photos,
+                store,
                 onLongPressStation = { menuFromTable = false; menuFor = it },
             )
     }
 }
 
-/** The sketch, plus the label dialog it needs a keyboard for and can't provide itself. */
+/**
+ * The sketch, plus the two things it needs and cannot provide itself: the label dialog, which
+ * wants a keyboard, and the photo viewer, which wants the file the pin points at.
+ */
 @Composable
 private fun SketchScreen(
     state: DemoState,
     editor: SketchEditor,
     canvas: CanvasController,
     modifier: Modifier,
+    photos: PhotoPlacement,
+    store: FileStore,
     onLongPressStation: (String) -> Unit,
 ) {
     var placing by remember { mutableStateOf<Pair<Coord2D, Float>?>(null) }
+    var viewing by remember { mutableStateOf<PhotoDetail?>(null) }
+
+    // A pin is stamped at the size a symbol would be, worked out the way the canvas works out its
+    // own symbol stamp: the dp is turned into survey metres through the viewport, so the mark is a
+    // finger's width whatever the zoom was when it was made, and scales with the sketch after.
+    val pinSizeInPixels =
+        with(LocalDensity.current) { state.displayOptions.style.symbolSizeDp.dp.toPx() }
+
+    // The one way out of an armed photograph that nothing else reports: the surveyor picked
+    // another tool instead of tapping the paper. Watching the tool catches every route to that —
+    // a tool button, a colour swatch (which [DemoState.pickColour] turns into DRAW), the sketch
+    // being hidden, a survey opened in place of this one — without any of them having to know a
+    // photograph was waiting. [PhotoPlacement.abandon] says what becomes of the file.
+    //
+    // Here rather than in [App] because this is where the tool is already read: watching it a
+    // level up would put every tool tap through the whole tree, app bar and field bar included.
+    // Nothing is missed by being one level down, either — the camera button is on this screen's
+    // own toolbar, so the tool cannot change while this is out of composition.
+    LaunchedEffect(photos.pending, state.tool, state.survey) {
+        if (photos.pending != null &&
+            (state.tool != SketchTool.PLACE_PHOTO || !photos.isFor(state.survey))
+        ) {
+            photos.abandon()
+        }
+    }
 
     LaunchedEffect(state.stationsCreated, state.projection) {
         if (state.stationsCreated > 0 && state.preferences.autoRecentre) {
@@ -1199,6 +1365,24 @@ private fun SketchScreen(
         )
     }
 
+    viewing?.let { detail ->
+        PhotoViewer(
+            detail = detail,
+            store = store,
+            path = SURVEYS_ROOT + state.survey.name,
+            surveyName = state.survey.name,
+            onRemove = {
+                // The pin only. The picture stays in the survey's folder because this is an undo
+                // step like any other, and an undo has to find the file still there — see
+                // `SketchEditor.addPhoto`.
+                editor.delete(detail)
+                state.noteSketchEdited()
+                viewing = null
+            },
+            onDismiss = { viewing = null },
+        )
+    }
+
     SurveyCanvas(
         survey = state.survey,
         projection = state.projection,
@@ -1216,6 +1400,25 @@ private fun SketchScreen(
         onLongPressStation = onLongPressStation,
         crossSectioning = state.crossSectioning,
         onCrossSectionPositioned = { state.finishCrossSection() },
+        // Nothing to place unless a photograph came back: the camera can be opened and backed out
+        // of, and the canvas would otherwise treat the armed tool as meaning a tap is expected.
+        placingPhoto = photos.pending != null,
+        // The other half of the camera: the photograph is already on disc under this id, and this
+        // is the tap that says where it was taken from. The drag that comes with it aims the pin
+        // at whatever was photographed, exactly as a directional symbol is aimed.
+        onPlacePhoto = { position, angle ->
+            photos.pending?.let { photoId ->
+                editor.addPhoto(
+                    position = position,
+                    photoId = photoId,
+                    size = canvas.viewport.toSurveyDistance(pinSizeInPixels),
+                    angle = angle,
+                )
+                state.noteSketchEdited()
+                photos.placed()
+            }
+        },
+        onOpenPhoto = { viewing = it },
     )
 }
 

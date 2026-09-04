@@ -1,5 +1,6 @@
 package org.hwyl.sexytopo.demo
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,11 +39,19 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.demo.resources.Res
 import org.hwyl.sexytopo.demo.resources.black
@@ -88,12 +98,18 @@ import org.jetbrains.compose.resources.painterResource
  * Android app's symbol enum standing for "the label tool" rather than for a drawing, so it is the
  * first entry on its strip; here it is [SketchTool.TEXT] instead, and the strip's first entry
  * selects that tool. What a surveyor sees and taps is the same either way.
+ *
+ * The camera at the end of the second row is the one button with no counterpart at all — see
+ * [CameraButton]. [camera] is passed in rather than remembered here because the photograph comes
+ * back long after the tap that asked for it, by which time this toolbar may have gone: see
+ * [rememberPhotoCapture].
  */
 @Composable
 fun SketchToolbar(
     state: DemoState,
     editor: SketchEditor,
     canvas: CanvasController,
+    camera: PhotoCapture,
     modifier: Modifier = Modifier,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -143,6 +159,13 @@ fun SketchToolbar(
                 modifier = Modifier.weight(1f),
                 onClick = { canvas.zoomIn() },
             )
+            // The tenth column, which is empty because there are only nine things to put in this
+            // row. `android:columnCount` is 9 and this port's grid is 10 wide, since the camera
+            // below is the port's own button; a `GridLayout` given a tenth column and nine
+            // children in a row leaves exactly this hole, and without it the rows stop lining up
+            // — nine cells of weight one over ten of weight one puts every icon in the bottom row
+            // a few pixels to the left of the one above it.
+            Spacer(Modifier.weight(1f))
         }
 
         // `layout_marginTop="-4dp"`, which every button of the app's second row carries: the two
@@ -218,6 +241,26 @@ fun SketchToolbar(
                 modifier = Modifier.weight(1f),
                 onClick = { canvas.zoomOut() },
             )
+            // Last, rather than beside the tools it belongs with: every button before it sits in
+            // the column `activity_graph.xml` puts it in, and inserting one in the middle would
+            // move the four that follow into somebody else's place.
+            CameraButton(
+                state,
+                // With the sketch hidden there is nothing to pin a photograph to:
+                // `setSketchButtonsStatus` disables every button that marks the drawing, and this
+                // one would be worse than merely useless, since the tool it arms would be taken
+                // straight back out of the surveyor's hand by the fallback to MOVE above.
+                enabled = canSketch,
+                // A device with no camera has nothing for this to open, so the button is drawn
+                // spent. It stays pressable all the same, and answers with the reason.
+                hasCamera = camera.available,
+            ) {
+                // Dead buttons are how \"the photograph button does nothing\" becomes a bug
+                // report. Every platform's `whyNoCamera` is written to be read by a surveyor
+                // standing in a cave — a simulator has no camera, a desktop's webcam is pointed
+                // at the desk — so the tap that finds nothing says which it is.
+                if (camera.available) camera.capture() else state.note(whyNoCamera())
+            }
         }
     }
 }
@@ -357,6 +400,109 @@ private fun RowScope.SymbolButton(state: DemoState, enabled: Boolean, onClick: (
                 )
             }
         }
+    }
+}
+
+/**
+ * The camera: take a photograph, then tap the paper to say where it was taken.
+ *
+ * Hand-rolled for the same reason [SymbolButton] is — its face is drawn rather than a `Painter`,
+ * which is all [ToolbarButton] knows how to show. Every other icon on this bar is one of the app's
+ * own `res/drawable-hdpi` PNGs carried across unchanged, and there is no `camera.png` among them
+ * to carry: the Android app has never taken a photograph. So this one is drawn, and drawing it
+ * beats inventing a PNG that has nothing upstream to be faithful to.
+ *
+ * Lit while [SketchTool.PLACE_PHOTO] is armed, which is the whole of the standing reminder that a
+ * photograph has been taken and is waiting for somewhere to go — the instruction strip that says
+ * so in words clears itself after a couple of seconds.
+ *
+ * [enabled] and [hasCamera] both dim it, and only the first stops it responding. A button with the
+ * sketch hidden has nothing to do and says nothing; a button on a device with no camera has an
+ * answer worth hearing, and giving it costs one tap rather than a bug report.
+ */
+@Composable
+private fun RowScope.CameraButton(
+    state: DemoState,
+    enabled: Boolean,
+    hasCamera: Boolean,
+    onClick: () -> Unit,
+) {
+    val haptics = LocalHapticFeedback.current
+
+    Box(
+        Modifier
+            .weight(1f)
+            .height(SexyTopoDimens.TOOLBAR_BUTTON_HEIGHT_DP.dp)
+            .then(
+                if (state.tool == SketchTool.PLACE_PHOTO) {
+                    Modifier.background(highlightFor(state.darkMode))
+                } else {
+                    Modifier
+                },
+            )
+            .semantics { contentDescription = Strings.toolbarPhoto }
+            .testTag("camera-tool")
+            .clickable(enabled = enabled) {
+                // `handleAction` buzzes before it has looked at which button was pressed, so
+                // every button on this bar buzzes. [SymbolButton] is the one that does not, and
+                // that is an oversight rather than a precedent.
+                haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                onClick()
+            }
+            .padding(6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.alpha(if (enabled && hasCamera) 1f else DISABLED_BUTTON_ALPHA)) {
+            CameraGlyph(
+                SexyTopoColours.symbolGlyph,
+                SexyTopoDimens.TOOLBAR_BUTTON_HEIGHT_DP.dp - 14.dp,
+            )
+        }
+    }
+}
+
+/**
+ * A camera, drawn from a path rather than shipped as artwork.
+ *
+ * Black whether or not the button is lit, exactly as [SymbolGlyph] is and for the reason recorded
+ * there: `buttonHighlight` is white, so a glyph that went white to stand out on the green panel
+ * would be a blank square at the very moment the button was selected. That was reported from a
+ * phone with a screenshot, and it is not a mistake worth making twice; the tool icons either side
+ * of this one are black PNGs on the same green, so black is also what the app looks like.
+ *
+ * The 24-unit box is [DoneIcon]'s and [CancelIcon]'s, which take theirs from the Android vector
+ * drawables they are copies of. This one has no drawable behind it, so the shape is chosen rather
+ * than transcribed: a body, the raised hood over the viewfinder, and a lens. The hood is what
+ * makes it read as a camera at twenty-six pixels across; without it a rounded box with a ring in
+ * it is a target.
+ */
+@Composable
+private fun CameraGlyph(colour: Color, size: Dp) {
+    Canvas(Modifier.size(size)) {
+        val scale = this.size.minDimension / CAMERA_VIEWPORT
+        withTransform({ scale(scale, scale, pivot = Offset.Zero) }) {
+            // Stroked, not filled: a filled camera at this size is a black blob, and every path
+            // the symbol strip draws is stroked too.
+            drawPath(cameraPath, colour, style = Stroke(width = CAMERA_STROKE))
+        }
+    }
+}
+
+/** The box the camera is drawn in, and the width of its line inside that box. */
+private const val CAMERA_VIEWPORT = 24f
+
+private const val CAMERA_STROKE = 2f
+
+/** Built once and kept, as [symbolPaths] is: this is redrawn on every recomposition of the bar. */
+private val cameraPath: Path by lazy {
+    Path().apply {
+        addRoundRect(RoundRect(Rect(2f, 7f, 22f, 20.5f), CornerRadius(2.5f, 2.5f)))
+        // The hood, open at the bottom so the body's own line closes it.
+        moveTo(8f, 7f)
+        lineTo(9.5f, 4f)
+        lineTo(14.5f, 4f)
+        lineTo(16f, 7f)
+        addOval(Rect(8f, 9.75f, 16f, 17.75f))
     }
 }
 
