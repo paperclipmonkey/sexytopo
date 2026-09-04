@@ -301,23 +301,37 @@ const ACT_X = 300
 // screen. The dialog is vertically centred, so its rows all move together when its height changes —
 // which it does when `pref_lrud_fields` puts four more boxes in it. Anchoring to the card means one
 // number to re-measure instead of six, which is the lesson SETTINGS_DIALOG_HEIGHT above records.
-const ADD_LEG_ROWS = {
-  distance: [144, 166],
-  azimuth: [284, 166],
-  inclination: [144, 240],
-  to: [210, 314],
-  note: [210, 388],
-  add: [317, 464],
+/**
+ * *Add a leg*'s fields, by their place in the dialog rather than by an offset into it.
+ *
+ * `leg_edit_dialog_unified.xml`'s own order, which `AddLegDialog` follows: the station the leg
+ * hangs off, then the reading, then the far station and its comment, then the leg's own comment.
+ * `editFromStation` arriving above the reading moved every row in this dialog down; asking
+ * `numberFieldRows` where the boxes are means that cost no numbers here, and will not cost any
+ * next time either. Only the x's are fixed, because two of the boxes share a row.
+ */
+const ADD_LEG_FIELDS = {
+  from: [210, 0],
+  distance: [144, 1],
+  azimuth: [284, 1],
+  inclination: [144, 2],
+  to: [210, 3],
+  note: [210, 4],
 }
 const addLegRow = async (which) => {
-  const top = await dialogTop()
-  const [x, down] = ADD_LEG_ROWS[which]
-  return [x, top + down]
+  if (which === 'add') return dialogConfirm()
+  const [x, index] = ADD_LEG_FIELDS[which]
+  return [x, (await numberField(index))[1]]
 }
-const EDIT_DISTANCE = [140, 384]
+/**
+ * The distance box of *Edit reading*, which `leg_edit_dialog_unified.xml` puts below the stations
+ * rather than at the top: for a splay that is the station it hangs off and that station's comment,
+ * so the reading is the third box down.
+ */
+const EDIT_SPLAY_DISTANCE = 2
+const EDIT_DISTANCE_X = 140
 const COMMENT_FIELD_ABOVE_SAVE = 76
 const COMMENT_SAVE_X = 317
-const EDIT_SAVE = [309, 552]
 const CONFIRM_DELETE = [292, 496]
 const STATION_NAME = [210, 260]
 const STATION_COMMENT = [210, 336]
@@ -527,12 +541,18 @@ const numberFieldRows = async () => {
       }
     }
     if (right < 0) return []
-    const span = right - left
+    // A narrow window just inside the card's left edge rather than the whole of it. Every box on
+    // every one of these screens starts there, but they do not all *end* in the same place: the
+    // inclination box is half-width, with the +/- button beside it, so a full-width test misses
+    // its border and the run of evenly spaced rows breaks in the middle of the dialog.
+    const from = left + 26
+    const to = Math.min(left + 116, right)
+    const span = to - from
     const borders = []
     for (let y = 0; y < c.height; y++) {
       let notCard = 0
-      for (let x = left; x <= right; x++) if (!isCard(x, y)) notCard++
-      if (notCard > span * 0.93) borders.push(y)
+      for (let x = from; x <= to; x++) if (!isCard(x, y)) notCard++
+      if (notCard > span * 0.95) borders.push(y)
     }
     // The longest evenly spaced run of them, which is the block of fields.
     let best = []
@@ -549,9 +569,9 @@ const numberFieldRows = async () => {
         if (run.length > best.length) best = run
       }
     }
-    // A field's own middle is half its height above the border that closes it.
-    const step = best.length > 1 ? best[1] - best[0] : 76
-    return best.map((b) => Math.round(b - step * 0.36))
+    // A field's own middle is half its height above the border that closes it, and an M3 text
+    // field is fifty-six of them tall whatever is spaced around it.
+    return best.map((b) => b - 27)
   }, [b64, DIALOG_CARD])
 }
 
@@ -771,12 +791,52 @@ const settingsSave = async () => {
   if (button === null) throw new Error('the settings dialog has no Save button on screen')
   return button
 }
-const TRIP_ADD_NAME = [177, 275]
-const TRIP_ADD_BUTTON = [317, 275]
-const TRIP_ROLE_BOOK = [106, 328]
-const TRIP_INSTRUMENT = [210, 527]
-const TRIP_LICENCE = [210, 764]
-const TRIP_SAVE = [317, 840]
+// The trip screen, measured off a headless render at 420 by 900 — the first three before anybody
+// has been added to the team, the rest after exactly one has, which is the order these checks fill
+// it in. `trip_role_*` spell the roles out ("Book (drawing)", "Dog (assistant)"), so the four
+// chips wrap onto two rows and the fields below them all moved down.
+const TRIP_ADD_NAME = [177, 277]
+const TRIP_ADD_BUTTON = [317, 277]
+const TRIP_ROLE_BOOK = [137, 317]
+const TRIP_INSTRUMENT = [210, 534]
+/**
+ * The licence box, found by the red it is drawn in.
+ *
+ * It is below the fold once the team has somebody on it, and by less than the height of its own
+ * label — so a measured y was a tap on the line between it and the copyright holder above. It is
+ * also the only thing on the screen drawn in the error colour, because `isLicenceChosen` starts
+ * false and that is the whole point of the check below: a blank licence is a fine answer but it
+ * has to be chosen rather than defaulted into. So the red *is* the handle.
+ */
+const tripLicenceField = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  const found = await page.evaluate(async ([data]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    // Material 3's light `error`, 0xB3261E, and the antialiased shades of it: a strong red
+    // channel with very little of either of the others.
+    const rows = []
+    for (let y = 0; y < c.height; y++) {
+      let red = 0
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        if (px[i] > 120 && px[i + 1] < 80 && px[i + 2] < 80) red++
+      }
+      // A whole border rather than a line of the message underneath it, which is short.
+      if (red > 200) rows.push(y)
+    }
+    return rows
+  }, [b64])
+  if (found.length === 0) return null
+  // Its top border, which is the half of the box that is on screen.
+  return [210, found[0] + 12]
+}
 const LABEL_TEXT = [210, 442]
 const LABEL_PLACE = [316, 518]
 // The sketch toolbar is nine equal columns; the bottom row's third cell is the label tool.
@@ -1361,11 +1421,19 @@ const openSymbolStrip = async () => {
   }
   if (!(await symbolStripIsOpen())) throw new Error('the symbol strip would not open')
 }
-/** Shut it again, so the drawing gets its forty pixels back. */
+/**
+ * Shut it again, so the drawing gets its forty pixels back.
+ *
+ * Through `buttonSymbol` rather than the strip's own cross: the cross is the last square of
+ * twenty-one and is only where `stripSquare` says it is while the strip has not been scrolled,
+ * which after reaching for a symbol past the middle it has been.
+ */
 const closeSymbolStrip = async () => {
-  if (!(await symbolStripIsOpen())) return
-  await at(...stripSquare('close'))
-  await page.waitForTimeout(400)
+  for (let i = 0; i < 3 && (await symbolStripIsOpen()); i++) {
+    await at(...toolCell(2))
+    await page.waitForTimeout(400)
+  }
+  if (await symbolStripIsOpen()) throw new Error('the symbol strip would not close')
 }
 /** Drag it to the far end, for the symbols no phone is wide enough to show at once. */
 const scrollSymbolStripToTheEnd = async () => {
@@ -1614,7 +1682,10 @@ const dialogConfirm = async () => {
   const rows = await dialogTextRows()
   if (rows.length === 0) return null
   const right = await dialogRight()
-  return right === null ? null : [right - 30, rows[rows.length - 1]]
+  // Thirty-eight in from the card's edge, not thirty. A `TextButton` is at least forty-eight
+  // wide however short its label, so this is inside the box for "Add" as well as for "Save" —
+  // and thirty was one pixel inside the former, which is not a margin.
+  return right === null ? null : [right - 38, rows[rows.length - 1]]
 }
 
 
@@ -1812,10 +1883,12 @@ async function stationMenuRow(menu, name) {
   const index = menu.indexOf(name)
   if (index < 0) throw new Error(`no station-menu row called ${name}`)
   const rows = await dialogTextRows()
-  if (rows.length !== menu.length) {
+  // One more row than actions: the dialog's own *Close*, which is drawn in the same primary as
+  // the rows above it and sits below the last of them.
+  if (rows.length !== menu.length + 1) {
     throw new Error(
-      `the station menu shows ${rows.length} rows, not the ${menu.length} of ` +
-        `${menu.join(', ')}`)
+      `the station menu shows ${rows.length} rows including Close, not the ` +
+        `${menu.length + 1} of ${menu.join(', ')}`)
   }
   return [210, rows[index]]
 }
@@ -1843,7 +1916,7 @@ const sectionsBeforeTheTap = await page.evaluate(() => {
 })
 if (askedWhereToDrawIt < 4) {
   fail(`choosing "Create Cross Section" put up no instruction (${askedWhereToDrawIt} rows of it)`)
-} else if (sectionsBeforeTheTap !== 0) {
+} else if ((sectionsBeforeTheTap ?? 0) !== 0) {
   fail(`"Create Cross Section" drew the section itself instead of asking (${sectionsBeforeTheTap})`)
 } else {
   pass('creating a cross-section asks where to draw it rather than choosing for the surveyor')
@@ -2916,9 +2989,9 @@ if (splayRow < 0) {
   const afterMoveActions = await legActionRows()
 
   await at(...afterMoveActions[0]); await page.waitForTimeout(700)
-  await retype(EDIT_DISTANCE, '2.75')
+  await retype([EDIT_DISTANCE_X, (await numberField(EDIT_SPLAY_DISTANCE))[1]], '2.75')
   await page.screenshot({ path: join(shotDir, 'field-edit-reading.png') })
-  await at(...EDIT_SAVE); await page.waitForTimeout(900)
+  await at(...(await dialogConfirm())); await page.waitForTimeout(900)
 
   const afterEdit = await savedLegs()
   const editedSplay = afterEdit.find(isSplay)
@@ -3085,8 +3158,8 @@ if (farEndRows.length !== nearEndRows.length + 3) {
 // menu rather than at the top. The origin's table menu is these five rows and only these: it is
 // the active station by now so it cannot be made active, no leg made it so there is no
 // `menu_leg`, nothing may delete it, and `ViewContext.TABLE` hides the jump to the table itself.
-// The count above says the same thing a different way — five and eight are the three-row
-// difference it asserts — so if either is wrong both fail rather than one passing quietly.
+// The count above says the same thing a different way — six rows against nine, both counting the
+// dialog's own Close — so if either is wrong both fail rather than one passing quietly.
 const ORIGIN_TABLE_MENU = [
   'comment',
   'rename',
@@ -3714,7 +3787,7 @@ await page.screenshot({ path: join(shotDir, 'field-trip.png') })
 // everything else needed to save a trip is already on screen at this point, so this is the one
 // place a click on Save tests the licence gate alone. A trip written here would mean the gate
 // was never wired up at all.
-await at(...TRIP_SAVE); await page.waitForTimeout(500)
+await at(...(await dialogConfirm())); await page.waitForTimeout(500)
 const tripBeforeALicenceIsChosen = await page.evaluate(() => {
   const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
   return key ? JSON.parse(localStorage.getItem(key)).trip ?? null : null
@@ -3725,9 +3798,14 @@ if (tripBeforeALicenceIsChosen) {
   pass('Save does nothing until a licence has been chosen, even with everything else filled in')
 }
 
-await at(...TRIP_LICENCE); await page.waitForTimeout(250)
-await page.keyboard.type('CC0', { delay: 15 })
-await at(...TRIP_SAVE); await page.waitForTimeout(800)
+const licenceBox = await tripLicenceField()
+if (licenceBox === null) {
+  fail('the licence box is not marked as unanswered, so there is nothing to say Save waits for')
+} else {
+  await at(...licenceBox); await page.waitForTimeout(250)
+  await page.keyboard.type('CC0', { delay: 15 })
+}
+await at(...(await dialogConfirm())); await page.waitForTimeout(800)
 
 const trip = await page.evaluate(() => {
   const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
@@ -3748,7 +3826,7 @@ if (!trip) {
 // already chose.
 await at(...overflowButton()); await page.waitForTimeout(500)
 await at(...(await menuRow('trip', 1))); await page.waitForTimeout(800)
-await at(...TRIP_SAVE); await page.waitForTimeout(800)
+await at(...(await dialogConfirm())); await page.waitForTimeout(800)
 const tripAfterReopening = await page.evaluate(() => {
   const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
   return key ? JSON.parse(localStorage.getItem(key)).trip ?? null : null
