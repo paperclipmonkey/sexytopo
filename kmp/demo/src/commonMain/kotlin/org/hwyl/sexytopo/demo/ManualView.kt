@@ -79,7 +79,7 @@ fun ManualView(onClose: () -> Unit, modifier: Modifier = Modifier) {
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Manual", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            Text(Strings.actionGuide, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             TextButton(onClick = onClose) { Text("Close") }
         }
         HorizontalDivider()

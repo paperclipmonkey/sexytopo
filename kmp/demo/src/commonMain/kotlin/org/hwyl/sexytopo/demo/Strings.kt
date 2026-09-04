@@ -51,12 +51,87 @@ object Strings {
         return shown
     }
 
+    /**
+     * Wording this port needs that `strings.xml` has no counterpart for.
+     *
+     * Deliberately not registered for the mirroring check — there is nothing upstream to hold it
+     * to. It is here rather than inline so that there is one place to look for the handful of
+     * things this port has to say for itself, and so the difference between "should match the
+     * Android app" and "cannot" is written down rather than guessed at.
+     */
+    private fun local(value: String) = value
+
+    // -- This port's own ------------------------------------------------------------------
+
+    /**
+     * The overflow button's name, which the Android app never writes down because appcompat
+     * supplies it: `abc_action_menu_overflow_description`, which reads exactly this. Here the app
+     * bar is drawn from scratch, so the button had no name at all — nothing for a screen reader to
+     * announce, and nothing for a test to ask for.
+     */
+    val actionOverflow = local("More options")
+
+    /** What closes a menu that is a dialog here and a context menu on Android. */
+    val close = local("Close")
+
+    /** The 3D view's own control: `SurveyView3D` has no camera to put back, and this does. */
+    val reset = local("Reset")
+
+    /**
+     * The field bar's two buttons.
+     *
+     * `pref_manual_controls` puts two floating action buttons on the Android app's table, drawn as
+     * icons with no words on them; here the same control is a labelled button on the field bar, so
+     * there is wording to choose and nothing upstream to copy. *Simulate* has no counterpart at
+     * all — it stands in for an instrument this port can be run without.
+     */
+    val addReading = local("Add reading")
+
+    val simulate = local("Simulate")
+
+    /**
+     * The demo cave's own bar, which the Android app has nothing like: it opens on the survey you
+     * were last working on, and this port opens on a cave to look at so that a first run has
+     * something in it.
+     */
+    val startSurveying = local("Start surveying")
+
+    val mySurvey = local("My survey")
+
+    val demoCaveIsNotKept = local("An example. Nothing recorded here is kept.")
+
     // -- Common ---------------------------------------------------------------------------
 
     val ok = s("ok", "OK")
     val cancel = s("cancel", "Cancel")
     val delete = s("delete", "Delete")
     val save = s("save", "Save")
+    val clear = s("clear", "Clear")
+    val appName = s("app_name", "SexyTopo")
+
+    /** The device screen's own title, which this port's connect button says. */
+    val titleActivityDevice = s("title_activity_device", "Connect")
+
+    /** `symbol_text`: the label tool's entry in the symbol strip, and the label box's own label. */
+    val symbolText = s("symbol_text", "Text")
+
+    val tripClearDate = s("trip_clear_date", "Clear date")
+    val tripLicenceNone = s("trip_licence_none", "No licence")
+
+    // `activity_calibration.xml`'s buttons, in the order it lays them out.
+    val calibrationStart = s("calibration_start", "Disto Cal Mode On")
+    val calibrationStop = s("calibration_stop", "Disto Cal Mode Off")
+    val calibrationDeleteLast = s("calibration_delete_last", "Delete Reading")
+    val calibrationUpdate = s("calibration_update", "Write")
+
+    // `activity_stats.xml`, in its order. The unit is in the label, not the number.
+    val statsLength = s("stats_length", "Length (m)")
+    val statsVerticalRange = s("stats_vertical_range", "Vertical Range (m)")
+    val statsNumberStations = s("stats_number_stations", "Number of Stations")
+    val statsNumberLegs = s("stats_number_legs", "Number of Legs")
+    val statsNumberSplays = s("stats_number_splays", "Number of Splays")
+    val statsLongestLeg = s("stats_longest_leg", "Longest Leg (m)")
+    val statsShortestLeg = s("stats_shortest_leg", "Shortest Leg (m)")
     val add = s("add", "Add")
     val station = s("station", "Station")
     val leg = s("leg", "Leg")
@@ -168,6 +243,13 @@ object Strings {
     val sketchMenuShowGrid = s("sketch_menu_show_grid", "Graph Paper")
     val sketchMenuShowStationLabels = s("sketch_menu_show_station_labels", "Station Labels")
     val sketchMenuShowCompass = s("sketch_menu_show_compass", "Compass")
+
+    /**
+     * The toast `handleNewCrossSection` puts up: choosing *Create Cross Section* arms the tool
+     * and then waits, rather than deciding for the surveyor where the section goes.
+     */
+    val sketchPositionCrossSectionInstruction =
+        s("sketch_position_cross_section_instruction", "Select where to draw cross-section")
 
     // -- The station menu, `res/menu/context_station.xml` ---------------------------------
 

@@ -162,33 +162,67 @@ if (!(await ready())) {
 
 const box = await (await page.$('canvas')).boundingBox()
 const at = (x, y) => page.mouse.click(box.x + x, box.y + y)
+
+// Where a named control is, asked of the app's accessibility tree rather than measured off the
+// picture - the same helpers field.mjs uses, and for the same reason: the calibration dialog's
+// buttons used to be pressed at fixed positions, and the day they took the Android app's own
+// wording the row reflowed and every position pressed something else. A name does not move.
+// Playwright's own selectors see into the open shadow root Compose mounts the tree in.
+const nodeAt = async (selector) => {
+  const handle = await page.$(selector)
+  if (handle === null) return null
+  const rect = await handle.boundingBox()
+  if (rect === null) return null
+  return [Math.round(rect.x - box.x + rect.width / 2), Math.round(rect.y - box.y + rect.height / 2)]
+}
+const nodeFor = async (selector) => {
+  const where = await nodeAt(selector)
+  if (where !== null) return where
+  const offered = await page.$$eval('[id]', (els) => els.map((e) => '#' + e.id).slice(0, 40))
+  throw new Error(`nothing on screen answers to ${selector}. The app offers: ${offered.join(', ') || '(nothing)'}`)
+}
 const OVERFLOW = [box.width - 16, 26]
-// The overflow menu, by name. It is `action_bar.xml`'s own two levels again: five rows at the top,
-// and everything this test wants is one tap inside *Instrument* — which is why the saved surveys
-// no longer move any of it, having gone into *File* where the app's own Open is.
-const MENU_TOP = ['file', 'view', 'instrument', 'settings', 'about']
-const INSTRUMENT_PAGE = ['connect', 'calibrate', 'log']
+// The overflow menu, by name. It is `action_bar.xml`'s own two levels again: its seven groups and
+// the `connection_group` row at the top, and a group page is a Back row and then the group.
+//
+// The saved surveys move none of this: they are inside *Open* and *Delete Survey…*, which are
+// pages of their own under File, where `action_file_open` and `action_file_delete` put them.
+const MENU_TOP = [
+  'file',
+  'view',
+  'instrument',
+  'input',
+  'tools',
+  'settings',
+  'help',
+  'connection',
+]
+// `action_device_menu` is *Connect…* and the connected instrument's own commands, and nothing
+// else. The system log is `tools_group_diagnostics`, on the Tools page.
+const INSTRUMENT_PAGE = ['connect', 'calibrate']
+const TOOLS_PAGE = ['undo-last-leg', 'find', 'add-leg', 'add-splay', 'log']
 const menuRowY = (index) => 80 + 48 * index
 
-/** Open the Instrument submenu and return the row for one of its items. */
-async function instrumentMenuRow(name) {
-  const index = INSTRUMENT_PAGE.indexOf(name)
-  if (index < 0) throw new Error(`no instrument-menu item called ${name}`)
-  await at(312, menuRowY(MENU_TOP.indexOf('instrument')))
+/** Open a group of the overflow menu and return the row for one of its items. */
+async function groupMenuRow(group, page_, name) {
+  const index = page_.indexOf(name)
+  if (index < 0) throw new Error(`no ${group} item called ${name}`)
+  await at(312, menuRowY(MENU_TOP.indexOf(group)))
   await page.waitForTimeout(500)
-  // Row zero of a submenu is Back.
+  // Row zero of a group page is Back.
   return [312, menuRowY(1 + index)]
 }
-// The calibration dialog. Its layout is fixed once the first reading has arrived and added the
-// "Last:" line; before that the buttons sit one line higher.
-const INSTRUMENT_CLOSE = [212, 759]
-const CALIBRATION_START = [103, 415]
+const instrumentMenuRow = (name) => groupMenuRow('instrument', INSTRUMENT_PAGE, name)
+const toolsMenuRow = (name) => groupMenuRow('tools', TOOLS_PAGE, name)
+// The dialogs' buttons, by the names CalibrationDialog.kt, InstrumentDialog.kt and LogDialog.kt
+// give them. Asked for at the moment of pressing, since a dialog that is not open has no nodes.
+const INSTRUMENT_CLOSE = '#instrument-close'
+const CALIBRATION_START = '#calibration-start'
+const CALIBRATION_SOLVE = '#calibration-solve'
+const CALIBRATION_WRITE = '#calibration-write'
 // The calibration dialog's Close, so its scrim stops swallowing clicks at the overflow menu.
-const CALIBRATION_CLOSE = [315, 771]
-// The log dialog's buttons: Clear, Close, Copy, left to right.
-const LOG_COPY = [316, 656]
-const CALIBRATION_SOLVE = [103, 611]
-const CALIBRATION_WRITE = [150, 700]
+const CALIBRATION_CLOSE = '#calibration-close'
+const LOG_COPY = '#log-copy'
 const FIRST_INSTRUMENT = [210, 306]
 
 await at(...OVERFLOW); await page.waitForTimeout(600)
@@ -319,14 +353,14 @@ const CALIBRATION_ROWS = [
 
 // The instrument dialog is still up from the connection checks, and its scrim would swallow the
 // first click at the overflow menu.
-await at(...INSTRUMENT_CLOSE); await page.waitForTimeout(700)
+await at(...(await nodeFor(INSTRUMENT_CLOSE))); await page.waitForTimeout(700)
 await at(...OVERFLOW); await page.waitForTimeout(600)
 await page.screenshot({ path: join(shotDir, 'calibration-menu.png') })
 await at(...(await instrumentMenuRow('calibrate'))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'calibration-open.png') })
 
 const writesBefore = (await page.evaluate(() => window.__fakeInstrument.written)).length
-await at(...CALIBRATION_START); await page.waitForTimeout(700)
+await at(...(await nodeFor(CALIBRATION_START))); await page.waitForTimeout(700)
 
 const startCommand = await page.evaluate(() => window.__fakeInstrument.written.slice(-1)[0])
 // A `data:`-framed 0x31, which is START_CALIBRATION.
@@ -343,9 +377,9 @@ for (const row of CALIBRATION_ROWS) {
 }
 await page.screenshot({ path: join(shotDir, 'calibration-readings.png') })
 
-await at(...CALIBRATION_SOLVE); await page.waitForTimeout(3000)
+await at(...(await nodeFor(CALIBRATION_SOLVE))); await page.waitForTimeout(3000)
 await page.screenshot({ path: join(shotDir, 'calibration-solved.png') })
-await at(...CALIBRATION_WRITE); await page.waitForTimeout(1500)
+await at(...(await nodeFor(CALIBRATION_WRITE))); await page.waitForTimeout(1500)
 await page.screenshot({ path: join(shotDir, 'calibration-written.png') })
 
 const allWrites = await page.evaluate(() => window.__fakeInstrument.written)
@@ -404,14 +438,14 @@ if (storedLog === null) {
   pass(`the instrument log is written down as it happens (${storedLog.length} lines)`)
 }
 
-await at(...CALIBRATION_CLOSE); await page.waitForTimeout(700)
+await at(...(await nodeFor(CALIBRATION_CLOSE))); await page.waitForTimeout(700)
 await at(...OVERFLOW); await page.waitForTimeout(600)
-await at(...(await instrumentMenuRow('log'))); await page.waitForTimeout(900)
+await at(...(await toolsMenuRow('log'))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'instrument-log.png') })
 
 // Copy, and then read back what landed on the clipboard - which is how a log gets off a phone that
 // has been in a cave and into a message to somebody who can fix it.
-await at(...LOG_COPY); await page.waitForTimeout(700)
+await at(...(await nodeFor(LOG_COPY))); await page.waitForTimeout(700)
 const copied = await page.evaluate(() => navigator.clipboard.readText().catch(() => null))
 // Re-read the file rather than reusing the count from above: closing the calibration dialog logged
 // a line of its own between the two, which is the log working rather than the check failing.

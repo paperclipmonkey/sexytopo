@@ -49,6 +49,13 @@ kotlin {
         }
         jvmTest.dependencies {
             implementation(kotlin("test"))
+            // Compose's own test framework, which drives the real composables through the
+            // semantics tree rather than through pixels: `onNodeWithTag(...).performClick()`
+            // where `field.mjs` has to work out which pixel a row is drawn at. Runs headlessly,
+            // in seconds, with no browser.
+            @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
+            implementation(compose.uiTest)
+            implementation(compose.desktop.currentOs)
         }
         // Runs on the iOS simulator, on the macOS runner. This is what turns `iosMain` from
         // "compiles" into "works": DocumentsFileStore is hand-written Objective-C interop, and

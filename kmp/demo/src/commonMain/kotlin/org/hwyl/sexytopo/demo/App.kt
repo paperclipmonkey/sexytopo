@@ -43,6 +43,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -503,6 +506,11 @@ private fun SexyTopoAppBar(state: DemoState) {
         Box {
             OverflowGlyph(
                 Modifier
+                    // The one control on the app bar with no name of its own to read out, and the
+                    // way into every menu — so it is named here for a screen reader as well as for
+                    // the checks that drive the app through the same tree.
+                    .semantics { contentDescription = Strings.actionOverflow }
+                    .testTag("overflow")
                     .clickable { menuOpen = true }
                     .padding(horizontal = 12.dp, vertical = 10.dp),
             )
@@ -855,7 +863,7 @@ private fun screenTitle(state: DemoState): String =
     }
 
 /** What leaves a page of the overflow menu, since a `DropdownMenu` has no back of its own. */
-private const val BACK_ROW = "\u2039 Back"
+internal const val BACK_ROW = "\u2039 Back"
 
 /** Which page of the overflow menu is showing: `action_bar.xml`'s submenus, one at a time. */
 enum class MenuPage {
@@ -903,6 +911,7 @@ private fun MenuAction(
         enabled = enabled,
         leadingIcon = { CheckDot(checked) },
         onClick = onClick,
+        modifier = Modifier.testTag(tagFor(label)),
     )
 }
 
@@ -914,8 +923,31 @@ private fun MenuGroup(label: String, opens: MenuPage, onOpen: (MenuPage) -> Unit
         // "›" not ">": the bundled font has it, and `FontCoverageTest` checks that.
         trailingIcon = { Text("\u203A", style = MaterialTheme.typography.bodyMedium) },
         onClick = { onOpen(opens) },
+        modifier = Modifier.testTag(tagFor(label)),
     )
 }
+
+/**
+ * A stable handle for a row of the overflow menu.
+ *
+ * Compose's `testTag` becomes the DOM element's `id` in the browser's accessibility tree, so this
+ * is what lets the browser tests ask for *Undo Last Reading* by name instead of working out which
+ * pixel it is drawn at. Derived from the label rather than passed in at forty call sites: the
+ * labels are `Strings`, and `AndroidStringsTest` holds every one of them to `strings.xml`, so a
+ * tag cannot drift without a test saying so.
+ *
+ * Two rows on the same page must not slug to the same thing. They do not: the only labels this
+ * port repeats are on pages that are never open at once.
+ */
+internal fun tagFor(label: String): String =
+    "menu-" +
+        label
+            .lowercase()
+            .map { if (it.isLetterOrDigit()) it else '-' }
+            .joinToString("")
+            .split('-')
+            .filter { it.isNotEmpty() }
+            .joinToString("-")
 
 /**
  * What is left of the app bar in full screen: a grab handle, and a way back — something has to
@@ -1182,6 +1214,8 @@ private fun SketchScreen(
         symbol = state.symbol,
         onOpenCrossSection = { state.editingCrossSection = it },
         onLongPressStation = onLongPressStation,
+        crossSectioning = state.crossSectioning,
+        onCrossSectionPositioned = { state.finishCrossSection() },
     )
 }
 
@@ -1215,12 +1249,11 @@ private fun StationMenuFor(
         // where it started after a restart — saving is the caller's job.
         onMakeActive = { if (state.selectStation(it.name)) state.noteSketchEdited() },
         onOpenCrossSection = { state.editingCrossSection = it },
+        // `handleNewCrossSection`: the section is not drawn yet. The tool is armed for this
+        // station and the next tap on the paper says where it goes, which is the one thing about
+        // a cross-section only the surveyor can decide.
         onCreateCrossSection = { at ->
-            val position = crossSectionPositionFor(state.survey, at, state.projection)
-            if (position != null) {
-                editor.addCrossSection(sectionFor(state.survey, at), position)
-                state.noteSketchEdited()
-            }
+            state.beginCrossSection(at)
             onClose()
         },
         onDeleteCrossSection = { editor.delete(it) },
@@ -1310,10 +1343,16 @@ private fun FieldBar(state: DemoState) {
     ) {
         val controls = FieldControls.of(state.preferences, session.profile)
         if (controls.manualEntry) {
-            Button(onClick = { entering = true }) { Text("Add reading") }
+            Button(
+                onClick = { entering = true },
+                modifier = Modifier.testTag("add-reading"),
+            ) { Text(Strings.addReading) }
         }
         if (controls.simulator) {
-            Button(onClick = { session.takeReading() }) { Text("Simulate") }
+            Button(
+                onClick = { session.takeReading() },
+                modifier = Modifier.testTag("simulate"),
+            ) { Text(Strings.simulate) }
         }
         Text(
             buildString {
@@ -1388,11 +1427,16 @@ private fun DemoCaveBar(state: DemoState) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Button(onClick = { state.mode = SurveyMode.LIVE }) {
-            Text(if (state.savedSurveys.isEmpty()) "Start surveying" else "My survey")
+        Button(
+            onClick = { state.mode = SurveyMode.LIVE },
+            modifier = Modifier.testTag("start-surveying"),
+        ) {
+            Text(
+                if (state.savedSurveys.isEmpty()) Strings.startSurveying else Strings.mySurvey,
+            )
         }
         Text(
-            "An example. Nothing recorded here is kept.",
+            Strings.demoCaveIsNotKept,
             style = MaterialTheme.typography.bodySmall,
             color = if (dark) SexyTopoColours.legendNight else SexyTopoColours.legend,
         )

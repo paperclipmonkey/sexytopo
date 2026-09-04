@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
@@ -341,7 +342,10 @@ fun StationMenuDialog(
                                         }
                                     }
                                 },
-                                modifier = Modifier.fillMaxWidth(),
+                                // Named after the row it is drawn as, so a screen reader and the
+                                // browser checks find it whatever `stationActionsFor` decides this
+                                // station is allowed to do.
+                                modifier = Modifier.fillMaxWidth().testTag(tagFor(action.label)),
                             ) {
                                 Row(
                                     Modifier.fillMaxWidth(),
@@ -364,7 +368,7 @@ fun StationMenuDialog(
                     }
                 },
                 confirmButton = {},
-                dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+                dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.close) } },
             )
     }
 }
@@ -397,29 +401,14 @@ private fun setDirection(
     direction: ExtendedElevationDirection,
     onEdited: () -> Unit,
 ) {
-    station.extendedElevationDirection = direction
-    survey.isSaved = false
+    // Through `SurveyUpdater` rather than by assignment, which is what the dialog's own path does:
+    // LEFT and RIGHT carry down the whole subtree (`ExtendedElevationDirection.propagates`), so
+    // assigning the field here left everything past the junction unrolling as it was — a drawing
+    // that is wrong and does not look wrong. The comment above has always said it propagates.
+    SurveyUpdater.setExtendedElevationDirection(survey, station, direction)
     onEdited()
 }
 
-/** The bearing a cross-section created from this menu gets: the same call the position tool makes. */
+/** The bearing a cross-section gets, which is a guess `CROSS_SECTION_SET_DIRECTION` overrules. */
 fun sectionFor(survey: Survey, station: Station) = CrossSectioner.section(survey, station)
 
-/**
- * Where a cross-section created from the menu is drawn: beside the station, not on it, since from
- * a menu there is no finger position to place it at. *Move a cross-section* slides it from there.
- */
-fun crossSectionPositionFor(
-    survey: Survey,
-    station: Station,
-    projection: Projection2D,
-): Coord2D? {
-    val at = projection.project(survey).stationMap[station] ?: return null
-    return at.add(CROSS_SECTION_MENU_OFFSET_METRES, -CROSS_SECTION_MENU_OFFSET_METRES)
-}
-
-/**
- * `SketchDefaults.CROSS_SECTION_STARTING_SIZE`-ish, in metres of cave rather than pixels: far
- * enough from the centreline to read as a separate drawing at the zoom a plan is usually at.
- */
-private const val CROSS_SECTION_MENU_OFFSET_METRES = 3.0f

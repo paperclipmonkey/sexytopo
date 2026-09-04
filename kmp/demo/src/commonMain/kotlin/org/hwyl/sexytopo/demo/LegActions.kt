@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -227,12 +228,27 @@ fun LegActionsDialog(
                         }
                     }
                 },
+                // Everything in one column, *Cancel* included, and no `dismissButton`.
+                // `AlertDialog` lays the dismiss button out beside the confirm one, and this
+                // column is taller than a button and narrower than the card — so *Cancel* was
+                // drawn on top of the second action. A tap meant for *Reverse* dismissed the menu
+                // instead of turning the leg round, and a surveyor aiming at it fared no better.
                 confirmButton = {
-                    Column(horizontalAlignment = Alignment.End) {
+                    Column(
+                        Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.End,
+                    ) {
                         for (action in legActionsFor(survey, row)) {
                             // `setGroupDividerEnabled`: `group_leg_delete` is its own group.
                             if (action == LegAction.DELETE) HorizontalDivider()
                             TextButton(
+                                // Named after the row it is drawn as, like every other menu row,
+                                // so a screen reader and the browser checks can both find it
+                                // whatever order `legActionsFor` puts it in.
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .testTag(tagFor(action.label(row.isSplay))),
                                 onClick = {
                                     when (action) {
                                         LegAction.EDIT -> editing = true
@@ -262,9 +278,12 @@ fun LegActionsDialog(
                                 },
                             ) { Text(action.label(row.isSplay)) }
                         }
+                        TextButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(Strings.cancel) }
                     }
                 },
-                dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
             )
     }
 }

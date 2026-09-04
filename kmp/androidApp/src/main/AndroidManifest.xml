@@ -16,6 +16,18 @@
         tools:targetApi="s"
         xmlns:tools="http://schemas.android.com/tools" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <!--
+        Without this the buzz on a new station cannot happen: `Haptics.android.kt` asks the
+        `Vibrator` for 200 milliseconds, `hasVibrator` still answers yes, the switch is on by
+        default in the general settings, and Android drops the request on the floor. The Android
+        app has declared it since the notification service was written; this manifest had the
+        feature and not the permission, which is a switch that does nothing.
+
+        Normal rather than dangerous, so declaring it is the whole of the work: nothing is asked
+        of the surveyor at runtime.
+    -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Pre-Android-12 equivalents, capped so they are not requested on newer releases. -->
     <uses-permission
         android:name="android.permission.BLUETOOTH"

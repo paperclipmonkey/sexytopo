@@ -60,7 +60,7 @@ fun SurveyNameDialog(
                 Text(if (intent == NamingIntent.NEW) "Create" else Strings.save)
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
     )
 }
 

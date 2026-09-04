@@ -20,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.model.graph.ExtendedElevationDirection
@@ -39,6 +40,13 @@ import org.hwyl.sexytopo.shared.survey.SurveyUpdater
  * path so the three cannot disagree about what a rename does to the survey.
  */
 enum class StationFields { NAME, COMMENT, PASSAGE }
+
+/** What the boxes of the station's own dialogs answer to. */
+const val STATION_NAME_FIELD: String = "station-name"
+const val STATION_COMMENT_FIELD: String = "station-comment"
+
+/** One of the four passage measurements, by the side of the passage it is. */
+fun passageFieldTag(side: Lrud): String = "station-passage-${side.name.lowercase()}"
 
 /**
  * Naming a station, and saying what is there.
@@ -93,7 +101,8 @@ fun StationActionsDialog(
                             label = { Text(Strings.manualRenameStationHint) },
                             singleLine = true,
                             isError = problem != null,
-                            modifier = Modifier.fillMaxWidth().then(focus),
+                            modifier =
+                                Modifier.fillMaxWidth().testTag(STATION_NAME_FIELD).then(focus),
                         )
 
                     StationFields.COMMENT ->
@@ -102,7 +111,8 @@ fun StationActionsDialog(
                             onValueChange = { comment = it },
                             label = { Text(Strings.manualEditStationComment) },
                             placeholder = { Text("Continues, too tight") },
-                            modifier = Modifier.fillMaxWidth().then(focus),
+                            modifier =
+                                Modifier.fillMaxWidth().testTag(STATION_COMMENT_FIELD).then(focus),
                         )
 
                     StationFields.PASSAGE -> {
@@ -122,7 +132,8 @@ fun StationActionsDialog(
                                     singleLine = true,
                                     keyboardOptions =
                                         KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                    modifier = Modifier.weight(1f),
+                                    modifier =
+                                        Modifier.weight(1f).testTag(passageFieldTag(side)),
                                 )
                             }
                         }

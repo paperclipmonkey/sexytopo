@@ -4,7 +4,9 @@ import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.demo.ExampleSurvey
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
+import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 import kotlin.test.assertContains
@@ -34,6 +36,17 @@ class StationMenuTest {
         SurveyBuilder.updateWithNewStation(survey, Leg(10f, 90f, 0f))
         return survey
     }
+
+    /** Somewhere for the tool and the waiting station to live. */
+    private fun state(): DemoState =
+        DemoState(
+            exampleSurvey = ExampleSurvey.create(),
+            initialProjection = Projection2D.PLAN,
+            initialSystemDark = false,
+            initialTool = null,
+            initialMode = SurveyMode.LIVE,
+            initialScreen = Screen.SKETCH,
+        )
 
     private fun actions(
         survey: Survey,
@@ -250,18 +263,33 @@ class StationMenuTest {
         assertNull(crossSectionAt(editor.sketch, survey.getStationByName("3")!!))
     }
 
+    /**
+     * `handleNewCrossSection`: the row arms a tool, it does not draw anything.
+     *
+     * This port used to place the section itself, a fixed three metres up and to the right of the
+     * station. That is a guess about where there is white paper, and on a plan of a chamber with
+     * anything else drawn near it the guess lands the section on top of the passage it exists to
+     * explain. The Android app asks instead, and the asking is the tool being armed.
+     */
     @Test
-    fun aSectionFromTheMenuLandsBesideTheStationRatherThanOnIt() {
+    fun creatingASectionAsksWhereItGoesRatherThanChoosing() {
         val survey = passage()
         val two = survey.getStationByName("2")!!
-        val at = Projection2D.PLAN.project(survey).stationMap[two]!!
-        val placed = crossSectionPositionFor(survey, two, Projection2D.PLAN)
+        val state = state()
+        state.chooseTool(SketchTool.DRAW)
 
-        assertNotNull(placed)
-        assertTrue(
-            (placed - at).mag() > 1f,
-            "expected the section clear of the station, got ${placed.x}, ${placed.y}",
-        )
+        state.beginCrossSection(two)
+
+        assertEquals(SketchTool.POSITION_CROSS_SECTION, state.tool)
+        assertEquals(two, state.crossSectioning)
+        assertEquals(Strings.sketchPositionCrossSectionInstruction, state.notice)
+
+        // One shot: `handlePositionCrossSection` puts `previousSketchTool` back, so a surveyor who
+        // was drawing goes on drawing rather than being left holding a tool that does nothing.
+        state.finishCrossSection()
+
+        assertEquals(SketchTool.DRAW, state.tool)
+        assertNull(state.crossSectioning)
     }
 
     @Test

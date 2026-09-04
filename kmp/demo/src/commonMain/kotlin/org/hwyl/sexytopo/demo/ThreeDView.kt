@@ -27,6 +27,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -114,9 +117,13 @@ fun ThreeDView(
             )
             TextButton(
                 onClick = { camera = Camera3D(distance = fitDistance) },
-            ) { Text("Reset", color = SexyTopoColours.onPanel) }
+            ) { Text(Strings.reset, color = SexyTopoColours.onPanel) }
             Box(
-                Modifier.clickable(onClick = onClose).padding(horizontal = 10.dp, vertical = 6.dp),
+                Modifier
+                    .semantics { contentDescription = Strings.close }
+                    .testTag("three-d-close")
+                    .clickable(onClick = onClose)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
             ) {
                 CancelIcon(SexyTopoColours.onPanel)
             }

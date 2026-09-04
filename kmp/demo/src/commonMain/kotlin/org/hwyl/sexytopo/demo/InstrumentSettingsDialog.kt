@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.survey.SurveySettings
@@ -156,6 +157,7 @@ fun InstrumentSettingsDialog(
         },
         confirmButton = {
             TextButton(
+                modifier = Modifier.testTag(SETTINGS_SAVE),
                 enabled = edited != null,
                 onClick = {
                     edited?.let {
@@ -201,6 +203,14 @@ internal fun preferencesFrom(
     )
 
 /**
+ * What every settings dialog's Save button answers to.
+ *
+ * Picking a theme repaints the card under the button, so finding it by the colour it is drawn on
+ * stops working exactly when the theme is the thing being changed.
+ */
+const val SETTINGS_SAVE: String = "settings-save"
+
+/**
  * A labelled switch with a line of explanation, as the settings rows above it already are.
  *
  * [enabled] greys the row out rather than removing it: a setting that disappears when its parent
@@ -215,7 +225,12 @@ internal fun Toggle(
     enabled: Boolean = true,
 ) {
     val dim = if (enabled) 1f else DISABLED_ALPHA
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    // Named after the setting it is, because a switch that is off — or greyed out because the
+    // device cannot do the thing — is not something a picture of the dialog can pick out.
+    Row(
+        Modifier.testTag(tagFor(title)),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Column(Modifier.weight(1f)) {
             Text(
                 title,

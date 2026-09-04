@@ -28,22 +28,30 @@ class StatsTest {
         val stats = statsOf(cave()).toMap()
 
         // Splays are wall shots, not passage, so the length is 10 + 5.
-        assertEquals("15.00 m", stats["Length"])
+        assertEquals("15.00", stats[Strings.statsLength])
         // Flat cave: no vertical range at all.
-        assertEquals("0.00 m", stats["Depth"])
+        assertEquals("0.00", stats[Strings.statsVerticalRange])
         // Three stations, minus the origin nobody surveyed *to*.
-        assertEquals("2", stats["Stations"])
-        assertEquals("2", stats["Legs"])
-        assertEquals("1", stats["Splays"])
+        assertEquals("2", stats[Strings.statsNumberStations])
+        assertEquals("2", stats[Strings.statsNumberLegs])
+        assertEquals("1", stats[Strings.statsNumberSplays])
         // The shortest and longest do count the splay, as in the original.
-        assertEquals("2.00 m", stats["Shortest leg"])
-        assertEquals("10.00 m", stats["Longest leg"])
+        assertEquals("2.00", stats[Strings.statsShortestLeg])
+        assertEquals("10.00", stats[Strings.statsLongestLeg])
     }
 
     @Test
     fun theyAreListedInTheAppsOwnOrder() {
         assertEquals(
-            listOf("Length", "Depth", "Stations", "Legs", "Splays", "Shortest leg", "Longest leg"),
+            listOf(
+                Strings.statsLength,
+                Strings.statsVerticalRange,
+                Strings.statsNumberStations,
+                Strings.statsNumberLegs,
+                Strings.statsNumberSplays,
+                Strings.statsShortestLeg,
+                Strings.statsLongestLeg,
+            ),
             statsOf(cave()).map { it.first },
         )
     }
@@ -52,9 +60,9 @@ class StatsTest {
     fun anEmptySurveyReportsZeroes() {
         val stats = statsOf(Survey("T")).toMap()
 
-        assertEquals("0.00 m", stats["Length"])
-        assertEquals("0", stats["Stations"])
-        assertEquals("0.00 m", stats["Shortest leg"])
+        assertEquals("0.00", stats[Strings.statsLength])
+        assertEquals("0", stats[Strings.statsNumberStations])
+        assertEquals("0.00", stats[Strings.statsShortestLeg])
     }
 
     @Test
@@ -63,6 +71,17 @@ class StatsTest {
         SurveyBuilder.updateWithNewStation(survey, Leg(10f, 0f, -90f))
         SurveyBuilder.updateWithNewStation(survey, Leg(4f, 0f, 90f))
 
-        assertEquals("10.00 m", statsOf(survey).toMap()["Depth"])
+        assertEquals("10.00", statsOf(survey).toMap()[Strings.statsVerticalRange])
+    }
+
+    /** `TextTools.formatWithComma`: the app groups thousands, and a kilometre of cave has them. */
+    @Test
+    fun longNumbersAreGroupedTheWayTheAppGroupsThem() {
+        assertEquals("1,234.50", withThousands("1234.50"))
+        assertEquals("999", withThousands("999"))
+        assertEquals("1,000", withThousands("1000"))
+        assertEquals("12,345,678", withThousands("12345678"))
+        assertEquals("-1,234.00", withThousands("-1234.00"))
+        assertEquals("0.00", withThousands("0.00"))
     }
 }

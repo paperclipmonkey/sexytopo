@@ -9,18 +9,14 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.CornerRadius
@@ -61,13 +57,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.launch
 import org.hwyl.sexytopo.shared.math.getDistance
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
+import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.SketchDefaults
 import org.hwyl.sexytopo.shared.sketch.SketchStyle
@@ -148,6 +144,24 @@ fun SurveyCanvas(
      * about it.
      */
     onLongPressStation: (String) -> Unit = {},
+    /**
+     * The station whose cross-section is waiting to be placed: `stationNameBeingCrossSectioned`.
+     *
+     * Set while [SketchTool.POSITION_CROSS_SECTION] is armed, and the reason that tool needs no
+     * hit test — the station was chosen from its own menu before the tool was.
+     */
+    crossSectioning: Station? = null,
+    /** The one-shot has fired, so the tool that was in hand before it comes back. */
+    onCrossSectionPositioned: () -> Unit = {},
+    /**
+     * Which way the top of the screen is pointing, instead of asking the device.
+     *
+     * For the callers that have no device to ask: the headless renderer, which has no
+     * magnetometer, and the tests, which need the same picture twice running. Left null — which is
+     * everything the surveyor ever runs — the canvas asks the platform through
+     * [rememberDeviceHeading].
+     */
+    headingDegrees: Float? = null,
 ) {
     val textMeasurer = rememberTextMeasurer()
     val fontFamily = LocalAppFontFamily.current
@@ -168,6 +182,18 @@ fun SurveyCanvas(
         }
     val scene = sceneOverride ?: projected!!
 
+    // North is meaningless anywhere else: the extended elevation is unrolled onto a line and a
+    // cross-section is drawn across the passage. `GraphView.drawCompass` returns immediately
+    // unless the projection is the plan, and so does this.
+    val isPlan = sceneOverride == null && projection == Projection2D.PLAN
+    // Asked for only while the arrow is on screen, so the magnetometer stops with it. Read in the
+    // draw block below rather than here, so a heading arriving ten times a second redraws the
+    // canvas without recomposing it.
+    val deviceHeading =
+        rememberDeviceHeading(
+            enabled = options.showCompass && isPlan && headingDegrees == null,
+        )
+
     // What the gesture loops below hit-test against. They are not restarted when the scene is
     // rebuilt (see the keys on `gestures`), so they read the newest one through this rather than
     // capturing whichever was current when a loop began - a station that arrived during a stroke
@@ -181,6 +207,8 @@ fun SurveyCanvas(
     val currentOnPlaceLabel by rememberUpdatedState(onPlaceLabel)
     val currentOnOpenCrossSection by rememberUpdatedState(onOpenCrossSection)
     val currentOnLongPressStation by rememberUpdatedState(onLongPressStation)
+    val currentCrossSectioning by rememberUpdatedState(crossSectioning)
+    val currentOnCrossSectionPositioned by rememberUpdatedState(onCrossSectionPositioned)
 
     val viewport = canvas.viewport
     val fit = canvas.fit
@@ -188,12 +216,6 @@ fun SurveyCanvas(
     // The editor is a plain object, not Compose state, so a stroke in progress has to say when it
     // needs repainting. The viewport says so through the controller's own revision.
     var strokeTick by remember { mutableIntStateOf(0) }
-
-    // A tap that missed a station used to do nothing at all, silently — the one feedback this
-    // canvas gives about a tap that fell on nothing. `showSnackbar` suspends, and
-    // `detectTapGestures`'s own `onTap` does not, hence the separate scope to launch it from.
-    val missedTapMessage = remember { SnackbarHostState() }
-    val coroutineScope = rememberCoroutineScope()
 
     // True while a hot-corner or two-finger gesture is panning the view. Only used to tint the
     // corners, so the surveyor can see the touch was taken deliberately rather than lost.
@@ -342,33 +364,22 @@ fun SurveyCanvas(
 
             SketchTool.POSITION_CROSS_SECTION ->
                 Modifier.pointerInput(*gestureKeys) {
-                    // The Android app splits this in two - name the station, then tap to position
-                    // it - because it has a long-press menu for the first half. One tap does both
-                    // here: the nearest station in reach is the subject, and the point tapped is
-                    // where the section is drawn.
+                    // `handlePositionCrossSection`. There is no hit test here and there must not
+                    // be one: the station was named by the menu this tool was armed from, and the
+                    // tap says only where on the paper the section is drawn. Somewhere the
+                    // passage is not, usually - which is exactly why the app asks.
                     detectTapGestures { offset ->
-                        val reach =
-                            viewport.toSurveyDistance(
-                                SketchDefaults.SELECTION_SENSITIVITY_DP.dp.toPx(),
-                            )
-                        val where = viewport.toSurvey(offset)
-                        val name = currentScene.stationNearest(where, reach)
-                        val station = name?.let { survey.getStationByName(it) }
-                        if (station != null) {
-                            // The bearing comes from CrossSectioner's own heuristic: bisect the
-                            // corner mid-passage, follow the single leg at a dead end, give up and
-                            // use north where there is nothing to go on. It is a guess, and
-                            // SketchTool.ROTATE_CROSS_SECTION is how a surveyor overrules it.
-                            editor.addCrossSection(CrossSectioner.section(survey, station), where)
-                            currentOnSketchEdit()
-                        } else {
-                            // A tap that lands even a little off a station used to do nothing at
-                            // all, silently — indistinguishable from a tool that had simply
-                            // stopped responding.
-                            coroutineScope.launch {
-                                missedTapMessage.showSnackbar("No station there to put a section at")
-                            }
-                        }
+                        val station = currentCrossSectioning ?: return@detectTapGestures
+                        // The bearing comes from CrossSectioner's own heuristic: bisect the
+                        // corner mid-passage, follow the single leg at a dead end, give up and
+                        // use north where there is nothing to go on. It is a guess, and
+                        // SketchTool.ROTATE_CROSS_SECTION is how a surveyor overrules it.
+                        editor.addCrossSection(
+                            CrossSectioner.section(survey, station),
+                            viewport.toSurvey(offset),
+                        )
+                        currentOnSketchEdit()
+                        currentOnCrossSectionPositioned()
                     }
                 }
 
@@ -878,16 +889,15 @@ fun SurveyCanvas(
                 tool,
                 sectionDrag,
                 modalMoving,
-                // North is meaningless anywhere else: the extended elevation is unrolled onto a
-                // line and a cross-section is drawn across the passage. `GraphView.drawCompass`
-                // returns immediately unless the projection is the plan, and so does this.
-                isPlan = sceneOverride == null && projection == Projection2D.PLAN,
+                isPlan = isPlan,
                 projection = projection,
                 handleRects = handleRects,
+                // A missing heading means no compass on this device, so the arrow is drawn as a
+                // label: north is up, because that is where the plan puts it.
+                headingDegrees = headingDegrees ?: deviceHeading.value ?: 0f,
             )
         }
 
-        SnackbarHost(missedTapMessage, modifier = Modifier.align(Alignment.BottomCenter))
     }
 }
 
@@ -1652,6 +1662,8 @@ private fun DrawScope.drawSurvey(
      * coordinates.
      */
     handleRects: MutableMap<CrossSectionDetail, Rect>? = null,
+    /** Which way the top of the screen is pointing, or zero where nothing can say. */
+    headingDegrees: Float = 0f,
 ) {
     val palette = if (options.darkMode) DarkPalette else LightPalette
 
@@ -1877,12 +1889,22 @@ private fun DrawScope.drawSurvey(
                 continue
             }
 
-            // Scale from the 40-unit grid to the stamp's size in metres, then to pixels.
+            // Scale from the 40-unit grid to the stamp's size in metres, then to pixels, and
+            // hang the artwork off its own middle rather than its top-left corner.
+            //
+            // That last step was missing, and it put every symbol in the wrong place: the paths
+            // are drawn in a box running from (0, 0) to (40, 40), so without it a stamp landed
+            // down and to the right of where it was put by half its own size, and a directional
+            // one swung about that corner instead of turning on the spot. `GraphView` centres
+            // (`offset = size / 2f`, and a `RotateDrawable` pivoted at 0.5, 0.5), the SVG export
+            // centres, and `SymbolDetail.getDistanceFrom` measures from the centre — so the eraser
+            // was already reaching for a symbol where this was not drawing one.
             val scale = symbol.size * viewport.pixelsPerMetre / Symbol.VIEWPORT
             withTransform({
                 translate(centre.x, centre.y)
                 rotate(symbol.angle, pivot = Offset.Zero)
                 scale(scale, scale, pivot = Offset.Zero)
+                translate(-Symbol.VIEWPORT / 2f, -Symbol.VIEWPORT / 2f)
             }) {
                 drawPath(
                     artwork,
@@ -2058,18 +2080,26 @@ private fun DrawScope.drawSurvey(
     // `drawCompass` is guarded on both the toggle and the projection, in that order. There is
     // no arrow on an elevation because there is no bearing to draw one for.
     if (options.showCompass && isPlan) {
-        drawNorthArrow(palette, textMeasurer, fontFamily, options.style.legendSizeSp)
+        drawNorthArrow(
+            palette,
+            textMeasurer,
+            fontFamily,
+            options.style.legendSizeSp,
+            headingDegrees,
+        )
     }
 }
 
 /**
  * The north arrow, above the scale bar and to the left, as `GraphView.drawCompass` draws it.
  *
- * **It does not swing with the phone yet.** The original rotates it by the device's heading; an
- * arrow that always points up is correct rather than approximate since `Projection2D.PLAN` maps
- * north to *minus* the screen y, but what is missing is the *magnetometer*, which needs an
- * `expect`/`actual` on three platforms and, on iOS, a usage-description key that crashes the app
- * on launch if it is wrong.
+ * [headingDegrees] is which way the top of the screen is pointing, and the arrow turns back
+ * against it: face north and it points up the screen, turn a quarter circle to your right and
+ * north is now to your left, so the arrow swings the same quarter circle the other way. Zero is
+ * both "facing north" and "this device has no compass", and they want the same picture — north
+ * up, which is where `Projection2D.PLAN` puts it on the paper anyway.
+ *
+ * See [rememberDeviceHeading] for where the heading comes from on each platform.
  */
 @OptIn(ExperimentalTextApi::class)
 private fun DrawScope.drawNorthArrow(

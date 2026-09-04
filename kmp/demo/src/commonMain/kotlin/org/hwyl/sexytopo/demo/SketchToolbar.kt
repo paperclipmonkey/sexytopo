@@ -33,10 +33,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.demo.resources.Res
 import org.hwyl.sexytopo.demo.resources.black
@@ -184,7 +189,7 @@ fun SketchToolbar(
                     painter = painterResource(Res.drawable.settings),
                     description = Strings.toolbarSettings,
                     darkMode = state.darkMode,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("drawing-menu"),
                     onClick = { menuOpen = true },
                 )
                 DrawingMenu(state, canvas, menuOpen) { menuOpen = false }
@@ -245,6 +250,7 @@ private fun SymbolStrip(state: DemoState, onClose: () -> Unit) {
                         Modifier
                     },
                 )
+                .testTag("symbol-label")
                 .clickable { state.chooseTool(SketchTool.TEXT) }
                 .padding(6.dp),
             contentAlignment = Alignment.Center,
@@ -265,6 +271,8 @@ private fun SymbolStrip(state: DemoState, onClose: () -> Unit) {
                     .then(
                         if (lit) Modifier.background(highlightFor(state.darkMode)) else Modifier,
                     )
+                    .semantics { contentDescription = symbol.therionName }
+                    .testTag("symbol-${symbol.therionName}")
                     .clickable {
                         state.chooseSymbol(symbol)
                         state.chooseTool(SketchTool.SYMBOL)
@@ -277,7 +285,12 @@ private fun SymbolStrip(state: DemoState, onClose: () -> Unit) {
         }
 
         Box(
-            Modifier.size(size).clickable(onClick = onClose).padding(10.dp),
+            Modifier
+                .size(size)
+                .semantics { contentDescription = Strings.toolbarSymbolClose }
+                .testTag("symbol-close")
+                .clickable(onClick = onClose)
+                .padding(10.dp),
             contentAlignment = Alignment.Center,
         ) {
             // "×" not "✕": the bundled font has Latin-1 and no Dingbats.
@@ -314,6 +327,7 @@ private fun RowScope.SymbolButton(state: DemoState, enabled: Boolean, onClick: (
                     Modifier
                 },
             )
+            .testTag("symbol-tool")
             .clickable(enabled = enabled, onClick = onClick)
             .padding(6.dp),
         contentAlignment = Alignment.Center,
@@ -399,6 +413,7 @@ private fun DrawingMenu(
         // `android:visible="false"`, and redo has a button of its own on the toolbar.
         DropdownMenuItem(
             text = { Text(Strings.sketchMenuDeleteLastLeg) },
+            modifier = Modifier.testTag(tagFor(Strings.sketchMenuDeleteLastLeg)),
             onClick = {
                 deletingLastLeg = true
                 onDismiss()
@@ -406,6 +421,7 @@ private fun DrawingMenu(
         )
         DropdownMenuItem(
             text = { Text(Strings.sketchMenuCentreView) },
+            modifier = Modifier.testTag(tagFor(Strings.sketchMenuCentreView)),
             onClick = {
                 // `centreViewOnActiveStation`, not a refit: the app keeps the surveyor's zoom.
                 stationPositionIn(state.survey, state.projection, state.survey.activeStation)
@@ -419,6 +435,7 @@ private fun DrawingMenu(
         // of popup on an iPhone SE's 667-pixel screen.
         DropdownMenuItem(
             text = { Text(Strings.toolbarSettings) },
+            modifier = Modifier.testTag(tagFor(Strings.toolbarSettings)),
             onClick = {
                 adjustingDisplay = true
                 onDismiss()
@@ -523,6 +540,7 @@ fun ToolbarButton(
     darkMode: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val haptics = LocalHapticFeedback.current
     Box(
         modifier
             .height(SexyTopoDimens.TOOLBAR_BUTTON_HEIGHT_DP.dp)
@@ -530,7 +548,13 @@ fun ToolbarButton(
                 // `buttonHighlight`, the colour `selectSketchTool` tints the background with.
                 if (selected) Modifier.background(highlightFor(darkMode)) else Modifier,
             )
-            .clickable(enabled = enabled, onClick = onClick)
+            .clickable(enabled = enabled) {
+                // `handleAction` starts with `performHapticFeedback(VIRTUAL_KEY)`, before it has
+                // looked at which button this is: every press on the toolbar is felt, which on
+                // a phone held in a wet glove is how the surveyor knows it registered.
+                haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                onClick()
+            }
             .padding(6.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -591,6 +615,7 @@ internal fun RowScope.ColourButton(
             else -> painterResource(Res.drawable.purple)
         }
 
+    val haptics = LocalHapticFeedback.current
     Box(
         modifier
             .height(SexyTopoDimens.TOOLBAR_BUTTON_HEIGHT_DP.dp)
@@ -600,7 +625,12 @@ internal fun RowScope.ColourButton(
                 // swatch instead, which is not what the app looks like.
                 if (selected) Modifier.background(highlightFor(darkMode)) else Modifier,
             )
-            .clickable(enabled = enabled, onClick = onClick)
+            .clickable(enabled = enabled) {
+                // The same `VIRTUAL_KEY` buzz as every other toolbar button; a colour goes
+                // through `handleAction` too.
+                haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                onClick()
+            }
             .padding(6.dp),
         contentAlignment = Alignment.Center,
     ) {
