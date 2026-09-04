@@ -8,8 +8,8 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 813 shared tests,
-each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and eight more that are JVM-only on
+Survex and Therion exporters and the native file format are ported and covered by 819 shared tests,
+each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and sixteen more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
@@ -184,9 +184,15 @@ missing.
 - **Import** of a Survex `.svx`, Therion `.th`, PocketTopo `.txt` or PocketTopo's own binary
   `.top`, as well as the app's own files: the club's existing survey of the cave, opened here to be
   extended. Both PocketTopo readers bring the *drawing* in as well as the centreline.
+- **Photographs of the passage, pinned where they were taken.** The camera button on the sketch
+  toolbar opens the phone's own camera; the picture comes back, and the next tap on the drawing
+  says where the surveyor was standing while a drag says which way they were looking — the same
+  gesture that aims a directional symbol. Tapping the pin afterwards opens the photograph. This is
+  the one thing here with no counterpart in the Android app at all; see finding 109.
 - **Handing a survey over as one file.** *Share survey* on the export screen writes a zip of the
-  four files a survey directory holds, which is what the Android app's share sheet sends and what
-  the importer at the other end already knows how to read.
+  four files a survey directory holds, plus a JPEG for every photograph pinned to either sketch,
+  which is what the Android app's share sheet sends and what the importer at the other end already
+  knows how to read.
 - **Writing a leg down rather than shooting it.** *Tools → Add a leg* takes a reading out of a
   paper book and makes the station straight away, with the far end named — for joining onto a
   station somebody else surveyed. Distinct from *Add reading* on the field bar, which stands in for
@@ -303,11 +309,11 @@ compiles the Kotlin/Native framework and embeds it. `kmp/iosApp/project.yml` and
 below it describe a fully manual alternative if you would rather install nothing.
 
 The iOS-specific surface is small and every file in it is one screen long:
-`demo/src/iosMain/` holds fifteen — `MainViewController.kt` is one function, and the rest are the
+`demo/src/iosMain/` holds sixteen — `MainViewController.kt` is one function, and the rest are the
 `actual` halves of things a phone has and a browser does not: the Documents file store, the
 clipboard, the file picker, keeping the screen awake, the date and the timestamp, the haptic, the
-compass, the keyboard nudge the browser needs and iOS does not, the two exports (a text file and
-a zip), the storage-durability answer and the instrument transports. `iosApp/` holds two Swift
+compass, the camera, the keyboard nudge the browser needs and iOS does not, the two exports (a
+text file and a zip), the storage-durability answer and the instrument transports. `iosApp/` holds two Swift
 files. `shared/src/iosMain/` holds one more, `CoreBluetoothTransport.kt`, for when you want real
 instruments. Everything else — the whole survey engine, every importer and exporter, the sketch
 editor, the calibration solver, the 3D camera and the entire user interface — is the same code the
@@ -611,6 +617,12 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   On iOS that is CoreBluetooth; in Chrome, including on Android, it is Web Bluetooth. Neither has
   met real hardware — see the table above — but the acknowledgement handshake four of these
   instruments need is implemented and tested, which is the part that fails silently.
+- **Photograph the passage and say where you stood.** The camera on the sketch toolbar opens the
+  phone's own camera. When the picture comes back, tap the drawing where you were standing and drag
+  to say which way you were looking — the same gesture that aims a directional symbol, and a plain
+  tap is north. Tapping the pin afterwards opens the photograph, and *Remove from sketch* takes the
+  pin off and can be undone. Nothing upstream corresponds; see finding 109. Not verified on a
+  device, which is the point of *What needs a phone* below.
 - **Take it home.** Survex, Compass, PocketTopo, or the native format — which is the *whole*
   survey, data file and both sketches, so what comes out is what the import at the other end
   reads back — or a Therion *project* rather
@@ -743,7 +755,8 @@ Honest limits, so nothing is a surprise in a cave:
 | `control/threed/SurveyRenderer` — the camera | `shared/math/Camera3D.kt`, `Matrix4.kt` | Including `android.opengl.Matrix`, which exists nowhere else |
 | `control/threed/*`, `ThreeDViewActivity` | `demo/.../ThreeDView.kt` | The GL half **rewritten** as a 2D canvas: no shaders, no vertex buffers, and it runs on all four targets |
 | `GuideActivity`, `assets/guide/index.html` | `shared/manual/Manual.kt`, `demo/.../ManualView.kt`, `demo/src/commonMain/composeResources/files/manual.html` | The `WebView` **replaced** by a reader: the guide is bundled byte-for-byte and drawn as Compose, so there is no platform web view on any of the four targets. `parseManual` throws on a tag it does not draw, and the counts are checked against the file's own tags |
-| `res/layout/activity_graph.xml` | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied |
+| `res/layout/activity_graph.xml` | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied — widened to 10x2 by the camera, which is the one button with nothing upstream |
+| *nothing* | `shared/model/sketch/Sketch.kt` (`PhotoDetail`), `shared/io/store/PhotoStore.kt`, `demo/.../PhotoCapture.*.kt`, `PhotoViewer.kt` | **Invented.** The Android app has never taken a photograph; finding 109 records why a photograph is modelled as a mark on the drawing rather than as an attachment to a station |
 | `res/values/colors.xml` (+ `values-night`) | `demo/.../SexyTopoTheme.kt` | The app's own palette |
 | `res/drawable-hdpi/*.png` | `demo/src/commonMain/composeResources/drawable/` | The app's own icons |
 | `res/values/strings.xml` | `demo/.../Strings.kt` | Every string this port shows, mirrored under the app's own resource name; `AndroidStringsTest` reads the real file and holds each one to it |
@@ -3740,6 +3753,84 @@ These are the things that would actually shape a real port.
    now counts anything that is not the strip's own green, so it no longer cares what colour the
    glyphs are.
 
+109. **A photograph is a mark on the drawing, not an attachment to a station.** The first feature
+   here with nothing upstream to port — the Android app has never taken a photograph, and the only
+   camera anywhere in its source is the viewpoint `SurveyRenderer` moves round the 3D view. So this
+   is the one place the port had to decide something rather than reproduce it, and the decision
+   turned out to be the whole of the work.
+
+   The obvious shape is a list of images hanging off a `Station`. The shape chosen is a
+   `PhotoDetail` beside `PathDetail`, `SymbolDetail` and `TextDetail` in the sketch, holding a
+   position, a bearing, an id and the brush colour. That is not a tidiness argument. A photograph
+   records *where the surveyor stood and which way they looked*, which is a fact about a point on
+   the paper rather than about a station — cavers photograph a formation from halfway along a leg
+   far more often than from a station. And being a sketch detail means the thing arrives already
+   able to be undone, erased, moved, scaled, saved, and kept separately on the plan and the
+   elevation, because every one of those already walks the sketch's details. Roughly forty lines
+   of model bought the entire behaviour.
+
+   Bought most of it, rather than all of it, and the gap is the finding worth recording. Four
+   places walk the details with a `when` that ends `else -> Unit`, and every one silently did
+   nothing for the new type instead of failing:
+
+   - `SketchEditor.restoreToSketch` and `removeFromSketch` — undo and redo, so a pin could be
+     erased and never come back;
+   - `SketchGeometry.distanceFrom` — hit-testing, so a pin could not be rubbed out at all;
+   - `SketchGeometry.couldBeVisibleAtScale` — which decides whether something is large enough to
+     touch, so the pin failed the test the eraser applies before it even measures.
+
+   None of that is a compiler error and none of it throws at runtime; the symptom is a mark on the
+   drawing that cannot be removed. A sealed hierarchy with exhaustive `when` would have named all
+   four at the moment the class was written, and the reason these are not exhaustive is
+   `SketchDetail`'s open constructor rather than anything deliberate. Worth knowing before adding a
+   fifth detail type: **grep for `else -> Unit` first, and treat each one as a to-do list.**
+
+   The image bytes stay out of the JSON. The sketch holds an id, `PhotoStore` names the file
+   `<survey>.photo-<id>.jpg` beside the survey's other four, and `SurveyZip` packs the ids the
+   sketches actually name. Three things fall out of that. The sketch file stays text and stays
+   small however many photographs hang off it. A survey handed over as a bare `.data.json` opens
+   with its pins and without its pictures, which is the ordinary case rather than an error, so the
+   viewer says so in a sentence instead of showing an empty box. And the Java `SketchJsonTranslater`
+   reads only the keys it knows, so a sketch written here with a `photos` array still opens in the
+   Android app — the pins are invisible there, and a save from that side drops them, which is a
+   real limit and listed under deliberate gaps.
+
+   The size ceiling drove more of the design than anything else. The browser build keeps its files
+   in `localStorage`, which holds about five megabytes for the whole origin and holds them
+   base64-encoded at a third more again, so a single untouched phone photograph would fill it and
+   the second save would fail. Every platform therefore downscales to a 1280-pixel longest edge and
+   re-encodes at JPEG quality 0.72 *before the bytes reach a store* — not only the browser, because
+   a photograph that only fits on the platform it was taken on is not a record of anything. On the
+   browser the re-encode also launders an iPhone's HEIC into JPEG, and decoding goes through an
+   `<img>` rather than `createImageBitmap` because the latter ignores EXIF orientation and would
+   store every portrait photograph on its side.
+
+   The picture is written to the store the moment it arrives, before the surveyor has said where it
+   goes. That order is deliberate and it is the one thing here that cost a real decision: a
+   photograph taken underground cannot be taken again, and holding the bytes in memory until the
+   tap comes is how a browser reload or an Android process death loses one. The cost is a file with
+   nothing pointing at it if the tap never comes, which on a five-megabyte origin is not a
+   triviality, so choosing any other tool deletes it. The one unreachable case — the app dying
+   while the tool is still armed — leaves at most one stray file, because ids are highest-plus-one
+   over the pins rather than over the folder, so the next photograph writes over it.
+
+   Two smaller things. The camera permission is deliberately **absent** from the Android manifest:
+   an app that declares it must also have been granted it before the system will run
+   `ACTION_IMAGE_CAPTURE` on its behalf, so adding the line would break the very feature it looks
+   like it enables. And the sketch toolbar went from nine columns to ten, which broke arithmetic in
+   three browser scripts that nothing would have reported: `toolCell(8)` computed a point inside
+   the tenth cell, so the check that zooms out to find a station would have opened the camera
+   instead. Two more taps were landing inside the button they meant purely because the drift over
+   one missing column is smaller at the left-hand end. `PhotoPinUiTest` now measures the ten cells
+   from real bounds, so the scripts' assumption is checked somewhere it can be.
+
+   What is not verified is what needs a phone, and it is more than usual here. Nothing has met a
+   real camera: whether iOS Safari honours `capture` or still offers its Take Photo / Photo Library
+   sheet, whether a portrait photograph arrives the right way up, what a twelve-megapixel decode
+   costs on a phone rather than a laptop, and whether the browser's transient user activation
+   survives Compose's own dispatch to reach `input.click()`. A Playwright check drives the file
+   input directly and so cannot answer that last one either.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3890,8 +3981,8 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 813
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 512 over the UI's own
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 819
+shared tests on three targets, 16 more against `java.util.zip` on the JVM, 512 over the UI's own
 logic, 20 running the iOS half in a simulator,
 121 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
@@ -3947,9 +4038,9 @@ before it is a branch to write.
 
 ## What needs a phone
 
-Every check above runs on a build server, and three things cannot: they need a sensor, a
-keyboard or a motor that no runner has. They are listed here so that a release is not called
-done without somebody holding a device, and so that "tested" is never read to include them.
+Every check above runs on a build server, and four things cannot: they need a sensor, a
+keyboard, a motor or a lens that no runner has. They are listed here so that a release is not
+called done without somebody holding a device, and so that "tested" is never read to include them.
 
 - **The compass swings.** Open the plan on a phone, turn on the spot: the north arrow turns the
   other way, and points at the top of the screen when you face north. Then turn the phone on its
@@ -3962,6 +4053,16 @@ done without somebody holding a device, and so that "tested" is never read to in
   keyboard to open.
 - **The buzz happens.** With *Vibrate on new station* on, three agreeing readings should be felt.
   `AndroidManifestTest` proves the permission is declared; only a phone proves the motor runs.
+- **The camera opens, and what comes back is the right way up.** Every platform's capture path is
+  written and none has met a lens. Four things need a phone rather than a runner: whether iOS
+  Safari honours `capture` on a file input or still offers its Take Photo / Photo Library sheet;
+  whether a photograph taken in portrait arrives upright, which turns on EXIF orientation being
+  honoured by the `<img>` decode; what a twelve-megapixel photograph costs to decode and redraw on
+  a phone rather than a laptop; and whether the browser's transient user activation survives
+  Compose's own event dispatch as far as `input.click()`. The browser check drives the file input
+  directly, so it proves the rest of the chain and cannot answer that last one. Take one
+  photograph, place it, close the app, reopen it, and check the pin and the picture are both still
+  there.
 - **Bluetooth, at all.** Every transport has been driven end to end against a fake instrument and
   none against a radio; see the next section.
 
@@ -4003,6 +4104,27 @@ What it does **not** include:
   lines — `from to distance azimuth inclination` — and `OldStyleLoader` still reads them. This port
   does not; `PortedTestsTest` records `OldStyleLoaderTest` as unported for that reason. A survey
   old enough to be in that format wants opening in the Android app and saving again.
+- **Photographs surviving a round trip through the Android app.** A sketch written here with
+  photographs opens there — the Java reader takes the keys it knows and ignores the rest — but the
+  pins are invisible on that side and its own save drops them, because its writer has no `photos`
+  array to write. So a survey with photographs can be *read* by both and *edited* by only one
+  without loss. Closing that is a few lines in `SketchJsonTranslater` rather than a design
+  question, and it is upstream's line to write.
+
+  Nor is there any way to bring photographs back *in*. The zip carries them out, and this port has
+  no zip importer at all — surveys come in as `.data.json`, `.svx`, `.th` or PocketTopo, which is
+  what the Android app offers too. Unzipping the archive over a survey directory puts every picture
+  back where its pin looks for it, which is the manual answer and the only one either app has.
+- **Photographs in the third-party exports.** SVG, Therion `.th2` and `.xvi` carry the strokes, the
+  symbols and the labels and not the pins. That is by construction rather than by oversight: those
+  exporters walk each kind of detail by name rather than switching over the type, so a photograph
+  is simply not among the things they were asked to draw. Therion has no notion of "a photograph
+  was taken here" to map onto, and an SVG that carried them would have to embed the images or write
+  paths to them, neither of which survives being emailed. The zip is where photographs travel.
+- **A caption on a photograph.** The model carries one and the JSON round-trips it, so a survey
+  from anywhere else can have one and the viewer shows it. Nothing here writes one: a keyboard is
+  the last thing anybody wants in a wet cave, and the pin already says where and which way. The
+  place for it is the viewer, on the way home.
 - **The Android app adopting this core.** That is the step that would make the work pay for itself
   regardless of the iOS outcome, and it is deliberately not attempted yet.
 
