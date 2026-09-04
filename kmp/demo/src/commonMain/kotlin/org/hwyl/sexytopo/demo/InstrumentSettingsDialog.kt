@@ -157,6 +157,7 @@ fun InstrumentSettingsDialog(
         },
         confirmButton = {
             TextButton(
+                modifier = Modifier.testTag(SETTINGS_SAVE),
                 enabled = edited != null,
                 onClick = {
                     edited?.let {
@@ -200,6 +201,14 @@ internal fun preferencesFrom(
                 ?: current.autoReconnectWindowMinutes,
         developerMode = developerMode,
     )
+
+/**
+ * What every settings dialog's Save button answers to.
+ *
+ * Picking a theme repaints the card under the button, so finding it by the colour it is drawn on
+ * stops working exactly when the theme is the thing being changed.
+ */
+const val SETTINGS_SAVE: String = "settings-save"
 
 /**
  * A labelled switch with a line of explanation, as the settings rows above it already are.

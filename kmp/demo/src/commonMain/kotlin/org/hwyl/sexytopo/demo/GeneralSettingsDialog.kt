@@ -92,6 +92,7 @@ fun GeneralSettingsDialog(
         },
         confirmButton = {
             TextButton(
+                modifier = Modifier.testTag(SETTINGS_SAVE),
                 onClick = {
                     state.updatePreferences(state.preferences.copy(buzzOnNewStation = buzz))
                     onDismiss()

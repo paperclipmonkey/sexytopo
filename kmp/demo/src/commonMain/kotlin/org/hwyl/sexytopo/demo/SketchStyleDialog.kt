@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.sketch.SketchStyle
 
@@ -121,6 +122,7 @@ fun SketchStyleDialog(
         },
         confirmButton = {
             TextButton(
+                modifier = Modifier.testTag(SETTINGS_SAVE),
                 onClick = {
                     onSave(
                         preferences.copy(

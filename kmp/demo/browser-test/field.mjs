@@ -949,13 +949,15 @@ const scrollSettingsToTheEnd = async () => {
   }
 }
 
-// Found rather than measured, now that the dialog is tall enough to be capped: its buttons sit a
-// fixed distance above its *bottom*, and the bottom is wherever the window puts it.
-const settingsSave = async () => {
-  const button = await dialogConfirm()
-  if (button === null) throw new Error('the settings dialog has no Save button on screen')
-  return button
-}
+/**
+ * The Save button of whichever settings dialog is open, by name.
+ *
+ * It used to be found by looking for the lettering on the dialog's own card colour, which is one
+ * colour and the light theme's. Picking *Dark* applies as it is picked, so by the time that check
+ * reaches for Save the card it is drawn on is no longer the one being looked for — the theme is
+ * the one setting whose dialog cannot be finished by looking at it.
+ */
+const settingsSave = () => nodeFor('#settings-save')
 // The trip screen, measured off a headless render at 420 by 900 — the first three before anybody
 // has been added to the team, the rest after exactly one has, which is the order these checks fill
 // it in. `trip_role_*` spell the roles out ("Book (drawing)", "Dog (assistant)"), so the four

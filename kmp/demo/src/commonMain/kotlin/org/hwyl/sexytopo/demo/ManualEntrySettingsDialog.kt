@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.survey.LrudMode
 
@@ -100,6 +101,7 @@ fun ManualEntrySettingsDialog(
         },
         confirmButton = {
             TextButton(
+                modifier = Modifier.testTag(SETTINGS_SAVE),
                 onClick = {
                     // A `copy` of what came in: building a fresh object from these five values
                     // would reset every other preference to its default.
