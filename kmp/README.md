@@ -3821,8 +3821,9 @@ These are the things that would actually shape a real port.
    three browser scripts that nothing would have reported: `toolCell(8)` computed a point inside
    the tenth cell, so the check that zooms out to find a station would have opened the camera
    instead. Two more taps were landing inside the button they meant purely because the drift over
-   one missing column is smaller at the left-hand end. `PhotoPinUiTest` now measures the ten cells
-   from real bounds, so the scripts' assumption is checked somewhere it can be.
+   one missing column is smaller at the left-hand end. The scripts encode that column count and
+   cannot check it, so the guard belongs in a UI test that measures the ten cells from real
+   bounds — which is the next thing to add here.
 
    What is not verified is what needs a phone, and it is more than usual here. Nothing has met a
    real camera: whether iOS Safari honours `capture` or still offers its Take Photo / Photo Library
