@@ -61,6 +61,7 @@ import org.hwyl.sexytopo.shared.math.getDistance
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
+import org.hwyl.sexytopo.shared.model.sketch.PhotoDetail
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
 import org.hwyl.sexytopo.shared.model.survey.Station
@@ -154,6 +155,36 @@ fun SurveyCanvas(
     /** The one-shot has fired, so the tool that was in hand before it comes back. */
     onCrossSectionPositioned: () -> Unit = {},
     /**
+     * Where a photograph is to be pinned, in survey coordinates, and which way it looks.
+     *
+     * A callback rather than a call to [SketchEditor.addPhoto] from here, for the reason
+     * [onPlaceLabel] is one: the canvas has neither the picture nor anywhere to put it. The host
+     * holds the bytes the camera just handed it, writes them through PhotoStore, and only then has
+     * a photo id to pin. It is also where the one-shot ends — this is the whole of
+     * [SketchTool.PLACE_PHOTO] firing, so the tool that was in hand before it comes back here, as
+     * [onCrossSectionPositioned] does for the other one-shot.
+     *
+     * No size is passed, unlike [onPlaceLabel]: the host owns the [CanvasController] it gave this
+     * canvas, so it can convert a fixed on-screen stamp through the current zoom itself, exactly
+     * as the symbol tool does.
+     */
+    onPlacePhoto: (position: Coord2D, angle: Float) -> Unit = { _, _ -> },
+    /**
+     * Whether a photograph is actually in hand to be pinned.
+     *
+     * The counterpart of [crossSectioning], which is the same guard for the other one-shot: the
+     * tool can be selected with nothing to place — the camera was refused, or the surveyor backed
+     * out of it — and a tap then means nothing.
+     *
+     * Armed by default, and deliberately the other way round from [crossSectioning]'s null: the
+     * canvas does not create the detail here, it only reports the tap, so a host that never sets
+     * this loses nothing but a callback it can ignore. Left disarmed by default, the same host
+     * would find the tool silently dead instead, which is much the harder fault to see.
+     */
+    placingPhoto: Boolean = true,
+    /** Tapping a photo pin, which opens the photograph. [onOpenCrossSection] for pictures. */
+    onOpenPhoto: (PhotoDetail) -> Unit = {},
+    /**
      * Which way the top of the screen is pointing, instead of asking the device.
      *
      * For the callers that have no device to ask: the headless renderer, which has no
@@ -209,6 +240,13 @@ fun SurveyCanvas(
     val currentOnLongPressStation by rememberUpdatedState(onLongPressStation)
     val currentCrossSectioning by rememberUpdatedState(crossSectioning)
     val currentOnCrossSectionPositioned by rememberUpdatedState(onCrossSectionPositioned)
+    val currentOnPlacePhoto by rememberUpdatedState(onPlacePhoto)
+    val currentOnOpenPhoto by rememberUpdatedState(onOpenPhoto)
+    // Live for the same reason: `placingPhoto` is not one of the gesture keys below, so a loop
+    // started before the camera returned must read the newest value rather than the one it was
+    // born with - otherwise the first tap after taking a picture would still think there was
+    // nothing to pin.
+    val currentPlacingPhoto by rememberUpdatedState(placingPhoto)
 
     val viewport = canvas.viewport
     val fit = canvas.fit
@@ -240,6 +278,17 @@ fun SurveyCanvas(
         if (!options.crossSectionsAreTouchable) return null
         val detail = findCrossSectionBodyAt(currentScene.sketch, at) ?: return null
         return hold(mode, detail, at)
+    }
+
+    /**
+     * The photo pin under a finger at [at], allowing it [reachInMetres] of imprecision.
+     *
+     * The same shape as [grab]: one place for the rule that a pin nobody can see is a pin nobody
+     * can touch, rather than that pair of conditions written out at each hit-test site.
+     */
+    fun photoPinAt(at: Coord2D, reachInMetres: Float): PhotoDetail? {
+        if (!options.photoPinsAreTouchable) return null
+        return findPhotoPinAt(currentScene.sketch, at, reachInMetres)
     }
 
     // Where each cross-section's drag bar was drawn last frame, in screen coordinates: written by
@@ -383,6 +432,46 @@ fun SurveyCanvas(
                     }
                 }
 
+            SketchTool.PLACE_PHOTO -> {
+                // The SYMBOL tool's two detectors, copied whole, and the pairing is the whole
+                // point of them: detectDragGestures waits for the touch slop to be exceeded, so on
+                // its own a tap pinned nothing at all and the tool looked broken. The tap detector
+                // pins the photograph facing north, the drag detector pins it facing wherever the
+                // finger was drawn, and exactly one of the two fires.
+                fun pin(at: Offset, angle: Float) {
+                    // Nothing in hand, nothing to pin — `handlePositionCrossSection`'s guard, in
+                    // the form this one-shot needs it.
+                    if (!currentPlacingPhoto) return
+                    currentOnPlacePhoto(viewport.toSurvey(at), angle)
+                }
+
+                Modifier
+                    .pointerInput(*gestureKeys) {
+                        detectTapGestures { offset -> pin(offset, 0f) }
+                    }
+                    .pointerInput(*gestureKeys) {
+                        var start = Offset.Zero
+                        var angle = 0f
+                        detectDragGestures(
+                            onDragStart = { offset ->
+                                start = offset
+                                angle = 0f
+                            },
+                            onDrag = { change, _ ->
+                                change.consume()
+                                // The same helper the symbol stamp uses, so a photograph and a
+                                // water-flow arrow dragged the same way point the same way. No
+                                // `isDirectional` guard as the symbol has: a photograph was always
+                                // taken looking somewhere.
+                                angle = bearingOf(change.position - start)
+                            },
+                            // Pinned where the finger landed, not where it left off — the drag
+                            // said which way to look, not where to stand.
+                            onDragEnd = { pin(start, angle) },
+                        )
+                    }
+            }
+
             SketchTool.TEXT ->
                 Modifier.pointerInput(*gestureKeys) {
                     // Tap where the label goes. Size is converted from sp on screen into metres in
@@ -403,7 +492,21 @@ fun SurveyCanvas(
                     // a station is a 10dp dot and a cold finger is not precise.
                     detectTapGestures { offset ->
                         val where = viewport.toSurvey(offset)
-                        // A cross-section first, as in `GraphView.handleCrossSectionBodyTap`,
+                        val reach =
+                            viewport.toSurveyDistance(
+                                SketchDefaults.SELECTION_SENSITIVITY_DP.dp.toPx(),
+                            )
+                        // A photo pin before either of them. Pins are small and stand inside the
+                        // passage among everything else drawn there, whereas a section is parked
+                        // out in clear space beside it and a station is a large target by rule —
+                        // so the pin is the one most easily lost to a neighbour, and gets first
+                        // refusal.
+                        val pin = photoPinAt(where, reach)
+                        if (pin != null) {
+                            currentOnOpenPhoto(pin)
+                            return@detectTapGestures
+                        }
+                        // A cross-section next, as in `GraphView.handleCrossSectionBodyTap`,
                         // which runs before the tool's own handler. A section is parked in clear
                         // space beside the passage, so it is rarely near enough to a station for
                         // this to steal a selection.
@@ -418,10 +521,6 @@ fun SurveyCanvas(
                             currentOnOpenCrossSection(section)
                             return@detectTapGestures
                         }
-                        val reach =
-                            viewport.toSurveyDistance(
-                                SketchDefaults.SELECTION_SENSITIVITY_DP.dp.toPx(),
-                            )
                         val chosen = currentScene.stationNearest(where, reach)
                         if (chosen != null && currentOnSelectStation(chosen)) currentOnSketchEdit()
                     }
@@ -500,6 +599,21 @@ fun SurveyCanvas(
                     .pointerInput(*gestureKeys) {
                         detectTapGestures { offset ->
                             val at = viewport.toSurvey(offset)
+                            // Pin, then section, then a dot — the order the SELECT arm gives its
+                            // reasons for. A pin opens its photograph under the pencil too, so
+                            // that looking at what you photographed does not cost a trip to the
+                            // toolbar and back mid-drawing.
+                            val pin =
+                                photoPinAt(
+                                    at,
+                                    viewport.toSurveyDistance(
+                                        SketchDefaults.SELECTION_SENSITIVITY_DP.dp.toPx(),
+                                    ),
+                                )
+                            if (pin != null) {
+                                currentOnOpenPhoto(pin)
+                                return@detectTapGestures
+                            }
                             val section =
                                 if (options.crossSectionsAreTouchable) {
                                     findCrossSectionBodyAt(currentScene.sketch, at)
@@ -1007,6 +1121,7 @@ class SurveyScene private constructor(
                         sketch.pathDetails.forEach { addAll(it.path) }
                         sketch.textDetails.forEach { add(it.position) }
                         sketch.symbolDetails.forEach { add(it.position) }
+                        sketch.photoDetails.forEach { add(it.position) }
                         sketch.crossSectionDetails.forEach { add(it.position) }
                     },
                 )
@@ -1145,6 +1260,15 @@ data class DisplayOptions(
     val blueWater: Boolean = AppPreferences.DEFAULT_BLUE_WATER,
     /** Whether cross-sections are drawn on the plan, and so whether they can be tapped. */
     val showCrossSections: Boolean = AppPreferences.DEFAULT_SHOW_CROSS_SECTIONS,
+    /**
+     * Whether photo pins are drawn on the sketch, and so whether they can be tapped.
+     *
+     * Its neighbours take their defaults from [AppPreferences] because the surveyor's own setting
+     * is what fills them in. There is no such constant here yet: pins are not in the preferences
+     * file, so this is the only place the default lives until they are, and the menu row that
+     * turns them off belongs with the rest in `DemoState.DISPLAY_TOGGLES`.
+     */
+    val showPhotoPins: Boolean = true,
     /** Whether two fingers zoom. The two-fingered *pan* is [twoFingerMove]. */
     val pinchToZoom: Boolean = AppPreferences.DEFAULT_PINCH_TO_ZOOM,
     /** Whether the north arrow is drawn on the plan. */
@@ -1173,6 +1297,17 @@ data class DisplayOptions(
      */
     val crossSectionsAreTouchable: Boolean
         get() = showSketch && showCrossSections && !legacyCrossSections
+
+    /**
+     * Whether a photo pin is there to be found by a finger.
+     *
+     * [crossSectionsAreTouchable]'s rule for pictures, and it exists for the same reason: an
+     * invisible thing cannot be touched, whether it is hidden because the whole sketch is or
+     * because pins in particular are. One pin fewer to trip over than a section has, since there
+     * is no legacy way of drawing one.
+     */
+    val photoPinsAreTouchable: Boolean
+        get() = showSketch && showPhotoPins
 }
 
 /** `GraphView.FADED_ALPHA`, which is `0xff / 5` of full. */
@@ -1383,6 +1518,66 @@ private const val FADED_INDICATOR_ALPHA = 0.5f
 /** The arrowhead's length and base, as fractions of the indicator line. */
 private const val ARROW_LENGTH_FRACTION = 0.4f
 private const val ARROW_BASE_FRACTION = 0.05f
+
+/**
+ * The mark that says a photograph was taken here, looking that way.
+ *
+ * A camera seen from above — body, lens, and the two edges of what it could see opening out ahead
+ * of it. Nothing in the Android app corresponds, since it has no photographs, so this is invented
+ * rather than ported; and drawn from a path rather than an icon because this port carries no icon
+ * assets, the same trade [drawCommentMark] makes.
+ *
+ * The artwork is authored pointing up the screen, which is a bearing of zero, so turning it by
+ * [angleDegrees] is the whole of aiming it — as it is for the symbol stamps.
+ */
+private fun DrawScope.drawPhotoPin(
+    centre: Offset,
+    angleDegrees: Float,
+    sizeInPixels: Float,
+    ink: Color,
+) {
+    // Translate, turn, scale: the symbolDetails block's transform, and its comment about hanging
+    // artwork off its own middle rather than its top-left corner is the trap to avoid here too —
+    // a stamp anchored by its corner lands half its own size down and to the right of where it was
+    // put, and swings about that corner instead of turning on the spot. Avoided by authoring
+    // [photoPinGlyph] centred on the origin, which is why there is no fourth step here shifting it
+    // back by half a box. `SymbolPalette` draws its paths this same way.
+    withTransform({
+        translate(centre.x, centre.y)
+        rotate(angleDegrees, pivot = Offset.Zero)
+        scale(sizeInPixels, sizeInPixels, pivot = Offset.Zero)
+    }) {
+        drawPath(photoPinGlyph, ink, style = Stroke(width = PHOTO_PIN_STROKE_UNITS))
+    }
+}
+
+/**
+ * The camera, drawn in a box one unit across and centred on the origin so that a caller scales it
+ * straight by the pin's size in pixels.
+ *
+ * Built once and kept, as [symbolPaths] is — the canvas repaints on every frame of a drag, and a
+ * path rebuilt there would show. Lazily rather than eagerly, because a top-level property is
+ * initialised with the module that holds it, and on the web that can be before Skia is up.
+ */
+private val photoPinGlyph: Path by lazy {
+    Path().apply {
+        addRoundRect(RoundRect(Rect(-0.44f, 0.02f, 0.44f, 0.46f), CornerRadius(0.08f, 0.08f)))
+        addOval(Rect(-0.13f, 0.11f, 0.13f, 0.37f))
+        // What it can see, opening out from the lens. Two open lines rather than a closed wedge:
+        // a shape shut off at the far end reads as another object drawn on the sketch, and this is
+        // meant to read as a direction.
+        moveTo(-0.13f, 0.02f)
+        lineTo(-0.34f, -0.46f)
+        moveTo(0.13f, 0.02f)
+        lineTo(0.34f, -0.46f)
+    }
+}
+
+/**
+ * The pin's stroke width in the glyph's own units, so the transform that sizes the artwork thins
+ * the line along with it. [SYMBOL_STROKE_UNITS] for a box one unit across rather than forty.
+ */
+private const val PHOTO_PIN_STROKE_UNITS = 0.075f
 
 /**
  * The mark beside a station's name that says somebody wrote a note there.
@@ -1602,6 +1797,34 @@ private fun DrawScope.drawGrid(viewport: SketchViewport, palette: Palette) {
         drawLine(palette.grid, Offset(0f, screenY), Offset(size.width, screenY), stroke)
         line += 1f
     }
+}
+
+/**
+ * The photo pin at [point], or null — [findCrossSectionBodyAt] for pictures.
+ *
+ * In survey metres, like every hit test but the drag bar's: what is asked about is where a pin
+ * *is*, not where it happened to be drawn last frame.
+ *
+ * A pin is caught within half its own width, which is `SketchGeometry`'s rule for a symbol, or
+ * within [reachInMetres] where that is the more generous — a pin drawn small at a wide zoom is
+ * otherwise a target no cold finger could hit. Pins on top of one another are resolved by
+ * whichever centre is nearer and, on a tie, by the last of them: they are drawn in list order, so
+ * the last is the one on top and the one the finger meant.
+ */
+internal fun findPhotoPinAt(sketch: Sketch, point: Coord2D, reachInMetres: Float): PhotoDetail? {
+    var best: PhotoDetail? = null
+    var bestDistance = Float.MAX_VALUE
+
+    for (detail in sketch.photoDetails) {
+        val distance = getDistance(point, detail.position)
+        if (distance > maxOf(detail.size / 2f, reachInMetres)) continue
+        if (distance <= bestDistance) {
+            best = detail
+            bestDistance = distance
+        }
+    }
+
+    return best
 }
 
 /**
@@ -2031,6 +2254,27 @@ private fun DrawScope.drawSurvey(
                 // preview, a different object every frame, and the map would fill up with dead
                 // sections.
                 handleRects?.put(detail, drawCrossSectionHandle(border, palette))
+            }
+        }
+
+        // Photo pins, last of everything on the sketch and so on top of all of it — including the
+        // cross-sections just drawn. Deliberately: a tap tests for a pin before it tests for a
+        // section, so drawing them the other way round would leave a pin hidden under a section's
+        // frame still taking the taps meant for it, and a surveyor pressing a window into the
+        // passage would get a photograph instead with nothing on screen to say why.
+        if (options.showPhotoPins) {
+            for (photo in scene.sketch.photoDetails) {
+                // The stored ink, dark-mode-corrected, exactly as a symbol's is: a pin is a mark
+                // on the sketch made with whatever the brush was, not app furniture in a colour of
+                // its own.
+                val colour = photo.getDrawColour(options.darkMode)
+                if (!colour.isDrawable) continue
+                drawPhotoPin(
+                    centre = project(photo.position),
+                    angleDegrees = photo.angle,
+                    sizeInPixels = photo.size * viewport.pixelsPerMetre,
+                    ink = Color(colour.intValue),
+                )
             }
         }
 
