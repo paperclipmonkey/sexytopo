@@ -170,11 +170,14 @@ const at = (x, y) => page.mouse.click(box.x + x, box.y + y)
 /**
  * Where a control is, asked of the app rather than worked out from the picture of it.
  *
- * Compose paints the whole app into one canvas, which is why nearly everything in this file is
- * arithmetic on pixels. It also builds an accessibility tree of real DOM nodes laid over that
- * canvas — `Modifier.testTag` becomes an element's id, `contentDescription` its aria-label — and
- * `Main.wasmJs.kt` turns that on. So anything the app names can be found by name, and a row that
- * moves stops being a silent mis-tap several hundred lines later.
+ * Compose paints the whole app into one canvas, which is why much of this file is arithmetic on
+ * pixels. It also builds an accessibility tree of real DOM nodes laid over that canvas —
+ * `Modifier.testTag` becomes an element's id, `contentDescription` its aria-label. So a menu row
+ * or a dialog row can be asked for by name, and one that moves stops being a silent mis-tap
+ * several hundred lines later.
+ *
+ * Only the popup that is open now, though: `rememberChrome` says why, and what is done about the
+ * screen behind it.
  *
  * Returns canvas coordinates rather than clicking the element, so the caller still goes through
  * `at` and a real mouse: the point of this file is that the app works under a finger, and a
@@ -225,6 +228,31 @@ const namedNodes = async () => {
     )
   }
   return rows.filter(Boolean)
+}
+
+/**
+ * Where the app's own furniture is, taken down while the app can still be asked.
+ *
+ * Compose 1.12.0's web listener holds one semantics owner at a time, and every popup — a menu, a
+ * dialog — attaches its own. So opening one replaces the tree with that popup's contents, and
+ * closing it leaves the tree frozen on them: from the first menu onwards, the app *behind* the
+ * popup has no names at all. What the tree does hold, reliably, is whichever popup is open now,
+ * because opening it is what makes Compose sync again — which is where rows drift, and where the
+ * rest of this file asks for things by name.
+ *
+ * The app bar and the toolbar do not move once the app has drawn, so they are read once, before
+ * anything opens, and their positions kept. That is still the app saying where it put them rather
+ * than this file guessing, and it is checked at the moment it is taken: a control that has lost
+ * its name fails here, at the top, rather than as a mis-tap four hundred lines down.
+ */
+const CHROME = new Map()
+const rememberChrome = async (...selectors) => {
+  for (const selector of selectors) CHROME.set(selector, await nodeFor(selector))
+}
+const chrome = (selector) => {
+  const where = CHROME.get(selector)
+  if (where === undefined) throw new Error(`${selector} was never taken down before a menu opened`)
+  return where
 }
 
 /**
@@ -361,7 +389,7 @@ async function retype(where, text) {
 }
 
 /** The three dots at the end of the app bar, which is the way into every menu. */
-const overflowButton = () => nodeFor('#overflow')
+const overflowButton = () => chrome('#overflow')
 const NAME_FIELD = [210, 442]
 const NAME_CONFIRM = [312, 518]
 const ADD_READING = [74, 790]
@@ -407,13 +435,59 @@ const PLAN_TAB = [325, 26]
 /**
  * The nth row of the table, in the middle of its *Dist* column.
  *
- * The row says where it is. This used to be `66 + 26 * n`, which was three guesses in one — where
- * the app bar ends, how tall the green column header is, and how tall a row is — and all three
- * moved when the table gained that header.
+ * The table is a screen, not a popup, so the accessibility tree has stopped describing it by the
+ * time this file gets here — the way to it is through the overflow menu, and opening that is what
+ * takes the tree away. It is measured instead, but every number in it is read off the screen: the
+ * left margin is one of two alternating greys, so the first place below the green column header
+ * where that grey appears is the top of the first row, and the next place it changes is the top of
+ * the second. Which gives the row height and where the rows start without knowing how tall the app
+ * bar is, how tall the header is, or how tall a row is — the three guesses that `66 + 26 * n` was,
+ * all of which moved when the table gained that header.
+ *
+ * A row is only there if something is drawn in it, and asking that is what turns "the check tapped
+ * empty paper and the assertion after it failed" into a sentence saying the row is not there.
  */
+const TABLE_STRIPES = [[255, 255, 255], [245, 245, 245]]
 const tableRow = async (n) => {
-  const [, y] = await nodeFor(`#table-row-${n}`)
-  return [210, y]
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  const row = await page.evaluate(async ([data, stripes, wanted]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    const colourAt = (x, y) => {
+      const i = (y * c.width + x) * 4
+      return [px[i], px[i + 1], px[i + 2]]
+    }
+    const isStripe = (colour) =>
+      stripes.some((stripe) => stripe.every((v, k) => Math.abs(colour[k] - v) < 3))
+    // The left margin, which is one stripe or the other for every row and neither above them.
+    const stripeIndex = (y) => {
+      const colour = colourAt(4, y)
+      return stripes.findIndex((stripe) => stripe.every((v, k) => Math.abs(colour[k] - v) < 3))
+    }
+    let top = -1
+    for (let y = 0; y < c.height && top < 0; y++) if (stripeIndex(y) >= 0) top = y
+    if (top < 0) return null
+    let height = -1
+    for (let y = top + 1; y < c.height && height < 0; y++) {
+      if (stripeIndex(y) !== stripeIndex(top)) height = y - top
+    }
+    if (height < 0) return null
+    // Nothing but the two stripes means an empty page below the last row rather than a row.
+    let drawn = false
+    for (let y = top + wanted * height; y < top + (wanted + 1) * height && y < c.height; y++) {
+      for (let x = 0; x < c.width && !drawn; x++) if (!isStripe(colourAt(x, y))) drawn = true
+    }
+    return { y: Math.round(top + (wanted + 0.5) * height), drawn }
+  }, [b64, TABLE_STRIPES, n])
+  if (row === null) throw new Error('the table is not on screen, or has no rows at all')
+  if (!row.drawn) throw new Error(`wanted table row ${n} but nothing is drawn in it`)
+  return [210, row.y]
 }
 // The leg menu's buttons are found rather than counted from the top of the screen. The dialog is
 // centred, its height depends on how many actions the row can take, and the actions a row can take
@@ -1047,7 +1121,7 @@ async function flipSketchingSwitch(index) {
 }
 
 async function toggleOption(name) {
-  await at(...(await nodeFor('#drawing-menu'))); await page.waitForTimeout(500)
+  await at(...chrome('#drawing-menu')); await page.waitForTimeout(500)
   await at(...(await drawingMenuRow('display'))); await page.waitForTimeout(700)
   await at(...(await drawingOptionRow(name))); await page.waitForTimeout(500)
   const done = await dialogConfirm()
@@ -1307,15 +1381,86 @@ async function drag([x0, y0], [x1, y1]) {
  * The symbol strip: `symbolToolbar`, which is where `activity_graph.xml` keeps the symbols.
  *
  * A `HorizontalScrollView` of button-sized squares between the drawing and the button grid, not a
- * dialog. Its first square is the label tool — `Symbol.TEXT`'s place on the app's own strip — then
- * the nineteen UIS symbols, then the × that closes it.
+ * dialog — so it is part of the screen behind any popup, which is exactly what the accessibility
+ * tree stops describing once one has been opened. Measured, then, and not asked for. Its first
+ * square is the label tool — `Symbol.TEXT`'s place on the app's own strip — then the nineteen UIS
+ * symbols in `Symbol.entries` order, then the × that closes it.
  *
- * Twenty-one squares is more than any phone is wide, so the ones past the middle have to be
- * scrolled to. The app says where each square is; what this has to do is drag until the one it
- * wants is on the screen, which is what a surveyor does.
+ * The toolbar is anchored to the bottom of the screen and the strip is the topmost of its three
+ * rows, so the strip sits two button-heights above the tool row wherever the window puts that.
  */
-const symbolStripIsOpen = async () => (await nodeAt('#symbol-label')) !== null
-
+const STRIP_SQUARE = 40
+const SYMBOLS = [
+  'entrance',
+  'gradient',
+  'narrow-end',
+  'sand',
+  'clay',
+  'pebbles',
+  'blocks',
+  'stalactite',
+  'stalagmite',
+  'pillar',
+  'curtain',
+  'soda-straw',
+  'helictite',
+  'crystal',
+  'rimstone-dam',
+  'water-flow',
+  'air-draught',
+  'guano',
+  'debris',
+]
+/** Squares on the strip: the label tool, the symbols, then the close cross. */
+const STRIP = ['label', ...SYMBOLS, 'close']
+const stripRowY = () => TOOL_ROW_Y - 2 * STRIP_SQUARE
+/** The nth square, with the strip unscrolled — which is how it opens, every time. */
+const stripSquare = (name) => {
+  const index = STRIP.indexOf(name)
+  if (index < 0) throw new Error(`nothing called ${name} on the symbol strip`)
+  return [index * STRIP_SQUARE + STRIP_SQUARE / 2, stripRowY()]
+}
+/**
+ * The nth square once the strip has been dragged to its far end.
+ *
+ * Twenty-one squares is eight hundred and forty pixels and no phone is that wide, so the symbols
+ * past the middle can only be reached by scrolling. Measured back from the right-hand edge rather
+ * than forward from a computed scroll offset: at the end of the travel the last square is flush
+ * with that edge whatever the window's width and whatever the drag actually moved.
+ */
+const scrolledStripSquare = (name) => {
+  const index = STRIP.indexOf(name)
+  if (index < 0) throw new Error(`nothing called ${name} on the symbol strip`)
+  return [
+    box.width - (STRIP.length - 1 - index) * STRIP_SQUARE - STRIP_SQUARE / 2,
+    stripRowY(),
+  ]
+}
+/** `sexyTopoDarkGreen`, which the strip is the only thing on the screen drawn on. */
+const SYMBOL_STRIP_GREEN = [0x3a, 0x57, 0x38]
+/** Whether the strip is showing, by its own background rather than by counting taps. */
+const symbolStripIsOpen = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, green]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    for (let y = 0; y < c.height; y++) {
+      let run = 0
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        if (px[i] === green[0] && px[i + 1] === green[1] && px[i + 2] === green[2]) run++
+      }
+      if (run > c.width * 0.5) return true
+    }
+    return false
+  }, [b64, SYMBOL_STRIP_GREEN])
+}
 /**
  * Open the strip, however many taps that takes.
  *
@@ -1328,40 +1473,31 @@ const symbolStripIsOpen = async () => (await nodeAt('#symbol-label')) !== null
 const openSymbolStrip = async () => {
   for (let i = 0; i < 3; i++) {
     if (await symbolStripIsOpen()) return
-    await at(...(await nodeFor('#symbol-tool')))
+    await at(...chrome('#symbol-tool'))
     await page.waitForTimeout(500)
   }
   if (!(await symbolStripIsOpen())) throw new Error('the symbol strip would not open')
 }
-
-/** Shut it again, so the drawing gets its forty pixels back. */
+/**
+ * Shut it again, so the drawing gets its forty pixels back.
+ *
+ * Through `buttonSymbol` rather than the strip's own cross: the cross is the last square of
+ * twenty-one and is only where `stripSquare` says it is while the strip has not been scrolled,
+ * which after reaching for a symbol past the middle it has been.
+ */
 const closeSymbolStrip = async () => {
   for (let i = 0; i < 3 && (await symbolStripIsOpen()); i++) {
-    await at(...(await nodeFor('#symbol-tool')))
+    await at(...chrome('#symbol-tool'))
     await page.waitForTimeout(400)
   }
   if (await symbolStripIsOpen()) throw new Error('the symbol strip would not close')
 }
-
-/**
- * A square of the strip, scrolled into view if it is not already.
- *
- * The square keeps its place in the row whether or not it is on the screen, so its position says
- * which way to drag and how far — no arithmetic about how many squares there are or how wide they
- * make the row.
- */
-const stripSquare = async (name) => {
-  const selector = `#symbol-${name}`
-  for (let i = 0; i < 6; i++) {
-    const where = await nodeFor(selector)
-    const [x, y] = where
-    if (x > 24 && x < box.width - 24) return where
-    // Drag the strip by most of a screen, towards wherever the square is.
-    const towards = x <= 24 ? box.width - 40 : 40
-    await drag([x <= 24 ? 40 : box.width - 40, y], [towards, y])
-    await page.waitForTimeout(300)
+/** Drag it to the far end, for the symbols no phone is wide enough to show at once. */
+const scrollSymbolStripToTheEnd = async () => {
+  for (let i = 0; i < 4; i++) {
+    await drag([box.width - 30, stripRowY()], [20, stripRowY()])
+    await page.waitForTimeout(200)
   }
-  throw new Error(`${selector} would not scroll into view`)
 }
 
 /**
@@ -1666,9 +1802,12 @@ const EDITOR_DONE = () => [box.width - 29, 15]
 // ---- the app is reachable by name, not only by pixel ------------------------------------
 // Compose paints the whole app into one canvas, so for a long time the only way to press anything
 // here was to work out which pixel it was drawn at. It also builds an accessibility tree of real
-// DOM nodes over that canvas — the same one a screen reader reads — and `Main.wasmJs.kt` turns it
-// on. Everything below asks for controls by name because of it, so if it ever stopped being built
-// every one of those checks would fail at once and none of them would say why. This one says why.
+// DOM nodes over that canvas — the same one a screen reader reads. Every menu row and every dialog
+// row below is asked for by name because of it, so if it ever stopped being built those checks
+// would fail together and none of them would say why. This one says why.
+//
+// It is checked here because here is the last moment the whole app is in it: Compose 1.12.0 keeps
+// one semantics owner, and the first popup takes it. See `rememberChrome`.
 const namedControls = await namedNodes()
 if (!namedControls.some((n) => n.startsWith('#overflow'))) {
   fail(
@@ -1680,28 +1819,13 @@ if (!namedControls.some((n) => n.startsWith('#overflow'))) {
       `(${namedControls.length} of them)`)
 }
 
-// ---- TEMPORARY: what the accessibility tree holds, and for how long --------------------
-const probe = async (when) => {
-  const rows = await namedNodes()
-  console.log(`PROBE [${when}] ${rows.length} nodes :: ${rows.slice(0, 70).join(' | ')}`)
-}
-await probe('startup')
-const probeOverflow = await nodeAt('#overflow')
-if (probeOverflow === null) {
-  console.log('PROBE #overflow is not in the tree at startup')
-} else {
-  await at(...probeOverflow); await page.waitForTimeout(600)
-  await probe('overflow menu open')
-  await page.keyboard.press('Escape'); await page.waitForTimeout(600)
-  await probe('overflow menu closed')
-  const again = await nodeAt('#overflow')
-  console.log(`PROBE #overflow once a popup has closed: ${again === null ? 'GONE' : 'still there'}`)
-  if (again !== null) {
-    await at(...again); await page.waitForTimeout(600)
-    await probe('overflow menu reopened')
-    await page.keyboard.press('Escape'); await page.waitForTimeout(600)
-  }
-}
+// The app bar and the toolbar, taken down now, for the reason `rememberChrome` gives.
+await rememberChrome(
+  '#overflow',
+  '#symbol-tool',
+  '#drawing-menu',
+  labelled('sketch_toolbar_zoom_out'),
+)
 
 // ---- the app opens on the demo cave, and offers a way out of it ------------------------
 // The first screen a new surveyor sees is an example survey that is deliberately never saved.
@@ -2596,7 +2720,7 @@ if (leftCorners.length !== 2 || rightCorners.length !== 2) {
 }
 
 // Put the view back where it was, so nothing after this depends on where the corner pan left it.
-await at(...(await nodeFor('#drawing-menu'))); await page.waitForTimeout(500)
+await at(...chrome('#drawing-menu')); await page.waitForTimeout(500)
 await at(...(await drawingMenuRow('centre'))); await page.waitForTimeout(700)
 
 // ---- any station can be got at, not just the active one -----------------------------------
@@ -2730,7 +2854,7 @@ await toggleOption('show-xsections')
 // needs one. Zoom out until there is, which is what a surveyor looking for one would do.
 for (let i = 0; i < 5; i++) {
   if ((await stationSpots(sketchTop, sketchBottom)).other) break
-  await at(...(await nodeFor(labelled('sketch_toolbar_zoom_out'))))
+  await at(...chrome(labelled('sketch_toolbar_zoom_out')))
   await page.waitForTimeout(500)
 }
 
@@ -2871,7 +2995,7 @@ await reading(2.5, 45, -3, { splay: true })
 if ((await savedLegCount()) !== legsBeforeSplay + 1) {
   fail('the splay that the delete was going to take back was not added')
 } else {
-  await at(...(await nodeFor('#drawing-menu'))); await page.waitForTimeout(500)
+  await at(...chrome('#drawing-menu')); await page.waitForTimeout(500)
   await at(...(await drawingMenuRow('delete-last-leg'))); await page.waitForTimeout(900)
   await page.screenshot({ path: join(shotDir, 'field-delete-last-leg.png') })
   const confirm = await dialogConfirm()
@@ -3378,7 +3502,7 @@ if (walls.length !== 2) {
 // table. The sketch model has carried text details since the port began and the canvas has always
 // drawn them; until now nothing could create one, and the toolbar button was disabled.
 await openSymbolStrip()
-await at(...(await stripSquare('label'))); await page.waitForTimeout(400)
+await at(...stripSquare('label')); await page.waitForTimeout(400)
 await at(200, 400); await page.waitForTimeout(700)
 await at(...LABEL_TEXT); await page.waitForTimeout(250)
 await page.keyboard.type('boulder choke', { delay: 15 })
@@ -3410,7 +3534,7 @@ await at(...toolCell(1)); await page.waitForTimeout(400)
 // artwork up by; if those two ever disagreed every symbol would silently draw as a fallback dot.
 await openSymbolStrip()
 await page.screenshot({ path: join(shotDir, 'field-symbol-palette.png') })
-await at(...(await stripSquare('blocks'))); await page.waitForTimeout(700)
+await at(...stripSquare('blocks')); await page.waitForTimeout(700)
 await at(200, 300); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-symbol.png') })
 
@@ -3432,9 +3556,9 @@ if (symbols === null) {
 // every published cave survey there has ever been. The brush here is black — nothing in this run
 // has changed it — so a stamp that comes out black would mean the rule never fired.
 await openSymbolStrip()
-// Sixteen squares along, which is off the right-hand edge of every phone this file runs at, so
-// `stripSquare` drags it into view first.
-await at(...(await stripSquare('water-flow'))); await page.waitForTimeout(700)
+// Sixteen squares along, which is off the right-hand edge of every phone this file runs at.
+await scrollSymbolStripToTheEnd()
+await at(...scrolledStripSquare('water-flow')); await page.waitForTimeout(700)
 await page.screenshot({ path: join(shotDir, 'field-symbol-strip-scrolled.png') })
 await at(250, 300); await page.waitForTimeout(900)
 

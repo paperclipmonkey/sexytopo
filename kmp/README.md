@@ -3416,22 +3416,41 @@ These are the things that would actually shape a real port.
    The reason it was pixels is real rather than lazy: Compose paints the whole app into one
    `<canvas>` and there are no elements to point at. But it *also* builds an accessibility tree —
    real DOM nodes laid over that canvas, where `Modifier.testTag` becomes an element's id, a
-   `contentDescription` its `aria-label`, and a Compose `Role` its ARIA role — and
-   `ComposeViewport` takes an `isA11YEnabled` flag that is off by default. Turning it on is one
-   line, and it is worth more than the tests: without it a screen reader cannot read this app at
-   all.
+   `contentDescription` its `aria-label`, and a Compose `Role` its ARIA role. It is on by default
+   and had been there all along; nothing here had ever asked it anything. So the app now names what
+   had no name — the overflow button, the cross-section editor's two action icons, the 3D view's
+   close, every square of the symbol strip — which is worth more than the tests, because a screen
+   reader could not read those controls before either.
 
-   So the app names what had no name — the overflow button, the cross-section editor's two action
-   icons, the 3D view's close, every square of the symbol strip — and the checks ask for controls
-   by name. The menu labels are read out of `strings.xml` itself, so a rename upstream moves the
-   tests with it rather than breaking them. `menuBox`, `menuRowAt`, the `holdsSurveys` bookkeeping
-   that counted the saved surveys into every row below them, and the stripe-counting table finder
-   are all gone, along with the class of failure they produced.
+   Two things had to be learnt before any of it worked. The tree is inside an **open shadow root**:
+   `ComposeViewport` builds canvas, hidden text input and a11y tree under one, so a
+   `document.querySelectorAll` run inside the page reports an app that has named nothing.
+   Playwright's own selectors pierce open shadow roots, which is how `page.$$('input')` had been
+   finding the text input all along, so the checks ask through Playwright and never through the
+   page.
+
+   And Compose 1.12.0's web listener holds **one semantics owner at a time**, while every popup
+   attaches its own. Opening a menu therefore replaces the tree with that menu's rows; closing it
+   leaves the tree frozen on them and nothing syncs again. Which decides what can be asked and what
+   must still be measured: whichever popup is open now can be asked, because opening it is what
+   makes Compose sync — and that is exactly where rows drift, so the menus, the settings dialogs,
+   the saved-survey lists and the station menu are all asked for by name. The menu labels come out
+   of `strings.xml` itself, so a rename upstream moves the tests with it rather than breaking them.
+   `menuBox`, `menuRowAt` and the `holdsSurveys` bookkeeping that counted the saved surveys into
+   every row below them are gone, along with the class of failure they produced.
+
+   The screen *behind* a popup cannot be asked once one has opened, so the app bar and the toolbar
+   are read once at startup — before anything opens — and their positions kept. They do not move,
+   so that is as good as a constant, and better: the numbers come from where the app actually drew
+   them, and a control that has lost its name fails at the top of the file rather than as a mis-tap
+   four hundred lines down.
 
    What stays on pixels is what pixels are the right instrument for: that the centreline got
    thicker, that north is drawn, that the rubber rubbed something out, that a section's drag bar
    followed the section it belongs to. Those are questions about drawing, and an accessibility node
-   cannot answer them.
+   cannot answer them. The symbol strip and the table are measured for the duller reason that they
+   are screens rather than popups — though the table finder now reads the row height and the top of
+   the first row off the screen instead of assuming them, which is what `66 + 26 * n` got wrong.
 
    The other half is that none of this needed a browser. `MenuStructureUiTest` and
    `DialogStructureUiTest` drive the real composables through the same semantics tree on the JVM,
