@@ -3822,8 +3822,8 @@ These are the things that would actually shape a real port.
    the tenth cell, so the check that zooms out to find a station would have opened the camera
    instead. Two more taps were landing inside the button they meant purely because the drift over
    one missing column is smaller at the left-hand end. The scripts encode that column count and
-   cannot check it, so the guard belongs in a UI test that measures the ten cells from real
-   bounds — which is the next thing to add here.
+   cannot check it, so `PhotoPinUiTest` measures the ten cells from real bounds and fails naming
+   the scripts, which puts the guard somewhere the scripts can be held to.
 
    What is not verified is what needs a phone, and it is more than usual here. Nothing has met a
    real camera: whether iOS Safari honours `capture` or still offers its Take Photo / Photo Library
@@ -3983,9 +3983,9 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 842
-shared tests on three targets, 16 more against `java.util.zip` on the JVM, 512 over the UI's own
+shared tests on three targets, 16 more against `java.util.zip` on the JVM, 525 over the UI's own
 logic, 20 running the iOS half in a simulator,
-121 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
+133 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.
