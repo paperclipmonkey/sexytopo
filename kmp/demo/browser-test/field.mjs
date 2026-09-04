@@ -735,6 +735,27 @@ const numberField = async (index) => {
   return [210, rows[nth]]
 }
 
+/**
+ * A settings row, by the title it is drawn with.
+ *
+ * `Toggle` names itself after its title, so this finds the row whatever state the switch is in —
+ * including greyed out, which the switch-shaped-run search cannot see at all. The tap goes to the
+ * right-hand end, where the switch is: the row is the full width of the card and its middle is the
+ * wording.
+ */
+const settingRow = async (resource) => {
+  const label = ANDROID_STRINGS[resource]
+  if (label === undefined) throw new Error(`strings.xml has no ${resource}`)
+  const handle = await page.$(`#${tagFor(label)}`)
+  if (handle === null) throw new Error(`no settings row called ${label}`)
+  const rect = await handle.boundingBox()
+  if (rect === null) throw new Error(`the settings row ${label} is not drawn`)
+  return [
+    Math.round(rect.x - box.x + rect.width - 20),
+    Math.round(rect.y - box.y + rect.height / 2),
+  ]
+}
+
 /** A theme chip in the *General* dialog: `pref_theme`, which is a three-value list. */
 const themeChip = (name) => nodeFor(`#theme-${name}`)
 /**
@@ -1495,11 +1516,51 @@ const closeSymbolStrip = async () => {
   }
   if (await symbolStripIsOpen()) throw new Error('the symbol strip would not close')
 }
-/** Drag it to the far end, for the symbols no phone is wide enough to show at once. */
+/**
+ * Drag it to the far end, for the symbols no phone is wide enough to show at once.
+ *
+ * Both ways round: a `horizontalScroll` takes a drag, and it takes a wheel, and which of the two a
+ * headless browser delivers in a form Compose accepts is not something this file should have to
+ * know. What it does check is that the strip moved — a strip that did not scroll leaves the tap on
+ * a square that is not the one asked for, and the only sign of that is a symbol that was never
+ * stamped, three checks later.
+ */
+const stripInk = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, row]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    // The squares are drawn pale on the strip's dark green, so anything light in that band is a
+    // symbol; weighting by x turns where they fall into one number that changes as it scrolls.
+    let ink = 0
+    for (let y = row - 18; y < row + 18; y++) {
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        if (px[i] > 150 && px[i + 1] > 150 && px[i + 2] > 150) ink += x
+      }
+    }
+    return ink
+  }, [b64, Math.round(stripRowY())])
+}
 const scrollSymbolStripToTheEnd = async () => {
+  const before = await stripInk()
   for (let i = 0; i < 4; i++) {
+    await page.mouse.move(box.x + box.width - 30, box.y + stripRowY())
+    await page.mouse.wheel(300, 0)
+    await page.waitForTimeout(150)
+    await page.mouse.wheel(0, 300)
+    await page.waitForTimeout(150)
     await drag([box.width - 30, stripRowY()], [20, stripRowY()])
     await page.waitForTimeout(200)
+  }
+  if ((await stripInk()) === before) {
+    fail('the symbol strip would not scroll, so the symbols past the middle cannot be reached')
   }
 }
 
@@ -3752,10 +3813,12 @@ await page.screenshot({ path: join(shotDir, 'field-instrument-settings.png') })
 await at(...(await settingsSave())); await page.waitForTimeout(700)
 
 // `pref_vibrate_on_new_station`, which is on *General*: how a surveyor with the phone in a pocket
-// learns the leg went in. Its only switch, so the last one is the only one.
+// learns the leg went in. By name rather than by looking for a switch: `Toggle` greys the whole
+// row out on a device that cannot vibrate, and a greyed switch is not something the search for a
+// switch-shaped run of primary colour can find.
 await at(...(await overflowButton())); await page.waitForTimeout(500)
 await at(...(await menuRow('general'))); await page.waitForTimeout(800)
-await at(...(await settingsSwitch(-1))); await page.waitForTimeout(300)
+await at(...(await settingRow('settings_new_station_vibration_title'))); await page.waitForTimeout(300)
 await page.screenshot({ path: join(shotDir, 'field-general-settings.png') })
 await at(...(await settingsSave())); await page.waitForTimeout(700)
 

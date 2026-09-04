@@ -228,11 +228,12 @@ fun LegActionsDialog(
                         }
                     }
                 },
+                // Everything in one column, *Cancel* included, and no `dismissButton`.
+                // `AlertDialog` lays the dismiss button out beside the confirm one, and this
+                // column is taller than a button and narrower than the card — so *Cancel* was
+                // drawn on top of the second action. A tap meant for *Reverse* dismissed the menu
+                // instead of turning the leg round, and a surveyor aiming at it fared no better.
                 confirmButton = {
-                    // Full width, as the station menu's column is. A column only as wide as its
-                    // widest row leaves room beside it, and `AlertDialog` puts the dismiss button
-                    // there — drawing *Cancel* on top of the second action, where a tap meant for
-                    // *Reverse* dismissed the menu instead of turning the leg round.
                     Column(
                         Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.End,
@@ -244,7 +245,10 @@ fun LegActionsDialog(
                                 // Named after the row it is drawn as, like every other menu row,
                                 // so a screen reader and the browser checks can both find it
                                 // whatever order `legActionsFor` puts it in.
-                                modifier = Modifier.testTag(tagFor(action.label(row.isSplay))),
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .testTag(tagFor(action.label(row.isSplay))),
                                 onClick = {
                                     when (action) {
                                         LegAction.EDIT -> editing = true
@@ -274,9 +278,12 @@ fun LegActionsDialog(
                                 },
                             ) { Text(action.label(row.isSplay)) }
                         }
+                        TextButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(Strings.cancel) }
                     }
                 },
-                dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
             )
     }
 }

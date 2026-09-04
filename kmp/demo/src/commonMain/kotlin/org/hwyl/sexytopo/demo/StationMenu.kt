@@ -401,8 +401,11 @@ private fun setDirection(
     direction: ExtendedElevationDirection,
     onEdited: () -> Unit,
 ) {
-    station.extendedElevationDirection = direction
-    survey.isSaved = false
+    // Through `SurveyUpdater` rather than by assignment, which is what the dialog's own path does:
+    // LEFT and RIGHT carry down the whole subtree (`ExtendedElevationDirection.propagates`), so
+    // assigning the field here left everything past the junction unrolling as it was — a drawing
+    // that is wrong and does not look wrong. The comment above has always said it propagates.
+    SurveyUpdater.setExtendedElevationDirection(survey, station, direction)
     onEdited()
 }
 
