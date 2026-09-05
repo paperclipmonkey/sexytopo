@@ -721,8 +721,13 @@ fun ToolbarButton(
     }
 }
 
-/** What `setSketchButtonsStatus` leaves a disabled sketch button looking like. */
-private const val DISABLED_BUTTON_ALPHA = 0.35f
+/**
+ * What `setSketchButtonsStatus` leaves a disabled sketch button looking like.
+ *
+ * Not private any more: the cross-section editor's scan button is dimmed by the same rule, and two
+ * numbers that have to stay equal are worse than one that is shared.
+ */
+internal const val DISABLED_BUTTON_ALPHA = 0.35f
 
 /** `activity_graph.xml`'s `layout_marginTop` on every button of the second row. */
 private const val SECOND_ROW_OVERLAP_DP = -4
