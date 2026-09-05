@@ -101,6 +101,81 @@ object Strings {
     val demoCaveIsNotKept = local("An example. Nothing recorded here is kept.")
 
     /**
+     * The camera and the photographs it pins to the sketch.
+     *
+     * Every one of these is [local] because there is nothing upstream to mirror: `strings.xml` has
+     * no camera and no photograph in it anywhere, and the only camera in the whole of the Android
+     * source is the viewpoint `SurveyRenderer` moves round the 3D view. Written as [s] calls they
+     * would fail `AndroidStringsTest` on the first run, which is the test doing its job — a name
+     * mirrored from a file that has not got it is a promise nobody upstream made. If the app ever
+     * grows a camera these become [s] calls under its own resource names and the check starts
+     * holding them to it.
+     *
+     * [placePhotoInstruction] is shaped after [sketchPositionCrossSectionInstruction], which is the
+     * app's own wording for the other tool that is armed somewhere else and then waits to be told
+     * where: same sentence, same job, so the two should not read as though different apps wrote
+     * them.
+     */
+    val toolbarPhoto = local("Camera")
+
+    val placePhotoInstruction = local("Select where to pin the photograph")
+
+    val photoTitle = local("Photograph")
+
+    /**
+     * What the viewer's delete button says. Not *Delete*, which the app has a resource for and
+     * which would be a lie here: this takes the pin off the drawing and leaves the picture in the
+     * survey's folder, because the removal is undoable and an undo has to find the image still
+     * there. See `SketchEditor.addPhoto`.
+     */
+    val photoRemove = local("Remove from sketch")
+
+    /**
+     * The two ways a pin can have nothing behind it, kept apart because the answer differs. A
+     * survey handed over as a `.data.json` and a sketch arrives with its pins and without its
+     * pictures; a file that is there and will not decode is damaged, and asking for it again from
+     * whoever sent it is the thing to do.
+     */
+    val photoMissing =
+        local(
+            "This photograph is not in the survey's folder. A survey copied without its pictures " +
+                "keeps the pins but not what they point at.",
+        )
+
+    val photoUnreadable = local("This photograph could not be read; the file is damaged.")
+
+    /** Storage is what fails here, and on the browser build it fails at about five megabytes. */
+    val photoNotSaved = local("The photograph could not be saved.")
+
+    /**
+     * Scanning the shape of a passage, which nothing upstream does either.
+     *
+     * [local] for the same reason as the camera above: `strings.xml` has no scanner in it, so an
+     * [s] call would be a promise nobody upstream made. `PassageScanner.ios.kt` types its own two
+     * words out again rather than reaching for these, because that screen is UIKit and is built
+     * before Compose has anything on it — noted there as well as here, since a duplicated string
+     * is the kind of thing somebody rightly asks about.
+     */
+    val scanPassage = local("Scan the passage")
+
+    val scanFoundNothing =
+        local(
+            "The scan found no passage. Sweep the phone slowly round the walls, and give it " +
+                "something to see: bare rock in the dark is hard for a phone to track.",
+        )
+
+    /** How many walls were drawn, said plainly because a scan is worth confirming. */
+    fun scanDrew(strokes: Int): String =
+        if (strokes == 1) {
+            local("The scan drew one wall. Rub it out and draw over it like any other stroke.")
+        } else {
+            local(
+                "The scan drew $strokes pieces of wall, with gaps where nothing was scanned. Rub " +
+                    "them out and draw over them like any other stroke.",
+            )
+        }
+
+    /**
      * The connection indicator's six states, and the instrument dialog's line of status.
      *
      * The Android app has nothing to mirror here: its connection state is a switch on a whole

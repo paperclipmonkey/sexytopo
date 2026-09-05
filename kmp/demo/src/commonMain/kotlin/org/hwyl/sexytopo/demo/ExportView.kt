@@ -207,7 +207,9 @@ fun ExportView(
                     val where =
                         saveBinaryFile(
                             SurveyZip.fileNameFor(survey),
-                            SurveyZip.archive(survey),
+                            // The photographs pinned to the sketches travel with it: see
+                            // [surveyArchive]. This is the same file the File menu's share writes.
+                            surveyArchive(survey),
                         )
                     sharedTo = where
                     shareFailed = where == null

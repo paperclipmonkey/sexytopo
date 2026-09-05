@@ -25,7 +25,11 @@ import org.hwyl.sexytopo.shared.sketch.simplify
  * Cross-sections live in the `x-sections` array, each naming its station by name (`station-id`)
  * rather than by id, so a sketch can only be read back against its survey — hence the [Survey]
  * parameter on [parse]. Its drawn content is a nested sketch under `sketch`, with the same
- * `paths`/`labels`/`symbols` arrays as the top level (never a further `x-sections`).
+ * `paths`/`labels`/`symbols`/`photos` arrays as the top level (never a further `x-sections`).
+ *
+ * The `photos` array is ours alone — the Android app neither writes nor reads it. Each entry is a
+ * pin that names its image by id rather than carrying it; see photosToJson for why, and for why a
+ * file with photos in it still opens on Android.
  */
 @OptIn(ExperimentalSerializationApi::class)
 /** A sketch as it was read, and how much of it could not be. */
@@ -50,6 +54,13 @@ object SketchJson {
     const val CROSS_SECTION_SCALE_TAG = "cross-section-scale"
     const val X_TAG = "x"
     const val Y_TAG = "y"
+
+    // Everything above is a verbatim copy of the tags in the Android app's SketchJsonTranslater,
+    // so the two agree key for key. These three have no counterpart there; photos reuse
+    // COLOUR_TAG, POSITION_TAG, SIZE_TAG and ANGLE_TAG for the parts symbols already name.
+    const val PHOTOS_TAG = "photos"
+    const val PHOTO_ID_TAG = "photo-id"
+    const val CAPTION_TAG = "caption"
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val pretty = Json { prettyPrint = true; prettyPrintIndent = "  " }
@@ -95,6 +106,7 @@ object SketchJson {
             put(PATHS_TAG, pathsToJson(sketch))
             put(LABELS_TAG, labelsToJson(sketch))
             put(SYMBOLS_TAG, symbolsToJson(sketch))
+            put(PHOTOS_TAG, photosToJson(sketch))
             put(
                 CROSS_SECTIONS_TAG,
                 buildJsonArray {
@@ -147,15 +159,38 @@ object SketchJson {
         return CrossSectionDetail(position, CrossSection(station, angle), subSketch)
     }
 
+    /**
+     * Photos are written into a cross-section's sub-sketch as well as at the top level, so a pin
+     * dropped on a section survives a save.
+     *
+     * Supporting them at the top level only would be the smaller change but not a coherent one:
+     * readDrawnDetails is the single reader for both levels, so it would go on accepting a nested
+     * photo that nothing here could ever have written. A sub-sketch is ordinary ink on an ordinary
+     * sketch, and a photograph of the passage at that station is exactly what belongs on one.
+     * Nothing extra is needed to make it work, because images are named per survey rather than per
+     * sketch — but for the same reason PhotoStore has to count ids used inside cross-sections when
+     * it picks the next one, or a new photo would overwrite a nested pin's image file.
+     */
     private fun toSubSketchJson(sketch: Sketch): JsonObject = buildJsonObject {
         put(PATHS_TAG, pathsToJson(sketch))
         put(LABELS_TAG, labelsToJson(sketch))
         put(SYMBOLS_TAG, symbolsToJson(sketch))
+        put(PHOTOS_TAG, photosToJson(sketch))
     }
 
-    /** The original's `isSketchEmpty`, inverted: cross-section details deliberately don't count. */
+    /**
+     * The original's `isSketchEmpty`, inverted: cross-section details deliberately don't count.
+     *
+     * Photos do, even though the Java has no notion of them. Its check can only ever see paths,
+     * symbols and labels, so counting photos here cannot make us disagree with it about any sketch
+     * it could have written; leaving them out would mean a cross-section holding nothing but a
+     * photo wrote no `sketch` object at all, and the pin would be gone by the next load.
+     */
     private fun Sketch.hasDrawnDetails(): Boolean =
-        pathDetails.isNotEmpty() || symbolDetails.isNotEmpty() || textDetails.isNotEmpty()
+        pathDetails.isNotEmpty() ||
+            symbolDetails.isNotEmpty() ||
+            textDetails.isNotEmpty() ||
+            photoDetails.isNotEmpty()
 
     /** Returns how many details could not be read. */
     private fun readDrawnDetails(root: JsonObject, sketch: Sketch): Int {
@@ -188,6 +223,23 @@ object SketchJson {
                     position = toCoord2D(entry[POSITION_TAG]!!.jsonObject),
                     text = entry.stringOrNull(TEXT_TAG) ?: return@runCatching false,
                     size = entry.floatOrNull(SIZE_TAG) ?: 0f,
+                    colour = colourOf(entry),
+                )
+                true
+            }.getOrDefault(false)
+            if (!added) dropped++
+        }
+
+        for (element in root.arrayOrEmpty(PHOTOS_TAG)) {
+            val added = runCatching {
+                val entry = element.jsonObject
+                sketch.addPhotoDetail(
+                    position = toCoord2D(entry[POSITION_TAG]!!.jsonObject),
+                    photoId = entry.stringOrNull(PHOTO_ID_TAG) ?: return@runCatching false,
+                    size = entry.floatOrNull(SIZE_TAG) ?: 1f,
+                    angle = entry.floatOrNull(ANGLE_TAG) ?: 0f,
+                    // A pin nobody has captioned is a normal pin, not a damaged one.
+                    caption = entry.stringOrNull(CAPTION_TAG) ?: "",
                     colour = colourOf(entry),
                 )
                 true
@@ -230,6 +282,43 @@ object SketchJson {
                     put(SYMBOL_ID_TAG, symbol.symbolName)
                     put(SIZE_TAG, symbol.size)
                     put(ANGLE_TAG, symbol.angle)
+                },
+            )
+        }
+    }
+
+    /**
+     * A photo pin: where it sits, how big and which way up it is drawn, its caption, and the id of
+     * the image it stands for.
+     *
+     * Only the id is written. The image itself is a separate file beside the survey's other files,
+     * named by PhotoStore.fileNameFor, which keeps the sketch small enough to go on loading and
+     * re-saving quickly however many photographs a survey collects. It also means a survey copied
+     * without its photos still opens: the pins read back as normal and simply have nothing behind
+     * them. Nothing here treats that as damage — the reader never looks for the file, so a missing
+     * image cannot count towards `dropped` — and the drawing layer should show such a pin as an
+     * empty placeholder that can be seen and deleted, rather than quietly discarding it and
+     * writing the loss back out on the next save.
+     *
+     * The Android app knows nothing about photos and must still be able to open a file written
+     * here. It can: its SketchJsonTranslater.toSketch asks only for the keys it names — `paths`,
+     * `symbols`, `labels`, `x-sections`, `settings` — and never enumerates the object, so an extra
+     * `photos` array simply goes unread, and its toSubSketch does the same for the nested case.
+     * readDrawnDetails above is key-driven in exactly that way too, taking each array it knows by
+     * name and ignoring the rest; that is what has to stay true on both sides for this to keep
+     * working. The one cost is that Android re-saving the file rewrites it from a model with no
+     * photos in it, so the pins are lost — the survey itself is not.
+     */
+    private fun photosToJson(sketch: Sketch): JsonArray = buildJsonArray {
+        for (photo in sketch.photoDetails) {
+            add(
+                buildJsonObject {
+                    put(COLOUR_TAG, photo.colour.name)
+                    put(POSITION_TAG, toJson(photo.position))
+                    put(PHOTO_ID_TAG, photo.photoId)
+                    put(SIZE_TAG, photo.size)
+                    put(ANGLE_TAG, photo.angle)
+                    put(CAPTION_TAG, photo.caption)
                 },
             )
         }

@@ -3,9 +3,12 @@ package org.hwyl.sexytopo.demo
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.get
 import kotlinx.cinterop.reinterpret
+import kotlinx.cinterop.usePinned
 import org.hwyl.sexytopo.shared.io.store.FileStore
+import platform.Foundation.NSData
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
@@ -13,7 +16,9 @@ import platform.Foundation.NSString
 import platform.Foundation.NSURL
 import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.NSUserDomainMask
+import platform.Foundation.create
 import platform.Foundation.stringWithContentsOfURL
+import platform.Foundation.writeToFile
 import platform.Foundation.writeToURL
 
 /**
@@ -82,6 +87,31 @@ class DocumentsFileStore : FileStore {
         if (length == 0) return ByteArray(0)
         val start = data.bytes?.reinterpret<ByteVar>() ?: return null
         return ByteArray(length) { index -> start[index] }
+    }
+
+    /**
+     * The bytes of a photograph, written where the Files app can see them like everything else.
+     *
+     * The `NSData` construction is copied deliberately from `saveBinaryFile` and
+     * `CoreBluetoothTransport.toNSData`, which is the one piece of this kind a macOS runner has
+     * actually compiled: pin the array, take its address, and hand the pointer and a length over.
+     * The empty case is separate because `addressOf(0)` on an empty array has no element to
+     * address.
+     *
+     * The `writeToFile` result is discarded, as `writeText` above discards `writeToURL`'s: this
+     * interface returns nothing, and the caller finds out the same way it would there.
+     */
+    override fun writeBytes(path: List<String>, bytes: ByteArray) {
+        createDirectory(path.dropLast(1))
+        val data =
+            if (bytes.isEmpty()) {
+                NSData()
+            } else {
+                bytes.usePinned { pinned ->
+                    NSData.create(bytes = pinned.addressOf(0), length = bytes.size.toULong())
+                }
+            }
+        data.writeToFile(pathOf(path), true)
     }
 
     override fun createDirectory(path: List<String>) {
