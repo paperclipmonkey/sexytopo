@@ -5,16 +5,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import kotlin.native.runtime.GC
 import kotlin.native.runtime.NativeRuntimeApi
-import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.BetaInteropApi
-import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.CStructVar
 import kotlinx.cinterop.CValue
+import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.FloatVar
 import kotlinx.cinterop.ObjCAction
 import kotlinx.cinterop.UByteVar
-import kotlinx.cinterop.ptr
 import kotlinx.cinterop.get
+import kotlinx.cinterop.plus
+import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.useContents
 import org.hwyl.sexytopo.shared.model.graph.Coord3D
@@ -638,9 +639,12 @@ private const val FLOATS_PER_POINT = 4
  * pose, twelve — not nine — for the three-by-three of optics, because a three-wide column occupies
  * four floats. Reading past the end of a struct is not an exception, it is whatever was next in
  * memory, which is why the far end asserts the length it was promised.
+ *
+ * Inline and reified because `useContents` is: it has to place the value somewhere of a size it
+ * knows, so the type cannot be an ordinary type parameter and has to be carried through to here.
  */
 @OptIn(ExperimentalForeignApi::class)
-private fun <T : CStructVar> CValue<T>.floatsOfStruct(count: Int): FloatArray =
+private inline fun <reified T : CStructVar> CValue<T>.floatsOfStruct(count: Int): FloatArray =
     useContents {
         val floats = ptr.reinterpret<FloatVar>()
         FloatArray(count) { floats[it] }
