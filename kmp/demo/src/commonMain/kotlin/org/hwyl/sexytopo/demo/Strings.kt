@@ -147,6 +147,34 @@ object Strings {
     /** Storage is what fails here, and on the browser build it fails at about five megabytes. */
     val photoNotSaved = local("The photograph could not be saved.")
 
+    /**
+     * Scanning the shape of a passage, which nothing upstream does either.
+     *
+     * [local] for the same reason as the camera above: `strings.xml` has no scanner in it, so an
+     * [s] call would be a promise nobody upstream made. `PassageScanner.ios.kt` types its own two
+     * words out again rather than reaching for these, because that screen is UIKit and is built
+     * before Compose has anything on it — noted there as well as here, since a duplicated string
+     * is the kind of thing somebody rightly asks about.
+     */
+    val scanPassage = local("Scan the passage")
+
+    val scanFoundNothing =
+        local(
+            "The scan found no passage. Sweep the phone slowly round the walls, and give it " +
+                "something to see: bare rock in the dark is hard for a phone to track.",
+        )
+
+    /** How many walls were drawn, said plainly because a scan is worth confirming. */
+    fun scanDrew(strokes: Int): String =
+        if (strokes == 1) {
+            local("The scan drew one wall. Rub it out and draw over it like any other stroke.")
+        } else {
+            local(
+                "The scan drew $strokes pieces of wall, with gaps where nothing was scanned. Rub " +
+                    "them out and draw over them like any other stroke.",
+            )
+        }
+
     // -- Common ---------------------------------------------------------------------------
 
     val ok = s("ok", "OK")

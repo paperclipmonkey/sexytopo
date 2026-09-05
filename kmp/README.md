@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 843 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 854 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and sixteen more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -184,6 +184,11 @@ missing.
 - **Import** of a Survex `.svx`, Therion `.th`, PocketTopo `.txt` or PocketTopo's own binary
   `.top`, as well as the app's own files: the club's existing survey of the cave, opened here to be
   extended. Both PocketTopo readers bring the *drawing* in as well as the centreline.
+- **Scanning the shape of a passage instead of drawing it.** On an iPhone or iPad, the
+  cross-section editor offers a scan: sweep the phone round the passage and ARKit's tracking gives
+  a cloud of points on the rock, which is sliced at right angles to the passage and drawn as the
+  wall. It is this port's own — the Android app has no scanner — and the arithmetic is shared and
+  tested against passages of known shape, so only the sensor is iOS-only. See finding 110.
 - **Photographs of the passage, pinned where they were taken.** The camera button on the sketch
   toolbar opens the phone's own camera; the picture comes back, and the next tap on the drawing
   says where the surveyor was standing while a drag says which way they were looking — the same
@@ -309,11 +314,12 @@ compiles the Kotlin/Native framework and embeds it. `kmp/iosApp/project.yml` and
 below it describe a fully manual alternative if you would rather install nothing.
 
 The iOS-specific surface is small and every file in it is one screen long:
-`demo/src/iosMain/` holds sixteen — `MainViewController.kt` is one function, and the rest are the
+`demo/src/iosMain/` holds seventeen — `MainViewController.kt` is one function, and the rest are the
 `actual` halves of things a phone has and a browser does not: the Documents file store, the
 clipboard, the file picker, keeping the screen awake, the date and the timestamp, the haptic, the
-compass, the camera, the keyboard nudge the browser needs and iOS does not, the two exports (a
-text file and a zip), the storage-durability answer and the instrument transports. `iosApp/` holds two Swift
+compass, the camera, the passage scanner, the keyboard nudge the browser needs and iOS does not,
+the two exports (a text file and a zip), the storage-durability answer and the instrument
+transports. `iosApp/` holds two Swift
 files. `shared/src/iosMain/` holds one more, `CoreBluetoothTransport.kt`, for when you want real
 instruments. Everything else — the whole survey engine, every importer and exporter, the sketch
 editor, the calibration solver, the 3D camera and the entire user interface — is the same code the
@@ -756,6 +762,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `control/threed/*`, `ThreeDViewActivity` | `demo/.../ThreeDView.kt` | The GL half **rewritten** as a 2D canvas: no shaders, no vertex buffers, and it runs on all four targets |
 | `GuideActivity`, `assets/guide/index.html` | `shared/manual/Manual.kt`, `demo/.../ManualView.kt`, `demo/src/commonMain/composeResources/files/manual.html` | The `WebView` **replaced** by a reader: the guide is bundled byte-for-byte and drawn as Compose, so there is no platform web view on any of the four targets. `parseManual` throws on a tag it does not draw, and the counts are checked against the file's own tags |
 | `res/layout/activity_graph.xml` | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied — widened to 10x2 by the camera, which is the one button with nothing upstream |
+| *nothing* | `shared/sketch/PassageScan.kt`, `demo/.../PassageScanner.*.kt` | **Invented.** ARKit measures the passage and the shared half slices it into a cross-section; finding 110 |
 | *nothing* | `shared/model/sketch/Sketch.kt` (`PhotoDetail`), `shared/io/store/PhotoStore.kt`, `demo/.../PhotoCapture.*.kt`, `PhotoViewer.kt` | **Invented.** The Android app has never taken a photograph; finding 109 records why a photograph is modelled as a mark on the drawing rather than as an attachment to a station |
 | `res/values/colors.xml` (+ `values-night`) | `demo/.../SexyTopoTheme.kt` | The app's own palette |
 | `res/drawable-hdpi/*.png` | `demo/src/commonMain/composeResources/drawable/` | The app's own icons |
@@ -3832,6 +3839,73 @@ These are the things that would actually shape a real port.
    survives Compose's own dispatch to reach `input.click()`. A Playwright check drives the file
    input directly and so cannot answer that last one either.
 
+110. **The shape of a passage is arithmetic; only the sensor is iOS.** The second thing here with
+   no counterpart upstream, and the one that most looks like it ought to be a platform feature. An
+   iPhone can measure the room it is in — ARKit tracks the phone through space and reports points
+   it has recognised on the surfaces around it — and a cross-section is a slice through exactly
+   that. So the surveyor can stand at a station, sweep the phone round the passage, and have the
+   wall drawn rather than draw it.
+
+   Where the work went is the argument worth recording. Almost none of it is ARKit. Taking a cloud
+   of points and turning it into a cross-section is: slice it to a slab a quarter of a metre thick
+   about the plane at right angles to the passage, project what survives onto the section's own
+   axes, divide the circle round the station into sixty sectors, and ask each sector how far away
+   the rock is. Not one line of that needs a phone, so all of it is in `shared/sketch/PassageScan.kt`
+   and all of it is tested — against tubes of known width and height, on bearings that are not
+   multiples of ninety, with stray returns thrown in.
+
+   That is what makes the feature checkable at all. `PassageScanTest` builds a passage whose true
+   shape it knows and requires the scan to be that passage back again: a 1.5m tube comes back
+   within 5cm of 1.5m, a rift comes back tall and narrow while a bedding plane comes back wide and
+   low (which is the check that would catch across and down being swapped, and which one
+   symmetrical passage cannot), and slicing along a passage rather than across it gives an answer
+   more than twice as wide, which is what proves the bearing is really used. `iosMain` holds the
+   sensor and the screen and nothing else.
+
+   **Three decisions that are about caves rather than about code.**
+
+   *The farthest point is the worst possible choice for where a wall is.* Lidar and feature
+   tracking both report depths off nothing — mist, water, a gap in the rock too small to matter —
+   and an outline that followed the farthest return in each direction would follow every one of
+   them. The eightieth percentile of a sector is past the noise and short of the fliers, and a test
+   throws eight returns at five times the passage size at it to say so.
+
+   *A direction nobody scanned is left blank.* This returns open strokes rather than a closed
+   polygon, and breaks one wherever six sectors in a row saw nothing. A surveyor who sweeps the
+   walls and the floor and never points the phone up has not measured the roof, and a section that
+   drew one would be a survey asserting something nobody observed. One or two empty sectors are the
+   scanner blinking and are drawn through; thirty-six degrees of them is a hole. That distinction
+   is the whole of `strokesFrom`, and it falls out of the sketch model rather than fighting it —
+   `PathDetail` is already an open stroke and a wall is already normally several of them.
+
+   *What it draws is a stroke like any other.* It goes in through `SketchEditor`, so it is one undo
+   step per wall, it takes the brush colour, and it can be rubbed out and drawn over. The radial
+   reduction is wrong for a pillar in the middle of a chamber or a passage that doubles back, and
+   the answer to that is a surveyor's pencil rather than a cleverer algorithm.
+
+   **What ARKit gives, and the better thing it does not.** `ARFrame.rawFeaturePoints`, the sparse
+   cloud tracking builds, rather than the dense mesh `sceneReconstruction` gives on a lidar phone.
+   Partly honesty about the conditions this was written in — the mesh arrives as a Metal buffer
+   that has to be walked by hand, and walking a raw buffer wrongly is a crash rather than a bad
+   drawing, which is not a thing to write blind — and partly that the sparse cloud works on every
+   ARKit phone rather than only the Pro models. The reduction was designed for noisy sparse input,
+   so the mesh would be an improvement to one file rather than a rewrite. One line in that file
+   carries the whole risk and does not look like it: a `simd_float3` is four floats wide in memory,
+   not three, and striding by three reads every point after the first out of the middle of its
+   neighbours.
+
+   **Two things about the frame a surveyor should know.** The scan is centred on the phone rather
+   than on the station, because ARKit's origin is where the session started — chest height,
+   wherever they were standing. And ARKit's north is true north where a survey bearing off a
+   DistoX is magnetic, so the slice is turned by the local declination: a degree or two in Britain,
+   fifteen in places, and not something a slab a quarter of a metre thick notices either way.
+
+   **Not verified, and more of it than usual.** Nothing here has been near a cave or a phone. The
+   real question is whether wet limestone in the dark gives ARKit enough to track on at all —
+   feature tracking wants texture and light, and a cave is short of both — and no amount of
+   arithmetic answers it. Nor whether the sweep can be done one-handed while holding a light, which
+   is the difference between a feature and a demonstration.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3982,8 +4056,8 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 843
-shared tests on three targets, 16 more against `java.util.zip` on the JVM, 525 over the UI's own
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 854
+shared tests on three targets, 16 more against `java.util.zip` on the JVM, 529 over the UI's own
 logic, 20 running the iOS half in a simulator,
 133 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
@@ -4039,8 +4113,8 @@ before it is a branch to write.
 
 ## What needs a phone
 
-Every check above runs on a build server, and four things cannot: they need a sensor, a
-keyboard, a motor or a lens that no runner has. They are listed here so that a release is not
+Every check above runs on a build server, and five things cannot: they need a sensor, a
+keyboard, a motor, a lens or a cave that no runner has. They are listed here so that a release is not
 called done without somebody holding a device, and so that "tested" is never read to include them.
 
 - **The compass swings.** Open the plan on a phone, turn on the spot: the north arrow turns the
@@ -4054,6 +4128,13 @@ called done without somebody holding a device, and so that "tested" is never rea
   keyboard to open.
 - **The buzz happens.** With *Vibrate on new station* on, three agreeing readings should be felt.
   `AndroidManifestTest` proves the permission is declared; only a phone proves the motor runs.
+- **A scan of a passage is a passage.** Everything about the arithmetic is checked on a build
+  server against passages of known shape; nothing about the sensor is. The question a phone answers
+  and a runner cannot is whether ARKit finds anything to track on wet rock in the dark, which is
+  the condition it is weakest in — feature tracking wants texture and light. Stand at a station in
+  a real passage, scan it, and compare the wall it draws against the splays already on the section:
+  they should agree to a few centimetres. Then try it in a chamber too big for a head torch to
+  light, which is where it should be expected to fail.
 - **The camera opens, and what comes back is the right way up.** Every platform's capture path is
   written and none has met a lens. Four things need a phone rather than a runner: whether iOS
   Safari honours `capture` on a file input or still offers its Take Photo / Photo Library sheet;
