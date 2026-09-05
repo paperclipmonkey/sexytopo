@@ -111,8 +111,31 @@ class IosAssetsTest {
         val plist = File(iosApp, "iosApp/Info.plist").readText()
 
         assertTrue(plist.contains("NSBluetoothAlwaysUsageDescription"), "connect would crash")
+        // The same trap again, and the same consequence: presenting a picker with the camera
+        // source and no usage string terminates the process rather than refusing politely.
+        assertTrue(plist.contains("NSCameraUsageDescription"), "the camera would crash")
         assertTrue(plist.contains("UIFileSharingEnabled"), "surveys would be unreachable")
         assertTrue(plist.contains("LSSupportsOpeningDocumentsInPlace"))
+    }
+
+    /**
+     * And the key that decides whether a scanned passage points anywhere in particular.
+     *
+     * Not a crash this time, which is what makes it worth a test of its own: a scan with no
+     * location permission behind it runs perfectly, gathers its points, and draws a section that
+     * is square, plausible and turned by an unknown angle — because ARKit, unable to work out true
+     * north without knowing where it is, falls back to aligning its world with whichever way the
+     * phone happened to be pointing when the scan started. There is nothing in the drawing to say
+     * so. Take the key out and every scan is still a scan; it is simply of the wrong plane.
+     */
+    @Test
+    fun thePlistAsksForWhatARKitNeedsToFindNorth() {
+        val plist = File(iosApp, "iosApp/Info.plist").readText()
+
+        assertTrue(
+            plist.contains("NSLocationWhenInUseUsageDescription"),
+            "a passage scan would be aligned to nothing but the way the phone was held",
+        )
     }
 
     /**

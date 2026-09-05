@@ -327,4 +327,72 @@ class DepthCameraTest {
                 "than a depth along the axis",
         )
     }
+
+    /**
+     * A camera that has not been turned is facing north, and each quarter turn is ninety degrees.
+     *
+     * The bearing on the scan screen is the one number a surveyor can check against a compass
+     * while standing in the passage, so it has to be a compass bearing and not a mathematician's
+     * angle: clockwise from north, with east at ninety. Swapping the two arguments of the arctangent
+     * gives anticlockwise-from-east, which agrees with this at north and at nowhere else — and
+     * would send somebody home believing their phone's idea of north was ninety degrees out.
+     */
+    @Test
+    fun aBearingIsClockwiseFromNorthWithEastAtNinety() {
+        val north = pose(listOf(1f, 0f, 0f), listOf(0f, 1f, 0f), listOf(0f, 0f, 1f))
+        // Facing east: the camera's own negative Z lands on east, so its Z axis points west.
+        val east = pose(listOf(0f, 0f, 1f), listOf(0f, 1f, 0f), listOf(-1f, 0f, 0f))
+        val south = pose(listOf(-1f, 0f, 0f), listOf(0f, 1f, 0f), listOf(0f, 0f, -1f))
+        val west = pose(listOf(0f, 0f, -1f), listOf(0f, 1f, 0f), listOf(1f, 0f, 0f))
+
+        assertClose(0f, DepthCamera.bearingOf(north)!!, "facing north")
+        assertClose(90f, DepthCamera.bearingOf(east)!!, "facing east")
+        assertClose(180f, DepthCamera.bearingOf(south)!!, "facing south")
+        assertClose(270f, DepthCamera.bearingOf(west)!!, "facing west")
+    }
+
+    /**
+     * Pointing the phone up at the roof or down at the floor does not change the bearing.
+     *
+     * Which is the ordinary case rather than a corner of one: a sweep spends most of its time
+     * tilted, and a bearing that wandered as the phone was raised would be read as the compass
+     * being wrong when it was the arithmetic. Only the horizontal part of where the lens looks is
+     * a bearing at all.
+     */
+    @Test
+    fun tiltingUpOrDownLeavesTheBearingAlone() {
+        val half = 0.70710677f
+
+        // Facing north and forty-five degrees down: the way it looks is (0, -half, -half) in
+        // ARKit's axes, and the pose's third column is that negated.
+        val down = pose(listOf(1f, 0f, 0f), listOf(0f, half, -half), listOf(0f, half, half))
+        // And the same, tipped up at the roof.
+        val up = pose(listOf(1f, 0f, 0f), listOf(0f, half, half), listOf(0f, -half, half))
+
+        assertClose(0f, DepthCamera.bearingOf(down)!!, "facing north and tilted down")
+        assertClose(0f, DepthCamera.bearingOf(up)!!, "facing north and tilted up")
+    }
+
+    /**
+     * A phone held flat, looking at the floor, is facing nowhere and says so.
+     *
+     * The reading that would otherwise swing round the whole compass while the phone lies still,
+     * because what is left of the horizontal after a straight-down look is rounding error. A
+     * surveyor watching that spin would rightly conclude the scan had no idea where north was,
+     * which is precisely the conclusion this number exists to let them draw *correctly*.
+     */
+    @Test
+    fun aPhoneLookingStraightDownHasNoBearing() {
+        val floor = pose(listOf(1f, 0f, 0f), listOf(0f, 0f, -1f), listOf(0f, 1f, 0f))
+        val roof = pose(listOf(1f, 0f, 0f), listOf(0f, 0f, 1f), listOf(0f, -1f, 0f))
+
+        assertEquals(null, DepthCamera.bearingOf(floor), "a camera looking at the floor")
+        assertEquals(null, DepthCamera.bearingOf(roof), "a camera looking at the roof")
+    }
+
+    /** A pose of the wrong length is refused rather than read past the end of. */
+    @Test
+    fun aBearingNeedsAWholePose() {
+        assertFailsWith<IllegalArgumentException> { DepthCamera.bearingOf(FloatArray(12)) }
+    }
 }

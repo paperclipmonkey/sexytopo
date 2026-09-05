@@ -1,6 +1,9 @@
 package org.hwyl.sexytopo.shared.sketch
 
 import org.hwyl.sexytopo.shared.model.graph.Coord3D
+import kotlin.math.PI
+import kotlin.math.atan2
+import kotlin.math.hypot
 
 /**
  * Turning a lidar depth image into points on the rock, in the survey's own axes.
@@ -19,6 +22,11 @@ import org.hwyl.sexytopo.shared.model.graph.Coord3D
  * mirrored, or upside-down, or turned ninety degrees, and every one of those looks like a scan
  * that nearly worked. The one thing that separates them from a correct scan is knowing what the
  * answer should have been, and a build server can know that where a phone in a cave cannot.
+ *
+ * The companion also answers a question that has nothing to do with depth and everything to do
+ * with the same pose: which way the camera is pointing. `bearingOf` is used by both halves of the
+ * scanner, lidar or not, because it is the one number about a scan a surveyor can check against a
+ * compass while they are still standing in the passage.
  *
  * So the whole conversion is a pure function of numbers, and `DepthCameraTest` walks a known
  * camera through known pixels. What those tests can pin is everything from a stated convention
@@ -122,6 +130,51 @@ class DepthCamera(
         const val INTRINSICS_FLOATS = 12
 
         private const val HALF_A_PIXEL = 0.5f
+
+        /**
+         * Nearer to straight up or down than this, and the camera is not facing any bearing.
+         *
+         * A twentieth is about three degrees off vertical. Inside that the horizontal part of
+         * where the lens is looking is mostly the noise in the last decimal place of the pose, and
+         * a bearing worked out from it swings through the whole compass while the phone is held
+         * still — which on a screen a surveyor is using to check the compass is worse than saying
+         * nothing.
+         */
+        private const val TOO_STEEP_TO_SAY = 0.05f
+
+        /**
+         * Which way the camera is looking, as a bearing in degrees clockwise from the world's
+         * north, or null when it is pointing too nearly straight up or down to have one.
+         *
+         * Here because it is the same pose and the same axes as everything above, and it is worth
+         * one function for a reason bigger than its size: it is the only thing a surveyor can
+         * check *in the cave*. Every point this class places is placed relative to ARKit's idea of
+         * north, and nothing in a drawn section says whether that idea is right — a passage
+         * measured against a north that is ninety degrees out is a good section of the wrong
+         * plane, and it looks exactly like a good section. A bearing on the screen, next to a
+         * passage whose bearing the surveyor has just booked, settles that in about five seconds.
+         *
+         * The camera looks along its own negative Z, so where it is looking is the third column of
+         * the pose, negated; and ARKit's world is x east, y up, z south. Everything after that is
+         * a compass bearing rather than a mathematician's angle: clockwise from north, which is
+         * `atan2(east, north)` and not the other way round.
+         */
+        fun bearingOf(transform: FloatArray): Float? {
+            require(transform.size == TRANSFORM_FLOATS) {
+                "a camera pose is $TRANSFORM_FLOATS floats, not ${transform.size}"
+            }
+
+            val east = -transform[8]
+            val north = transform[10]
+            if (hypot(east, north) < TOO_STEEP_TO_SAY) return null
+
+            val degrees = atan2(east, north) * DEGREES_PER_RADIAN
+            return (degrees + FULL_CIRCLE) % FULL_CIRCLE
+        }
+
+        private const val FULL_CIRCLE = 360f
+
+        private val DEGREES_PER_RADIAN = (180.0 / PI).toFloat()
 
         /**
          * A camera for reading a depth picture, from what the sensor reports about the full-size

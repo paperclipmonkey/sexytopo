@@ -52,6 +52,20 @@
 	<key>NSCameraUsageDescription</key>
 	<string>SexyTopo photographs cave passages and formations to keep alongside the survey sketch.</string>
 	<!--
+	    Not for where the surveyor is - nothing in this app records that, and nothing wants to.
+	    It is for which way is north. Scanning a passage asks ARKit for a world aligned to gravity
+	    and heading, so that the section it measures can be sliced across the passage's own bearing;
+	    heading itself is the magnetometer and needs no permission, but ARKit reckons its north as
+	    *true* north, and turning magnetic into true is the local declination, which is a fact about
+	    where you are standing. Without this key iOS cannot be asked, ARKit falls back to aligning
+	    its world with whichever way the phone happened to be pointing when the scan started, and
+	    every section comes out square, plausible and turned by an unknown angle. The scan screen
+	    prints the bearing it thinks it is facing for exactly that reason: it is the one part of a
+	    scan a surveyor can check against a compass without leaving the passage.
+	-->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>SexyTopo works out which way is north when scanning a passage, so the scan lines up with the rest of the survey. Your location is not recorded.</string>
+	<!--
 	    Surveys are a folder of plain JSON files, and a caver has to get them off the phone and
 	    into Therion or Survex. These two keys put that folder in the Files app, which is the iOS
 	    counterpart of the Storage Access Framework folder the Android app asks for - and, unlike
