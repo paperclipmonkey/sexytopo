@@ -55,6 +55,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.hwyl.sexytopo.shared.math.getDistance
@@ -291,6 +292,26 @@ fun SurveyCanvas(
         return findPhotoPinAt(currentScene.sketch, at, reachInMetres)
     }
 
+    /**
+     * The pin under a finger at [at], at the reach a finger is given everywhere else.
+     *
+     * Declared once rather than at each tool because it is the same question every time, and
+     * because the tools that ask it are otherwise the only thing deciding whether a photograph can
+     * be looked at. That used to be the pencil and the selector and nothing else: with the pan
+     * tool in hand — which is the tool this app *starts* in — a tap on a pin did nothing at all,
+     * so the way to open a photograph was to go to the toolbar and pick a different tool first.
+     * A surveyor who has just been sent to the toolbar to look at a photograph is a surveyor one
+     * button away from the rubber.
+     *
+     * The receiver is the `PointerInputScope` each caller is already inside, which is a `Density`,
+     * and is what turns the reach in dp into pixels.
+     */
+    fun Density.pinUnder(at: Offset): PhotoDetail? =
+        photoPinAt(
+            viewport.toSurvey(at),
+            viewport.toSurveyDistance(SketchDefaults.SELECTION_SENSITIVITY_DP.dp.toPx()),
+        )
+
     // Where each cross-section's drag bar was drawn last frame, in screen coordinates: written by
     // the draw pass, read by [sectionHandle] below. A plain map rather than snapshot state: it is
     // written from inside the draw, and a write that invalidated the composition would ask for
@@ -323,17 +344,27 @@ fun SurveyCanvas(
     val gestures =
         when (tool) {
             SketchTool.MOVE ->
-                Modifier.pointerInput(*gestureKeys) {
-                    detectTransformGestures { centroid, panChange, zoomChange, _ ->
-                        // Zoom about the pinch centre first, then pan, so the point under the
-                        // fingers stays under them.
-                        canvas.transformBy(
-                            centroid.toCoord2D(),
-                            panChange.toCoord2D(),
-                            zoomChange,
-                        )
+                Modifier
+                    .pointerInput(*gestureKeys) {
+                        detectTransformGestures { centroid, panChange, zoomChange, _ ->
+                            // Zoom about the pinch centre first, then pan, so the point under the
+                            // fingers stays under them.
+                            canvas.transformBy(
+                                centroid.toCoord2D(),
+                                panChange.toCoord2D(),
+                                zoomChange,
+                            )
+                        }
                     }
-                }
+                    // A tap opens a photo pin, and does nothing else. This tool had no tap handler
+                    // at all, which meant the app's own starting tool was the one tool a
+                    // photograph could not be opened from — see [pinUnder]. A separate
+                    // `pointerInput` rather than a branch inside the transform detector because
+                    // the two never both fire: a tap does not exceed the touch slop, and a pan
+                    // does.
+                    .pointerInput(*gestureKeys) {
+                        detectTapGestures { offset -> pinUnder(offset)?.let(currentOnOpenPhoto) }
+                    }
 
             SketchTool.SYMBOL -> {
                 // Two detectors, not one. A drag sets the bearing for a directional symbol - a
@@ -364,7 +395,13 @@ fun SurveyCanvas(
 
                 Modifier
                     .pointerInput(*gestureKeys, symbol) {
-                        detectTapGestures { offset -> stamp(offset, 0f) }
+                        detectTapGestures { offset ->
+                            // The pin first, as under the pencil: a symbol can be stamped a
+                            // finger's width to one side, and a photograph opened from where it
+                            // was pinned cannot.
+                            val pin = pinUnder(offset)
+                            if (pin != null) currentOnOpenPhoto(pin) else stamp(offset, 0f)
+                        }
                     }
                     .pointerInput(*gestureKeys, symbol) {
                         var start = Offset.Zero
@@ -478,6 +515,13 @@ fun SurveyCanvas(
                     // the survey, exactly as the symbol tool does, so a label grows with the
                     // passage rather than staying the size it was placed at.
                     detectTapGestures { offset ->
+                        // The pin first, for the reason the symbol tool takes it first: a label
+                        // can go a finger's width to one side of where it was asked for.
+                        val pin = pinUnder(offset)
+                        if (pin != null) {
+                            currentOnOpenPhoto(pin)
+                            return@detectTapGestures
+                        }
                         currentOnPlaceLabel(
                             viewport.toSurvey(offset),
                             viewport.toSurveyDistance(options.style.textSizeSp.sp.toPx()),

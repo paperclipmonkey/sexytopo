@@ -8,6 +8,7 @@ import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
@@ -251,4 +252,46 @@ class PhotoStoreTest {
         assertEquals(listOf("1", "2"), PhotoStore.photoIdsIn(survey))
         assertEquals("3", PhotoStore.nextPhotoId(survey))
     }
+
+    /**
+     * A photograph is still there when the survey is closed and opened again.
+     *
+     * The cycle nothing covered, and the one every survey goes through. Everything else here works
+     * on a survey held in memory: the pins are put on a sketch and read straight back off it, so a
+     * fault anywhere in writing the survey out and reading it in again — a pin dropped by the
+     * sketch reader, an id that does not round-trip, a picture written under one name and looked
+     * for under another — would have left every test above green.
+     *
+     * The last assertion is the one that is easy to leave out and expensive to get wrong. Ids are
+     * highest-plus-one over the pins the survey holds, so if reopening a survey lost its pins
+     * without losing its pictures, the next photograph taken would be handed an id already in use
+     * and would write over a picture taken on an earlier trip.
+     */
+    @Test
+    fun aPhotographIsStillThereWhenTheSurveyIsOpenedAgain() {
+        val store = InMemoryFileStore()
+        val survey = survey()
+        survey.planSketch.pin("1")
+        PhotoStore.save(store, directory(), survey.name, "1", notTextAtAll)
+        SurveyStorage.save(store, survey, directory())
+
+        val reopened = SurveyStorage.load(store, directory())
+
+        assertEquals(
+            listOf("1"),
+            PhotoStore.photoIdsIn(reopened),
+            "the pin did not survive being written out and read back",
+        )
+        assertContentEquals(
+            notTextAtAll,
+            PhotoStore.load(store, directory(), reopened.name, "1"),
+            "the picture was not found where the reopened survey looks for it",
+        )
+        assertEquals(
+            "2",
+            PhotoStore.nextPhotoId(reopened),
+            "the next photograph would have been given an id the drawing already uses",
+        )
+    }
 }
+

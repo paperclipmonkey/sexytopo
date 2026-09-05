@@ -280,6 +280,7 @@ class PhotoPinUiTest {
         canvas: CanvasController,
         opened: MutableList<PhotoDetail>,
         showPhotoPins: Boolean = true,
+        tool: SketchTool = SketchTool.SELECT,
     ): ImageComposeScene {
         val editor = SketchEditor(survey.getSketch(Projection2D.PLAN))
         return ImageComposeScene(width = width, height = height, density = Density(1f)) {
@@ -295,7 +296,7 @@ class PhotoPinUiTest {
                 editor = editor,
                 canvas = canvas,
                 modifier = Modifier.fillMaxSize(),
-                tool = SketchTool.SELECT,
+                tool = tool,
                 onOpenPhoto = { opened.add(it) },
             )
         }
@@ -337,6 +338,83 @@ class PhotoPinUiTest {
             scene.tap(onScreen)
             assertEquals(1, opened.size, "tapping the pin did not open the photograph")
             assertSame(pin, opened.single(), "the wrong pin was opened")
+        } finally {
+            scene.close()
+        }
+    }
+
+    /**
+     * A pin opens its photograph under every tool but the rubber.
+     *
+     * Written as a table because the fault it is guarding against was one of omission, and a fault
+     * of omission is invisible in a test that names one tool. Opening a photograph was handled in
+     * the pencil's tap and the selector's, and nowhere else — so with the pan tool in hand, which
+     * is what `SketchTool.DEFAULT` is and therefore what the app opens in, a tap on a pin did
+     * nothing whatever. The way to look at a photograph was to notice that, go to the toolbar, and
+     * pick a different tool; and the tools either side of the ones that work include the rubber,
+     * which does not open a pin but removes it.
+     *
+     * The rubber is left out on purpose rather than forgotten: a tool drawn as an eraser has to
+     * erase what is under it, photo pins included, and `SketchEditor.eraseAt` is what does that.
+     * Its absence from this list is the statement that it is the *only* tool a tap can lose a pin
+     * under.
+     *
+     * The two cross-section tools and the modal ones are left out because they are entered for one
+     * gesture and are not a tool anybody is left holding.
+     */
+    @Test
+    fun aPinOpensItsPhotographUnderEveryToolButTheRubber() {
+        val opensAPin =
+            listOf(
+                SketchTool.MOVE,
+                SketchTool.DRAW,
+                SketchTool.SELECT,
+                SketchTool.SYMBOL,
+                SketchTool.TEXT,
+            )
+
+        for (tool in opensAPin) {
+            val (survey, pin) = surveyWithAPin()
+            val canvas = CanvasController()
+            val opened = mutableListOf<PhotoDetail>()
+            val scene = pinScene(survey, canvas, opened, tool = tool)
+            try {
+                scene.render()
+                scene.tap(canvas.viewport.toScreen(PIN_AT))
+                assertEquals(
+                    1,
+                    opened.size,
+                    "tapping the pin with $tool in hand did not open the photograph",
+                )
+                assertSame(pin, opened.single(), "$tool opened the wrong pin")
+            } finally {
+                scene.close()
+            }
+        }
+    }
+
+    /**
+     * Under the rubber a tap takes the pin off, which is the one place that is right.
+     *
+     * The other half of the table above, and the reason this is a test rather than a line of prose:
+     * "every tool but the rubber opens it" is only worth anything if the rubber really is the
+     * exception, and if it stops being one this fails rather than quietly agreeing.
+     */
+    @Test
+    fun theRubberTakesAPinOffRatherThanOpeningIt() {
+        val (survey, _) = surveyWithAPin()
+        val canvas = CanvasController()
+        val opened = mutableListOf<PhotoDetail>()
+        val sketch = survey.getSketch(Projection2D.PLAN)
+        val scene = pinScene(survey, canvas, opened, tool = SketchTool.ERASE)
+        try {
+            scene.render()
+            scene.tap(canvas.viewport.toScreen(PIN_AT))
+            assertTrue(opened.isEmpty(), "the rubber opened a photograph instead of erasing")
+            assertTrue(
+                sketch.photoDetails.isEmpty(),
+                "the rubber left the pin behind: ${sketch.photoDetails.size} still on the drawing",
+            )
         } finally {
             scene.close()
         }
