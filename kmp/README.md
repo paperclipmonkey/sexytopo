@@ -3891,7 +3891,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 813
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 510 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 512 over the UI's own
 logic, 20 running the iOS half in a simulator,
 121 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The

@@ -1889,22 +1889,27 @@ private fun DrawScope.drawSurvey(
                 continue
             }
 
-            // Scale from the 40-unit grid to the stamp's size in metres, then to pixels, and
-            // hang the artwork off its own middle rather than its top-left corner.
+            // Move to where the stamp goes, turn it, then scale the 40-unit grid down to the
+            // stamp's size in metres and on to pixels. No fourth step shifting the artwork by half
+            // a box: `Symbol.toPath` builds it centred on the origin already, which is what lets
+            // the rotate above turn it on the spot. `SymbolPalette` draws these same paths the
+            // same way.
             //
-            // That last step was missing, and it put every symbol in the wrong place: the paths
-            // are drawn in a box running from (0, 0) to (40, 40), so without it a stamp landed
-            // down and to the right of where it was put by half its own size, and a directional
-            // one swung about that corner instead of turning on the spot. `GraphView` centres
-            // (`offset = size / 2f`, and a `RotateDrawable` pivoted at 0.5, 0.5), the SVG export
-            // centres, and `SymbolDetail.getDistanceFrom` measures from the centre — so the eraser
-            // was already reaching for a symbol where this was not drawing one.
+            // There used to be such a step, and it centred the artwork a second time. It was right
+            // when it was written — `toPath` then returned a box running from (0, 0) to (40, 40) —
+            // and was left behind when `toPath` was changed to centre its own output, which is the
+            // ordinary way a fix outlives its cause. The cost was every stamp in every survey
+            // drawn half its own size up and to the left of the point it was stamped at, turning
+            // about a corner rather than on the spot. Everything else agreed on the centre all
+            // along: `GraphView` (`offset = size / 2f`, and a `RotateDrawable` pivoted at
+            // 0.5, 0.5), the SVG and Therion exports, and `SymbolDetail.getDistanceFrom` — so the
+            // eraser was reaching for symbols where this was not drawing them.
+            // `SymbolStampCentringTest` measures the ink and holds it here.
             val scale = symbol.size * viewport.pixelsPerMetre / Symbol.VIEWPORT
             withTransform({
                 translate(centre.x, centre.y)
                 rotate(symbol.angle, pivot = Offset.Zero)
                 scale(scale, scale, pivot = Offset.Zero)
-                translate(-Symbol.VIEWPORT / 2f, -Symbol.VIEWPORT / 2f)
             }) {
                 drawPath(
                     artwork,
