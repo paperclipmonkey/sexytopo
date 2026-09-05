@@ -3905,11 +3905,12 @@ These are the things that would actually shape a real port.
    three things were wrong at once: the point count climbed while the phone sat still, the screen
    froze for seconds at a time, and a well-lit room came back as a star of spikes.
 
-   One cause. `ARFrame.rawFeaturePoints` is *cumulative* — every read returns the whole cloud
-   ARKit is holding, not what is new since the last one — and the scanner kept all of it, five
-   times a second. So the count measured reads rather than rock; each read copied thousands of
-   points on the main thread and reached the cap within seconds, which ended a half-minute scan
-   after two; and the section fell apart.
+   One cause, or so it looked. `ARFrame.rawFeaturePoints` is *cumulative* — every read returns the
+   whole cloud ARKit is holding, not what is new since the last one — and the scanner kept all of
+   it, five times a second. So the count measured reads rather than rock; each read reached the cap
+   within seconds, which ended a half-minute scan after two; and the section fell apart. The frozen
+   screen was folded into the same story, as thousands of points being copied on the main thread.
+   That part was wrong, and the next report is what showed it.
 
    That last one is the part worth carrying away, because the code carried a comment arguing the
    opposite: that a wall reported ten times is a wall the percentile is surer of. It is not. Both
@@ -3926,13 +3927,47 @@ These are the things that would actually shape a real port.
    surveyor's feet stay eight, which a cast towards zero would have folded into one, in the middle
    of every section.
 
-   **Still unverified, and one of these is now the open question rather than a hypothetical.**
-   Nothing has been in a cave. Whether the sweep can be done one-handed while holding a light is
-   unknown. And whether feature points are dense and accurate enough to draw a passage wall *at
-   all* is now the thing to settle: removing a known cause of nonsense is not the same as showing
-   the source is good enough, and bare wet rock under a head torch is exactly where feature
-   tracking is weakest. If a re-test still comes back thin, the answer is the lidar depth map
-   rather than a cleverer reduction of these points.
+   **What the same phone said next, which is that the fix had not fixed it.** The count now behaved
+   and the section was no longer asked for, because the picture still stopped — after a couple of
+   seconds, and this time it stayed stopped where before it had frozen in bursts and come back.
+
+   A fix that makes a symptom *worse* is a gift, because it says the mechanism was never the one
+   named. The best account is that nothing here was ever about copying points, and everything was
+   about the frame the points were read out of. ARKit renders from a small fixed pool of frame
+   buffers, and Apple's instruction about `currentFrame` is to hold one no longer than it takes to
+   read: a pool full of frames somebody is still holding cannot produce another, and the camera
+   picture stops dead. Kotlin holds them without anyone asking, because an Objective-C object
+   reached from Kotlin is released when the garbage collector reaches the wrapper around it, not
+   when the variable leaves scope. Five reads a second is five stockpiled ARFrames a second; a
+   couple of seconds is about ten, which is about the size of the pool.
+
+   And that is why removing the duplication made it worse. The version that copied thousands of
+   points per read was allocating hard enough to trigger collections all by itself, and every
+   collection handed the hoard of frames back and let the session breathe — which is exactly the
+   stutter-and-recover the first report described. Taking the allocation away took the accidental
+   rescue with it, and a stutter became a stop.
+
+   So the frame is now read in one small method and nowhere else, and the caller forces a
+   collection the moment that method returns — out there rather than inside it, because a frame
+   that is still a live local of the function asking cannot be freed by the asking. The rate came
+   down from five reads a second to two, since the rate is also the rate at which this leans on a
+   mechanism that is a workaround rather than a guarantee. And a scan now tells the surveyor when
+   the camera has stopped, using the frame's own timestamp: a count that sits still is the
+   *ordinary* thing to see once duplicates are dropped — somebody holding still finds no new rock —
+   so a dead camera and a quiet one look identical from the outside, and the difference is half a
+   minute of sweeping nothing.
+
+   **Still unverified, in the order it matters.** Whether the frames are in fact being handed back:
+   forcing a collection is a workaround against an unstable corner of the Kotlin runtime, nothing
+   here can watch ARKit's buffer pool, and if a third run still freezes the answer is to move the
+   sampling into Swift, where a frame is released at the closing brace and none of this is a
+   question. Then whether feature points are dense and accurate enough to draw a passage wall *at
+   all*, which a scan that dies after two seconds has never had the chance to answer — and the
+   phone in question is a Pro with lidar, so a depth map and a triangle mesh are both available and
+   both better, and that is the next change if the wall still comes back thin. Deliberately not
+   this one: moving the sensor and the frame handling in the same step would leave neither
+   answered. And nothing has been in a cave; whether the sweep can be done one-handed while holding
+   a light is still unknown.
 
 ---
 
@@ -4156,10 +4191,14 @@ called done without somebody holding a device, and so that "tested" is never rea
   keyboard to open.
 - **The buzz happens.** With *Vibrate on new station* on, three agreeing readings should be felt.
   `AndroidManifestTest` proves the permission is declared; only a phone proves the motor runs.
-- **A scan of a passage is a passage.** Everything about the arithmetic is checked on a build
-  server against passages of known shape. The sensor has now been tried once, in a well-lit room,
-  and that one run found three faults nothing here could have — see finding 110. What it did not
-  answer, and what still needs a cave: whether ARKit finds enough to track on wet rock in the dark,
+- **A scan of a passage runs at all, and then is a passage.** Everything about the arithmetic is
+  checked on a build server against passages of known shape. The sensor has now been tried twice,
+  in a well-lit room, and between them those two runs found four faults nothing here could have —
+  see finding 110. The fourth is still open: the camera picture stops a couple of seconds in, and
+  the fix for it rests on the Kotlin garbage collector handing ARKit's frames back promptly when it
+  is asked to, which no machine here can watch. **So the first thing a phone answers is whether a
+  scan now runs for its full half minute without the picture freezing.** Only then the question
+  behind it, which still needs a cave: whether ARKit finds enough to track on wet rock in the dark,
   which is the condition feature tracking is weakest in. Stand at a station in a real passage, scan
   it, and compare the wall it draws against the splays already on the section — they should agree
   to a few centimetres. Then try it in a chamber too big for a head torch to light, which is where

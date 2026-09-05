@@ -3,6 +3,8 @@ package org.hwyl.sexytopo.demo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import kotlin.native.runtime.GC
+import kotlin.native.runtime.NativeRuntimeApi
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.FloatVar
@@ -59,24 +61,35 @@ import platform.darwin.sel_registerName
  *
  * "Should" is doing work in that sentence, and see the status below for what a phone made of it.
  *
- * ## Status: run on a phone once, in a room, and not yet in a cave
+ * ## Status: run on a phone twice, in a room, and not yet in a cave
  *
  * The macOS runner compiles this and can run none of it — the simulator has no ARKit camera, so
- * [available] is false on the one machine that proves it builds. What is known past that comes from
- * a single report off a real device, in a well-lit room, and it was worth more than every check
- * here: the button worked and a scan came back, and three faults showed at once that no amount of
- * arithmetic on a build server would have found. All three were the cumulative-cloud bug [sample]
- * now describes, and all three are fixed.
+ * available is false on the one machine that proves it builds. Everything known past that comes
+ * from two runs on a real device in a well-lit room, and both have been worth more than every check
+ * here.
  *
- * Still unverified, and the second is now the open question rather than a hypothetical:
- *  - whether the sweep can be done one-handed while holding a light, and what the tracking does
- *    when a surveyor turns on the spot in the dark;
+ * The first found three faults at once, all of them the cumulative-cloud bug readCurrentFrame
+ * describes; all three are fixed and covered by tests. The second found that fixing them had not
+ * cured the symptom the surveyor actually minds, which is that the camera picture stops — and that
+ * it now stops for good where it used to stutter and come back. The account of why is on
+ * readCurrentFrame, along with the reason that first fix should be expected to have made this
+ * particular symptom worse rather than better.
+ *
+ * Unverified, in the order it matters:
+ *  - **whether the frames are in fact being handed back.** Forcing a collection is a workaround
+ *    against an unstable corner of the Kotlin runtime, not a guarantee, and nothing on any machine
+ *    here can watch ARKit's buffer pool. If a third run still freezes, the answer is to move the
+ *    sampling into Swift, where a frame is released at the closing brace and none of this is a
+ *    question;
  *  - **whether feature points are dense and accurate enough to draw a passage wall at all.** The
- *    room that produced spikes did so because one stray return was being counted a hundred and
- *    fifty times, which is fixed — but that fix removes a known cause rather than proving the
- *    source is good enough. Bare wet rock under a head torch is the hard case for a system that
- *    wants texture and light, and if a re-test still comes back thin then the answer is the depth
- *    map rather than a cleverer reduction of these points.
+ *    room that produced a star of spikes did so because one stray return was counted a hundred and
+ *    fifty times, which is fixed — but a scan that freezes after two seconds has never had the
+ *    chance to answer this. A phone with lidar carries a depth map and a triangle mesh that would
+ *    both be better sources, and the phone in question has one. That is the next change if the wall
+ *    still comes back thin, and it is deliberately not this one: moving the sensor and the frame
+ *    handling in the same step would leave neither of them answered;
+ *  - whether the sweep can be done one-handed while holding a light, and what the tracking does
+ *    when a surveyor turns on the spot in the dark.
  *
  * ## Two things about the frame that matter to a surveyor
  *
@@ -152,7 +165,7 @@ private class ArKitScanner(private val onScanned: (List<Coord3D>) -> Unit) : Pas
  * track — and without a number on the screen the surveyor learns that a minute later, when the
  * cross-section comes back blank, standing somewhere they have to walk back to.
  */
-@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class, NativeRuntimeApi::class)
 private class ScanViewController(
     private val onScanned: (List<Coord3D>) -> Unit,
 ) : UIViewController(nibName = null, bundle = null) {
@@ -174,6 +187,17 @@ private class ScanViewController(
 
     /** Reads so far, which is this screen's clock — see the backstop in [sample]. */
     private var samples = 0
+
+    /**
+     * When ARKit last produced a frame, and how many reads have gone by without a newer one.
+     *
+     * The only way this screen can tell a camera that is working and finding nothing from one that
+     * has stopped, because on the face of it they are the same thing: a count that does not move.
+     * Telling them apart is worth the two fields — a surveyor who knows the camera has died can
+     * stop and start again, where one watching a still number waits out the whole half minute.
+     */
+    private var lastFrameTime = 0.0
+    private var stalledReads = 0
 
     override fun viewDidLoad() {
         super.viewDidLoad()
@@ -232,8 +256,9 @@ private class ScanViewController(
 
         // Read on a timer rather than through a delegate. `ARSessionDelegate.didUpdateFrame` fires
         // sixty times a second, and a scan does not need sixty samples a second of a cloud that
-        // changes slowly — it needs a sweep's worth. Five a second over half a minute is a hundred
-        // and fifty reads, which is plenty and is a great deal less heat in a cold phone.
+        // changes slowly — it needs a sweep's worth. Two a second over half a minute is sixty
+        // reads, which is plenty, is a great deal less heat in a cold phone, and is sixty frames to
+        // hand back rather than eighteen hundred.
         timer = NSTimer.scheduledTimerWithTimeInterval(
             interval = SAMPLE_SECONDS,
             repeats = true,
@@ -241,21 +266,24 @@ private class ScanViewController(
     }
 
     /**
-     * One read of what ARKit has recognised so far: the points not already kept, converted and
-     * added.
+     * One read: whatever ARKit has recognised that has not been kept already, and then the frame
+     * handed back before the next tick.
      *
-     * The "not already kept" is the whole of this method and it was missing. `rawFeaturePoints` is
-     * *cumulative* — every read hands back the entire cloud ARKit is holding, not the part that is
-     * new since the last one — so appending all of it five times a second appends the same rock
-     * over and over. A phone standing still on a table gathered points as fast as one being swept
-     * round a chamber.
+     * The two halves are split across this method and readCurrentFrame, and the split is load
+     * bearing rather than tidiness — see that method for why the collection has to be out here.
+     *
+     * ## What is being counted, and what a still count means
+     *
+     * `rawFeaturePoints` is *cumulative*: every read hands back the entire cloud ARKit is holding,
+     * not the part that is new since the last one. Appending all of it, several times a second,
+     * appends the same rock over and over, and a phone standing still on a table gathered points as
+     * fast as one being swept round a chamber.
      *
      * Reported from a device, and it was three faults rather than one, all from that:
      *
      *  - the count climbed without the phone moving, because it was counting reads rather than rock;
-     *  - the screen froze for seconds at a time, because each read copied thousands of points into
-     *    fresh objects on the main thread, and the cap of [SCAN_POINT_LIMIT] was reached in seconds
-     *    — so a scan meant to last half a minute ended having seen one wall from one angle;
+     *  - the cap of [SCAN_POINT_LIMIT] was reached in seconds, so a scan meant to last half a minute
+     *    ended having seen one wall from one angle;
      *  - and the cross-section came out as a star of spikes, which is the subtle one. `PassageScan`
      *    rejects a direction holding fewer than three points, and takes a sector's eightieth
      *    percentile rather than its farthest point. Both defences count *observations*. A single
@@ -264,15 +292,22 @@ private class ScanViewController(
      *    becomes a confident wall. Duplication did not merely fail to help the percentile, as the
      *    comment here used to claim — it disabled the noise floor entirely.
      *
+     * The frozen picture was blamed on this too, and that was wrong: it was the same read doing the
+     * damage, but through the frame it was borrowing rather than the points it was copying. The
+     * correction is on readCurrentFrame, where it belongs.
+     *
      * So the same surface is kept once, through [SeenSurfaces]. That lives in the shared module
      * rather than here because it is arithmetic and because its bit-packing fails *silently* — a
      * scan would simply come out sparse — so it wants to be somewhere a test can run. Its own
      * documentation says why space is quantised rather than the scanner's per-point identifiers
      * trusted.
+     *
+     * A consequence of that fix is that a count which stops moving is now the *ordinary* thing to
+     * see: a surveyor holding still is finding no new rock, and should not be told anything is
+     * wrong. Which is exactly why a stopped camera needs saying out loud rather than being left to
+     * look like the same thing. The frame's own clock is what separates them.
      */
     private fun sample() {
-        val frame = arView?.session?.currentFrame ?: return
-
         samples++
         // The backstop this file documented and never had: a surveyor who forgets about a running
         // scan is standing in the dark holding a camera. Counted in ticks rather than clock-read,
@@ -282,38 +317,97 @@ private class ScanViewController(
             return
         }
 
-        val cloud = frame.rawFeaturePoints ?: return
-        val count = cloud.count.toInt()
-        if (count <= 0) return
+        val frameTime = readCurrentFrame()
+
+        // Hand ARKit its frame back, and it has to be here rather than in there: see the note on
+        // readCurrentFrame about which stack frames a collection can and cannot reach.
+        GC.collect()
+
+        if (frameTime == null) return
+
+        if (frameTime > lastFrameTime) {
+            lastFrameTime = frameTime
+            stalledReads = 0
+        } else {
+            stalledReads++
+        }
+
+        counter?.text =
+            when {
+                stalledReads * SAMPLE_SECONDS >= STALL_SECONDS -> CAMERA_STOPPED
+                gathered.isEmpty() -> SCANNING_NOTHING_YET
+                else -> scanningCount(gathered.size)
+            }
+
+        if (gathered.size >= SCAN_POINT_LIMIT) finish()
+    }
+
+    /**
+     * Take the points out of ARKit's current frame, and get out of its way.
+     *
+     * ## Why this is a method of its own, and why the collection is not in it
+     *
+     * ARKit draws from a small fixed pool of frame buffers, and Apple's instruction about
+     * `currentFrame` is not to hold one for any longer than it takes to read: a session whose pool
+     * is full of frames somebody else is still holding cannot produce another one. What a surveyor
+     * sees when that happens is the camera picture stopping dead.
+     *
+     * Kotlin makes that easy to do without meaning to. An Objective-C object reached from Kotlin is
+     * released when the garbage collector gets round to the wrapper holding it, not when the
+     * variable goes out of scope — so reading `currentFrame` on a timer quietly stockpiles ARFrames
+     * until a collection happens to run, and nothing in an app like this one asks for a collection.
+     *
+     * That is the best account there is of what a phone reported: a scan that runs for a couple of
+     * seconds — about ten reads at the old rate, which is about the size of the pool — and then
+     * freezes with the count stuck. It also explains the shape of the report *before* it, where the
+     * picture froze for a few seconds at a time and then came back. The version that kept every
+     * point of the cumulative cloud on every read was allocating hard enough to trigger collections
+     * by itself, and each one handed the hoard of frames back and let the session breathe. Removing
+     * the duplication removed that accident, and turned a stutter into a stop. A fix making a
+     * symptom worse is worth writing down: it is the thing that pointed here.
+     *
+     * So the frame is touched in this method and nowhere else, and [sample] forces a collection the
+     * instant it returns. The split is the point. A collection asked for from in here could free
+     * nothing, because the frame would still be a live local of the very function asking — it has
+     * to be a stack frame that has already been popped.
+     *
+     * Hands back the frame's timestamp, which is how the caller tells a stopped camera from a quiet
+     * one, or null when there is no frame yet.
+     */
+    private fun readCurrentFrame(): Double? {
+        val frame = arView?.session?.currentFrame ?: return null
+
+        val cloud = frame.rawFeaturePoints
+        val count = cloud?.count?.toInt() ?: 0
         // A `simd_float3` is four floats wide in memory, not three: the fourth is padding the
         // vector unit needs for alignment. Striding by three would read every point after the first
         // out of the middle of its neighbours, and the wall would come out as noise. This is the
         // one line in the file most likely to be wrong and least likely to look it.
-        val floats = cloud.points?.reinterpret<FloatVar>() ?: return
+        val floats = cloud?.points?.reinterpret<FloatVar>()
 
-        var index = 0
-        while (index < count && gathered.size < SCAN_POINT_LIMIT) {
-            val base = index * FLOATS_PER_POINT
-            // Already relative to the surveyor: ARKit puts its world origin where the device was
-            // when the session started, which is where they were standing when they pressed scan.
-            // Nothing here subtracts a camera position, and nothing should — the camera has moved
-            // by the time a point is reported, and subtracting where it is now would smear the
-            // passage across the sweep.
-            //
-            // ARKit's axes into the survey's. Aligned to gravity and heading, ARKit gives x east,
-            // y up and negative z north; `toCartesian` builds x east, y north, z up.
-            val east = floats[base]
-            val north = -floats[base + 2]
-            val up = floats[base + 1]
-            index++
-            // Seen before, in this box of space, on any earlier read: not news.
-            if (!seen.isNew(east, north, up)) continue
-            gathered.add(Coord3D(east, north, up))
+        if (floats != null) {
+            var index = 0
+            while (index < count && gathered.size < SCAN_POINT_LIMIT) {
+                val base = index * FLOATS_PER_POINT
+                // Already relative to the surveyor: ARKit puts its world origin where the device
+                // was when the session started, which is where they were standing when they pressed
+                // scan. Nothing here subtracts a camera position, and nothing should — the camera
+                // has moved by the time a point is reported, and subtracting where it is now would
+                // smear the passage across the sweep.
+                //
+                // ARKit's axes into the survey's. Aligned to gravity and heading, ARKit gives x
+                // east, y up and negative z north; `toCartesian` builds x east, y north, z up.
+                val east = floats[base]
+                val north = -floats[base + 2]
+                val up = floats[base + 1]
+                index++
+                // Seen before, in this box of space, on any earlier read: not news.
+                if (!seen.isNew(east, north, up)) continue
+                gathered.add(Coord3D(east, north, up))
+            }
         }
 
-        counter?.text = if (gathered.isEmpty()) SCANNING_NOTHING_YET else scanningCount(gathered.size)
-
-        if (gathered.size >= SCAN_POINT_LIMIT) finish()
+        return frame.timestamp
     }
 
     /**
@@ -357,13 +451,26 @@ private class ScanViewController(
  */
 private val GRAVITY_AND_HEADING = ARWorldAlignment.ARWorldAlignmentGravityAndHeading
 
-/** Four, not three: see the note in `sample` about what padding does to a misread stride. */
+/** Four, not three: see the note in `readCurrentFrame` about padding and a misread stride. */
 private const val FLOATS_PER_POINT = 4
 
+/**
+ * Two reads a second, which is a sweep's worth without cooking the phone.
+ *
+ * It was five, and the reduction is not about processor time. Every read borrows a frame from
+ * ARKit's pool and has to give it back, so the rate is also the rate at which this screen leans on
+ * a mechanism that is documented on `readCurrentFrame` and is not guaranteed. Two a second is still
+ * far more often than a passage changes shape, and asks two and a half times less of it.
+ */
+private const val SAMPLE_SECONDS = 0.5
 
-
-/** Five reads a second, which is a sweep's worth without cooking the phone. */
-private const val SAMPLE_SECONDS = 0.2
+/**
+ * How long the picture has to be still before the surveyor is told it has stopped.
+ *
+ * Long enough not to cry wolf over a dropped frame or two, short enough to be seen and acted on
+ * while they are still standing in the right place.
+ */
+private const val STALL_SECONDS = 2.0
 
 /**
  * The wording, typed here rather than mirrored from `strings.xml`.
@@ -376,5 +483,14 @@ private const val SAMPLE_SECONDS = 0.2
 private const val SCANNING_NOTHING_YET = "Sweep the phone round the passage"
 
 private const val FINISH_TITLE = "Done"
+
+/**
+ * Said when ARKit has stopped producing frames, which a stuck count on its own does not mean.
+ *
+ * A surveyor holding still finds no new rock and the count stops, and that is the scan working. The
+ * difference is invisible from the outside, and the wrong reading of it costs a trip: half a minute
+ * of sweeping a dead camera, or an abandoned scan that was only quiet.
+ */
+private const val CAMERA_STOPPED = "The camera has stopped - tap Done and scan again"
 
 private fun scanningCount(points: Int): String = "$points points"
