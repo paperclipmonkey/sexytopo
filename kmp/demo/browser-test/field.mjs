@@ -86,6 +86,12 @@ const EXAMPLE_SURVEX = [
   '',
 ].join('\n')
 
+// `Keyboard.wasmJs.kt`'s decoy input, and how to ask for the one Compose actually types through.
+// Both live in the page at once once a text field has been tapped, and a check that means "there
+// is somewhere for the on-screen keyboard to attach" has to mean Compose's, not ours.
+const DECOY_ID = 'sexytopo-keyboard-decoy'
+const REAL_INPUT = `input:not(#${DECOY_ID})`
+
 const failures = []
 const fail = (m) => { failures.push(m); console.error(`FAIL  ${m}`) }
 const pass = (m) => console.log(`ok    ${m}`)
@@ -167,6 +173,224 @@ let box = await (await page.$('canvas')).boundingBox()
 
 const at = (x, y) => page.mouse.click(box.x + x, box.y + y)
 
+/**
+ * Where a control is, asked of the app rather than worked out from the picture of it.
+ *
+ * Compose paints the whole app into one canvas, which is why much of this file is arithmetic on
+ * pixels. It also builds an accessibility tree of real DOM nodes laid over that canvas —
+ * `Modifier.testTag` becomes an element's id, `contentDescription` its aria-label. So a menu row
+ * or a dialog row can be asked for by name, and one that moves stops being a silent mis-tap
+ * several hundred lines later.
+ *
+ * Only the popup that is open now, though: `rememberChrome` says why, and what is done about the
+ * screen behind it.
+ *
+ * Returns canvas coordinates rather than clicking the element, so the caller still goes through
+ * `at` and a real mouse: the point of this file is that the app works under a finger, and a
+ * synthetic DOM click would prove less than the tap it replaces.
+ */
+const nodeAt = async (selector) => {
+  const handle = await page.$(selector)
+  if (handle === null) return null
+  const rect = await handle.boundingBox()
+  if (rect === null) return null
+  return [
+    Math.round(rect.x - box.x + rect.width / 2),
+    Math.round(rect.y - box.y + rect.height / 2),
+  ]
+}
+
+/** The same, but a missing one is a failure with the app's own list of what it does offer. */
+const nodeFor = async (selector) => {
+  const where = await nodeAt(selector)
+  if (where !== null) return where
+  const offered = await namedNodes()
+  throw new Error(
+    `nothing on screen answers to ${selector}. ` +
+      `The app offers: ${offered.slice(0, 40).join(', ') || '(nothing)'}`)
+}
+
+/**
+ * Everything the app has named, as the accessibility tree lays it out.
+ *
+ * Asked through Playwright's own selectors rather than `document.querySelectorAll`, because
+ * `ComposeViewport` puts the canvas, the hidden text input and this tree inside an open shadow
+ * root: the page's own DOM query stops at that boundary and reports an app with nothing in it.
+ */
+const namedNodes = async () => {
+  const handles = await page.$$('[id], [aria-label]')
+  const rows = []
+  for (const handle of handles) {
+    rows.push(
+      await handle.evaluate((e) => {
+        const bits = []
+        if (e.id) bits.push(`#${e.id}`)
+        const label = e.getAttribute('aria-label')
+        if (label) bits.push(`"${label}"`)
+        const text = (e.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 24)
+        if (text) bits.push(text)
+        return bits.join(' ')
+      }),
+    )
+  }
+  return rows.filter(Boolean)
+}
+
+/**
+ * Where the app's own furniture is, taken down while the app can still be asked.
+ *
+ * Compose 1.12.0's web listener holds one semantics owner at a time, and every popup — a menu, a
+ * dialog — attaches its own. So opening one replaces the tree with that popup's contents, and
+ * closing it leaves the tree frozen on them: from the first menu onwards, the app *behind* the
+ * popup has no names at all. What the tree does hold, reliably, is whichever popup is open now,
+ * because opening it is what makes Compose sync again — which is where rows drift, and where the
+ * rest of this file asks for things by name.
+ *
+ * The app bar and the toolbar do not move once the app has drawn, so they are read once, before
+ * anything opens, and their positions kept. That is still the app saying where it put them rather
+ * than this file guessing, and it is checked at the moment it is taken: a control that has lost
+ * its name fails here, at the top, rather than as a mis-tap four hundred lines down.
+ */
+const CHROME = new Map()
+const rememberChrome = async (...selectors) => {
+  for (const selector of selectors) {
+    const [x, y] = await nodeFor(selector)
+    // Both ways round, because the checks at the end of this file turn the phone sideways and
+    // shrink it: what an app bar keeps through that is its distance in from the right-hand edge,
+    // and what a toolbar keeps is its distance up from the bottom.
+    CHROME.set(selector, { x, y, fromRight: box.width - x, fromBottom: box.height - y })
+  }
+}
+const remembered = (selector) => {
+  const where = CHROME.get(selector)
+  if (where === undefined) throw new Error(`${selector} was never taken down before a menu opened`)
+  return where
+}
+const chrome = (selector) => {
+  const where = remembered(selector)
+  return [where.x, where.y]
+}
+
+/**
+ * Anything the app has named for a screen reader, by the `strings.xml` entry the name comes from.
+ *
+ * Every button on the sketch toolbar has a `contentDescription` — they are pictures, so they have
+ * to — and Compose puts those on the accessibility node as `aria-label`. So the toolbar needs no
+ * test tags of its own: it is already named, for a better reason than testing.
+ */
+const labelled = (resource) => {
+  const label = ANDROID_STRINGS[resource]
+  if (label === undefined) throw new Error(`no string called ${resource}`)
+  return `[aria-label="${label}"]`
+}
+
+/** A menu row by the label it is drawn with, which is what `tagFor` in App.kt makes its id from. */
+const tagFor = (label) =>
+  'menu-' +
+  [...label.toLowerCase()]
+    .map((c) => (/[a-z0-9]/.test(c) ? c : '-'))
+    .join('')
+    .split('-')
+    .filter(Boolean)
+    .join('-')
+
+/**
+ * The Android app's own `strings.xml`, which is where the menu labels come from.
+ *
+ * Read here for the same reason `Strings.kt` mirrors it and `AndroidStringsTest` checks it: the
+ * ids these checks ask for are made from the labels, so taking the labels from the file the app
+ * takes them from means a rename upstream moves the test with it instead of breaking it.
+ */
+const ANDROID_STRINGS = (() => {
+  const xml = readFileSync('../../../app/src/main/res/values/strings.xml', 'utf8')
+  const strings = {}
+  for (const [, name, value] of xml.matchAll(/<string name="([^"]+)"[^>]*>([\s\S]*?)<\/string>/g)) {
+    strings[name] = value
+      .replace(/<[^>]+>/g, '')
+      .replace(/\\'/g, "'")
+      .replace(/\\"/g, '"')
+      .replace(/&#176;/g, '\u00b0')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .trim()
+  }
+  return strings
+})()
+
+/**
+ * Every row this file reaches for, under the resource name `strings.xml` gives it.
+ *
+ * `demo` is the one with no resource: a generated cave to look at before a real one exists is
+ * this port's own, and the Android app has nothing to name it.
+ */
+const MENU_RESOURCES = {
+  file: 'action_file',
+  view: 'action_view',
+  instrument: 'action_device',
+  input: 'action_input',
+  tools: 'action_tools',
+  settings: 'action_settings',
+  help: 'action_help',
+  connection: 'action_connection',
+  back: null,
+
+  new: 'action_file_new',
+  open: 'action_file_open',
+  save: 'action_file_save',
+  'save-as': 'action_file_save_as',
+  delete: 'action_file_delete',
+  import: 'action_file_import',
+  'import-file': 'action_file_import_file',
+  export: 'action_file_export',
+  share: 'action_file_share',
+
+  trip: 'action_trip',
+  table: 'action_table',
+  plan: 'action_plan',
+  elevation: 'action_elevation',
+  '3d': 'action_3d',
+  stats: 'action_stats',
+  fullscreen: 'action_fullscreen',
+  demo: null,
+
+  connect: 'action_device_connect',
+  calibrate: 'device_distox_command_calibration',
+
+  forward: 'action_input_mode_forward',
+  backward: 'action_input_mode_backward',
+  combined: 'action_input_mode_combo',
+  splays: 'action_input_mode_cal_check',
+
+  'undo-last-leg': 'action_undo_last_leg',
+  find: 'action_find_station',
+  'add-leg': 'action_add_leg',
+  'add-splay': 'action_add_splay',
+  log: 'action_system_log',
+
+  system: 'action_settings_system',
+  survey: 'action_settings_survey',
+  general: 'settings_general_title',
+  sketching: 'settings_sketching_title',
+  'manual-entry': 'settings_manual_data_entry_title',
+  instruments: 'settings_instruments_title',
+
+  manual: 'action_guide',
+  about: 'action_about',
+}
+/** The two rows with no `strings.xml` entry to take a label from. */
+const MENU_LABELS = { demo: 'Demo cave', back: '\u2039 Back' }
+
+/** The id of a named menu row, whichever page of the menu it is on. */
+const menuSelector = (name) => {
+  const resource = MENU_RESOURCES[name]
+  const label = resource === null || resource === undefined
+    ? MENU_LABELS[name]
+    : ANDROID_STRINGS[resource]
+  if (label === undefined) throw new Error(`no label for menu row ${name} (${resource})`)
+  return `#${tagFor(label)}`
+}
+
 // Replaces whatever is in a text field. Backspace and Delete rather than select-all: Compose
 // takes a moment to accept keyboard focus after a click, and a Control+A that lands too early is
 // silently ignored, leaving the new text appended to the old ("1.5002.75") and the test failing
@@ -180,12 +404,19 @@ async function retype(where, text) {
   await page.waitForTimeout(200)
 }
 
-// Positions are computed from the canvas box, so moving a control a few pixels does not break the
-// test while moving it somewhere else rightly does.
-// A function and not a constant, because `box` changes: this file finishes at 375x667 and then
-// at 667x375, and a coordinate taken from the 420-wide layout at load time is off the edge of
-// both. It was, and the landscape checks found it by trying to open a menu that was not there.
-const overflowButton = () => [box.width - 16, 26]
+/**
+ * The three dots at the end of the app bar, which is the way into every menu.
+ *
+ * Measured in from the right-hand edge rather than kept as the x the app gave for it: the checks
+ * near the end of this file resize the window, and the app bar's right-hand end moves with it
+ * while the bar's height does not. Kept as an absolute x, this pressed whatever the wider bar had
+ * put at 404 instead — which turned out to be *About*, and the check after it went looking for the
+ * overflow menu in a dialog about who wrote the app.
+ */
+const overflowButton = () => {
+  const where = remembered('#overflow')
+  return [box.width - where.fromRight, where.y]
+}
 const NAME_FIELD = [210, 442]
 const NAME_CONFIRM = [312, 518]
 const ADD_READING = [74, 790]
@@ -228,7 +459,64 @@ const CARD_ADD_LEG_X = 309
 const SKETCH_PANEL = [127, 175, 127]
 const TABLE_TAB = [281, 26]
 const PLAN_TAB = [325, 26]
-const TABLE_ROW = (n) => [210, 66 + 26 * n]
+const ELEVATION_TAB = [369, 26]
+/**
+ * The nth row of the table, in the middle of its *Dist* column.
+ *
+ * The table is a screen, not a popup, so the accessibility tree has stopped describing it by the
+ * time this file gets here — the way to it is through the overflow menu, and opening that is what
+ * takes the tree away. It is measured instead, but every number in it is read off the screen: the
+ * left margin is one of two alternating greys, so the first place below the green column header
+ * where that grey appears is the top of the first row, and the next place it changes is the top of
+ * the second. Which gives the row height and where the rows start without knowing how tall the app
+ * bar is, how tall the header is, or how tall a row is — the three guesses that `66 + 26 * n` was,
+ * all of which moved when the table gained that header.
+ *
+ * A row is only there if something is drawn in it, and asking that is what turns "the check tapped
+ * empty paper and the assertion after it failed" into a sentence saying the row is not there.
+ */
+const TABLE_STRIPES = [[255, 255, 255], [245, 245, 245]]
+const tableRow = async (n) => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  const row = await page.evaluate(async ([data, stripes, wanted]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    const colourAt = (x, y) => {
+      const i = (y * c.width + x) * 4
+      return [px[i], px[i + 1], px[i + 2]]
+    }
+    const isStripe = (colour) =>
+      stripes.some((stripe) => stripe.every((v, k) => Math.abs(colour[k] - v) < 3))
+    // The left margin, which is one stripe or the other for every row and neither above them.
+    const stripeIndex = (y) => {
+      const colour = colourAt(4, y)
+      return stripes.findIndex((stripe) => stripe.every((v, k) => Math.abs(colour[k] - v) < 3))
+    }
+    let top = -1
+    for (let y = 0; y < c.height && top < 0; y++) if (stripeIndex(y) >= 0) top = y
+    if (top < 0) return null
+    let height = -1
+    for (let y = top + 1; y < c.height && height < 0; y++) {
+      if (stripeIndex(y) !== stripeIndex(top)) height = y - top
+    }
+    if (height < 0) return null
+    // Nothing but the two stripes means an empty page below the last row rather than a row.
+    let drawn = false
+    for (let y = top + wanted * height; y < top + (wanted + 1) * height && y < c.height; y++) {
+      for (let x = 0; x < c.width && !drawn; x++) if (!isStripe(colourAt(x, y))) drawn = true
+    }
+    return { y: Math.round(top + (wanted + 0.5) * height), drawn }
+  }, [b64, TABLE_STRIPES, n])
+  if (row === null) throw new Error('the table is not on screen, or has no rows at all')
+  if (!row.drawn) throw new Error(`wanted table row ${n} but nothing is drawn in it`)
+  return [210, row.y]
+}
 // The leg menu's buttons are found rather than counted from the top of the screen. The dialog is
 // centred, its height depends on how many actions the row can take, and the actions a row can take
 // depend on the survey — a leg with splays hanging off its far end cannot be made back into one.
@@ -239,133 +527,126 @@ const ACT_X = 300
 // screen. The dialog is vertically centred, so its rows all move together when its height changes —
 // which it does when `pref_lrud_fields` puts four more boxes in it. Anchoring to the card means one
 // number to re-measure instead of six, which is the lesson SETTINGS_DIALOG_HEIGHT above records.
-const ADD_LEG_ROWS = {
-  distance: [144, 166],
-  azimuth: [284, 166],
-  inclination: [144, 240],
-  to: [210, 314],
-  note: [210, 388],
-  add: [317, 464],
+/**
+ * *Add a leg*'s fields, by their place in the dialog rather than by an offset into it.
+ *
+ * `leg_edit_dialog_unified.xml`'s own order, which `AddLegDialog` follows: the station the leg
+ * hangs off, then the reading, then the far station and its comment, then the leg's own comment.
+ * `editFromStation` arriving above the reading moved every row in this dialog down; asking
+ * `numberFieldRows` where the boxes are means that cost no numbers here, and will not cost any
+ * next time either. Only the x's are fixed, because two of the boxes share a row.
+ */
+const ADD_LEG_FIELDS = {
+  from: [210, 0],
+  distance: [144, 1],
+  azimuth: [284, 1],
+  inclination: [144, 2],
+  to: [210, 3],
+  note: [210, 4],
 }
 const addLegRow = async (which) => {
-  const top = await dialogTop()
-  const [x, down] = ADD_LEG_ROWS[which]
-  return [x, top + down]
+  if (which === 'add') return dialogConfirm()
+  const [x, index] = ADD_LEG_FIELDS[which]
+  return [x, (await numberField(index))[1]]
 }
-const EDIT_DISTANCE = [140, 384]
 const COMMENT_FIELD_ABOVE_SAVE = 76
 const COMMENT_SAVE_X = 317
-const EDIT_SAVE = [309, 552]
 const CONFIRM_DELETE = [292, 496]
-const STATION_NAME = [210, 260]
-const STATION_COMMENT = [210, 336]
-const STATION_LRUD_LEFT = [106, 520]
-const STATION_LRUD_RIGHT = [175, 520]
-const STATION_EE_LEFT = [102, 628]
-const STATION_SAVE = [317, 700]
-// The overflow menu, by name rather than by pixel.
-//
-// It lists the saved surveys in the middle, so every row below them moves when the library grows,
-// and every row moves when a menu item is added. Both have happened repeatedly, and each time the
-// checks that clicked a hard-coded y went on passing while testing the wrong thing or failed
-// somewhere unrelated. Computing the row from the menu's own order means one list to update.
-// `action_bar.xml`'s submenus, which this port went back to when the flat list grew past the
-// height of an iPhone SE. The top page opens one of the five groups; a group page is a Back row,
-// then the group's items, with the saved surveys inside File where the app's own Open is.
-const MENU_TOP = ['file', 'view', 'instrument', 'tools', 'settings', 'help']
-// `holdsSurveys` matters: only File grows with the library, and counting the surveys into the
-// other three pages put every row of them out by one per saved survey — which lands a tap outside
-// the menu, dismisses it, and reports itself several checks later as "no menu is open".
-const MENU_PAGES = {
-  file: { before: ['new', 'rename'], after: ['import', 'export'], holdsSurveys: true },
-  view: { before: ['demo', 'trip', '3d', 'stats'], after: [], holdsSurveys: false },
-  instrument: { before: ['connect', 'calibrate', 'log'], after: [], holdsSurveys: false },
-  settings: {
-    before: ['fullscreen', 'surveying', 'manual-entry', 'sketching', 'theme'],
-    after: [],
-    holdsSurveys: false,
-  },
-  // `action_tools`'s `tools_group_manual_entry`. Its other two items are on the drawing menu
-  // instead — see the note in App.kt — so this page holds exactly these two.
-  tools: { before: ['add-leg', 'add-splay'], after: [], holdsSurveys: false },
-  // `pref_theme` is a three-value list, so it is a page rather than a checkbox — and the only
-  // page two levels down, which is why `menuRow` walks a chain of parents instead of assuming
-  // every group hangs off the top.
-  theme: {
-    under: 'settings',
-    before: ['automatic', 'light', 'dark'],
-    after: [],
-    holdsSurveys: false,
-  },
-  // `help_menu`: Manual then About, which is the order action_bar.xml puts them in. About was a
-  // row on the top page while the manual was missing, so moving it here is what the app's own
-  // menu always said - and the only change any check needed is this line.
-  help: { before: ['manual', 'about'], after: [], holdsSurveys: false },
+/**
+ * The overflow menu, by name.
+ *
+ * `action_bar.xml`'s own submenus, which this port went back to when the flat list grew past the
+ * height of an iPhone SE. Which page a row is on is still written down here, because opening a
+ * page is a tap that has to happen; *where the row is drawn* is not, because the app says.
+ *
+ * That is the whole difference between this and what it replaces. The old version counted rows
+ * and divided the menu's height by them, so adding a row to a page moved every row below it and
+ * the check that meant to tap *New Survey* tapped *Open Survey…* — which is not a failure
+ * anywhere near the menu, but a survey that never got named and a hundred later checks reporting
+ * that the sketch was never saved.
+ */
+const MENU_PARENT = {
+  new: 'file',
+  open: 'file',
+  save: 'file',
+  'save-as': 'file',
+  delete: 'file',
+  import: 'file',
+  'import-file': 'import',
+  export: 'file',
+  share: 'file',
+
+  trip: 'view',
+  table: 'view',
+  plan: 'view',
+  elevation: 'view',
+  '3d': 'view',
+  stats: 'view',
+  fullscreen: 'view',
+  demo: 'view',
+
+  connect: 'instrument',
+  calibrate: 'instrument',
+
+  forward: 'input',
+  backward: 'input',
+  combined: 'input',
+  splays: 'input',
+
+  'undo-last-leg': 'tools',
+  find: 'tools',
+  'add-leg': 'tools',
+  'add-splay': 'tools',
+  log: 'tools',
+
+  system: 'settings',
+  survey: 'settings',
+  general: 'system',
+  sketching: 'system',
+  'manual-entry': 'system',
+  instruments: 'system',
+
+  manual: 'help',
+  about: 'help',
 }
 
-// The menu hangs off the overflow button at the right-hand edge and is 200 wide, so its middle
-// and the delete cross on a saved survey are both fixed distances in from that edge — not the
-// absolute 312 and 392 they were, which were the 420-wide layout's numbers and missed on both of
-// the sizes this file finishes at.
-const MENU_MIDDLE = () => box.width - 116
-const MENU_RIGHT = () => box.width - 28
-
-/** Which page a named item is on, and where in it. Back is row zero of every group page. */
-function menuPlace(name, savedSurveys) {
-  const top = MENU_TOP.indexOf(name)
-  if (top >= 0) return { page: null, index: top, rows: MENU_TOP.length }
-  // A group whose row sits on another group's page, rather than on the top one.
-  const under = MENU_PAGES[name]?.under
-  if (under !== undefined) return menuPlace(`${under}:${name}`, savedSurveys)
-  for (const [page, { before, after, holdsSurveys }] of Object.entries(MENU_PAGES)) {
-    const surveys = holdsSurveys ? savedSurveys : 0
-    const rows = 1 + before.length + surveys + after.length
-    const wanted = name.startsWith(`${page}:`) ? name.slice(page.length + 1) : name
-    const inBefore = before.indexOf(wanted)
-    if (inBefore >= 0) return { page, index: 1 + inBefore, rows }
-    const inAfter = after.indexOf(name)
-    if (inAfter >= 0) {
-      return { page, index: 1 + before.length + surveys + inAfter, rows }
-    }
-    // The saved surveys themselves, addressed by position rather than by name.
-    if (name === `${page}:survey`) return { page, index: 1 + before.length, rows }
+/** The pages that have to be opened, outermost first, to get at a named row. */
+const menuChain = (name) => {
+  const chain = []
+  for (let group = MENU_PARENT[name]; group !== undefined; group = MENU_PARENT[group]) {
+    chain.unshift(group)
   }
-  throw new Error(`no menu item called ${name}`)
+  return chain
 }
 
 /**
  * Tap a named overflow-menu item, opening its group first if it is on one.
  *
  * The menu must already be open. Returns the coordinates of the final tap rather than performing
- * it, so the call sites read as they did before the menu grew a second level.
+ * it, so the call sites read as they did when this was arithmetic.
  */
-async function menuRow(name, savedSurveys) {
-  const place = menuPlace(name, savedSurveys)
-  // The chain of pages from the top down to the one holding the item. One deep for everything but
-  // the theme list; walking it rather than clicking a single parent is what let that page be added
-  // without every other call site here changing.
-  const path = []
-  // Not `page` as the loop variable: that is this file's Playwright page, and shadowing it here
-  // turns every wait inside this function into a call on a string.
-  for (let group = place.page; group !== null; group = MENU_PAGES[group].under ?? null) {
-    path.unshift(group)
+async function menuRow(name) {
+  for (const group of menuChain(name)) {
+    await at(...(await nodeFor(menuSelector(group))))
+    await page.waitForTimeout(400)
   }
-  for (const ancestor of path) {
-    const group = menuPlace(ancestor, savedSurveys)
-    await at(...(await menuRowAt(group.index, group.rows, MENU_MIDDLE())))
-    await page.waitForTimeout(500)
-  }
-  return menuRowAt(place.index, place.rows, MENU_MIDDLE())
+  return nodeFor(menuSelector(name))
 }
 
-/** The delete cross on the nth saved survey's row, which sits at the right-hand edge. */
-async function savedSurveyDelete(nth, savedSurveys) {
-  const place = menuPlace('file:survey', savedSurveys)
-  const group = menuPlace('file', savedSurveys)
-  await at(...(await menuRowAt(group.index, group.rows, MENU_MIDDLE())))
-  await page.waitForTimeout(500)
-  return menuRowAt(place.index + nth, place.rows, MENU_RIGHT())
+/**
+ * A saved survey on the *Open* or *Delete Survey…* page, by its own name.
+ *
+ * The library used to be counted into the File page, so every row below it moved by one per
+ * survey. It is two pages of its own now — `action_file_open` and `action_file_delete` are
+ * submenus in `action_bar.xml` — and a survey is a row named after itself, which is a better
+ * handle than its position ever was.
+ */
+async function savedSurveyRow(group, name) {
+  await at(...(await menuRow(group)))
+  await page.waitForTimeout(400)
+  return nodeFor(`#${tagFor(name)}`)
 }
+
 const IMPORT_CHOOSE = [284, 494]
 const IMPORT_FIRST_ROW = [210, 446]
 // The Surveying dialog's rows, measured from the top of the dialog rather than from the top of the
@@ -380,13 +661,134 @@ const IMPORT_FIRST_ROW = [210, 446]
 // window, so it is now capped at the screen and scrolls — which means its top is the top of the
 // screen, and the offsets below are measured from there. The offsets themselves did not move,
 // because nothing was added above them; that is the whole point of anchoring to the dialog.
-const SETTINGS_DIALOG_HEIGHT = 900
-const settingsRow = (x, fromTop) => [x, (900 - SETTINGS_DIALOG_HEIGHT) / 2 + fromTop]
-const SETTING_DISTANCE = settingsRow(210, 271)
-const SETTING_ANGLE = settingsRow(210, 347)
-const SETTING_BUZZ = settingsRow(320, 503)
-const SETTING_HOT_CORNERS = settingsRow(320, 596)
-const SETTING_TWO_FINGER = settingsRow(320, 692)
+/**
+ * Every number field in the open dialog, top to bottom, found rather than measured.
+ *
+ * `preferences_main.xml` splits the app's settings across five screens, so the old single
+ * *Surveying* dialog is now three of them and no offset measured against it survived. Rather than
+ * re-measure three dialogs — and again the next time a row is added to any of them — this finds
+ * the fields the way `switchRows` finds the switches.
+ *
+ * How: an M3 `OutlinedTextField` with a value in it floats its label up onto its own top border,
+ * which leaves a gap in that line; its **bottom** border is unbroken and spans the card. So the
+ * bottom borders are the rows where nearly all of the card's width is not the card's colour. A
+ * `HorizontalDivider` looks the same from here, which is why the fields are taken as the longest
+ * run of those rows evenly spaced — a divider is on its own, and eight settings in a column are
+ * not.
+ */
+const numberFieldRows = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, card]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    const isCard = (x, y) => {
+      const i = (y * c.width + x) * 4
+      return (
+        Math.abs(px[i] - card[0]) < 4 &&
+        Math.abs(px[i + 1] - card[1]) < 4 &&
+        Math.abs(px[i + 2] - card[2]) < 4
+      )
+    }
+    // The card's own horizontal extent, so "nearly all of its width" means something.
+    let left = c.width
+    let right = -1
+    for (let y = 0; y < c.height; y++) {
+      let first = -1
+      let last = -1
+      for (let x = 0; x < c.width; x++) {
+        if (!isCard(x, y)) continue
+        if (first < 0) first = x
+        last = x
+      }
+      if (last - first > 200) {
+        if (first < left) left = first
+        if (last > right) right = last
+      }
+    }
+    if (right < 0) return []
+    // A narrow window just inside the card's left edge rather than the whole of it. Every box on
+    // every one of these screens starts there, but they do not all *end* in the same place: the
+    // inclination box is half-width, with the +/- button beside it, so a full-width test misses
+    // its border and the run of evenly spaced rows breaks in the middle of the dialog.
+    const from = left + 26
+    const to = Math.min(left + 116, right)
+    const span = to - from
+    const borders = []
+    for (let y = 0; y < c.height; y++) {
+      let notCard = 0
+      for (let x = from; x <= to; x++) if (!isCard(x, y)) notCard++
+      if (notCard > span * 0.95) borders.push(y)
+    }
+    // The longest evenly spaced run of them, which is the block of fields.
+    let best = []
+    for (let i = 0; i < borders.length; i++) {
+      for (let j = i + 1; j < borders.length; j++) {
+        const step = borders[j] - borders[i]
+        if (step < 40 || step > 120) continue
+        const run = [borders[i], borders[j]]
+        let next = borders[j] + step
+        while (borders.some((b) => Math.abs(b - next) <= 2)) {
+          run.push(borders.find((b) => Math.abs(b - next) <= 2))
+          next = run[run.length - 1] + step
+        }
+        if (run.length > best.length) best = run
+      }
+    }
+    // A field's own middle is half its height above the border that closes it, and an M3 text
+    // field is fifty-six of them tall whatever is spaced around it.
+    return best.map((b) => b - 27)
+  }, [b64, DIALOG_CARD])
+}
+
+/**
+ * The nth number field of the open dialog. **Negative counts from the end**, as with the switches.
+ *
+ * From the end where a dialog has to be scrolled to reach the field at all: what the run of rows
+ * begins with depends on whether a divider above the block happens to be one field-height clear of
+ * it, and what it ends with does not.
+ */
+const numberField = async (index) => {
+  const rows = await numberFieldRows()
+  const nth = index < 0 ? rows.length + index : index
+  if (nth < 0 || nth >= rows.length) {
+    throw new Error(`wanted number field ${index} but the dialog shows ${rows.length}: ${rows}`)
+  }
+  return [210, rows[nth]]
+}
+
+/**
+ * A settings row, by the title it is drawn with.
+ *
+ * `Toggle` names itself after its title, so this finds the row whatever state the switch is in —
+ * including greyed out, which the switch-shaped-run search cannot see at all. The tap goes to the
+ * right-hand end, where the switch is: the row is the full width of the card and its middle is the
+ * wording.
+ */
+const settingRow = async (name) => {
+  const resource = SETTING_RESOURCES[name]
+  const label = resource === undefined ? SETTING_LABELS[name] : ANDROID_STRINGS[resource]
+  if (label === undefined) {
+    throw new Error(
+      resource === undefined ? `no setting called ${name}` : `strings.xml has no ${resource}`)
+  }
+  const handle = await page.$(`#${tagFor(label)}`)
+  if (handle === null) throw new Error(`no settings row called ${label}`)
+  const rect = await handle.boundingBox()
+  if (rect === null) throw new Error(`the settings row ${label} is not drawn`)
+  return [
+    Math.round(rect.x - box.x + rect.width - 20),
+    Math.round(rect.y - box.y + rect.height / 2),
+  ]
+}
+
+/** A theme chip in the *General* dialog: `pref_theme`, which is a three-value list. */
+const themeChip = (name) => nodeFor(`#theme-${name}`)
 /**
  * Every switch in the open dialog, top to bottom, found rather than measured.
  *
@@ -466,54 +868,66 @@ const switchRows = async () => {
   }, [b64, 320])
 }
 
-/**
- * The nth switch in the dialog. **Negative counts from the end**, which is what these checks use.
- *
- * From the end because they wheel to the bottom first and because new settings get added *above*
- * the ones already there — so counting down from the top would drift for the same reason the
- * pixel offsets did, while counting up from the last switch does not.
- */
-const settingsSwitch = async (index) => {
-  const rows = await switchRows()
-  const nth = index < 0 ? rows.length + index : index
-  if (nth < 0 || nth >= rows.length) {
-    throw new Error(`wanted switch ${index} but the dialog shows ${rows.length}: ${rows}`)
-  }
-  return [320, rows[nth]]
+// Every switch on every settings screen, by the setting it is.
+//
+// These were five blocks of indices with a paragraph each explaining which end of which dialog
+// they were counted from, and what had already gone wrong when a dialog gained a row or grew too
+// tall to show them all at once. `Toggle` names itself after its title now, so none of that has
+// to be written down or kept true.
+const SETTING_RESOURCES = {
+  // The one that goes looking for an instrument that has dropped out: `pref_auto_reconnect`.
+  'chase-lost-instrument': 'settings_auto_reconnect_title',
+  'log-every-frame': 'settings_key_developer_mode_title',
+  'hot-corners': 'settings_hot_corners_title',
+  'delete-fragments': 'settings_delete_path_fragments_title',
+  'highlight-latest-leg': 'settings_highlight_latest_leg_title',
+  'two-finger': 'settings_two_finger_movement_title',
+  'legacy-cross-sections': 'settings_legacy_cross_sections_title',
+  'manual-entry': 'settings_manual_data_controls_title',
+  'book-passage-size': 'settings_key_lrud_fields_title',
+  'walls-square-to-next-leg': 'settings_lrud_direction_title',
+  'bearings-in-minutes': 'settings_key_deg_mins_secs_title',
+  'inclinations-in-minutes': 'settings_key_inc_deg_mins_secs_title',
+  vibrate: 'settings_new_station_vibration_title',
 }
 
-// *Surveying*'s last two switches, counted from that end.
-const SWITCH_LOG_EVERY_FRAME = -1
-const SWITCH_CHASE_LOST_INSTRUMENT = -2
+/**
+ * The export dialogs' switches, which have no `strings.xml` entry to take a label from.
+ *
+ * `SvgExportDialog` and the Therion one are this port's own screens — the Android app writes its
+ * SVG with no options at all — so their wording lives in the composable and is repeated here.
+ */
+const SETTING_LABELS = {
+  'svg-draw-sketch': 'Draw the sketch',
+  'therion-stations-in-plan': 'Stations in the first plan scrap',
+  'therion-cross-sections': 'Export cross-sections',
+}
 
-// *Manual entry*'s five switches, counted from the **top** and in the order the dialog lays them
-// out. From the top because that dialog opens at the top and its rows are added at the bottom;
-// from the end in *Surveying* because that one's rows are added above the reconnect pair.
-//
-// The five used to be the tail of *Surveying*, and the reason they are not any more is worth
-// keeping: that dialog reached eleven settings, and eleven do not fit on a 420-by-900 screen at
-// once. `switchRows()` finds switches by scanning the pixels that are actually drawn, so "the
-// last switch but five" silently became a switch that was off the bottom of the card — the check
-// reported *"wanted switch -6 but the dialog shows 5"*, which is the good version of that failure
-// and only happened because the finder counts what it can see rather than what it remembers.
-const SWITCH_MANUAL_ENTRY = 0
-const SWITCH_BOOK_PASSAGE_SIZE = 1
-const SWITCH_WALLS_SQUARE_TO_NEXT_LEG = 2
-const SWITCH_BEARINGS_IN_MINUTES = 3
-const SWITCH_INCLINATIONS_IN_MINUTES = 4
+const chaseSwitch = async () => settingRow('chase-lost-instrument')
 
-const chaseSwitch = async () => settingsSwitch(SWITCH_CHASE_LOST_INSTRUMENT)
-
-// The *Sketching* dialog's eight boxes, which are evenly spaced down it: leg width, splay width,
-// drawn line width, station size, station name size, legend size, symbol size, text size.
-// Anchored to the dialog's top and measured off a rendered frame, so adding a ninth means one more
-// index rather than eight re-measured numbers.
-const SKETCH_FIRST_FIELD_BELOW_TOP = 184
-const SKETCH_FIELD_SPACING = 76
-const sketchField = async (index) => {
-  const top = await dialogTop()
-  if (top === null) throw new Error('the sketching dialog is not open')
-  return [210, top + SKETCH_FIRST_FIELD_BELOW_TOP + SKETCH_FIELD_SPACING * index]
+/**
+ * The *Sketching* dialog's eight boxes, in `preferences_sketching.xml`'s order, counted from the
+ * end.
+ *
+ * Five switches now sit above them and the eight no longer fit on one screen with those, so the
+ * dialog scrolls and the first of the boxes is below the fold when it opens. Counting from the
+ * last one means the caller scrolls to the end — which it has to do anyway — and then asks for a
+ * field rather than for a pixel.
+ */
+const SKETCH_FIELDS = [
+  'text-size',
+  'symbol-size',
+  'line-width',
+  'leg-width',
+  'splay-width',
+  'station-size',
+  'station-label-size',
+  'legend-size',
+]
+const sketchField = async (name) => {
+  const index = SKETCH_FIELDS.indexOf(name)
+  if (index < 0) throw new Error(`no sketching field called ${name}`)
+  return numberField(index - SKETCH_FIELDS.length)
 }
 
 /**
@@ -541,82 +955,35 @@ const scrollSettingsToTheEnd = async () => {
   }
 }
 
-// Found rather than measured, now that the dialog is tall enough to be capped: its buttons sit a
-// fixed distance above its *bottom*, and the bottom is wherever the window puts it.
-const settingsSave = async () => {
-  const button = await dialogConfirm()
-  if (button === null) throw new Error('the settings dialog has no Save button on screen')
-  return button
-}
-const TRIP_ADD_NAME = [177, 275]
-const TRIP_ADD_BUTTON = [317, 275]
-const TRIP_ROLE_BOOK = [106, 328]
-const TRIP_INSTRUMENT = [210, 527]
-const TRIP_LICENCE = [210, 764]
-const TRIP_SAVE = [317, 840]
-const LABEL_TEXT = [210, 442]
-const LABEL_PLACE = [316, 518]
-// The sketch toolbar is nine equal columns; the bottom row's third cell is the label tool.
-const toolColumn = box.width / 9
-const TOOL_ROW_Y = box.height - 20
-const toolCell = (index) => [toolColumn * (index + 0.5), TOOL_ROW_Y]
-// The drawing menu, by name rather than by pixel — for the same reason as the overflow menu.
-//
-// It opens *upwards* from its toolbar cell, so its bottom row stays put and every row above it
-// moves when an item is added. Hard-coded y values for two of these rows had already survived one
-// such addition by silently clicking the wrong item.
-const DRAWING_MENU = [
-  'centre',
-  'symbol',
-  'cross-section',
-  're-aim',
-  'move',
-  'find',
-  'delete-last-leg',
-  'display',
-]
-// The twelve toggles behind that last row, in the order the dialog lists them: `drawing.xml`'s
-// display group first, then its behaviour group.
-const DRAWING_OPTIONS = [
-  'fade',
-  'splays',
-  'show-xsections',
-  'sketch',
-  'grid',
-  'labels',
-  'north',
-  'latest-leg',
-  'auto-recentre',
-  'snap',
-  'blue-water',
-  'pinch',
-]
-// Material 3's `surfaceContainer` in the light theme, which is the dropdown's own ground and is
-// not used by anything behind it.
-const DRAWING_MENU_SURFACE = [243, 237, 247]
-
 /**
- * Where a dropdown menu actually is, found rather than assumed. Used for both of them.
+ * The Save button of whichever settings dialog is open, by name.
  *
- * It used to be computed upwards from a fixed bottom row, on the reasoning that a menu opening
- * from a toolbar cell keeps its bottom edge. That held until the menu grew past the room above the
- * toolbar: at eighteen rows it was taller than the gap, so Compose repositioned the whole thing to
- * fit the screen and *every* row moved — which broke ten checks at once and none of them anywhere
- * near a menu. Same lesson as the dialogs (finding 27), learnt twice. The menu is eight rows now,
- * which fits, but the arithmetic stays found rather than assumed: that is what made it survive the
- * twelve toggles moving out of it without a single number in this file changing.
- *
- * So: find the menu's own surface, and divide it by the number of rows it is known to have. That
- * survives the menu being repositioned, and it fails loudly rather than quietly if the menu ever
- * has to scroll, because then the arithmetic stops matching what is on screen.
- *
- * The overflow menu uses it too. That one is three rows plus the saved surveys plus eleven, so on
- * a 900-pixel screen it is already within a survey or two of not fitting under a fixed first-row
- * y — which is the same thing that happened to the drawing menu, waiting to happen again.
+ * It used to be found by looking for the lettering on the dialog's own card colour, which is one
+ * colour and the light theme's. Picking *Dark* applies as it is picked, so by the time that check
+ * reaches for Save the card it is drawn on is no longer the one being looked for — the theme is
+ * the one setting whose dialog cannot be finished by looking at it.
  */
-const menuBox = async () => {
+const settingsSave = () => nodeFor('#settings-save')
+// The trip screen, measured off a headless render at 420 by 900 — the first three before anybody
+// has been added to the team, the rest after exactly one has, which is the order these checks fill
+// it in. `trip_role_*` spell the roles out ("Book (drawing)", "Dog (assistant)"), so the four
+// chips wrap onto two rows and the fields below them all moved down.
+const TRIP_ADD_NAME = [177, 277]
+const TRIP_ADD_BUTTON = [317, 277]
+const TRIP_ROLE_BOOK = [137, 317]
+const TRIP_INSTRUMENT = [210, 534]
+/**
+ * The licence box, found by the red it is drawn in.
+ *
+ * It is below the fold once the team has somebody on it, and by less than the height of its own
+ * label — so a measured y was a tap on the line between it and the copyright holder above. It is
+ * also the only thing on the screen drawn in the error colour, because `isLicenceChosen` starts
+ * false and that is the whole point of the check below: a blank licence is a fine answer but it
+ * has to be chosen rather than defaulted into. So the red *is* the handle.
+ */
+const tripLicenceField = async () => {
   const b64 = (await page.screenshot({ clip: box })).toString('base64')
-  return page.evaluate(async ([data, surface]) => {
+  const found = await page.evaluate(async ([data]) => {
     const img = new Image()
     await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
     const c = document.createElement('canvas')
@@ -625,55 +992,68 @@ const menuBox = async () => {
     const ctx = c.getContext('2d')
     ctx.drawImage(img, 0, 0)
     const px = ctx.getImageData(0, 0, c.width, c.height).data
-    const is = (x, y) => {
-      const i = (y * c.width + x) * 4
-      return px[i] === surface[0] && px[i + 1] === surface[1] && px[i + 2] === surface[2]
-    }
-    let top = -1
-    let bottom = -1
+    // Material 3's light `error`, 0xB3261E, and the antialiased shades of it: a strong red
+    // channel with very little of either of the others.
+    const rows = []
     for (let y = 0; y < c.height; y++) {
-      let run = 0
-      for (let x = 0; x < c.width; x++) if (is(x, y)) run++
-      // A wide run of it: narrower things on screen share the colour here and there.
-      if (run > 120) {
-        if (top < 0) top = y
-        bottom = y
+      let red = 0
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        if (px[i] > 120 && px[i + 1] < 80 && px[i + 2] < 80) red++
       }
+      // A whole border rather than a line of the message underneath it, which is short.
+      if (red > 200) rows.push(y)
     }
-    return top < 0 ? null : { top, bottom }
-  }, [b64, DRAWING_MENU_SURFACE])
+    return rows
+  }, [b64])
+  if (found.length === 0) return null
+  // Its top border, which is the half of the box that is on screen.
+  return [210, found[0] + 12]
 }
-
-/** The nth row of a menu with `rows` rows, wherever Compose has put it. */
-async function menuRowAt(index, rows, x) {
-  // Polled rather than checked once: a caller that just tapped the button opening this menu has
-  // already waited out the usual case, but concurrent rendering (on by default since Compose
-  // Multiplatform 1.11.0) can still leave a frame or two between the tap and the popup actually
-  // painting, and a single check lands in that gap often enough to be worth surviving.
-  let menu = null
-  for (let i = 0; i < 10 && menu === null; i++) {
-    menu = await menuBox()
-    if (menu === null) await page.waitForTimeout(200)
-  }
-  if (menu === null) {
-    // A screenshot at the point of failure is worth more than the error message alone here: this
-    // is the one check that found a dialog whose Escape-to-dismiss had silently stopped doing
-    // anything (see waitForDialogToClose) - the tap meant for the menu was landing on the previous
-    // dialog's still-open scrim instead.
-    await page.screenshot({ path: join(shotDir, 'DEBUG-no-menu-found.png') })
-    throw new Error('no menu is open')
-  }
-  const rowHeight = (menu.bottom - menu.top) / rows
-  return [x, Math.round(menu.top + (index + 0.5) * rowHeight)]
+const LABEL_TEXT = [210, 442]
+const LABEL_PLACE = [316, 518]
+// The sketch toolbar is nine equal columns; the bottom row's third cell is the label tool.
+const toolColumn = box.width / 9
+const TOOL_ROW_Y = box.height - 20
+const toolCell = (index) => [toolColumn * (index + 0.5), TOOL_ROW_Y]
+/**
+ * The drawing menu's rows, by name rather than by pixel — for the same reason as the overflow menu.
+ *
+ * It opens *upwards* from its toolbar cell, so its bottom row stays put and every row above it
+ * moves when an item is added. Hard-coded y values for two of these rows had already survived one
+ * such addition by silently clicking the wrong item. It is a popup, so it is in the accessibility
+ * tree whenever it is open, which is the only time anything here asks for one of its rows.
+ */
+const DRAWING_MENU_RESOURCES = {
+  'delete-last-leg': 'sketch_menu_delete_last_leg',
+  centre: 'sketch_menu_centre_view',
+  display: 'sketch_toolbar_settings',
 }
-
-/** The row for a named drawing-menu item, in the menu as it is currently drawn. */
-async function drawingMenuRow(name) {
-  const index = DRAWING_MENU.indexOf(name)
-  if (index < 0) throw new Error(`no drawing-menu item called ${name}`)
-  return menuRowAt(index, DRAWING_MENU.length, 186)
+const drawingMenuRow = (name) => {
+  const resource = DRAWING_MENU_RESOURCES[name]
+  if (resource === undefined) throw new Error(`no drawing-menu item called ${name}`)
+  const label = ANDROID_STRINGS[resource]
+  if (label === undefined) throw new Error(`strings.xml has no ${resource}`)
+  return nodeFor(`#${tagFor(label)}`)
 }
-
+// The eleven toggles behind that last row, in the order the dialog lists them: `drawing.xml`'s
+// `drawingMenuBehaviourToggles` first, then `drawingMenuDisplayToggles`.
+//
+// `buttonHighlightLatestLeg` is not among them — `pref_highlight_latest_leg` is a sketching
+// preference in the Android app, not a drawing-menu toggle, so it lives on that settings screen.
+const DRAWING_OPTIONS = [
+  'auto-recentre',
+  'snap',
+  'blue-water',
+  'pinch',
+  'fade',
+  'splays',
+  'show-xsections',
+  'sketch',
+  'grid',
+  'labels',
+  'north',
+]
 /**
  * The switches in the drawing-options dialog, found by looking for them.
  *
@@ -685,9 +1065,9 @@ async function drawingMenuRow(name) {
  *
  * Which also means the test asserts the dialog has twelve rows without being told where they are.
  */
-const drawingOptionSwitches = async () => {
+const drawingOptionSwitches = async (below) => {
   const b64 = (await page.screenshot({ clip: box })).toString('base64')
-  return page.evaluate(async ([data, card]) => {
+  return page.evaluate(async ([data, card, below]) => {
     const img = new Image()
     await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
     const c = document.createElement('canvas')
@@ -726,7 +1106,14 @@ const drawingOptionSwitches = async () => {
       if (end - start >= 8) bands.push(Math.round((start + end) / 2))
       start = -1
     }
-    for (let y = top; y <= bottom; y++) {
+    // Stopping above the dialog's own buttons, which is also above the rounded corner beneath
+    // them: a card's bottom corners curve away from its bounding box, so the last thirty rows of
+    // that box have the *outside* of the dialog in this margin — a long run of not-card, tall
+    // enough to be a switch, and reported as a thirteenth row. The corner has always been there;
+    // it only became a separate band when the twelfth toggle left and the last row stopped
+    // touching it.
+    const foot = below ?? bottom
+    for (let y = top; y <= Math.min(bottom, foot); y++) {
       let longest = 0
       let run = 0
       for (let x = marginLeft; x <= right; x++) {
@@ -737,16 +1124,18 @@ const drawingOptionSwitches = async () => {
       if (onASwitch && start < 0) start = y
       if (!onASwitch && start >= 0) close(y - 1)
     }
-    if (start >= 0) close(bottom)
+    if (start >= 0) close(Math.min(bottom, foot))
     return { x: Math.round((left + right) / 2), bands }
-  }, [b64, DIALOG_CARD])
+  }, [b64, DIALOG_CARD, below])
 }
 
 /** Where to tap for a named drawing option, with the dialog already open. */
 async function drawingOptionRow(name) {
   const index = DRAWING_OPTIONS.indexOf(name)
   if (index < 0) throw new Error(`no drawing option called ${name}`)
-  const found = await drawingOptionSwitches()
+  // Bounded above the *Done* button, which is the lowest thing on the card that is not a toggle.
+  const buttons = await dialogTextRows()
+  const found = await drawingOptionSwitches(buttons.length ? buttons[buttons.length - 1] - 20 : null)
   if (found === null) throw new Error('the drawing-options dialog is not open')
   if (found.bands.length !== DRAWING_OPTIONS.length) {
     throw new Error(
@@ -763,8 +1152,22 @@ async function drawingOptionRow(name) {
  * more often than by a surveyor: these are settings somebody changes once a trip, and the two taps
  * they lost bought them a menu that fits on the screen.
  */
+/**
+ * Flip one switch on the *Sketching* settings screen and save it.
+ *
+ * `pref_highlight_latest_leg` and the two movement gestures are preferences in the Android app,
+ * not drawing-menu toggles — `preferences_sketching.xml` is where they live — so reaching them is
+ * a trip through Settings rather than two taps on the toolbar.
+ */
+async function flipSketchingSwitch(name) {
+  await at(...(await overflowButton())); await page.waitForTimeout(500)
+  await at(...(await menuRow('sketching'))); await page.waitForTimeout(800)
+  await at(...(await settingRow(name))); await page.waitForTimeout(300)
+  await at(...(await settingsSave())); await page.waitForTimeout(700)
+}
+
 async function toggleOption(name) {
-  await at(...toolCell(5)); await page.waitForTimeout(500)
+  await at(...chrome('#drawing-menu')); await page.waitForTimeout(500)
   await at(...(await drawingMenuRow('display'))); await page.waitForTimeout(700)
   await at(...(await drawingOptionRow(name))); await page.waitForTimeout(500)
   const done = await dialogConfirm()
@@ -1020,11 +1423,214 @@ async function drag([x0, y0], [x1, y1]) {
   await page.mouse.move(box.x + x1, box.y + y1, { steps: 12 })
   await page.mouse.up()
 }
-// "Blocks" in the palette: fourth swatch, second column of the second row.
-const PALETTE_BLOCKS = [112, 388]
-const PALETTE_WATER = [112, 588]
-const CANCEL_DELETE_SURVEY = [237, 516]
-const CONFIRM_DELETE_SURVEY = [312, 516]
+/**
+ * The symbol strip: `symbolToolbar`, which is where `activity_graph.xml` keeps the symbols.
+ *
+ * A `HorizontalScrollView` of button-sized squares between the drawing and the button grid, not a
+ * dialog — so it is part of the screen behind any popup, which is exactly what the accessibility
+ * tree stops describing once one has been opened. Measured, then, and not asked for. Its first
+ * square is the label tool — `Symbol.TEXT`'s place on the app's own strip — then the nineteen UIS
+ * symbols in `Symbol.entries` order, then the × that closes it.
+ *
+ * The toolbar is anchored to the bottom of the screen and the strip is the topmost of its three
+ * rows, so the strip sits two button-heights above the tool row wherever the window puts that.
+ */
+const STRIP_SQUARE = 40
+const SYMBOLS = [
+  'entrance',
+  'gradient',
+  'narrow-end',
+  'sand',
+  'clay',
+  'pebbles',
+  'blocks',
+  'stalactite',
+  'stalagmite',
+  'pillar',
+  'curtain',
+  'soda-straw',
+  'helictite',
+  'crystal',
+  'rimstone-dam',
+  'water-flow',
+  'air-draught',
+  'guano',
+  'debris',
+]
+/** Squares on the strip: the label tool, the symbols, then the close cross. */
+const STRIP = ['label', ...SYMBOLS, 'close']
+const stripRowY = () => TOOL_ROW_Y - 2 * STRIP_SQUARE
+/** The nth square, with the strip unscrolled — which is how it opens, every time. */
+const stripSquare = (name) => {
+  const index = STRIP.indexOf(name)
+  if (index < 0) throw new Error(`nothing called ${name} on the symbol strip`)
+  return [index * STRIP_SQUARE + STRIP_SQUARE / 2, stripRowY()]
+}
+/**
+ * The nth square once the strip has been dragged to its far end.
+ *
+ * Twenty-one squares is eight hundred and forty pixels and no phone is that wide, so the symbols
+ * past the middle can only be reached by scrolling. Measured back from the right-hand edge rather
+ * than forward from a computed scroll offset: at the end of the travel the last square is flush
+ * with that edge whatever the window's width and whatever the drag actually moved.
+ */
+const scrolledStripSquare = (name) => {
+  const index = STRIP.indexOf(name)
+  if (index < 0) throw new Error(`nothing called ${name} on the symbol strip`)
+  return [
+    box.width - (STRIP.length - 1 - index) * STRIP_SQUARE - STRIP_SQUARE / 2,
+    stripRowY(),
+  ]
+}
+/** `sexyTopoDarkGreen`, which the strip is the only thing on the screen drawn on. */
+const SYMBOL_STRIP_GREEN = [0x3a, 0x57, 0x38]
+/** Whether the strip is showing, by its own background rather than by counting taps. */
+const symbolStripIsOpen = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, green]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    for (let y = 0; y < c.height; y++) {
+      let run = 0
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        if (px[i] === green[0] && px[i + 1] === green[1] && px[i + 2] === green[2]) run++
+      }
+      if (run > c.width * 0.5) return true
+    }
+    return false
+  }, [b64, SYMBOL_STRIP_GREEN])
+}
+/**
+ * Open the strip, however many taps that takes.
+ *
+ * `buttonSymbol` arms the symbol tool on the first tap and opens the strip on the second, which is
+ * what the Android button does — a surveyor stamping the same symbol repeatedly does not want the
+ * strip in the way every time. Except the very first time, when it opens straight away, because
+ * nobody can pick a symbol from a strip they have not seen. Asking the screen rather than counting
+ * taps is what makes this work from either state.
+ */
+const openSymbolStrip = async () => {
+  for (let i = 0; i < 3; i++) {
+    if (await symbolStripIsOpen()) return
+    await at(...chrome('#symbol-tool'))
+    await page.waitForTimeout(500)
+  }
+  if (!(await symbolStripIsOpen())) throw new Error('the symbol strip would not open')
+}
+/**
+ * Shut it again, so the drawing gets its forty pixels back.
+ *
+ * Through `buttonSymbol` rather than the strip's own cross: the cross is the last square of
+ * twenty-one and is only where `stripSquare` says it is while the strip has not been scrolled,
+ * which after reaching for a symbol past the middle it has been.
+ */
+const closeSymbolStrip = async () => {
+  for (let i = 0; i < 3 && (await symbolStripIsOpen()); i++) {
+    await at(...chrome('#symbol-tool'))
+    await page.waitForTimeout(400)
+  }
+  if (await symbolStripIsOpen()) throw new Error('the symbol strip would not close')
+}
+/**
+ * Drag it to the far end, for the symbols no phone is wide enough to show at once.
+ *
+ * Both ways round: a `horizontalScroll` takes a drag, and it takes a wheel, and which of the two a
+ * headless browser delivers in a form Compose accepts is not something this file should have to
+ * know. What it does check is that the strip moved — a strip that did not scroll leaves the tap on
+ * a square that is not the one asked for, and the only sign of that is a symbol that was never
+ * stamped, three checks later.
+ */
+const stripInk = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, row, green]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    // Anything in that band that is not the strip's own green is a symbol - black now, as the
+    // app draws them, where this once looked for pale ones; weighting by x turns where they fall
+    // into one number that changes as the strip scrolls, whatever colour they are.
+    let ink = 0
+    for (let y = row - 18; y < row + 18; y++) {
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        const onStrip = Math.abs(px[i] - green[0]) < 12 && Math.abs(px[i + 1] - green[1]) < 12 &&
+          Math.abs(px[i + 2] - green[2]) < 12
+        if (!onStrip) ink += x
+      }
+    }
+    return ink
+  }, [b64, Math.round(stripRowY()), SYMBOL_STRIP_GREEN])
+}
+const scrollSymbolStripToTheEnd = async () => {
+  const before = await stripInk()
+  for (let i = 0; i < 4; i++) {
+    await page.mouse.move(box.x + box.width - 30, box.y + stripRowY())
+    await page.mouse.wheel(300, 0)
+    await page.waitForTimeout(150)
+    await page.mouse.wheel(0, 300)
+    await page.waitForTimeout(150)
+    await drag([box.width - 30, stripRowY()], [20, stripRowY()])
+    await page.waitForTimeout(200)
+  }
+  if ((await stripInk()) === before) {
+    fail('the symbol strip would not scroll, so the symbols past the middle cannot be reached')
+  }
+}
+
+/**
+ * The buttons along the foot of the open dialog, left to right, found rather than measured.
+ *
+ * `dialogConfirm` measures in from the card's right-hand edge, which is right for the button that
+ * is always in the same place whatever it says. The *second* button is not: a dialog lays them out
+ * end to end, so where *Cancel* sits depends on how wide the word beside it is — and on how many
+ * lines the message above them runs to, which is what moved these when the delete dialog started
+ * saying `file_dialog_delete_survey_content` instead of a sentence of this port's own.
+ */
+const dialogButtons = async () => {
+  const rows = await dialogTextRows()
+  if (rows.length === 0) return []
+  const y = rows[rows.length - 1]
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data, y]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    // The same primary the rows themselves are found by, across the whole height of the lettering.
+    const lit = new Set()
+    for (let row = Math.max(0, y - 8); row <= Math.min(c.height - 1, y + 8); row++) {
+      for (let x = 0; x < c.width; x++) {
+        const i = (row * c.width + x) * 4
+        const [r, g, b] = [px[i], px[i + 1], px[i + 2]]
+        if (b > r && r > g && b - g > 30 && b < 230) lit.add(x)
+      }
+    }
+    // Letters of one word are a pixel or two apart; two buttons are twenty or more.
+    const xs = [...lit].sort((a, b) => a - b)
+    const words = []
+    for (const x of xs) {
+      if (words.length && x - words[words.length - 1][1] <= 12) words[words.length - 1][1] = x
+      else words.push([x, x])
+    }
+    return words.map(([from, to]) => Math.round((from + to) / 2))
+  }, [b64, y])
+}
 // The export screen's own background, which its chips are the only thing drawn on.
 const EXPORT_BACKGROUND = [245, 245, 245]
 // The chips, in the order ExportFormat declares them. They wrap, so which row a chip lands on
@@ -1041,7 +1647,14 @@ const EXPORT_FORMATS = [
   'json',
 ]
 // The cross-section editor's own bar: Cancel at the left, Done at the right.
-const EDITOR_CANCEL = [46, 24]
+/**
+ * The cross-section editor's own bar: the activity's title on the left, then `cross_section.xml`'s
+ * two `showAsAction="always"` icons on the right where an app bar puts them.
+ *
+ * Cancel used to be a text button on the far left, which is not where either icon is now. Both are
+ * measured in from the right-hand edge so they survive this file's two smaller windows.
+ */
+const EDITOR_CANCEL = () => [box.width - 71, 15]
 // The station menu's rows are found rather than hard-coded. A dialog is centred, so its rows move
 // with its height — and this dialog's height depends on the station: the origin has no incoming
 // leg and cannot be deleted, so it is two rows shorter than one in the middle of a passage. A
@@ -1149,13 +1762,55 @@ const dialogTextRows = async () => {
 }
 
 /**
- * The clickable rows of the leg menu, top to bottom, as [x, y] pairs ready for `at`.
+ * One row of the leg's menu, by the action it offers rather than by where it sits.
  *
- * Row 0 is "Edit reading" — "Close" sits on the same line, further left, so a click at [ACT_X, y]
- * lands on the action rather than the dismissal. Every label in the column is right-aligned to the
- * same edge, so one x works for "Delete" and for "Add it to the leg above" alike.
+ * The dialog is a popup, so its rows are in the accessibility tree while it is open, and each
+ * carries `tagFor` of the label it is drawn with. Which matters because the order is
+ * `legActionsFor`'s and has changed: *Move to Different Station* is below *Delete* now, where the
+ * table's own menus put it, and picking the fifth row got the delete confirmation instead.
+ *
+ * The labels are the splay ones where a splay has its own — `configureMenuVisibility` swaps the
+ * comment and the delete titles — so those are named separately.
  */
-const legActionRows = async () => (await dialogTextRows()).map((y) => [ACT_X, y])
+const LEG_ACTION_RESOURCES = {
+  edit: 'menu_edit_leg',
+  reverse: 'menu_reverse',
+  upgrade: 'menu_upgrade_splay',
+  promote: 'menu_promote_to_above_leg',
+  downgrade: 'menu_downgrade_leg',
+  comment: 'menu_comment_leg',
+  'comment-splay': 'menu_comment_splay',
+  delete: 'menu_delete_leg',
+  'delete-splay': 'menu_delete_splay',
+  move: 'menu_move_row',
+}
+const legActionSelector = (name) => {
+  const resource = LEG_ACTION_RESOURCES[name]
+  if (resource === undefined) throw new Error(`no leg action called ${name}`)
+  const label = ANDROID_STRINGS[resource]
+  if (label === undefined) throw new Error(`strings.xml has no ${resource}`)
+  return `#${tagFor(label)}`
+}
+const legActionRow = (name) => nodeFor(legActionSelector(name))
+
+/**
+ * What the open leg menu offers, asked row by row rather than counted.
+ *
+ * Counting the rows counted the dialog's own *Cancel* along with them, and told nothing about
+ * which rows they were: a menu that had gained *Move to Different Station* and lost *Reverse*
+ * would have the same number as one that had not.
+ */
+const legMenuOffers = async (expected, forbidden) => {
+  const missing = []
+  for (const name of expected) {
+    if ((await nodeAt(legActionSelector(name))) === null) missing.push(name)
+  }
+  const unwanted = []
+  for (const name of forbidden) {
+    if ((await nodeAt(legActionSelector(name))) !== null) unwanted.push(name)
+  }
+  return { missing, unwanted }
+}
 
 const dialogTop = async () => {
   const b64 = (await page.screenshot({ clip: box })).toString('base64')
@@ -1263,13 +1918,40 @@ const dialogConfirm = async () => {
   const rows = await dialogTextRows()
   if (rows.length === 0) return null
   const right = await dialogRight()
-  return right === null ? null : [right - 30, rows[rows.length - 1]]
+  // Thirty-eight in from the card's edge, not thirty. A `TextButton` is at least forty-eight
+  // wide however short its label, so this is inside the box for "Add" as well as for "Save" —
+  // and thirty was one pixel inside the former, which is not a margin.
+  return right === null ? null : [right - 38, rows[rows.length - 1]]
 }
 
 
-// The 3D view's own bar: Close at the left, Reset at the right.
-const THREE_D_CLOSE = [42, 24]
-const EDITOR_DONE = [382, 24]
+// The 3D view's own bar, which now reads like the rest of the app's: the title on the left, then
+// *Reset*, then the close cross at the right-hand end where an app bar's actions go.
+const THREE_D_CLOSE = () => [box.width - 29, 15]
+const EDITOR_DONE = () => [box.width - 29, 15]
+
+// ---- the app is reachable by name, not only by pixel ------------------------------------
+// Compose paints the whole app into one canvas, so for a long time the only way to press anything
+// here was to work out which pixel it was drawn at. It also builds an accessibility tree of real
+// DOM nodes over that canvas — the same one a screen reader reads. Every menu row and every dialog
+// row below is asked for by name because of it, so if it ever stopped being built those checks
+// would fail together and none of them would say why. This one says why.
+//
+// It is checked here because here is the last moment the whole app is in it: Compose 1.12.0 keeps
+// one semantics owner, and the first popup takes it. See `rememberChrome`.
+const namedControls = await namedNodes()
+if (!namedControls.some((n) => n.startsWith('#overflow'))) {
+  fail(
+    'the app is not exposing its accessibility tree, so nothing can be found by name ' +
+      `(the page offers: ${namedControls.slice(0, 20).join(', ') || 'nothing'})`)
+} else {
+  pass(
+    'the app names its controls for a screen reader, and for this file ' +
+      `(${namedControls.length} of them)`)
+}
+
+// The app bar and the toolbar, taken down now, for the reason `rememberChrome` gives.
+await rememberChrome('#overflow', '#symbol-tool', '#drawing-menu')
 
 // ---- the app opens on the demo cave, and offers a way out of it ------------------------
 // The first screen a new surveyor sees is an example survey that is deliberately never saved.
@@ -1283,7 +1965,7 @@ await at(...START_SURVEYING); await page.waitForTimeout(700)
 await at(...ADD_READING); await page.waitForTimeout(700)
 await at(...(await onCard(CARD_DISTANCE))); await page.waitForTimeout(300)
 await page.screenshot({ path: join(shotDir, 'field-started.png') })
-if ((await page.$$('input')).length === 0) {
+if ((await page.$$(REAL_INPUT)).length === 0) {
   fail('the demo cave has no working way through to a survey you can record into')
 } else {
   pass('the app opens on the demo cave and offers a way through to your own survey')
@@ -1293,19 +1975,31 @@ if ((await page.$$('input')).length === 0) {
 await at(...(await cardButton(CARD_CANCEL_X))); await waitForDialogToClose()
 
 // ---- create a named survey -----------------------------------------------------------
-await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('new', 0))); await page.waitForTimeout(700)
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('new'))); await page.waitForTimeout(700)
 await at(...NAME_FIELD); await page.waitForTimeout(250)
 
 // Checked here, with a field focused, because that is the only time it exists. Compose paints to a
 // canvas and drives text through a hidden DOM input, which is what iOS attaches its on-screen
 // keyboard to; no input while focused means nothing can be typed on a phone. Checking after the
 // dialog closes finds nothing and says so, which is a broken test rather than a broken app.
-const focusedInputs = await page.$$('input')
+const focusedInputs = await page.$$(REAL_INPUT)
 if (focusedInputs.length === 0) {
   fail('no DOM input while a text field is focused — the on-screen keyboard has nothing to attach to')
 } else {
   pass('text entry is wired to a DOM input the on-screen keyboard can use')
+}
+
+// `Keyboard.wasmJs.kt` focuses a decoy input on the way up out of a tap, because a browser will
+// only open its keyboard for a focus change that happens while the page holds user activation and
+// Compose focuses its own input a frame too late for that. The decoy is a means of opening the
+// keyboard and never a place to type: Compose has to have the focus back by the time anything is
+// typed, or every letter goes into a one-pixel box off the bottom of the screen. Nothing else here
+// would say so in as many words - the typing below would simply produce a survey called nothing.
+if (await page.evaluate((id) => document.activeElement && document.activeElement.id === id, DECOY_ID)) {
+  fail('the keyboard decoy kept the focus, so there is nowhere for typing to land')
+} else {
+  pass('opening the keyboard leaves the focus in the field, not in the decoy')
 }
 
 await page.keyboard.type('Swildons', { delay: 25 })
@@ -1371,10 +2065,176 @@ await page.screenshot({ path: join(shotDir, 'field-readings.png') })
 // bottom left.
 //
 // The whole model, the projection and the bearing heuristic were ported and tested long ago; what
-// this checks is that the tool reaches them and that the result is saved with the sketch.
-await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...(await drawingMenuRow('cross-section'))); await page.waitForTimeout(500)
-await at(140, 712); await page.waitForTimeout(900)
+// this checks is that the menu reaches them and that the result is saved with the sketch.
+//
+// `context_station.xml`, not the drawing menu. `menu_xsection` is a submenu of the station's own
+// long-press menu in the Android app, which is the only place that knows *which* station a section
+// is being cut at — the drawing menu had to guess from wherever a finger landed.
+/**
+ * How many rows of the message strip are showing, by its own background colour.
+ *
+ * `innerPanelBackground`, 0xDDDDDD, which nothing else on this screen is drawn in. The strip sits
+ * between the app bar and the drawing rather than over it — an Android toast floats, and a floating
+ * message over a cave drawing hides the very thing it is talking about — so it is found by looking
+ * for a full-width band of that grey below the app bar.
+ */
+const noticeRows = async () => {
+  const b64 = (await page.screenshot({ clip: box })).toString('base64')
+  return page.evaluate(async ([data]) => {
+    const img = new Image()
+    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const px = ctx.getImageData(0, 0, c.width, c.height).data
+    let rows = 0
+    // The app bar is about fifty pixels tall; a hundred is well clear of it and well above
+    // anything else this colour.
+    for (let y = 0; y < Math.min(140, c.height); y++) {
+      let run = 0
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        if (px[i] === 0xdd && px[i + 1] === 0xdd && px[i + 2] === 0xdd) run++
+      }
+      if (run > c.width * 0.8) rows++
+    }
+    return rows
+  }, [b64])
+}
+
+/**
+ * The rows `stationActionsFor` builds for a station on the plan, worked out from what is saved
+ * rather than assumed.
+ *
+ * Which rows a station has depends on the station: the active one cannot be made active, the
+ * origin has no leg that made it and cannot be deleted, and `menu_xsection` offers *Create* or the
+ * three rows for the section already there. One hard-coded list meant a check that was silently a
+ * row out as soon as the survey grew a station somewhere else.
+ */
+const planStationMenuFor = (name) => page.evaluate((name) => {
+  const read = (suffix) => {
+    const key = Object.keys(localStorage).find((k) => k.endsWith(suffix))
+    return key ? JSON.parse(localStorage.getItem(key)) : null
+  }
+  const data = read('Swildons.data.json')
+  if (!data) return null
+  const stations = data.stations ?? []
+  const legs = stations.flatMap((station) => station.legs ?? [])
+  // "origin is whatever nothing leads to", which is `SurveyJson`'s own rule for finding it.
+  const destinations = new Set(legs.map((leg) => leg.destination).filter(Boolean))
+  const isOrigin = !destinations.has(name)
+  const sections = (read('Swildons.plan.json') ?? {})['x-sections'] ?? []
+  const hasSection = sections.some((section) => section['station-id'] === name)
+
+  const rows = []
+  if (data.activeStation !== name) rows.push('make-active')
+  rows.push('comment', 'rename', 'passage-size')
+  if (hasSection) {
+    rows.push('cross-section-edit', 'cross-section-set-direction', 'cross-section-delete')
+  } else {
+    rows.push('cross-section-create')
+  }
+  if (!isOrigin) rows.push('incoming-leg')
+  // `menu_navigate`, less the plan, which is the view this menu was opened in.
+  rows.push('show-in-table', 'show-in-elevation')
+  if (!isOrigin) rows.push('delete')
+  return rows
+}, name)
+
+/**
+ * A row of the open station menu, by the action it offers.
+ *
+ * The dialog is a popup, so its rows are in the accessibility tree while it is open, and each
+ * carries `tagFor` of the label it is drawn with. Only the rows this file reaches for by name are
+ * listed; the rest are still found through `stationMenuRow`, which checks the whole menu against
+ * what the survey says the station should be offered.
+ */
+const STATION_ACTION_RESOURCES = {
+  'make-active': 'menu_set_active_station',
+  comment: 'menu_comment',
+  rename: 'menu_rename_station',
+  'passage-size': 'settings_key_lrud_fields_title',
+  'draw-left': 'menu_draw_left',
+  'draw-right': 'menu_draw_right',
+  'draw-vertical': 'menu_draw_vertical',
+  'incoming-leg': 'menu_incoming_leg',
+  delete: 'menu_delete_station',
+}
+const stationAction = (name) => {
+  const resource = STATION_ACTION_RESOURCES[name]
+  if (resource === undefined) throw new Error(`no station-menu row called ${name}`)
+  const label = ANDROID_STRINGS[resource]
+  if (label === undefined) throw new Error(`strings.xml has no ${resource}`)
+  return nodeFor(`#${tagFor(label)}`)
+}
+
+/**
+ * A row of the open station menu, by name.
+ *
+ * The rows are `stationActionsFor`'s own list, which depends on where the menu was opened and what
+ * the station has — so each call site names the list it expects and this refuses to guess when the
+ * menu on screen is not that list. A silently mis-indexed station menu deletes a station instead of
+ * commenting on it.
+ */
+async function stationMenuRow(menu, name) {
+  const index = menu.indexOf(name)
+  if (index < 0) throw new Error(`no station-menu row called ${name}`)
+  const rows = await dialogTextRows()
+  // One more row than actions: the dialog's own *Close*, which is drawn in the same primary as
+  // the rows above it and sits below the last of them.
+  if (rows.length !== menu.length + 1) {
+    throw new Error(
+      `the station menu shows ${rows.length} rows including Close, not the ` +
+        `${menu.length + 1} of ${menu.join(', ')}`)
+  }
+  return [210, rows[index]]
+}
+
+// Station 1 on the plan: the origin, so there is no leg that made it and nothing to delete, and
+// the readings above left station 2 active. What rows it has is worked out from the saved survey
+// by `planStationMenuFor`, which is also what makes the difference between "before it has a
+// section" and "after" a fact rather than a second hard-coded list.
+const STATION_ONE = [140, 712]
+// Somewhere with no passage on it, which is the whole reason the app asks rather than choosing —
+// and far enough from the right-hand edge that the frame drawn round it fits on the screen. A
+// section is four metres across, which at this zoom is most of the width of a phone, so a section
+// dropped in the middle has its frame cut off by the edge; `handleSpot` then measures the middle
+// of what is left of the drag bar rather than the middle of the bar, and the check that the bar
+// follows its section fails by exactly half of what the frame overhangs.
+const SECTION_GOES_HERE = [180, 520]
+const SECTION_PARKED = [210, 660]
+// And where it is parked afterwards, which is where every check below this reaches for it. The two
+// are different on purpose: a section is drawn inside a frame two hundred and seventy pixels
+// across, and a frame round the parking place covers station 1 — so the long press that re-aims it
+// would land on the section rather than on the station whose menu it needs.
+
+await longPress(STATION_ONE)
+await at(...(await stationMenuRow(await planStationMenuFor('1'), 'cross-section-create')))
+await page.waitForTimeout(700)
+await page.screenshot({ path: join(shotDir, 'field-cross-section-armed.png') })
+
+// `sketch_position_cross_section_instruction`. The row arms a tool and then waits, so a surveyor
+// who is not told that is looking at an app that has apparently done nothing.
+const askedWhereToDrawIt = await noticeRows()
+const sectionsBeforeTheTap = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  if (!key) return null
+  return (JSON.parse(localStorage.getItem(key))['x-sections'] ?? []).length
+})
+if (askedWhereToDrawIt < 4) {
+  fail(`choosing "Create Cross Section" put up no instruction (${askedWhereToDrawIt} rows of it)`)
+} else if ((sectionsBeforeTheTap ?? 0) !== 0) {
+  fail(`"Create Cross Section" drew the section itself instead of asking (${sectionsBeforeTheTap})`)
+} else {
+  pass('creating a cross-section asks where to draw it rather than choosing for the surveyor')
+}
+
+// Out of the way before the tap that places it, so the message strip is not still pushing the
+// drawing down when the coordinates below are taken.
+await page.waitForTimeout(2800)
+await at(...SECTION_GOES_HERE); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-cross-section.png') })
 
 const sections = await page.evaluate(() => {
@@ -1385,68 +2245,49 @@ const sections = await page.evaluate(() => {
 if (sections === null) {
   fail('the plan sketch was not saved, so the cross-section could not be checked')
 } else if (sections < 1) {
-  fail('tapping a station with the cross-section tool did not add one')
+  fail('tapping the paper with the cross-section tool armed did not add one')
 } else {
-  pass('a cross-section can be dropped at a station, and is saved with the sketch')
+  pass('a cross-section is drawn where the surveyor put it, and is saved with the sketch')
 }
 
-// ---- and a tap that misses a station says so, rather than doing nothing silently -------------
-// The tool is not modal — it stays armed after placing one section, which is what makes it
-// possible to place several without reopening the menu each time — so it is still active here.
-// A tap that lands nowhere near a station used to be indistinguishable from a tool that had
-// stopped responding at all.
-//
-// A small ink counter of its own rather than the shared `inkAround` below: `const` is not
-// hoisted, and this runs before that declaration is reached.
-const inkInSnackbarBand = async (span) => {
-  const b64 = (await page.screenshot({ clip: box })).toString('base64')
-  return page.evaluate(async ([data, span]) => {
-    const img = new Image()
-    await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
-    const c = document.createElement('canvas')
-    c.width = img.width
-    c.height = img.height
-    const ctx = c.getContext('2d')
-    ctx.drawImage(img, 0, 0)
-    const px = ctx.getImageData(0, 0, c.width, c.height).data
-    let ink = 0
-    for (let y = span[1]; y < span[3]; y++) {
-      for (let x = span[0]; x < span[2]; x++) {
-        const i = (y * c.width + x) * 4
-        const lightest = Math.max(px[i], px[i + 1], px[i + 2])
-        if (lightest < 215) ink += 215 - lightest
-      }
-    }
-    return ink
-  }, [b64, span])
-}
-// Measured off a rendered frame: the snackbar sits at y 700-746, well above the field bar and
-// its own toolbar row below — the first guess here landed on that toolbar's colour swatches
-// instead, which are dark whether or not anything is showing.
-const SNACKBAR_BAND = [10, 698, 410, 748]
-const inkBeforeMissedTap = await inkInSnackbarBand(SNACKBAR_BAND)
-await at(210, 500); await page.waitForTimeout(600)
-const inkWithMessageShowing = await inkInSnackbarBand(SNACKBAR_BAND)
-await page.screenshot({ path: join(shotDir, 'field-cross-section-missed-tap.png') })
-await page.waitForTimeout(4600)
-const inkAfterMessageShouldHaveGone = await inkInSnackbarBand(SNACKBAR_BAND)
-
-if (!(inkWithMessageShowing > inkBeforeMissedTap + 200)) {
-  fail(
-    `a tap nowhere near a station left the message band as it was ` +
-      `(${inkBeforeMissedTap} before, ${inkWithMessageShowing} after) — the tap still does nothing`)
-} else if (!(inkAfterMessageShouldHaveGone < inkWithMessageShowing * 0.3)) {
-  fail(`the message did not go away on its own (${inkWithMessageShowing} then ${inkAfterMessageShouldHaveGone})`)
+// ---- and the tool is a one-shot, as the app's is ---------------------------------------------
+// `handlePositionCrossSection` ends with `setSketchTool(previousSketchTool)`. A tool that stayed
+// armed would put a second section down under the next stroke the surveyor drew, which is a
+// drawing they have to undo without knowing why it happened.
+// Counted inline rather than through `planStrokes`: that is a `const` declared several hundred
+// lines below, and `const` is not hoisted.
+const sketchPaths = () => page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  if (!key) return null
+  return (JSON.parse(localStorage.getItem(key)).paths ?? []).length
+})
+const strokesBeforeNextTap = await sketchPaths()
+// Well clear of the frame just drawn: a tap inside a section opens its editor, which would be a
+// second thing happening and would leave that editor over everything below.
+await at(380, 200); await page.waitForTimeout(700)
+const sectionsAfterNextTap = await page.evaluate(() => {
+  const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
+  if (!key) return null
+  return (JSON.parse(localStorage.getItem(key))['x-sections'] ?? []).length
+})
+if (sectionsAfterNextTap !== sections) {
+  fail(`the cross-section tool stayed armed and put down a second section (${sectionsAfterNextTap})`)
 } else {
-  pass('a tap that misses a station says so, and the message goes away on its own')
+  pass('positioning a section is one tap, and hands the previous tool back')
+}
+if ((await sketchPaths()) !== strokesBeforeNextTap) {
+  fail('the tap after a section was placed drew on the sketch')
 }
 
 // ---- and can be corrected afterwards ---------------------------------------------------
-// Both decisions the app makes when a section appears are guesses: the bearing comes from a
-// heuristic and the position comes from wherever a finger landed. A section cutting the passage at
-// the wrong angle is not a rough drawing, it is a wrong one — so being able to say so matters, and
-// the gesture wiring is exactly the sort of thing that can silently do nothing. (It has: the
-// symbol tool stamped nothing at all for a while, because a drag detector never fires for a tap.)
+// The bearing is a guess — `CrossSectioner` bisects the corner mid-passage and falls back to north
+// — and a section cutting the passage at the wrong angle is not a rough drawing, it is a wrong
+// one. `action_xsection_set_direction` is how a surveyor overrules it, and the gesture wiring it
+// arms is exactly the sort of thing that can silently do nothing. (It has: the symbol tool stamped
+// nothing at all for a while, because a drag detector never fires for a tap.)
+//
+// There is no *Move a cross-section* to check any more, and there should not be: `GraphView`
+// hit-tests the drag bar on every touch-down whatever tool is in hand, which the next check is.
 const firstSection = () => page.evaluate(() => {
   const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
   if (!key) return null
@@ -1455,39 +2296,22 @@ const firstSection = () => page.evaluate(() => {
 
 const placedSection = await firstSection()
 
-await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...(await drawingMenuRow('move'))); await page.waitForTimeout(500)
-await drag([140, 712], [210, 660]); await page.waitForTimeout(900)
-await page.screenshot({ path: join(shotDir, 'field-cross-section-moved.png') })
-
-const movedSection = await firstSection()
-if (!placedSection || !movedSection) {
-  fail('the plan sketch was not saved, so moving a cross-section could not be checked')
-} else if (
-  movedSection.location.x === placedSection.location.x &&
-  movedSection.location.y === placedSection.location.y
-) {
-  fail('dragging a cross-section with the move tool did not move it')
-} else if (movedSection.angle !== placedSection.angle) {
-  fail('moving a cross-section also changed its bearing')
-} else {
-  pass('a cross-section can be dragged somewhere clearer on the plan')
-}
-
-await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...(await drawingMenuRow('re-aim'))); await page.waitForTimeout(500)
-// Grab the section where it now is and swing it round its station.
-await drag([210, 660], [330, 760]); await page.waitForTimeout(900)
+await longPress(STATION_ONE)
+await at(...(await stationMenuRow(await planStationMenuFor('1'), 'cross-section-set-direction')))
+await page.waitForTimeout(700)
+// Grab the section where it was put down and swing it round its station.
+await drag(SECTION_GOES_HERE, [SECTION_GOES_HERE[0] + 90, SECTION_GOES_HERE[1] + 80])
+await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-cross-section-aimed.png') })
 
 const aimedSection = await firstSection()
-if (!aimedSection) {
+if (!placedSection || !aimedSection) {
   fail('the plan sketch was not saved, so re-aiming a cross-section could not be checked')
-} else if (aimedSection.angle === movedSection.angle) {
-  fail('dragging a cross-section with the re-aim tool did not change its bearing')
+} else if (aimedSection.angle === placedSection.angle) {
+  fail('dragging a cross-section after "Set Direction" did not change its bearing')
 } else if (
-  aimedSection.location.x !== movedSection.location.x ||
-  aimedSection.location.y !== movedSection.location.y
+  aimedSection.location.x !== placedSection.location.x ||
+  aimedSection.location.y !== placedSection.location.y
 ) {
   fail('re-aiming a cross-section also moved it')
 } else {
@@ -1590,11 +2414,25 @@ if (!grip) {
     fail(`the drag bar stayed where the section used to be (${grip} then ${movedGrip})`)
   } else {
     pass('the drag bar follows the section it belongs to')
-    // Put it back where the rest of the checks expect to find it — by the bar, which is the
-    // gesture being tested, so the restoring drag is a second run of it.
+    // Put it back where it was — by the bar, which is the gesture being tested, so the restoring
+    // drag is a second run of it.
     await drag([movedGrip[0], movedGrip[1]], [movedGrip[0] - 70, movedGrip[1] + 60])
     await page.waitForTimeout(900)
   }
+}
+
+// And then park it where the rest of this file expects to find it: hiding it, tapping through it
+// and opening its editor are all done by coordinate, and those were measured with the section
+// here. Moved by its own bar, which is the only thing that moves one.
+const parkingGrip = await handleSpot()
+if (parkingGrip === null) {
+  fail('the section could not be parked, because its drag bar was not found')
+} else {
+  await drag(parkingGrip, [
+    parkingGrip[0] + SECTION_PARKED[0] - SECTION_GOES_HERE[0],
+    parkingGrip[1] + SECTION_PARKED[1] - SECTION_GOES_HERE[1],
+  ])
+  await page.waitForTimeout(900)
 }
 
 // ---- and taken off the drawing altogether ------------------------------------------------
@@ -1631,20 +2469,25 @@ const inkAround = async (span) => {
   }, [b64, span])
 }
 
-// A tight box round where the section now sits, clear of station 1, of the leg and of the metre
-// grid. Tight because at this point in the run the section is only its centre dot: it was dropped
-// at a station whose wall shots are not booked until much later, so it has no arms to draw yet,
-// and the whole of it is twenty pixels across.
-const SECTION_PATCH = [194, 652, 214, 676]
+// A tight box round where the section now sits — `SECTION_PARKED`, which the drag bar put it at.
+// Tight because at this point in the run the section is only its centre dot: it was dropped at a
+// station whose wall shots are not booked until much later, so it has no arms to draw yet, and the
+// whole of it is twenty pixels across.
+const sectionPatch = () => [
+  SECTION_PARKED[0] - 16,
+  SECTION_PARKED[1] - 8,
+  SECTION_PARKED[0] + 4,
+  SECTION_PARKED[1] + 16,
+]
 // The purple of the "Add reading" pill, sampled off the pill rather than off the white lettering
 // across the middle of it.
 const FIELD_BAR_PILL = [40, 790]
 
-const withSection = await inkAround(SECTION_PATCH)
+const withSection = await inkAround(sectionPatch())
 await toggleOption('show-xsections')
 await page.screenshot({ path: join(shotDir, 'field-cross-section-hidden.png') })
 
-const withoutSection = await inkAround(SECTION_PATCH)
+const withoutSection = await inkAround(sectionPatch())
 // Not "the window is empty", which is what this used to ask. The station keeps its cross-section
 // indicator when sections are hidden, because the Android app keeps it: only `drawCrossSections`
 // is behind the toggle, while `drawStations` reads the sketch directly and draws the mark for any
@@ -1681,7 +2524,7 @@ const fieldBarIsShowing = async () => {
   }, [b64, FIELD_BAR_PILL])
 }
 
-await at(210, 660); await page.waitForTimeout(900)
+await at(...SECTION_PARKED); await page.waitForTimeout(900)
 if (!(await fieldBarIsShowing())) {
   fail('a tap on a hidden cross-section opened its editor anyway')
 } else {
@@ -1695,7 +2538,7 @@ await toggleOption('show-xsections')
 // A star of splays is not a passage; the outline drawn round it is what makes it one. Tapping a
 // section opens its own editor, exactly as the Android app's does from any tool but pan and erase.
 await at(...toolCell(1)); await page.waitForTimeout(400)
-await at(210, 660); await page.waitForTimeout(1000)
+await at(...SECTION_PARKED); await page.waitForTimeout(1000)
 await page.screenshot({ path: join(shotDir, 'field-cross-section-editor.png') })
 
 const subSketchPaths = async () => {
@@ -1710,7 +2553,7 @@ const planPaths = () => page.evaluate(() => {
 await drag([120, 400], [300, 400]); await page.waitForTimeout(400)
 await drag([300, 400], [300, 560]); await page.waitForTimeout(400)
 await page.screenshot({ path: join(shotDir, 'field-cross-section-drawn.png') })
-await at(...EDITOR_DONE); await page.waitForTimeout(1000)
+await at(...EDITOR_DONE()); await page.waitForTimeout(1000)
 await page.screenshot({ path: join(shotDir, 'field-cross-section-done.png') })
 
 if ((await subSketchPaths()) < 2) {
@@ -1725,9 +2568,9 @@ if ((await subSketchPaths()) < 2) {
 // at all, these strokes would have landed on the *plan* instead — which is exactly the failure the
 // first version of this check could not tell apart from a working cancel.
 const planPathsBefore = await planPaths()
-await at(210, 660); await page.waitForTimeout(1000)
+await at(...SECTION_PARKED); await page.waitForTimeout(1000)
 await drag([120, 300], [300, 300]); await page.waitForTimeout(400)
-await at(...EDITOR_CANCEL); await page.waitForTimeout(1000)
+await at(...EDITOR_CANCEL()); await page.waitForTimeout(1000)
 
 if ((await subSketchPaths()) !== 2) {
   fail('cancelling the cross-section editor kept the stroke anyway')
@@ -1741,12 +2584,14 @@ if ((await subSketchPaths()) !== 2) {
 // `CrossSectionActivity.disableUnsupportedTools` hides only *Select* — every other tool the
 // Android app offers here, including the full colour row, this port had simply never wired up.
 // The row sits one 40dp button-height above the tools row this file already reaches by name.
+// Nine cells, not eight: the editor's colour row is the plan's, which is the eight brushes and
+// then zoom-in, because `disableUnsupportedTools` takes away *Select* and nothing else.
 const CROSS_SECTION_COLOUR_ROW_Y = box.height - 60
-const crossSectionColourCell = (index) => [(box.width / 8) * (index + 0.5), CROSS_SECTION_COLOUR_ROW_Y]
-await at(210, 660); await page.waitForTimeout(1000)
+const crossSectionColourCell = (index) => [(box.width / 9) * (index + 0.5), CROSS_SECTION_COLOUR_ROW_Y]
+await at(...SECTION_PARKED); await page.waitForTimeout(1000)
 await at(...crossSectionColourCell(3)); await page.waitForTimeout(400) // red
 await drag([120, 330], [300, 330]); await page.waitForTimeout(400)
-await at(...EDITOR_DONE); await page.waitForTimeout(1000)
+await at(...EDITOR_DONE()); await page.waitForTimeout(1000)
 
 const lastSectionStrokeColour = await page.evaluate(() => {
   const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.plan.json'))
@@ -2040,7 +2885,7 @@ if (leftCorners.length !== 2 || rightCorners.length !== 2) {
 }
 
 // Put the view back where it was, so nothing after this depends on where the corner pan left it.
-await at(...toolCell(5)); await page.waitForTimeout(500)
+await at(...chrome('#drawing-menu')); await page.waitForTimeout(500)
 await at(...(await drawingMenuRow('centre'))); await page.waitForTimeout(700)
 
 // ---- any station can be got at, not just the active one -----------------------------------
@@ -2167,7 +3012,43 @@ const sketchBottom = (leftCorners[1]?.top ?? Math.round(box.height)) + cornerSid
 // the app's own default.
 await toggleOption('show-xsections')
 
-const spots = await stationSpots(sketchTop, sketchBottom)
+// `buttonCentreView` centres the view on the active station and keeps the zoom the surveyor
+// chose, which is what `centreViewOnActiveStation` does — it does not fit the whole cave on the
+// screen, which is what this port used to do under the same menu row. So after the corner-pan
+// checks above there is no promise that a *second* station is on the paper at all, and this check
+// needs one. Zoom out until there is, which is what a surveyor looking for one would do.
+//
+// Not merely on the paper: reachable. A station drawn against the bottom edge of the sketch is
+// half off it, so the mean of its cross sits above where the station actually is, and a press
+// aimed at the mean can miss the station entirely. A finger's width of margin is what a surveyor
+// would want too.
+//
+// Best effort, not a precondition: `zoomOut` is 0.9 of the scale a tap, which the app can refuse
+// at the limits, and a station that is on the paper at all is usually pressable. So the loop says
+// what each tap did and then the check goes ahead with wherever the station ended up — a press
+// that lands on nothing is reported by the menu that does not open, which is a more useful
+// sentence than this one refusing to try.
+const REACHABLE_MARGIN = 40
+const reachable = (spot) =>
+  spot !== null &&
+  spot[0] > REACHABLE_MARGIN &&
+  spot[0] < box.width - REACHABLE_MARGIN &&
+  spot[1] > sketchTop + REACHABLE_MARGIN &&
+  spot[1] < sketchBottom - REACHABLE_MARGIN
+// The sketch toolbar's last cell — `buttonZoomOut`, the same arithmetic every other tap on that
+// row uses.
+const TOOL_ZOOM_OUT = 8
+let spots = await stationSpots(sketchTop, sketchBottom)
+for (let i = 0; i < 6 && !reachable(spots.other); i++) {
+  await at(...toolCell(TOOL_ZOOM_OUT))
+  await page.waitForTimeout(600)
+  const after = await stationSpots(sketchTop, sketchBottom)
+  console.log(
+    `      zoomed out: ${JSON.stringify(spots.other)} -> ${JSON.stringify(after.other)} ` +
+      `(sketch ${sketchTop}..${sketchBottom})`)
+  spots = after
+}
+
 if (!spots.other) {
   fail(`could not find a station on the plan that is not the active one (${JSON.stringify(spots)})`)
 } else {
@@ -2177,6 +3058,7 @@ if (!spots.other) {
   })
   const strokesBefore = await planStrokes()
 
+  await page.screenshot({ path: join(shotDir, 'field-station-before-hold.png') })
   await longPress(spots.other)
   await page.screenshot({ path: join(shotDir, 'field-station-menu.png') })
 
@@ -2185,7 +3067,7 @@ if (!spots.other) {
     fail(`holding a station did not open its menu (pressed ${JSON.stringify(spots.other)})`)
     // A press that did not become a long press is a plain tap, and a tap near a cross-section
     // opens its editor over everything that follows — so back out of whatever did happen.
-    await at(...EDITOR_CANCEL); await page.waitForTimeout(600)
+    await at(...EDITOR_CANCEL()); await page.waitForTimeout(600)
   } else {
     // The pencil is down: holding still must open the menu rather than leave a dot behind.
     if ((await planStrokes()) !== strokesBefore) {
@@ -2226,12 +3108,15 @@ const jumpMenuTop = await dialogTop()
 if (jumpMenuTop === null) {
   fail('holding a station a second time did not open its menu')
 } else {
-  // The first row. "Start the next leg here" is offered only for a station that is *not* the
-  // active one, and the check above has just made this one active — so it is gone and "Show it in
-  // the table" is at the top. If that reasoning were wrong this would tap the row below it and
-  // open the station's own dialog, which is not the table: the check fails rather than passes.
-  const rows = await dialogTextRows()
-  await at(210, rows[0]); await page.waitForTimeout(1000)
+  // The check above has just made this station the active one, so *Set Active* is gone from its
+  // menu and every row below it has moved up. Which row *Show it in the table* is depends on the
+  // station, so it is worked out from the saved survey rather than counted.
+  const held = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
+    return key ? JSON.parse(localStorage.getItem(key)).activeStation : null
+  })
+  await at(...(await stationMenuRow(await planStationMenuFor(held), 'show-in-table')))
+  await page.waitForTimeout(1000)
   await page.screenshot({ path: join(shotDir, 'field-jumped-to-table.png') })
 
   if (!(await onTheTable())) {
@@ -2258,8 +3143,11 @@ const savedLegCount = () => page.evaluate(() => {
 })
 
 const beforeFinding = await page.screenshot({ clip: box })
-await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...(await drawingMenuRow('find'))); await page.waitForTimeout(900)
+// `action_find_station` is in `tools_group_edit`, not on the drawing menu. Nought saved surveys
+// passed deliberately: only the two pages that list the library shift with it, and Tools is not
+// one of them.
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('find'))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-find-station.png') })
 
 if ((await dialogTop()) === null) {
@@ -2298,7 +3186,7 @@ await reading(2.5, 45, -3, { splay: true })
 if ((await savedLegCount()) !== legsBeforeSplay + 1) {
   fail('the splay that the delete was going to take back was not added')
 } else {
-  await at(...toolCell(5)); await page.waitForTimeout(500)
+  await at(...chrome('#drawing-menu')); await page.waitForTimeout(500)
   await at(...(await drawingMenuRow('delete-last-leg'))); await page.waitForTimeout(900)
   await page.screenshot({ path: join(shotDir, 'field-delete-last-leg.png') })
   const confirm = await dialogConfirm()
@@ -2406,17 +3294,24 @@ const splayRow = (await savedLegs()).findIndex(isSplay)
 if (splayRow < 0) {
   fail('the splay was not added, so editing could not be tested')
 } else {
-  // Row 1 is the leg to station 2; row 2 is the splay.
-  await at(...TABLE_ROW(2)); await page.waitForTimeout(700)
+  // Row 1 is the leg to station 2; row 2 is the splay. Held rather than tapped: `onRowLongClick`
+  // is what opens a row's menu in the Android app, and a tap edits the reading — which is what
+  // this port does now, and what it did not do when this check was written.
+  await longPress(await tableRow(1)); await page.waitForTimeout(700)
   await page.screenshot({ path: join(shotDir, 'field-leg-actions.png') })
 
   // What a splay is offered, and what it is not. A splay cannot be reversed — reverseLeg is
   // addressed by the station a leg arrives at, and a splay arrives nowhere — and it is already
   // what a downgrade would make it. Getting this wrong is not a cosmetic fault: every one of
   // these buttons rewrites the survey.
-  const splayActions = await legActionRows()
-  if (splayActions.length !== 6) {
-    fail(`a splay offered ${splayActions.length} actions, not the expected six`)
+  const splayMenu = await legMenuOffers(
+    ['edit', 'upgrade', 'promote', 'comment-splay', 'delete-splay', 'move'],
+    ['reverse', 'downgrade'],
+  )
+  if (splayMenu.missing.length > 0 || splayMenu.unwanted.length > 0) {
+    fail(
+      `a splay's menu is missing ${splayMenu.missing.join(', ') || 'nothing'} and ` +
+        `should not offer ${splayMenu.unwanted.join(', ') || 'nothing'}`)
   } else {
     pass('a splay is offered every way of promoting it, and neither of the leg-only actions')
   }
@@ -2438,7 +3333,7 @@ if (splayRow < 0) {
   })
 
   const hostBefore = await splayHost()
-  await at(...splayActions[4]); await page.waitForTimeout(700)
+  await at(...(await legActionRow('move'))); await page.waitForTimeout(700)
   await page.screenshot({ path: join(shotDir, 'field-move-leg.png') })
   // The picker is the explanation, the Name box, one row per candidate station, then Cancel — so
   // the first text row is the first station it will let you move to, and on this survey the only
@@ -2466,13 +3361,15 @@ if (splayRow < 0) {
   // so the edit below needs it opened again. The splay is still the second row: the table is in
   // survey order and it now hangs off station 2 rather than station 1, which is the row after the
   // leg that makes station 2 either way.
-  await at(...TABLE_ROW(2)); await page.waitForTimeout(700)
-  const afterMoveActions = await legActionRows()
-
-  await at(...afterMoveActions[0]); await page.waitForTimeout(700)
-  await retype(EDIT_DISTANCE, '2.75')
+  await longPress(await tableRow(1)); await page.waitForTimeout(700)
+  await at(...(await legActionRow('edit'))); await page.waitForTimeout(700)
+  await page.screenshot({ path: join(shotDir, 'field-edit-open.png') })
+  // By name. Counting boxes down the card put the click somewhere that was not the distance box,
+  // and a click inside the card that is not in a field dismisses the editor — which took the run
+  // back to the menu behind it and left the reading as it was.
+  await retype(await nodeFor('#reading-distance'), '2.75')
   await page.screenshot({ path: join(shotDir, 'field-edit-reading.png') })
-  await at(...EDIT_SAVE); await page.waitForTimeout(900)
+  await at(...(await dialogConfirm())); await page.waitForTimeout(900)
 
   const afterEdit = await savedLegs()
   const editedSplay = afterEdit.find(isSplay)
@@ -2490,9 +3387,8 @@ if (splayRow < 0) {
   }
 
   // ---- and a bad reading can be thrown away ------------------------------------------------
-  await at(...TABLE_ROW(2)); await page.waitForTimeout(700)
-  const toDelete = await legActionRows()
-  await at(...toDelete[toDelete.length - 1]); await page.waitForTimeout(600)
+  await longPress(await tableRow(1)); await page.waitForTimeout(700)
+  await at(...(await legActionRow('delete-splay'))); await page.waitForTimeout(600)
   await page.screenshot({ path: join(shotDir, 'field-confirm-delete.png') })
   await at(...CONFIRM_DELETE); await page.waitForTimeout(900)
 
@@ -2539,16 +3435,25 @@ const distanceInk = async (y) => {
   }, [b64, y])
 }
 
-const inkBefore = await distanceInk(TABLE_ROW(1)[1])
+const inkBefore = await distanceInk((await tableRow(0))[1])
 
-await at(...TABLE_ROW(1)); await page.waitForTimeout(700)
-const legActions = await legActionRows()
-if (legActions.length !== 5) {
-  fail(`a leg with nothing beyond it offered ${legActions.length} actions, not five`)
+await longPress(await tableRow(0)); await page.waitForTimeout(700)
+// `context_leg.xml`'s own order, which is Edit, then the rows that change the survey, then the
+// comment, with Delete in a group of its own below a divider. The comment used to be second,
+// above the five rows that rewrite the survey, which is not where the app puts the row nobody is
+// in a hurry to reach.
+const legMenu = await legMenuOffers(
+  ['edit', 'reverse', 'downgrade', 'comment', 'delete'],
+  ['upgrade', 'promote'],
+)
+if (legMenu.missing.length > 0 || legMenu.unwanted.length > 0) {
+  fail(
+    `a leg with nothing beyond it is missing ${legMenu.missing.join(', ') || 'nothing'} and ` +
+      `should not offer ${legMenu.unwanted.join(', ') || 'nothing'}`)
 } else {
   pass('a leg with nothing surveyed beyond it can be taken back down to a splay')
 }
-await at(...legActions[1]); await page.waitForTimeout(700)
+await at(...(await legActionRow('comment'))); await page.waitForTimeout(700)
 await page.screenshot({ path: join(shotDir, 'field-leg-comment.png') })
 // One purple row, holding Cancel and Save; the field sits a fixed distance above it. Anchoring on
 // the row rather than on the screen keeps this right if the dialog gains a line of explanation.
@@ -2571,7 +3476,7 @@ if (!commented || commented.comment !== 'sump; do not follow') {
 // The Android app's own marker, and the only sign in the table that a comment exists at all. It
 // leads the distance, so the cell gains ink it did not have.
 await page.screenshot({ path: join(shotDir, 'field-leg-commented.png') })
-const inkAfter = await distanceInk(TABLE_ROW(1)[1])
+const inkAfter = await distanceInk((await tableRow(0))[1])
 if (!(inkAfter > inkBefore)) {
   fail(`the table shows no marker against the commented leg (ink ${inkBefore} then ${inkAfter})`)
 } else {
@@ -2579,9 +3484,8 @@ if (!(inkAfter > inkBefore)) {
 }
 
 // ---- reversing it, and reversing it back ---------------------------------------------------
-await at(...TABLE_ROW(1)); await page.waitForTimeout(700)
-const reverseRow = (await legActionRows())[2]
-await at(...reverseRow); await page.waitForTimeout(900)
+await longPress(await tableRow(0)); await page.waitForTimeout(700)
+await at(...(await legActionRow('reverse'))); await page.waitForTimeout(900)
 
 const reversed = (await savedLegs()).find(isConnecting)
 const legStations = async () => (await page.evaluate(() => {
@@ -2598,8 +3502,8 @@ if (!reversed?.wasShotBackwards) {
   pass('a shot booked the wrong way round can be turned, and keeps what was written on it')
 }
 
-await at(...TABLE_ROW(1)); await page.waitForTimeout(700)
-await at(...(await legActionRows())[2]); await page.waitForTimeout(900)
+await longPress(await tableRow(0)); await page.waitForTimeout(700)
+await at(...(await legActionRow('reverse'))); await page.waitForTimeout(900)
 const backAgain = (await savedLegs()).find(isConnecting)
 if (backAgain?.wasShotBackwards) {
   fail('reversing the leg a second time did not put it back')
@@ -2610,17 +3514,18 @@ if (backAgain?.wasShotBackwards) {
 // ---- and a tap on a station's name is about the station ---------------------------------------
 // The Android app has two station menus, and the table's is the one that offers to take you to the
 // station on a drawing — which is the link between the two halves of the app. Scan the table, spot
-// the reading that looks wrong, tap the station, and look at where it is.
+// the reading that looks wrong, hold the station, and look at where it is. Held, because a tap on
+// a station cell edits the reading like a tap anywhere else on the row.
 const FROM_CELL_X = 25
 const TO_CELL_X = 88
 
-await at(TO_CELL_X, TABLE_ROW(1)[1]); await page.waitForTimeout(700)
+await longPress([TO_CELL_X, (await tableRow(0))[1]]); await page.waitForTimeout(700)
 await page.screenshot({ path: join(shotDir, 'field-table-station.png') })
 const farEndRows = await dialogTextRows()
 // This station menu's only button is "Close", laid out where a lone confirmButton would be.
 await at(...(await dialogConfirm())); await waitForDialogToClose()
 
-await at(FROM_CELL_X, TABLE_ROW(1)[1]); await page.waitForTimeout(700)
+await longPress([FROM_CELL_X, (await tableRow(0))[1]]); await page.waitForTimeout(700)
 const nearEndRows = await dialogTextRows()
 
 // The two ends of one leg offer different menus, which is the whole point of asking the column
@@ -2635,8 +3540,21 @@ if (farEndRows.length !== nearEndRows.length + 3) {
   pass('a tap on a station\'s name opens that station\'s menu, not the other end\'s')
 }
 
-// "Show it on the plan" — first row for the origin, which cannot be made active.
-await at(210, nearEndRows[0]); await page.waitForTimeout(1200)
+// *Show it on the plan*, which `context_station.xml` puts in `menu_navigate` near the foot of the
+// menu rather than at the top. The origin's table menu is these five rows and only these: it is
+// the active station by now so it cannot be made active, no leg made it so there is no
+// `menu_leg`, nothing may delete it, and `ViewContext.TABLE` hides the jump to the table itself.
+// The count above says the same thing a different way — six rows against nine, both counting the
+// dialog's own Close — so if either is wrong both fail rather than one passing quietly.
+const ORIGIN_TABLE_MENU = [
+  'comment',
+  'rename',
+  'passage-size',
+  'show-in-plan',
+  'show-in-elevation',
+]
+await at(...(await stationMenuRow(ORIGIN_TABLE_MENU, 'show-in-plan')))
+await page.waitForTimeout(1200)
 await page.screenshot({ path: join(shotDir, 'field-jumped.png') })
 const jumped = (await stationSpots(sketchTop, sketchBottom)).active
 if (jumped === null) {
@@ -2688,9 +3606,8 @@ const eeDirectionCarriedDownThePassage = (stations, from) => {
 
 /**
  * The "From <station> · N stations" text on the field bar, found by where it actually is rather
- * than a fixed pixel: this is the second thing this file has hard-coded a tap onto (the first was
- * `menuRowAt`, which is why every *other* row in this file is found this way) that a legitimate
- * layout change moved out from under. `Simulate` used to sit between `Add reading` and this text
+ * than a fixed pixel: this is one of the things this file had hard-coded a tap onto that a
+ * legitimate layout change moved out from under. `Simulate` used to sit between `Add reading` and this text
  * before finding 87 put it behind Developer Mode; the text slid left when the button did, and a
  * click aimed where it used to be landed on empty field bar instead.
  *
@@ -2738,19 +3655,42 @@ const fieldStatusChipSpot = async () => {
 // next trip's. The comment is the same argument — a lead nobody wrote down is a lead nobody goes
 // back for.
 const statusChip = await fieldStatusChipSpot()
-if (!statusChip) fail('the field bar\'s status text was not found, so the station menu could not be opened')
+if (!statusChip) fail('the field bar\'s status text was not found, so the station could not be named')
 await at(...statusChip); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-station.png') })
-await retype(STATION_NAME, 'Sump')
-await at(...STATION_COMMENT); await page.waitForTimeout(250)
+await retype(await nodeFor('#station-name'), 'Sump')
+await at(...(await dialogConfirm())); await waitForDialogToClose()
+
+// The comment and the passage measurements are on the station's own menu, reached from the table
+// rather than from the drawing: the row is in the same place whatever the plan is scrolled to, and
+// the From cell of the first row is the station this has just renamed.
+await at(...TABLE_TAB); await page.waitForTimeout(900)
+await longPress([FROM_CELL_X, (await tableRow(0))[1]]); await page.waitForTimeout(700)
+await at(...(await stationAction('comment'))); await page.waitForTimeout(700)
+await at(...(await nodeFor('#station-comment'))); await page.waitForTimeout(250)
 await page.keyboard.type('Continues, too tight for me', { delay: 15 })
+await at(...(await dialogConfirm())); await waitForDialogToClose()
+
 // Passage size from a tape rather than an instrument: two numbers become two splays, square to
 // the passage, and a cross-section can then be drawn from a hand-booked survey.
-await retype(STATION_LRUD_LEFT, '1.5')
-await retype(STATION_LRUD_RIGHT, '2')
-await at(...STATION_EE_LEFT); await page.waitForTimeout(250)
+await longPress([FROM_CELL_X, (await tableRow(0))[1]]); await page.waitForTimeout(700)
+await at(...(await stationAction('passage-size'))); await page.waitForTimeout(700)
+await retype(await nodeFor('#station-passage-left'), '1.5')
+await retype(await nodeFor('#station-passage-right'), '2')
 await page.screenshot({ path: join(shotDir, 'field-station-named.png') })
-await at(...STATION_SAVE); await page.waitForTimeout(900)
+await at(...(await dialogConfirm())); await waitForDialogToClose()
+
+// And which way the passage unrolls, which `menu_elevation` puts on the station's menu in the
+// extended elevation and nowhere else — so this is the one that has to be done over there.
+await at(...ELEVATION_TAB); await page.waitForTimeout(900)
+const onElevation = (await stationSpots(sketchTop, sketchBottom)).active
+if (!onElevation) {
+  fail('the active station is not drawn on the extended elevation, so its direction cannot be set')
+} else {
+  await longPress(onElevation)
+  await at(...(await stationAction('draw-left'))); await page.waitForTimeout(800)
+}
+await at(...PLAN_TAB); await page.waitForTimeout(700)
 
 const named = await page.evaluate(() => {
   const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
@@ -2785,7 +3725,8 @@ if (walls.length !== 2) {
 // "Boulder choke", "sump", "continues" — what a surveyor writes on the drawing rather than in the
 // table. The sketch model has carried text details since the port began and the canvas has always
 // drawn them; until now nothing could create one, and the toolbar button was disabled.
-await at(...toolCell(2)); await page.waitForTimeout(500)
+await openSymbolStrip()
+await at(...stripSquare('label')); await page.waitForTimeout(400)
 await at(200, 400); await page.waitForTimeout(700)
 await at(...LABEL_TEXT); await page.waitForTimeout(250)
 await page.keyboard.type('boulder choke', { delay: 15 })
@@ -2806,17 +3747,18 @@ if (labels === null) {
   pass('a label can be written onto the sketch, and is saved with it')
 }
 
-// Back to drawing, so nothing after this places a label by accident.
+// Back to drawing, so nothing after this places a label by accident — and the strip shut, so the
+// drawing gets its forty pixels back before anything below measures a coordinate on it.
+await closeSymbolStrip()
 await at(...toolCell(1)); await page.waitForTimeout(400)
 
 // ---- and the symbols that are not words either ----------------------------------------------
 // The nineteen UIS symbols, taken from the app's own vector drawables and drawn through a path
 // parser in commonMain. A stamped symbol has to carry the Therion name the canvas looks its
 // artwork up by; if those two ever disagreed every symbol would silently draw as a fallback dot.
-await at(...toolCell(5)); await page.waitForTimeout(500)
-await at(...(await drawingMenuRow('symbol'))); await page.waitForTimeout(800)
+await openSymbolStrip()
 await page.screenshot({ path: join(shotDir, 'field-symbol-palette.png') })
-await at(...PALETTE_BLOCKS); await page.waitForTimeout(700)
+await at(...stripSquare('blocks')); await page.waitForTimeout(700)
 await at(200, 300); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-symbol.png') })
 
@@ -2837,9 +3779,11 @@ if (symbols === null) {
 // The app quietly overrides the brush for the one water symbol, because water is drawn blue on
 // every published cave survey there has ever been. The brush here is black — nothing in this run
 // has changed it — so a stamp that comes out black would mean the rule never fired.
-await at(...toolCell(5)); await page.waitForTimeout(600)
-await at(...(await drawingMenuRow('symbol'))); await page.waitForTimeout(800)
-await at(...PALETTE_WATER); await page.waitForTimeout(700)
+await openSymbolStrip()
+// Sixteen squares along, which is off the right-hand edge of every phone this file runs at.
+await scrollSymbolStripToTheEnd()
+await at(...scrolledStripSquare('water-flow')); await page.waitForTimeout(700)
+await page.screenshot({ path: join(shotDir, 'field-symbol-strip-scrolled.png') })
 await at(250, 300); await page.waitForTimeout(900)
 
 const waterColour = await page.evaluate(() => {
@@ -2855,7 +3799,8 @@ if (waterColour !== 'BLUE') {
   pass('a stream is stamped blue whatever colour the brush is set to')
 }
 
-// Back to drawing, so nothing after this stamps by accident.
+// Back to drawing, so nothing after this stamps by accident, and the strip shut again.
+await closeSymbolStrip()
 await at(...toolCell(1)); await page.waitForTimeout(400)
 
 // ---- tolerances that suit the instrument in the surveyor's hand -----------------------------
@@ -2893,18 +3838,36 @@ if ((await connectingLegs()) !== beforeSloppy) {
 // view stopped following them after they adjusted a tolerance.
 await toggleOption('auto-recentre')
 
-await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
-await retype(SETTING_DISTANCE, '0.5')
-await retype(SETTING_ANGLE, '12')
-// And the preferences on this screen, on the way past: a buzz when a station is made, which is how
-// a surveyor with the phone in a pocket learns the leg went in, and the two ways of moving the
-// drawing without changing tool. All three are flipped from their defaults, so the file that comes
-// out says the screen was actually read rather than that the defaults happened to be written.
-await at(...SETTING_BUZZ); await page.waitForTimeout(300)
-await at(...SETTING_HOT_CORNERS); await page.waitForTimeout(300)
-await at(...SETTING_TWO_FINGER); await page.waitForTimeout(300)
-await page.screenshot({ path: join(shotDir, 'field-surveying-settings.png') })
+// The tolerances are `preferences_instruments.xml`, which is a screen of its own — one of the five
+// `preferences_main.xml` lists, and not the one the buzz or the sketch gestures are on. Three
+// dialogs where this used to be one, which is three trips through the menu and is what the app
+// itself asks of a surveyor.
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('instruments'))); await page.waitForTimeout(800)
+await retype(await numberField(0), '0.5')
+await retype(await numberField(1), '12')
+await page.screenshot({ path: join(shotDir, 'field-instrument-settings.png') })
+await at(...(await settingsSave())); await page.waitForTimeout(700)
+
+// `pref_vibrate_on_new_station`, which is on *General*: how a surveyor with the phone in a pocket
+// learns the leg went in. By name rather than by looking for a switch: `Toggle` greys the whole
+// row out on a device that cannot vibrate, and a greyed switch is not something the search for a
+// switch-shaped run of primary colour can find.
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('general'))); await page.waitForTimeout(800)
+await at(...(await settingRow('vibrate'))); await page.waitForTimeout(300)
+await page.screenshot({ path: join(shotDir, 'field-general-settings.png') })
+await at(...(await settingsSave())); await page.waitForTimeout(700)
+
+// And the two ways of moving the drawing without changing tool, which are `pref_hot_corners` and
+// `pref_two_finger_movement` on *Sketching*. Both flipped from their defaults, so the file that
+// comes out says the screen was actually read rather than that the defaults happened to be
+// written.
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('sketching'))); await page.waitForTimeout(800)
+await at(...(await settingRow('hot-corners'))); await page.waitForTimeout(300)
+await at(...(await settingRow('two-finger'))); await page.waitForTimeout(300)
+await page.screenshot({ path: join(shotDir, 'field-sketching-settings-switches.png') })
 await at(...(await settingsSave())); await page.waitForTimeout(700)
 
 const savedPreferences = await page.evaluate(() => {
@@ -2953,9 +3916,9 @@ if (leftCorners.length === 2) {
 }
 
 // Back on, because the rest of this file is written for the app's own defaults.
-await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
-await at(...SETTING_HOT_CORNERS); await page.waitForTimeout(300)
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('sketching'))); await page.waitForTimeout(800)
+await at(...(await settingRow('hot-corners'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(700)
 
 // ---- chasing a lost instrument -------------------------------------------------------------
@@ -2975,8 +3938,8 @@ await at(...(await settingsSave())); await page.waitForTimeout(700)
 // The row is below the fold now that the dialog is taller than an eight-hundred-pixel window, so
 // it has to be scrolled to — which is itself worth checking, because a setting that exists only
 // off the bottom of a dialog that does not scroll is a setting nobody can reach.
-await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('instruments'))); await page.waitForTimeout(800)
 await scrollSettingsToTheEnd()
 await page.screenshot({ path: join(shotDir, 'field-settings-reconnect.png') })
 
@@ -2994,8 +3957,8 @@ if (!savedReconnect || !savedReconnect.includes('autoReconnect=false')) {
 }
 
 // Back on, because that is the app's own default and the rest of this file is written for them.
-await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('surveying', 1))); await page.waitForTimeout(800)
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('instruments'))); await page.waitForTimeout(800)
 await scrollSettingsToTheEnd()
 await at(...(await chaseSwitch())); await page.waitForTimeout(400)
 await at(...(await settingsSave())); await page.waitForTimeout(700)
@@ -3101,14 +4064,14 @@ if (magentaBefore < 20) {
   pass('the leg just taken is drawn in the app\'s magenta, so the working end is findable')
 }
 
-await toggleOption('latest-leg')
+await flipSketchingSwitch('highlight-latest-leg')
 const magentaOff = await magentaPixels()
 if (magentaOff !== 0) {
   fail(`turning the mark off left ${magentaOff} magenta pixels on the plan`)
 } else {
   pass('and it can be turned off, for a surveyor who would rather it were not there')
 }
-await toggleOption('latest-leg')
+await flipSketchingSwitch('highlight-latest-leg')
 
 const litBeforeFade = await centrelinePixels()
 await toggleOption('fade')
@@ -3142,10 +4105,12 @@ if (!(litRestored > litFaded)) {
 // perfectly and that nothing on the way to the screen ever reads.
 const thinCentreline = await centrelinePixels()
 
-await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('sketching', 1))); await page.waitForTimeout(800)
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('sketching'))); await page.waitForTimeout(800)
+// The boxes are below the five switches now, so the dialog has to be wound down to them.
+await scrollSettingsToTheEnd()
 await page.screenshot({ path: join(shotDir, 'field-sketching-settings.png') })
-await retype(await sketchField(0), '8')
+await retype(await sketchField('leg-width'), '8')
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-fat-centreline.png') })
 
@@ -3165,16 +4130,17 @@ if (!(fatCentreline > thinCentreline * 1.8)) {
 }
 
 // Back to the app's own width, because every check below reads this plan.
-await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('sketching', 1))); await page.waitForTimeout(800)
-await retype(await sketchField(0), '2')
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('sketching'))); await page.waitForTimeout(800)
+await scrollSettingsToTheEnd()
+await retype(await sketchField('leg-width'), '2')
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 
 // ---- north is on the plan, and can be taken off it ---------------------------------------
-// A plan with no north on it is a picture rather than a survey. The arrow does not swing with the
-// phone — there is no magnetometer behind it — but `Projection2D.PLAN` maps the northing to minus
-// the screen y, so north on a plan really is up and a fixed arrow is correct rather than
-// approximate. The check is that it is drawn at all, and that `buttonShowCompass` reaches it.
+// A plan with no north on it is a picture rather than a survey. `Projection2D.PLAN` maps the
+// northing to minus the screen y, so north on a plan is up, and the arrow turns away from that by
+// however far round the surveyor is facing. The checks are that it is drawn at all, that
+// `buttonShowCompass` reaches it, and — below — that it swings.
 //
 // The window is the bottom-left corner above the scale bar's own label, measured off a rendered
 // frame rather than guessed: the arrow occupies roughly forty pixels by fifty there, and the
@@ -3196,8 +4162,64 @@ if (!(northDrawn - northHidden > 8000 && northHidden < northDrawn / 2)) {
 }
 await toggleOption('north')
 
+// ---- and it swings with the phone --------------------------------------------------------
+// The other half of a compass, and the half this port did not have: `GraphActivity` has listened
+// to `TYPE_ROTATION_VECTOR` since the arrow was added, and here the arrow was drawn with nothing
+// turning it. `DeviceHeading.wasmJs.kt` is the browser's version — `DeviceOrientationEvent`,
+// which a headless Chromium has no sensor behind but will dispatch on request.
+//
+// Faked, then, but only the sensor is faked: the event goes into the same listener a phone's
+// magnetometer feeds, through the same polling, the same state and the same draw. Everything
+// between the browser's API and the pixels is the real thing.
+//
+// Which way it swung is read off the two halves of the arrow's own patch rather than off any one
+// pixel. Facing east puts north on the left of the screen and the arrow with it; facing west puts
+// it on the right. The comparison is between the two headings rather than against a number, so
+// whatever else is drawn in that corner counts the same in both and cancels.
+const NORTH_LEFT = [16, box.height - 250, 34, box.height - 200]
+const NORTH_RIGHT = [34, box.height - 250, 52, box.height - 200]
+
+const faceTowards = async (heading) => {
+  await page.evaluate((heading) => {
+    // alpha turns anticlockwise from north; the app turns it back into a bearing.
+    const alpha = (360 - heading) % 360
+    let event
+    try {
+      event = new DeviceOrientationEvent('deviceorientationabsolute', {
+        alpha,
+        absolute: true,
+      })
+    } catch (e) {
+      // Not every engine exposes the constructor. The listener reads two plain properties.
+      event = new Event('deviceorientationabsolute')
+      event.alpha = alpha
+      event.absolute = true
+    }
+    window.dispatchEvent(event)
+  }, heading)
+  // The reading is parked by the listener and picked up on a 100 ms timer, then drawn.
+  await page.waitForTimeout(500)
+}
+
+await faceTowards(90)
+const facingEast = [await inkAround(NORTH_LEFT), await inkAround(NORTH_RIGHT)]
+await faceTowards(270)
+const facingWest = [await inkAround(NORTH_LEFT), await inkAround(NORTH_RIGHT)]
+
+if (!(facingEast[0] > facingWest[0] && facingWest[1] > facingEast[1])) {
+  fail(
+    `the north arrow did not swing with the phone (east ${facingEast}, west ${facingWest})`,
+  )
+} else {
+  pass('the north arrow swings round to keep pointing north as the phone turns')
+}
+
+// Back to facing north, so the screenshots the rest of this run takes hold the arrow where every
+// other check has always found it.
+await faceTowards(0)
+
 // ---- the sketch toggles are remembered ---------------------------------------------------
-// Five of the twelve were session-only until the menu was split: a surveyor who turned the splays
+// Five of the eleven were session-only until the menu was split: a surveyor who turned the splays
 // off got them back on the next run, which for a preference is the same as not having it. Every
 // one is a persisted `SketchPreferences.Toggle` in the Android app. So: turn the grid off and look
 // in storage for it, the same way the tolerances are checked below. What is being tested is that
@@ -3230,8 +4252,8 @@ if (!savedSettings || !savedSettings.includes('maxAngleDelta=12')) {
 // Every exporter in the port already knew how to write a team and a date; until there was a
 // dialog, every file this app produced went out anonymous. A survey that does not say who made it
 // cannot be checked against anybody's notebook.
-await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('trip', 1))); await page.waitForTimeout(800)
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('trip'))); await page.waitForTimeout(800)
 await at(...TRIP_ADD_NAME); await page.waitForTimeout(250)
 await page.keyboard.type('L. Waterworth', { delay: 15 })
 await at(...TRIP_ADD_BUTTON); await page.waitForTimeout(600)
@@ -3244,7 +4266,7 @@ await page.screenshot({ path: join(shotDir, 'field-trip.png') })
 // everything else needed to save a trip is already on screen at this point, so this is the one
 // place a click on Save tests the licence gate alone. A trip written here would mean the gate
 // was never wired up at all.
-await at(...TRIP_SAVE); await page.waitForTimeout(500)
+await at(...(await dialogConfirm())); await page.waitForTimeout(500)
 const tripBeforeALicenceIsChosen = await page.evaluate(() => {
   const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
   return key ? JSON.parse(localStorage.getItem(key)).trip ?? null : null
@@ -3255,9 +4277,14 @@ if (tripBeforeALicenceIsChosen) {
   pass('Save does nothing until a licence has been chosen, even with everything else filled in')
 }
 
-await at(...TRIP_LICENCE); await page.waitForTimeout(250)
-await page.keyboard.type('CC0', { delay: 15 })
-await at(...TRIP_SAVE); await page.waitForTimeout(800)
+const licenceBox = await tripLicenceField()
+if (licenceBox === null) {
+  fail('the licence box is not marked as unanswered, so there is nothing to say Save waits for')
+} else {
+  await at(...licenceBox); await page.waitForTimeout(250)
+  await page.keyboard.type('CC0', { delay: 15 })
+}
+await at(...(await dialogConfirm())); await page.waitForTimeout(800)
 
 const trip = await page.evaluate(() => {
   const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
@@ -3276,9 +4303,9 @@ if (!trip) {
 // Reopening a trip that already carries a licence counts the question as already answered - a
 // surveyor fixing a typo in the instrument field should not have to re-pick a licence they
 // already chose.
-await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('trip', 1))); await page.waitForTimeout(800)
-await at(...TRIP_SAVE); await page.waitForTimeout(800)
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('trip'))); await page.waitForTimeout(800)
+await at(...(await dialogConfirm())); await page.waitForTimeout(800)
 const tripAfterReopening = await page.evaluate(() => {
   const key = Object.keys(localStorage).find((k) => k.endsWith('Swildons.data.json'))
   return key ? JSON.parse(localStorage.getItem(key)).trip ?? null : null
@@ -3293,9 +4320,9 @@ if (!tripAfterReopening || !JSON.stringify(tripAfterReopening).includes('CC0')) 
 // The clipboard reaches an email. Only a file reaches Therion, and a survey that cannot get into
 // Therion is a weekend of somebody's life spent producing something they then have to type up
 // again from a photograph of a screen.
-await at(...overflowButton()); await page.waitForTimeout(500)
+await at(...(await overflowButton())); await page.waitForTimeout(500)
 await page.screenshot({ path: join(shotDir, 'field-menu.png') })
-await at(...(await menuRow('export', 1))); await page.waitForTimeout(900)
+await at(...(await menuRow('export'))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-export.png') })
 
 const download = await Promise.all([
@@ -3523,9 +4550,8 @@ if (svgAsShipped === null) {
 
 await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-export-svg-options.png') })
-// The first switch in the dialog: *Draw the sketch*. Found rather than measured, like every other
-// switch in this file — see switchRows().
-await at(...(await settingsSwitch(0))); await page.waitForTimeout(300)
+// *Draw the sketch*, by name like every other switch in this file.
+await at(...(await settingRow('svg-draw-sketch'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 const svgWithoutSketch = await savedExport()
@@ -3554,7 +4580,7 @@ if (savedOptions === null || !savedOptions.includes('svgShowSketch=false')) {
 
 // Put it back, so the exports checked after this one are the drawing they were written for.
 await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
-await at(...(await settingsSwitch(0))); await page.waitForTimeout(300)
+await at(...(await settingRow('svg-draw-sketch'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 // ---- and the Therion project is laid out the way the surveyor's other trips are ---------------
@@ -3575,10 +4601,9 @@ if (th2WithSections === null) {
 
 await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-export-therion-options.png') })
-// The dialog's three switches are its last three rows: cross-sections, symbols, text. Wheeled to
-// the end first, because ten settings do not fit on a phone.
+// Wheeled to the end first, because ten settings do not fit on a phone.
 await scrollSettingsToTheEnd()
-await at(...(await settingsSwitch(-3))); await page.waitForTimeout(300)
+await at(...(await settingRow('therion-cross-sections'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 const th2WithoutSections = await savedExport()
@@ -3611,9 +4636,7 @@ if (therionSwitches !== 5) {
   fail(`the Therion options show ${therionSwitches} switches, not the five this check counts from`)
   await at(...(await settingsSave())); await page.waitForTimeout(900)
 } else {
-  // Fifth from the end: stations in the first plan scrap, then the elevation's, then the three
-  // that were already here — cross-sections, symbols, text.
-  await at(...(await settingsSwitch(-5))); await page.waitForTimeout(300)
+  await at(...(await settingRow('therion-stations-in-plan'))); await page.waitForTimeout(300)
   await at(...(await settingsSave())); await page.waitForTimeout(900)
 
   const th2WithoutStations = await savedExport()
@@ -3637,14 +4660,14 @@ if (therionSwitches !== 5) {
   // Back on, for the same reason as everything else here.
   await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
   await scrollSettingsToTheEnd()
-  await at(...(await settingsSwitch(-5))); await page.waitForTimeout(300)
+  await at(...(await settingRow('therion-stations-in-plan'))); await page.waitForTimeout(300)
   await at(...(await settingsSave())); await page.waitForTimeout(900)
 }
 
 // Put it back, for the same reason as above.
 await at(...(await exportOptionsButton())); await page.waitForTimeout(800)
 await scrollSettingsToTheEnd()
-await at(...(await settingsSwitch(-3))); await page.waitForTimeout(300)
+await at(...(await settingRow('therion-cross-sections'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 await at(...PLAN_TAB); await page.waitForTimeout(600)
@@ -3706,9 +4729,9 @@ if (grew.length > 0) {
 // passage size attached after the leg lands on the station just created — putting the walls of
 // this chamber around the next one. Nothing in the numbers afterwards says so: they are ordinary
 // splays either way, on a station that exists, at a bearing that really was measured.
-await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('manual-entry', 1))); await page.waitForTimeout(900)
-await at(...(await settingsSwitch(SWITCH_BOOK_PASSAGE_SIZE))); await page.waitForTimeout(300)
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('manual-entry'))); await page.waitForTimeout(900)
+await at(...(await settingRow('book-passage-size'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 /** Every station in the saved survey, by name, with how many splays hang off it. */
@@ -3766,9 +4789,9 @@ await at(...(await modeChip(3))); await page.waitForTimeout(300)
 await at(...(await cardButton(CARD_CANCEL_X))); await page.waitForTimeout(600)
 
 // Put it back, so the dialogs checked after this one are the ones they were written for.
-await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('manual-entry', 1))); await page.waitForTimeout(900)
-await at(...(await settingsSwitch(SWITCH_BOOK_PASSAGE_SIZE))); await page.waitForTimeout(300)
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('manual-entry'))); await page.waitForTimeout(900)
+await at(...(await settingRow('book-passage-size'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(900)
 
 // ---- the manual entry button can be put away --------------------------------------------------
@@ -3804,9 +4827,9 @@ const fieldBarInk = async () => {
 
 const withManualButton = await fieldBarInk()
 
-await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('manual-entry', 1))); await page.waitForTimeout(800)
-await at(...(await settingsSwitch(SWITCH_MANUAL_ENTRY))); await page.waitForTimeout(300)
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('manual-entry'))); await page.waitForTimeout(800)
+await at(...(await settingRow('manual-entry'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-no-manual-entry.png') })
 
@@ -3830,9 +4853,9 @@ if (!(withManualButton > 400)) {
 }
 
 // Back on, because the checks below type readings.
-await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('manual-entry', 1))); await page.waitForTimeout(800)
-await at(...(await settingsSwitch(SWITCH_MANUAL_ENTRY))); await page.waitForTimeout(300)
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('manual-entry'))); await page.waitForTimeout(800)
+await at(...(await settingRow('manual-entry'))); await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 
 // ---- a bearing can be typed the way a compass reads it ---------------------------------------
@@ -3845,10 +4868,10 @@ await at(...(await settingsSave())); await page.waitForTimeout(800)
 // `DegreesMinutesSecondsTest` has the conversion, including the one upstream gets wrong (finding
 // 54). This is the half only a running app can show: that the switch changes the card, and that
 // what is typed into the three boxes reaches the survey as one angle.
-await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('manual-entry', 1))); await page.waitForTimeout(800)
-await at(...(await settingsSwitch(SWITCH_BEARINGS_IN_MINUTES))); await page.waitForTimeout(300)
-await at(...(await settingsSwitch(SWITCH_INCLINATIONS_IN_MINUTES)))
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('manual-entry'))); await page.waitForTimeout(800)
+await at(...(await settingRow('bearings-in-minutes'))); await page.waitForTimeout(300)
+await at(...(await settingRow('inclinations-in-minutes')))
 await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 
@@ -3885,10 +4908,10 @@ if (dmsSplays.length !== splaysBeforeDms + 1) {
 }
 
 // Back to decimal, because every check below reads the ordinary card.
-await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('manual-entry', 1))); await page.waitForTimeout(800)
-await at(...(await settingsSwitch(SWITCH_BEARINGS_IN_MINUTES))); await page.waitForTimeout(300)
-await at(...(await settingsSwitch(SWITCH_INCLINATIONS_IN_MINUTES)))
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('manual-entry'))); await page.waitForTimeout(800)
+await at(...(await settingRow('bearings-in-minutes'))); await page.waitForTimeout(300)
+await at(...(await settingRow('inclinations-in-minutes')))
 await page.waitForTimeout(300)
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 
@@ -3999,24 +5022,28 @@ await ctx.setOffline(false)
 // survey on the way to the cave and wants it gone; without this the library only ever grows, and
 // on a phone the delete control sits a few millimetres from the one that opens it — so it asks
 // first, and this checks that it asks.
-await at(...overflowButton()); await page.waitForTimeout(600)
-await at(...(await savedSurveyDelete(0, 1))); await page.waitForTimeout(700)
+await at(...(await overflowButton())); await page.waitForTimeout(600)
+await at(...(await savedSurveyRow('delete', 'Swildons'))); await page.waitForTimeout(700)
 await page.screenshot({ path: join(shotDir, 'field-confirm-delete-survey.png') })
 
 // A Cancel that missed its button would leave the dialog up and also leave the survey intact, so
 // this check on its own could pass for the wrong reason. What gives it teeth is the real delete
 // below: that only works from a dismissed dialog, so if Cancel did nothing, the next check fails.
 const beforeCancel = await savedLegs()
-await at(...CANCEL_DELETE_SURVEY); await page.waitForTimeout(700)
+const deleteButtons = await dialogButtons()
+if (deleteButtons.length !== 2) {
+  fail(`the delete confirmation offered ${deleteButtons.length} buttons, not Cancel and Delete`)
+}
+await at(deleteButtons[0], (await dialogTextRows()).pop()); await page.waitForTimeout(700)
 if ((await savedLegs()).length !== beforeCancel.length) {
   fail('cancelling the delete removed the survey anyway')
 } else {
   pass('a delete can be called off')
 }
 
-await at(...overflowButton()); await page.waitForTimeout(600)
-await at(...(await savedSurveyDelete(0, 1))); await page.waitForTimeout(700)
-await at(...CONFIRM_DELETE_SURVEY); await page.waitForTimeout(900)
+await at(...(await overflowButton())); await page.waitForTimeout(600)
+await at(...(await savedSurveyRow('delete', 'Swildons'))); await page.waitForTimeout(700)
+await at(...(await dialogConfirm())); await page.waitForTimeout(900)
 
 const left = await page.evaluate(() =>
   Object.keys(localStorage).filter((k) => k.includes('Swildons')),
@@ -4033,9 +5060,9 @@ if (left.length > 0) {
 // recovered after a phone dies or continued from somebody else's copy. The browser has no folder to drop a file
 // into, so its chooser writes the file into the app's own storage and one shared code path imports
 // it exactly as iOS does with a file dropped into the Files app.
-await at(...overflowButton()); await page.waitForTimeout(600)
+await at(...(await overflowButton())); await page.waitForTimeout(600)
 await page.screenshot({ path: join(shotDir, 'field-import-menu.png') })
-await at(...(await menuRow('import', 0))); await page.waitForTimeout(800)
+await at(...(await menuRow('import-file'))); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-import-dialog.png') })
 
 // The survey's drawing, put beside it in the app's own storage, which is exactly where the four
@@ -4097,9 +5124,9 @@ await page.evaluate((svx) => {
   localStorage.removeItem('sexytopo:f:Eastwater.data.json')
   localStorage.setItem('sexytopo:f:Bar Pot.svx', svx)
 }, EXAMPLE_SURVEX)
-await at(...overflowButton()); await page.waitForTimeout(600)
+await at(...(await overflowButton())); await page.waitForTimeout(600)
 // One saved survey now: the Eastwater just imported.
-await at(...(await menuRow('import', 1))); await page.waitForTimeout(1000)
+await at(...(await menuRow('import-file'))); await page.waitForTimeout(1000)
 await page.screenshot({ path: join(shotDir, 'field-import-survex-dialog.png') })
 await at(...IMPORT_FIRST_ROW); await page.waitForTimeout(1400)
 await page.screenshot({ path: join(shotDir, 'field-import-survex.png') })
@@ -4138,8 +5165,8 @@ await page.evaluate(() => {
     if (/^sexytopo:f:[^/]+\.(json|svx|th|txt)$/i.test(key)) localStorage.removeItem(key)
   }
 })
-await at(...overflowButton()); await page.waitForTimeout(600)
-await at(...(await menuRow('import', 2))); await page.waitForTimeout(900)
+await at(...(await overflowButton())); await page.waitForTimeout(600)
+await at(...(await menuRow('import-file'))); await page.waitForTimeout(900)
 
 chosenFile = { name: 'CeiledUp.top', mimeType: 'application/octet-stream', buffer: topFile }
 const choosersBeforeTop = fileChoosersOpened
@@ -4197,8 +5224,8 @@ const savedCount = await page.evaluate(() => {
 // is that the box opens and that Material has not clipped it to nothing: it is a screenful and a
 // half of text, and a Compose dialog that does not fit is cut off from the bottom, which is where
 // the licence is.
-await at(...overflowButton()); await page.waitForTimeout(600)
-await at(...(await menuRow('about', savedCount))); await page.waitForTimeout(900)
+await at(...(await overflowButton())); await page.waitForTimeout(600)
+await at(...(await menuRow('about'))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-about.png') })
 
 const aboutHeight = await dialogHeight()
@@ -4296,8 +5323,8 @@ const profileChange = (before, after) => {
   return moved / before.rows.length
 }
 
-await at(...overflowButton()); await page.waitForTimeout(600)
-await at(...(await menuRow('manual', savedCount)))
+await at(...(await overflowButton())); await page.waitForTimeout(600)
+await at(...(await menuRow('manual')))
 
 // Waited for rather than slept through. The manual is a 23 KB resource read off the bundle and
 // parsed before anything is drawn, and a fixed delay long enough on this machine is a flake on a
@@ -4427,10 +5454,10 @@ if (backToTheCave < 1000) {
   pass(`closing the manual gives the survey back (${backToTheCave} pixels of app bar and toolbar)`)
 }
 
-await at(...overflowButton()); await page.waitForTimeout(600)
-await at(...(await menuRow('demo', savedCount))); await page.waitForTimeout(900)
-await at(...overflowButton()); await page.waitForTimeout(600)
-await at(...(await menuRow('3d', savedCount))); await page.waitForTimeout(1400)
+await at(...(await overflowButton())); await page.waitForTimeout(600)
+await at(...(await menuRow('demo'))); await page.waitForTimeout(900)
+await at(...(await overflowButton())); await page.waitForTimeout(600)
+await at(...(await menuRow('3d'))); await page.waitForTimeout(1400)
 await page.screenshot({ path: join(shotDir, 'field-3d.png') })
 
 // The legs are drawn in the renderer's own red, which nothing else on this screen uses.
@@ -4476,7 +5503,7 @@ if (Buffer.compare(beforeTurning, afterTurning) === 0) {
   pass('one finger turns the cave, and it is still there afterwards')
 }
 
-await at(...THREE_D_CLOSE); await page.waitForTimeout(900)
+await at(...THREE_D_CLOSE()); await page.waitForTimeout(900)
 // Not a timing problem after all: the DEBUG screenshot this captured on failure was byte-identical
 // whether taken after 8 seconds of waiting or 15 - the plan view was already fully rendered,
 // toolbar, palette, cross-section boxes and all, every single time. The canvas was never gone; the
@@ -4503,8 +5530,8 @@ if (backToTheSketch === 0) {
 // survey it expects to be a particular shape — the first attempt at putting this beside the
 // other manual-entry checks broke four of them, none of which mentioned a station count.
 const stationsBeforeOutright = await savedStationNames()
-await at(...overflowButton()); await page.waitForTimeout(500)
-await at(...(await menuRow('add-leg', await savedSurveyCount()))); await page.waitForTimeout(800)
+await at(...(await overflowButton())); await page.waitForTimeout(500)
+await at(...(await menuRow('add-leg'))); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-add-leg.png') })
 
 const addLegRows = await dialogTextRows()
@@ -4571,10 +5598,17 @@ const smallTable = [small.width - (420 - TABLE_TAB[0]), TABLE_TAB[1]]
 const smallPlan = [small.width - (420 - PLAN_TAB[0]), PLAN_TAB[1]]
 await tapSmall(...smallTable); await page.waitForTimeout(900)
 
-/** The x of the rightmost ink in a band of rows, or null if the band is blank. */
-const rightmostInk = async (fromY, toY) => {
+/**
+ * The x of the rightmost ink in a band of rows, or null if the band is blank.
+ *
+ * The column header is white lettering on the app's green and the rows are dark on white, so what
+ * counts as ink depends on which band is being asked. Looking for dark pixels in the header band
+ * found none at all once the audit gave the table a header of its own — which is what "the table
+ * showed nothing on the small phone" was reporting.
+ */
+const rightmostInk = async (fromY, toY, ink = 'dark') => {
   const b64 = (await page.screenshot({ clip: small })).toString('base64')
-  return page.evaluate(async ([data, top, bottom]) => {
+  return page.evaluate(async ([data, top, bottom, wanted]) => {
     const img = new Image()
     await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
     const c = document.createElement('canvas')
@@ -4586,17 +5620,75 @@ const rightmostInk = async (fromY, toY) => {
     for (let x = c.width - 1; x >= 0; x--) {
       for (let y = top; y <= Math.min(bottom, c.height - 1); y++) {
         const i = (y * c.width + x) * 4
-        if (Math.max(px[i], px[i + 1], px[i + 2]) < 150) return x
+        const dark = Math.max(px[i], px[i + 1], px[i + 2]) < 150
+        const light = Math.min(px[i], px[i + 1], px[i + 2]) > 200
+        if (wanted === 'light' ? light : dark) return x
       }
     }
     return null
-  }, [b64, fromY, toY])
+  }, [b64, fromY, toY, ink])
 }
+
+/**
+ * How far a band of the picture moved sideways between two shots of it.
+ *
+ * The header and the rows have to move together — that is the whole check — and the obvious way to
+ * measure it, "how far did the rightmost ink move", cannot: the numbers in the last column are cut
+ * off by the edge of the screen before the drag, which is the very thing being scrolled into view,
+ * so their rightmost ink starts pinned to that edge and the header's does not. The two would then
+ * report different distances for the same scroll.
+ *
+ * This slides one picture over the other instead and reports the offset that matches best, which
+ * is the scroll itself and says nothing about what is drawn in the band.
+ */
+const bandShift = async (before, after, top, bottom) =>
+  page.evaluate(async ([a, b, t, bot]) => {
+    const load = async (data) => {
+      const img = new Image()
+      await new Promise((r) => { img.onload = r; img.src = 'data:image/png;base64,' + data })
+      return img
+    }
+    const first = await load(a)
+    const second = await load(b)
+    const c = document.createElement('canvas')
+    c.width = first.width
+    c.height = first.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(first, 0, 0)
+    const pa = ctx.getImageData(0, 0, c.width, c.height).data
+    ctx.clearRect(0, 0, c.width, c.height)
+    ctx.drawImage(second, 0, 0)
+    const pb = ctx.getImageData(0, 0, c.width, c.height).data
+    const grey = (p, x, y) => {
+      const i = (y * c.width + x) * 4
+      return (p[i] + p[i + 1] + p[i + 2]) / 3
+    }
+    let best = null
+    let bestScore = Infinity
+    const last = Math.min(bot, c.height - 1)
+    for (let shift = 0; shift <= 90; shift++) {
+      let score = 0
+      let counted = 0
+      for (let y = t; y <= last; y += 2) {
+        for (let x = 0; x + shift < c.width; x++) {
+          score += Math.abs(grey(pb, x, y) - grey(pa, x + shift, y))
+          counted++
+        }
+      }
+      if (counted === 0) break
+      score /= counted
+      if (score < bestScore) {
+        bestScore = score
+        best = shift
+      }
+    }
+    return best
+  }, [before, after, top, bottom])
 
 // The header band and a band of data rows, measured from the rendered page.
 const HEADER_BAND = [58, 76]
 const ROWS_BAND = [140, 260]
-const headerBefore = await rightmostInk(...HEADER_BAND)
+const beforeShot = (await page.screenshot({ clip: small })).toString('base64')
 const rowsBefore = await rightmostInk(...ROWS_BAND)
 
 const cdp = await ctx.newCDPSession(page)
@@ -4612,8 +5704,10 @@ await touchAt('touchEnd', 180, 200)
 await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-small-table-scrolled.png') })
 
-const headerAfter = await rightmostInk(...HEADER_BAND)
+const afterShot = (await page.screenshot({ clip: small })).toString('base64')
 const rowsAfter = await rightmostInk(...ROWS_BAND)
+const headerMoved = await bandShift(beforeShot, afterShot, ...HEADER_BAND)
+const rowsMoved = await bandShift(beforeShot, afterShot, ...ROWS_BAND)
 await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false })
 await cdp.detach()
 
@@ -4629,22 +5723,24 @@ await page.setViewportSize({ width: 374, height: 667 }); await page.waitForTimeo
 await page.setViewportSize({ width: 375, height: 667 }); await page.waitForTimeout(600)
 small = await (await page.$('canvas')).boundingBox()
 
-if (headerBefore === null || rowsBefore === null) {
+if (rowsBefore === null) {
   fail('the table showed nothing on the small phone, so this check cannot fail')
-} else if (headerBefore < small.width - 4) {
+} else if (rowsBefore < small.width - 4) {
   fail(
-    `the table's last column was already clear of the edge (${headerBefore} of ${small.width}),` +
+    `the table's last column was already clear of the edge (${rowsBefore} of ${small.width}),` +
       ' so there is nothing here to scroll to')
-} else if (headerAfter === null || headerAfter >= small.width - 4) {
+} else if (rowsAfter === null || rowsAfter >= small.width - 4) {
   fail('dragging the table sideways did not bring the last column into view')
-} else if (Math.abs((headerBefore - headerAfter) - (rowsBefore - rowsAfter)) > 6) {
+} else if (!rowsMoved) {
+  fail('the table did not scroll sideways at all under a finger')
+} else if (Math.abs(headerMoved - rowsMoved) > 2) {
   fail(
     'the header and the rows moved by different amounts, so the labels no longer sit over the' +
-      ` numbers (header ${headerBefore}->${headerAfter}, rows ${rowsBefore}->${rowsAfter})`)
+      ` numbers (header ${headerMoved}, rows ${rowsMoved})`)
 } else {
   pass(
     'the table scrolls sideways as one on a small phone, so the last column can be read' +
-      ` (${headerBefore} to ${headerAfter} of ${small.width})`)
+      ` (${rowsMoved} pixels, header and rows together)`)
 }
 
 await tapSmall(...smallPlan); await page.waitForTimeout(700)
@@ -4731,7 +5827,7 @@ const fullScreenSaved = await page.evaluate(() => {
     .map((k) => k.slice(prefix.length).split('/')[0])
   return new Set(names).size
 })
-await at(...(await menuRow('fullscreen', fullScreenSaved))); await page.waitForTimeout(900)
+await at(...(await menuRow('fullscreen'))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-full-screen.png') })
 
 const chromeAfter = await appBarGreen()
@@ -4771,7 +5867,7 @@ const smallSaved = await page.evaluate(() => {
     .map((k) => k.slice(prefix.length).split('/')[0])
   return new Set(names).size
 })
-await at(...(await menuRow('about', smallSaved))); await page.waitForTimeout(900)
+await at(...(await menuRow('about'))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-small-screen-dialog.png') })
 
 const smallDialogTop = await dialogTop()
@@ -4882,8 +5978,8 @@ if (!((await wideInk()) > wideInkBefore)) {
 // A dialog with a text field in it, in 375 pixels of height. New survey is the one always
 // reachable whatever the run has left on screen, and it is a field and two buttons — the shape
 // every dialog that needs a keyboard has.
-await at(...overflowButton()); await page.waitForTimeout(600)
-await at(...(await menuRow('new', smallSaved))); await page.waitForTimeout(900)
+await at(...(await overflowButton())); await page.waitForTimeout(600)
+await at(...(await menuRow('new'))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-landscape-dialog.png') })
 
 const wideTop = await dialogTop()
@@ -4945,8 +6041,8 @@ const squeezedSaved = await page.evaluate(() => {
   return new Set(names).size
 })
 
-await at(...overflowButton()); await page.waitForTimeout(600)
-await at(...(await menuRow('new', squeezedSaved))); await page.waitForTimeout(900)
+await at(...(await overflowButton())); await page.waitForTimeout(600)
+await at(...(await menuRow('new'))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'field-portrait-squeezed-dialog.png') })
 
 const squeezedTop = await dialogTop()
@@ -5052,12 +6148,13 @@ const themeSaved0 = await page.evaluate(() => {
     .map((k) => k.slice(prefix.length).split('/')[0])
   return new Set(names).size
 })
-await at(...overflowButton()); await page.waitForTimeout(600)
-await at(...(await menuRow('dark', themeSaved0))); await page.waitForTimeout(900)
-// The menu stays open on the theme page on purpose — comparing two themes should not mean walking
-// back down the menu — so it has to be dismissed before the screen can be measured. The app bar's
-// title takes a tap without doing anything, which the canvas underneath would not.
-await at(20, 20); await page.waitForTimeout(700)
+// `pref_theme` is a three-value list preference on `preferences_general.xml`, not a menu page:
+// Settings → System → General, and three chips on the dialog that opens.
+await at(...(await overflowButton())); await page.waitForTimeout(600)
+await at(...(await menuRow('general'))); await page.waitForTimeout(900)
+await at(...(await themeChip('dark'))); await page.waitForTimeout(400)
+await at(...(await settingsSave())); await waitForDialogToClose()
+await page.waitForTimeout(500)
 await page.screenshot({ path: join(shotDir, 'field-theme-dark.png') })
 
 const themeChosen = await meanBrightness()

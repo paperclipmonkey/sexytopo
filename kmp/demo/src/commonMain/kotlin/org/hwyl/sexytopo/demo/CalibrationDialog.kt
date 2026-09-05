@@ -21,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.calibration.CalibrationChoice
@@ -108,6 +109,7 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(
                         enabled = !session.calibrating,
+                        modifier = Modifier.testTag(CALIBRATION_START),
                         onClick = {
                             result = null
                             written = 0
@@ -118,19 +120,21 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
                                     "This instrument cannot be calibrated from the app"
                                 }
                         },
-                    ) { Text("Start") }
+                    ) { Text(Strings.calibrationStart) }
                     TextButton(
                         enabled = session.calibrating,
+                        modifier = Modifier.testTag(CALIBRATION_STOP),
                         onClick = { session.stopCalibration() },
-                    ) { Text("Stop") }
+                    ) { Text(Strings.calibrationStop) }
                     TextButton(
                         enabled = session.calibrating,
+                        modifier = Modifier.testTag(CALIBRATION_SHOT),
                         onClick = { session.simulateCalibrationReading() },
                     ) { Text("Shot") }
                     TextButton(
                         enabled = run.count > 0,
                         onClick = { session.deleteLastCalibrationReading() },
-                    ) { Text("Undo") }
+                    ) { Text(Strings.calibrationDeleteLast) }
                     TextButton(
                         enabled = run.count > 0,
                         onClick = {
@@ -138,7 +142,7 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
                             result = null
                             written = 0
                         },
-                    ) { Text("Clear") }
+                    ) { Text(Strings.clear) }
                 }
 
                 HorizontalDivider()
@@ -174,6 +178,7 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
 
                 TextButton(
                     enabled = run.canSolve,
+                    modifier = Modifier.testTag(CALIBRATION_SOLVE),
                     onClick = {
                         problem = null
                         result =
@@ -208,8 +213,9 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
                     // solver happened to stop, and writing them would be worse than uncalibrated.
                     TextButton(
                         enabled = quality != CalibrationQuality.DID_NOT_SETTLE,
+                        modifier = Modifier.testTag(CALIBRATION_WRITE),
                         onClick = { written = session.writeCalibration(fitted) },
-                    ) { Text("Write to instrument") }
+                    ) { Text(Strings.calibrationUpdate) }
                     if (written > 0) {
                         Text(
                             "$written coefficient blocks written",
@@ -225,11 +231,12 @@ fun CalibrationDialog(state: DemoState, onDismiss: () -> Unit) {
         },
         confirmButton = {
             TextButton(
+                modifier = Modifier.testTag(CALIBRATION_CLOSE),
                 onClick = {
                     if (session.calibrating) session.stopCalibration()
                     onDismiss()
                 },
-            ) { Text("Close") }
+            ) { Text(Strings.close) }
         },
     )
 }
@@ -252,3 +259,17 @@ internal fun describe(quality: CalibrationQuality, readings: Int): String =
             "The fit never settled, which means the readings do not describe one instrument. " +
                 "Clear and start again."
     }
+
+/**
+ * The calibration dialog's buttons, by name, for the browser tests.
+ *
+ * `instrument.mjs` used to press these at fixed pixel positions, and the day the buttons took the
+ * Android app's own wording — *Disto Cal Mode On* where this said *Start* — the row reflowed and
+ * every position pressed something else. A name does not move.
+ */
+const val CALIBRATION_START: String = "calibration-start"
+const val CALIBRATION_STOP: String = "calibration-stop"
+const val CALIBRATION_SHOT: String = "calibration-shot"
+const val CALIBRATION_SOLVE: String = "calibration-solve"
+const val CALIBRATION_WRITE: String = "calibration-write"
+const val CALIBRATION_CLOSE: String = "calibration-close"

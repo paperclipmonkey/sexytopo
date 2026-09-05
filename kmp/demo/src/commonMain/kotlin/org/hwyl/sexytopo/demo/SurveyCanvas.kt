@@ -9,17 +9,14 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.CornerRadius
@@ -60,13 +57,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.launch
 import org.hwyl.sexytopo.shared.math.getDistance
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
+import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.sketch.SketchDefaults
 import org.hwyl.sexytopo.shared.sketch.SketchStyle
@@ -84,6 +81,7 @@ import org.hwyl.sexytopo.shared.sketch.hotCornerTopLefts
 import org.hwyl.sexytopo.shared.sketch.whollyOutside
 import org.hwyl.sexytopo.shared.sketch.zoomBetween
 import org.hwyl.sexytopo.shared.survey.CrossSectioner
+import org.hwyl.sexytopo.shared.survey.SurveyStats
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -146,6 +144,24 @@ fun SurveyCanvas(
      * about it.
      */
     onLongPressStation: (String) -> Unit = {},
+    /**
+     * The station whose cross-section is waiting to be placed: `stationNameBeingCrossSectioned`.
+     *
+     * Set while [SketchTool.POSITION_CROSS_SECTION] is armed, and the reason that tool needs no
+     * hit test — the station was chosen from its own menu before the tool was.
+     */
+    crossSectioning: Station? = null,
+    /** The one-shot has fired, so the tool that was in hand before it comes back. */
+    onCrossSectionPositioned: () -> Unit = {},
+    /**
+     * Which way the top of the screen is pointing, instead of asking the device.
+     *
+     * For the callers that have no device to ask: the headless renderer, which has no
+     * magnetometer, and the tests, which need the same picture twice running. Left null — which is
+     * everything the surveyor ever runs — the canvas asks the platform through
+     * [rememberDeviceHeading].
+     */
+    headingDegrees: Float? = null,
 ) {
     val textMeasurer = rememberTextMeasurer()
     val fontFamily = LocalAppFontFamily.current
@@ -166,18 +182,40 @@ fun SurveyCanvas(
         }
     val scene = sceneOverride ?: projected!!
 
+    // North is meaningless anywhere else: the extended elevation is unrolled onto a line and a
+    // cross-section is drawn across the passage. `GraphView.drawCompass` returns immediately
+    // unless the projection is the plan, and so does this.
+    val isPlan = sceneOverride == null && projection == Projection2D.PLAN
+    // Asked for only while the arrow is on screen, so the magnetometer stops with it. Read in the
+    // draw block below rather than here, so a heading arriving ten times a second redraws the
+    // canvas without recomposing it.
+    val deviceHeading =
+        rememberDeviceHeading(
+            enabled = options.showCompass && isPlan && headingDegrees == null,
+        )
+
+    // What the gesture loops below hit-test against. They are not restarted when the scene is
+    // rebuilt (see the keys on `gestures`), so they read the newest one through this rather than
+    // capturing whichever was current when a loop began - a station that arrived during a stroke
+    // is still there to be long-pressed once it is over.
+    val currentScene by rememberUpdatedState(scene)
+
+    // For the same reason, the callbacks: a loop that outlives the composition that started it
+    // must not go on calling that composition's lambdas.
+    val currentOnSketchEdit by rememberUpdatedState(onSketchEdit)
+    val currentOnSelectStation by rememberUpdatedState(onSelectStation)
+    val currentOnPlaceLabel by rememberUpdatedState(onPlaceLabel)
+    val currentOnOpenCrossSection by rememberUpdatedState(onOpenCrossSection)
+    val currentOnLongPressStation by rememberUpdatedState(onLongPressStation)
+    val currentCrossSectioning by rememberUpdatedState(crossSectioning)
+    val currentOnCrossSectionPositioned by rememberUpdatedState(onCrossSectionPositioned)
+
     val viewport = canvas.viewport
     val fit = canvas.fit
 
     // The editor is a plain object, not Compose state, so a stroke in progress has to say when it
     // needs repainting. The viewport says so through the controller's own revision.
     var strokeTick by remember { mutableIntStateOf(0) }
-
-    // A tap that missed a station used to do nothing at all, silently — the one feedback this
-    // canvas gives about a tap that fell on nothing. `showSnackbar` suspends, and
-    // `detectTapGestures`'s own `onTap` does not, hence the separate scope to launch it from.
-    val missedTapMessage = remember { SnackbarHostState() }
-    val coroutineScope = rememberCoroutineScope()
 
     // True while a hot-corner or two-finger gesture is panning the view. Only used to tint the
     // corners, so the surveyor can see the touch was taken deliberately rather than lost.
@@ -194,13 +232,13 @@ fun SurveyCanvas(
             mode = mode,
             detail = detail,
             from = at,
-            pivot = scene.positionOf(detail.station.name),
+            pivot = currentScene.positionOf(detail.station.name),
         )
 
     /** Grab whatever cross-section is under the finger, for a [mode] drag. */
     fun grab(mode: SectionDragMode, at: Coord2D): SectionDrag? {
         if (!options.crossSectionsAreTouchable) return null
-        val detail = findCrossSectionBodyAt(scene.sketch, at) ?: return null
+        val detail = findCrossSectionBodyAt(currentScene.sketch, at) ?: return null
         return hold(mode, detail, at)
     }
 
@@ -210,28 +248,33 @@ fun SurveyCanvas(
     // another frame, which would write it again.
     val handleRects = remember { mutableMapOf<CrossSectionDetail, Rect>() }
 
-    // Keyed on `tool` as well as `scene`, and that is the whole reason the toolbar works.
-    //
     // `Modifier.pointerInput` runs a suspending gesture loop that restarts only when one of its
-    // keys changes. Every branch below sits at the same position in the modifier chain, so keying
-    // on `scene` alone let picking a new tool swap the *lambda* while the previously started loop
-    // kept running, and the canvas went on panning - masked by the fact that switching view
-    // rebuilds `scene` and restarts the loop with whatever tool was current by then.
+    // keys changes, and a restart cancels whatever gesture is under the finger. So the keys are
+    // exactly the things that make the running loop wrong, and nothing else:
     //
-    // And on `options`, for the same reason: a running loop holds the `options` it captured when
-    // it started, so turning a setting off from a menu changed nothing a finger could feel. With
-    // cross-sections hidden, a tap still opened a section's editor from what looks like blank
-    // paper - the very thing `handleCrossSectionBodyTap`'s "can't tap on invisible X-sections"
-    // guard exists to prevent.
+    //  - `tool`, or picking a new tool would swap the *lambda* while the previously started loop
+    //    kept running, and the canvas would go on panning;
+    //  - `options`, or a running loop would hold the settings it captured when it started, and
+    //    turning cross-sections off from a menu would change nothing a finger could feel. The whole
+    //    object rather than the settings each detector happens to read, because a list of what a
+    //    lambda reads is exactly the sort of thing that goes stale the next time somebody adds a
+    //    line to it. `DisplayOptions` is a data class, so this key changes exactly when a setting
+    //    changes;
+    //  - `editor`, `canvas` and `survey`, which change together when the view switches to another
+    //    sketch, and a loop must not go on drawing into the old one.
     //
-    // Keyed on the whole object rather than the settings each detector happens to read, because a
-    // list of what a lambda reads is exactly the sort of thing that goes stale the next time
-    // somebody adds a line to it. `DisplayOptions` is a data class, so this key changes exactly
-    // when a setting changes.
+    // Not `scene`. The scene is rebuilt on every revision - every reading from the instrument, and
+    // every finished stroke - and keying on it cancelled the gesture in progress each time. Someone
+    // drawing a wall while the instrument was firing lost the line under their pen the moment a
+    // shot landed: the loop's cleanup abandoned it, and the version before that left it on the
+    // sketch with no undo step behind it. What the loops need from the scene, they read live
+    // through `currentScene`.
+    val gestureKeys = arrayOf<Any?>(survey, editor, canvas, tool, options)
+
     val gestures =
         when (tool) {
             SketchTool.MOVE ->
-                Modifier.pointerInput(scene, tool, options) {
+                Modifier.pointerInput(*gestureKeys) {
                     detectTransformGestures { centroid, panChange, zoomChange, _ ->
                         // Zoom about the pinch centre first, then pan, so the point under the
                         // fingers stays under them.
@@ -267,14 +310,14 @@ fun SurveyCanvas(
                                 options.blueWater,
                             ),
                     )
-                    onSketchEdit()
+                    currentOnSketchEdit()
                 }
 
                 Modifier
-                    .pointerInput(scene, tool, options, symbol) {
+                    .pointerInput(*gestureKeys, symbol) {
                         detectTapGestures { offset -> stamp(offset, 0f) }
                     }
-                    .pointerInput(scene, tool, options, symbol) {
+                    .pointerInput(*gestureKeys, symbol) {
                         var start = Offset.Zero
                         var angle = 0f
                         detectDragGestures(
@@ -300,7 +343,7 @@ fun SurveyCanvas(
                     if (tool == SketchTool.MOVE_CROSS_SECTION) SectionDragMode.MOVE
                     else SectionDragMode.ROTATE
 
-                Modifier.pointerInput(scene, tool, options) {
+                Modifier.pointerInput(*gestureKeys) {
                     detectDragGestures(
                         onDragStart = { offset ->
                             sectionDrag = grab(mode, viewport.toSurvey(offset))
@@ -311,7 +354,7 @@ fun SurveyCanvas(
                                 sectionDrag?.movedTo(viewport.toSurvey(change.position))
                         },
                         onDragEnd = {
-                            if (sectionDrag?.commit(editor) == true) onSketchEdit()
+                            if (sectionDrag?.commit(editor) == true) currentOnSketchEdit()
                             sectionDrag = null
                         },
                         onDragCancel = { sectionDrag = null },
@@ -320,44 +363,33 @@ fun SurveyCanvas(
             }
 
             SketchTool.POSITION_CROSS_SECTION ->
-                Modifier.pointerInput(scene, tool, options) {
-                    // The Android app splits this in two - name the station, then tap to position
-                    // it - because it has a long-press menu for the first half. One tap does both
-                    // here: the nearest station in reach is the subject, and the point tapped is
-                    // where the section is drawn.
+                Modifier.pointerInput(*gestureKeys) {
+                    // `handlePositionCrossSection`. There is no hit test here and there must not
+                    // be one: the station was named by the menu this tool was armed from, and the
+                    // tap says only where on the paper the section is drawn. Somewhere the
+                    // passage is not, usually - which is exactly why the app asks.
                     detectTapGestures { offset ->
-                        val reach =
-                            viewport.toSurveyDistance(
-                                SketchDefaults.SELECTION_SENSITIVITY_DP.dp.toPx(),
-                            )
-                        val where = viewport.toSurvey(offset)
-                        val name = scene.stationNearest(where, reach)
-                        val station = name?.let { survey.getStationByName(it) }
-                        if (station != null) {
-                            // The bearing comes from CrossSectioner's own heuristic: bisect the
-                            // corner mid-passage, follow the single leg at a dead end, give up and
-                            // use north where there is nothing to go on. It is a guess, and
-                            // SketchTool.ROTATE_CROSS_SECTION is how a surveyor overrules it.
-                            editor.addCrossSection(CrossSectioner.section(survey, station), where)
-                            onSketchEdit()
-                        } else {
-                            // A tap that lands even a little off a station used to do nothing at
-                            // all, silently — indistinguishable from a tool that had simply
-                            // stopped responding.
-                            coroutineScope.launch {
-                                missedTapMessage.showSnackbar("No station there to put a section at")
-                            }
-                        }
+                        val station = currentCrossSectioning ?: return@detectTapGestures
+                        // The bearing comes from CrossSectioner's own heuristic: bisect the
+                        // corner mid-passage, follow the single leg at a dead end, give up and
+                        // use north where there is nothing to go on. It is a guess, and
+                        // SketchTool.ROTATE_CROSS_SECTION is how a surveyor overrules it.
+                        editor.addCrossSection(
+                            CrossSectioner.section(survey, station),
+                            viewport.toSurvey(offset),
+                        )
+                        currentOnSketchEdit()
+                        currentOnCrossSectionPositioned()
                     }
                 }
 
             SketchTool.TEXT ->
-                Modifier.pointerInput(scene, tool, options) {
+                Modifier.pointerInput(*gestureKeys) {
                     // Tap where the label goes. Size is converted from sp on screen into metres in
                     // the survey, exactly as the symbol tool does, so a label grows with the
                     // passage rather than staying the size it was placed at.
                     detectTapGestures { offset ->
-                        onPlaceLabel(
+                        currentOnPlaceLabel(
                             viewport.toSurvey(offset),
                             viewport.toSurveyDistance(options.style.textSizeSp.sp.toPx()),
                         )
@@ -365,7 +397,7 @@ fun SurveyCanvas(
                 }
 
             SketchTool.SELECT ->
-                Modifier.pointerInput(scene, tool, options) {
+                Modifier.pointerInput(*gestureKeys) {
                     // Tap a station to make it the one the next leg starts from. The reach is the
                     // app's own SELECTION_SENSITIVITY_DP, which is much larger than the eraser's -
                     // a station is a 10dp dot and a cold finger is not precise.
@@ -377,26 +409,26 @@ fun SurveyCanvas(
                         // this to steal a selection.
                         val section =
                             if (options.crossSectionsAreTouchable) {
-                                findCrossSectionBodyAt(scene.sketch, where)
+                                findCrossSectionBodyAt(currentScene.sketch, where)
                             } else {
                                 // Invisible sections cannot be tapped.
                                 null
                             }
                         if (section != null) {
-                            onOpenCrossSection(section)
+                            currentOnOpenCrossSection(section)
                             return@detectTapGestures
                         }
                         val reach =
                             viewport.toSurveyDistance(
                                 SketchDefaults.SELECTION_SENSITIVITY_DP.dp.toPx(),
                             )
-                        val chosen = scene.stationNearest(where, reach)
-                        if (chosen != null && onSelectStation(chosen)) onSketchEdit()
+                        val chosen = currentScene.stationNearest(where, reach)
+                        if (chosen != null && currentOnSelectStation(chosen)) currentOnSketchEdit()
                     }
                 }
 
             SketchTool.ERASE ->
-                Modifier.pointerInput(scene, tool, options) {
+                Modifier.pointerInput(*gestureKeys) {
                     // A rubber that rubs, which is a deliberate departure from the Android app:
                     // `GraphView.handleErase` only ever takes out what is under the *first* touch,
                     // and dragging across a wall does nothing at all there. A tool drawn as an
@@ -453,7 +485,7 @@ fun SurveyCanvas(
                                 pointer.consume()
                             }
 
-                            if (erased) onSketchEdit()
+                            if (erased) currentOnSketchEdit()
                         }
                     }
                 }
@@ -465,17 +497,17 @@ fun SurveyCanvas(
                     // alone produces no stroke - both jobs therefore go in *one* detector rather
                     // than two: a second `pointerInput` here took the touch-down away from the drag
                     // detector below and stopped drawing working at all.
-                    .pointerInput(scene, tool, options) {
+                    .pointerInput(*gestureKeys) {
                         detectTapGestures { offset ->
                             val at = viewport.toSurvey(offset)
                             val section =
                                 if (options.crossSectionsAreTouchable) {
-                                    findCrossSectionBodyAt(scene.sketch, at)
+                                    findCrossSectionBodyAt(currentScene.sketch, at)
                                 } else {
                                     null
                                 }
                             if (section != null) {
-                                onOpenCrossSection(section)
+                                currentOnOpenCrossSection(section)
                             } else {
                                 // A path of one point. `finishPath` commits it as the original
                                 // does, and the renderer draws a stroke with no length as a round
@@ -483,11 +515,11 @@ fun SurveyCanvas(
                                 editor.startPath(at)
                                 editor.finishPath()
                                 strokeTick++
-                                onSketchEdit()
+                                currentOnSketchEdit()
                             }
                         }
                     }
-                    .pointerInput(scene, tool, options) {
+                    .pointerInput(*gestureKeys) {
                         // Snapping is ported from `GraphView.considerSnapToSketchLine`, ends only:
                         // the start jumps on touch-down, and the finish appends the snapped point
                         // rather than moving the last one, exactly as the original does.
@@ -553,7 +585,15 @@ fun SurveyCanvas(
                                     strokeTick++
                                 }
 
-                                if (started) {
+                                // `started` alone is not enough: another detector can have
+                                // abandoned the stroke under this loop - a second finger reaching
+                                // `detectModalMove`, or a long press taking the touch - and the
+                                // loop then leaves on `isConsumed` with nothing active. Snapping
+                                // in that state would *start* a stroke at the snap point, since
+                                // `extendPath` begins one when none is in progress, and
+                                // `finishPath` would commit it: a dot left on the end of a wall by
+                                // a pan the surveyor made to get away from it.
+                                if (started && editor.activePath != null) {
                                     // finishPath simplifies the stroke and pushes one undo step;
                                     // a stroke of fewer than two points is still committed, as in
                                     // the original, because a tap is how you draw a dot — though a
@@ -563,14 +603,16 @@ fun SurveyCanvas(
                                             ?.let { editor.extendPath(it) }
                                     }
                                     editor.finishPath()
-                                    onSketchEdit()
+                                    currentOnSketchEdit()
                                 }
                             } finally {
                                 // A gesture cancelled mid-stroke — a long press elsewhere taking
-                                // the pointer, say — otherwise leaves an unfinished stroke on the
-                                // sketch; `detectDragGestures`'s own onDragCancel did the same
-                                // cleanup. `finishPath` above already clears this on the ordinary
-                                // path, so this only ever fires on the cancelled one.
+                                // the pointer, say, or the tool changing under it — otherwise
+                                // leaves an unfinished stroke on the sketch; `detectDragGestures`'s
+                                // own onDragCancel did the same cleanup. `finishPath` above already
+                                // clears this on the ordinary path, so this only ever fires on the
+                                // cancelled one. A reading arriving is not one of those any more:
+                                // see the keys on `gestures`.
                                 if (editor.activePath != null) {
                                     editor.abandonPath()
                                     strokeTick++
@@ -583,13 +625,13 @@ fun SurveyCanvas(
     // Hold a station to get at it. See [detectLongPress] for why this is not detectTapGestures,
     // and why it sits between the tool's own detectors and the hot-corner one.
     val longPress =
-        Modifier.pointerInput(scene, tool, options) {
+        Modifier.pointerInput(*gestureKeys) {
             var held: String? = null
             detectLongPress(
                 onHeld = { offset ->
                     val reach =
                         viewport.toSurveyDistance(SketchDefaults.SELECTION_SENSITIVITY_DP.dp.toPx())
-                    held = scene.stationNearest(viewport.toSurvey(offset), reach)
+                    held = currentScene.stationNearest(viewport.toSurvey(offset), reach)
                     if (held != null) {
                         // A stroke begun by the press that opened the menu is not a stroke anybody
                         // meant to draw.
@@ -599,7 +641,7 @@ fun SurveyCanvas(
                     held != null
                 },
                 onReleased = {
-                    held?.let(onLongPressStation)
+                    held?.let(currentOnLongPressStation)
                     held = null
                 },
             )
@@ -618,7 +660,7 @@ fun SurveyCanvas(
             // No bar is drawn in legacy mode, so there is nothing to grab.
             Modifier
         } else {
-            Modifier.pointerInput(scene, tool, options) {
+            Modifier.pointerInput(*gestureKeys) {
                 val reach = CanvasSizes.CROSS_SECTION_HANDLE_TOUCH_HEIGHT_DP.dp.toPx()
                 awaitEachGesture {
                     // requireUnconsumed: a hot corner has already claimed this touch, and a
@@ -647,7 +689,7 @@ fun SurveyCanvas(
                         pointer.consume()
                     }
 
-                    if (sectionDrag?.commit(editor) == true) onSketchEdit()
+                    if (sectionDrag?.commit(editor) == true) currentOnSketchEdit()
                     sectionDrag = null
                 }
             }
@@ -660,7 +702,7 @@ fun SurveyCanvas(
     // convention taken is the one every desktop drawing tool uses: plain scroll pans, ctrl (or
     // cmd) and scroll zooms about the pointer.
     val wheel =
-        Modifier.pointerInput(scene, tool, options) {
+        Modifier.pointerInput(*gestureKeys) {
             awaitPointerEventScope {
                 while (true) {
                     val event = awaitPointerEvent()
@@ -702,7 +744,7 @@ fun SurveyCanvas(
         if (tool == SketchTool.MOVE) {
             Modifier
         } else {
-            Modifier.pointerInput(scene, tool, options) {
+            Modifier.pointerInput(*gestureKeys) {
                 detectModalMove(
                     hotCorners = options.hotCorners,
                     twoFingerPan = options.twoFingerMove,
@@ -741,11 +783,24 @@ fun SurveyCanvas(
     // Touching the drawing gives it the keyboard back, whatever took it - a colour swatch, a menu
     // that has closed, the browser's own address bar. Consumes nothing and is dispatched after
     // every other detector, so no tool can tell it is there.
-    val keyboardFocusOnTouch =
-        Modifier.pointerInput(Unit) {
+    //
+    // It also tells the controller when a touch is down, from the first finger landing until the
+    // last one lifts, so nothing moves the view while a stroke is under way - the automatic re-fit
+    // below, and `centreOn` following a station that a reading mid-stroke has just created. The
+    // `finally` is what keeps a torn-down loop from leaving the view held still for good.
+    val touchTracking =
+        Modifier.pointerInput(canvas) {
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false)
                 runCatching { keyboardFocus.requestFocus() }
+                canvas.touchBegan()
+                try {
+                    while (awaitPointerEvent().changes.any { it.pressed }) {
+                        // Still down.
+                    }
+                } finally {
+                    canvas.touchEnded()
+                }
             }
         }
 
@@ -760,7 +815,7 @@ fun SurveyCanvas(
         // Taken whether or not there was anything left on the stack: an undo at the bottom of the
         // pile is still the app's key, and letting it through to the browser at that one moment
         // would be a surprise nobody could explain.
-        if (if (undo) editor.undo() else editor.redo()) onSketchEdit()
+        if (if (undo) editor.undo() else editor.redo()) currentOnSketchEdit()
         strokeTick++
         return true
     }
@@ -774,7 +829,7 @@ fun SurveyCanvas(
         modifier =
             modifier
                 .clipToBounds()
-                .then(keyboardFocusOnTouch)
+                .then(touchTracking)
                 // Order is load-bearing. A key event is dispatched to the focused node and then
                 // *up* its ancestors, and `focusable()` is the node that holds the focus - so a
                 // handler placed after it is a descendant of the focus target and never hears a
@@ -810,7 +865,17 @@ fun SurveyCanvas(
             // The trigger is the *centreline's* extent, not the whole scene's: a drawn stroke
             // enlarges the scene too, and re-framing the view because somebody drew near the edge
             // would move the paper out from under the pen.
-            if (fit.shouldFitTo(scene.surveyBounds) && size.width > 0f && size.height > 0f) {
+            //
+            // And not while a touch is down, for the same reason from the other side: a leg that
+            // lands mid-stroke grows the centreline, and re-fitting to it then would move the
+            // paper under a pen that has not moved. The fit happens on the frame after the finger
+            // lifts instead; `touchEnded` asks for that frame.
+            if (
+                !canvas.isTouched &&
+                    fit.shouldFitTo(scene.surveyBounds) &&
+                    size.width > 0f &&
+                    size.height > 0f
+            ) {
                 viewport.fitTo(scene.bounds, size.width, size.height)
                 fit.noteFitted(scene.surveyBounds)
             }
@@ -824,16 +889,15 @@ fun SurveyCanvas(
                 tool,
                 sectionDrag,
                 modalMoving,
-                // North is meaningless anywhere else: the extended elevation is unrolled onto a
-                // line and a cross-section is drawn across the passage. `GraphView.drawCompass`
-                // returns immediately unless the projection is the plan, and so does this.
-                isPlan = sceneOverride == null && projection == Projection2D.PLAN,
+                isPlan = isPlan,
                 projection = projection,
                 handleRects = handleRects,
+                // A missing heading means no compass on this device, so the arrow is drawn as a
+                // label: north is up, because that is where the plan puts it.
+                headingDegrees = headingDegrees ?: deviceHeading.value ?: 0f,
             )
         }
 
-        SnackbarHost(missedTapMessage, modifier = Modifier.align(Alignment.BottomCenter))
     }
 }
 
@@ -869,6 +933,14 @@ class SurveyScene private constructor(
     val commentedStations: Set<String>,
     val originName: String,
     val surveyName: String,
+    /**
+     * `GraphView.setCachedStats`: the survey's length and vertical range, for the legend line.
+     *
+     * Cached with the scene rather than computed in the draw loop for the reason the Android app
+     * caches them — both walk the whole survey, and the loop runs on every frame of a drag.
+     */
+    val surveyLength: Float = 0f,
+    val surveyHeight: Float = 0f,
     /** Everything drawn, centreline and ink alike — what the opening zoom is fitted to. */
     val bounds: Bounds,
     /**
@@ -948,6 +1020,8 @@ class SurveyScene private constructor(
                 space.stationMap.keys.filter { it.hasComment() }.map { it.name }.toSet(),
                 survey.origin.name,
                 survey.name,
+                SurveyStats.totalLength(survey),
+                SurveyStats.heightRange(survey),
                 bounds,
                 surveyBounds,
             )
@@ -966,7 +1040,15 @@ class SurveyScene private constructor(
          * @param working the sketch being edited, which is a copy of the section's own — see
          *   [Sketch.copy].
          */
-        fun forCrossSection(detail: CrossSectionDetail, working: Sketch): SurveyScene {
+        fun forCrossSection(
+            detail: CrossSectionDetail,
+            working: Sketch,
+            /**
+             * The survey the section belongs to, for the legend line `CrossSectionView` draws.
+             * Null draws no legend, which is what a caller with nothing to name wants.
+             */
+            survey: Survey? = null,
+        ): SurveyScene {
             val projection = detail.crossSection.getProjection()
             val station = detail.station
             // Every splay in a cross-section radiates from the station this view is centred on,
@@ -988,11 +1070,14 @@ class SurveyScene private constructor(
                 splays = splays,
                 sketch = working,
                 activeStationName = station.name,
-                // No comment icon or survey name in brackets: those belong to the plan, not to
-                // the profile of the passage at this station.
+                // No comment icon, and no "(survey name)" after the origin's own label: those
+                // belong to the plan, not to the profile of the passage at this station. The
+                // legend line below is a different thing, and `CrossSectionView` does draw it.
                 commentedStations = emptySet(),
                 originName = "",
-                surveyName = "",
+                surveyName = survey?.name ?: "",
+                surveyLength = survey?.let(SurveyStats::totalLength) ?: 0f,
+                surveyHeight = survey?.let(SurveyStats::heightRange) ?: 0f,
                 bounds = crossSectionFitBounds(splays),
                 surveyBounds = Bounds.of(points),
             )
@@ -1185,6 +1270,12 @@ private const val ERASER_INSET_DP = 40f
 
 /** The faint metre grid. */
 private const val GRID_STROKE_DP = 1f
+
+/** `gridPaint.setStrokeWidth(... ? 3 : 1)`: what every tenth line is drawn at. */
+private const val MAJOR_GRID_STROKE_DP = 3f
+
+/** `GraphView.BOX_SIZE`: "every grid box is 10 units square". */
+private const val GRID_BOX_LINES = 10
 
 /** The scale bar: the rule itself, its two end ticks, and where its label sits. */
 private const val SCALE_BAR_TARGET_DP = 120f
@@ -1489,19 +1580,27 @@ private fun DrawScope.drawGrid(viewport: SketchViewport, palette: Palette) {
     val rows = (bottomRight.y - topLeft.y) / spacing
     if (!columns.isFinite() || !rows.isFinite() || columns > 400f || rows > 400f) return
 
-    val gridStroke = GRID_STROKE_DP.dp.toPx()
-    var x = floor(topLeft.x / spacing) * spacing
-    while (x <= bottomRight.x) {
-        val screenX = viewport.toScreen(Coord2D(x, topLeft.y)).x
-        drawLine(palette.grid, Offset(screenX, 0f), Offset(screenX, size.height), gridStroke)
-        x += spacing
+    val minor = GRID_STROKE_DP.dp.toPx()
+    val major = MAJOR_GRID_STROKE_DP.dp.toPx()
+
+    // `drawGrid` widens every tenth line: `gridPaint.setStrokeWidth(n % BOX_SIZE == 0 ? 3 : 1)`,
+    // where n is the line's ordinal in survey coordinates, not its position on screen. That is
+    // what makes the paper read as ten-metre boxes divided into metres rather than as an
+    // undifferentiated mesh — and it is what tells a surveyor the scale at a glance.
+    var line = floor(topLeft.x / spacing)
+    while (line * spacing <= bottomRight.x) {
+        val screenX = viewport.toScreen(Coord2D(line * spacing, topLeft.y)).x
+        val stroke = if (line.toInt() % GRID_BOX_LINES == 0) major else minor
+        drawLine(palette.grid, Offset(screenX, 0f), Offset(screenX, size.height), stroke)
+        line += 1f
     }
 
-    var y = floor(topLeft.y / spacing) * spacing
-    while (y <= bottomRight.y) {
-        val screenY = viewport.toScreen(Coord2D(topLeft.x, y)).y
-        drawLine(palette.grid, Offset(0f, screenY), Offset(size.width, screenY), gridStroke)
-        y += spacing
+    line = floor(topLeft.y / spacing)
+    while (line * spacing <= bottomRight.y) {
+        val screenY = viewport.toScreen(Coord2D(topLeft.x, line * spacing)).y
+        val stroke = if (line.toInt() % GRID_BOX_LINES == 0) major else minor
+        drawLine(palette.grid, Offset(0f, screenY), Offset(size.width, screenY), stroke)
+        line += 1f
     }
 }
 
@@ -1563,6 +1662,8 @@ private fun DrawScope.drawSurvey(
      * coordinates.
      */
     handleRects: MutableMap<CrossSectionDetail, Rect>? = null,
+    /** Which way the top of the screen is pointing, or zero where nothing can say. */
+    headingDegrees: Float = 0f,
 ) {
     val palette = if (options.darkMode) DarkPalette else LightPalette
 
@@ -1788,7 +1889,22 @@ private fun DrawScope.drawSurvey(
                 continue
             }
 
-            // Scale from the 40-unit grid to the stamp's size in metres, then to pixels.
+            // Move to where the stamp goes, turn it, then scale the 40-unit grid down to the
+            // stamp's size in metres and on to pixels. No fourth step shifting the artwork by half
+            // a box: `Symbol.toPath` builds it centred on the origin already, which is what lets
+            // the rotate above turn it on the spot. `SymbolPalette` draws these same paths the
+            // same way.
+            //
+            // There used to be such a step, and it centred the artwork a second time. It was right
+            // when it was written — `toPath` then returned a box running from (0, 0) to (40, 40) —
+            // and was left behind when `toPath` was changed to centre its own output, which is the
+            // ordinary way a fix outlives its cause. The cost was every stamp in every survey
+            // drawn half its own size up and to the left of the point it was stamped at, turning
+            // about a corner rather than on the spot. Everything else agreed on the centre all
+            // along: `GraphView` (`offset = size / 2f`, and a `RotateDrawable` pivoted at
+            // 0.5, 0.5), the SVG and Therion exports, and `SymbolDetail.getDistanceFrom` — so the
+            // eraser was reaching for symbols where this was not drawing them.
+            // `SymbolStampCentringTest` measures the ink and holds it here.
             val scale = symbol.size * viewport.pixelsPerMetre / Symbol.VIEWPORT
             withTransform({
                 translate(centre.x, centre.y)
@@ -1937,7 +2053,12 @@ private fun DrawScope.drawSurvey(
         }
     }
 
-    if (tool == SketchTool.ERASE) {
+    // `CrossSectionView.onDraw` is `drawGrid`, `drawSurvey`, `drawLegend` — and nothing else. No
+    // hot corners, and no eraser ring: there is one station and its wall shots in here, and the
+    // corners of a section drawn at four metres across are inside the passage.
+    val isCrossSection = projection == Projection2D.CROSS_SECTION
+
+    if (tool == SketchTool.ERASE && !isCrossSection) {
         // The eraser's real reach, drawn at the size a tap would actually clear.
         drawCircle(
             palette.station,
@@ -1949,26 +2070,41 @@ private fun DrawScope.drawSurvey(
 
     // Last, so they sit on top of the drawing rather than under it: a corner you cannot see
     // because a passage wall is drawn across it is a corner that will eat a stroke.
-    if (options.hotCorners) {
+    if (options.hotCorners && !isCrossSection) {
         drawHotCorners(modalMoving, palette)
     }
 
-    drawScaleBar(viewport.pixelsPerMetre, palette, textMeasurer, fontFamily, options.style.legendSizeSp)
+    drawLegend(
+        scene = scene,
+        pixelsPerMetre = viewport.pixelsPerMetre,
+        palette = palette,
+        textMeasurer = textMeasurer,
+        fontFamily = fontFamily,
+        legendSizeSp = options.style.legendSizeSp,
+    )
     // `drawCompass` is guarded on both the toggle and the projection, in that order. There is
     // no arrow on an elevation because there is no bearing to draw one for.
     if (options.showCompass && isPlan) {
-        drawNorthArrow(palette, textMeasurer, fontFamily, options.style.legendSizeSp)
+        drawNorthArrow(
+            palette,
+            textMeasurer,
+            fontFamily,
+            options.style.legendSizeSp,
+            headingDegrees,
+        )
     }
 }
 
 /**
  * The north arrow, above the scale bar and to the left, as `GraphView.drawCompass` draws it.
  *
- * **It does not swing with the phone yet.** The original rotates it by the device's heading; an
- * arrow that always points up is correct rather than approximate since `Projection2D.PLAN` maps
- * north to *minus* the screen y, but what is missing is the *magnetometer*, which needs an
- * `expect`/`actual` on three platforms and, on iOS, a usage-description key that crashes the app
- * on launch if it is wrong.
+ * [headingDegrees] is which way the top of the screen is pointing, and the arrow turns back
+ * against it: face north and it points up the screen, turn a quarter circle to your right and
+ * north is now to your left, so the arrow swings the same quarter circle the other way. Zero is
+ * both "facing north" and "this device has no compass", and they want the same picture — north
+ * up, which is where `Projection2D.PLAN` puts it on the paper anyway.
+ *
+ * See [rememberDeviceHeading] for where the heading comes from on each platform.
  */
 @OptIn(ExperimentalTextApi::class)
 private fun DrawScope.drawNorthArrow(
@@ -1994,8 +2130,9 @@ private fun DrawScope.drawNorthArrow(
     // Above the scale bar *and its label*. The Java measures from its bar alone, but its label
     // hangs below the bar and this port's sits above it, so copying the formula put the arrow's
     // tail straight through the words "10 m".
-    val labelTop = size.height - 2f * SCALE_BAR_LABEL_UP_DP.dp.toPx() - textHeight
-    val centreY = labelTop - COMPASS_GAP_DP.dp.toPx() - arrowLength / 2f
+    // `scaleBarY = getHeight() - textSize * 4f`, and the arrow's centre one text height above it.
+    val scaleBarY = size.height - textSize * 4f
+    val centreY = scaleBarY - arrowLength / 2f - textHeight
     val stroke = SCALE_BAR_STROKE_DP.dp.toPx()
 
     rotate(-headingDegrees, pivot = Offset(centreX, centreY)) {
@@ -2020,6 +2157,45 @@ private fun DrawScope.drawPolyline(points: List<Offset>, colour: Color, width: F
     drawPath(path, colour, style = Stroke(width = width, cap = StrokeCap.Round))
 }
 
+/**
+ * `GraphView.drawLegend`: the survey's own name and size, then the scale bar under it.
+ *
+ * The label line is `<name> L<length> V<vertical range>`, in whole metres, which is the one thing
+ * on the screen that says which cave this is and how big it has got. This port drew the bar and
+ * left the line out — nothing looks wrong when a label is simply absent, which is why it survived
+ * so long, and it is also the reason the exported SVG carried a legend the screen did not.
+ */
+@OptIn(ExperimentalTextApi::class)
+private fun DrawScope.drawLegend(
+    scene: SurveyScene,
+    pixelsPerMetre: Float,
+    palette: Palette,
+    textMeasurer: TextMeasurer,
+    fontFamily: FontFamily,
+    legendSizeSp: Float = LEGEND_TEXT_SP,
+) {
+    val textSize = legendSizeSp.sp.toPx()
+    val style =
+        TextStyle(color = palette.scaleBar, fontSize = legendSizeSp.sp, fontFamily = fontFamily)
+
+    // `offsetX`/`offsetY`, both `legendSize * 1.25`, so a bigger legend moves further in.
+    val inset = textSize * 1.25f
+    // `CrossSectionView.onDraw` calls `drawLegend` as the plan's does, so the section's editor
+    // carries the same line — it is the only thing on that screen naming the cave. Guarded on the
+    // name only so a scene built without one draws nothing rather than "  L0 V0".
+    if (scene.surveyName.isNotEmpty()) {
+        val label =
+            scene.surveyName +
+                " L" + formatFixed(scene.surveyLength, 0) +
+                " V" + formatFixed(scene.surveyHeight, 0)
+        val layout = textMeasurer.measure(label, style)
+        // The Java positions text by its baseline and Compose by its top.
+        drawText(layout, topLeft = Offset(inset, size.height - inset - layout.size.height))
+    }
+
+    drawScaleBar(pixelsPerMetre, palette, textMeasurer, fontFamily, legendSizeSp)
+}
+
 @OptIn(ExperimentalTextApi::class)
 private fun DrawScope.drawScaleBar(
     pixelsPerMetre: Float,
@@ -2040,27 +2216,38 @@ private fun DrawScope.drawScaleBar(
 
     val barPixels = metres * pixelsPerMetre
     if (!barPixels.isFinite() || barPixels > size.width) return
-    val left = SCALE_BAR_LEFT_DP.dp.toPx()
-    val bottom = size.height - SCALE_BAR_LABEL_UP_DP.dp.toPx()
+
+    val textSize = legendSizeSp.sp.toPx()
+    val inset = textSize * 1.25f
+    val left = inset
+    // `scaleOffsetY = offsetY * 2`: the bar sits one legend-height above the label line.
+    val bottom = size.height - inset * 2f
     val stroke = SCALE_BAR_STROKE_DP.dp.toPx()
     val tick = SCALE_BAR_TICK_DP.dp.toPx()
 
+    // One path in the Java, and its ticks go *up* only — this port drew them both ways, which
+    // reads as a dimension line rather than a scale.
     drawLine(palette.scaleBar, Offset(left, bottom), Offset(left + barPixels, bottom), stroke)
-    drawLine(palette.scaleBar, Offset(left, bottom - tick), Offset(left, bottom + tick), stroke)
+    drawLine(palette.scaleBar, Offset(left, bottom - tick), Offset(left, bottom), stroke)
     drawLine(
         palette.scaleBar,
         Offset(left + barPixels, bottom - tick),
-        Offset(left + barPixels, bottom + tick),
+        Offset(left + barPixels, bottom),
         stroke,
     )
 
-    val label = if (metres >= 1f) "${metres.roundToInt()} m" else "${(metres * 100).roundToInt()} cm"
+    val label = if (metres >= 1f) "${metres.roundToInt()}m" else "${(metres * 100).roundToInt()}cm"
     val layout =
         textMeasurer.measure(
             label,
             TextStyle(color = palette.scaleBar, fontSize = legendSizeSp.sp, fontFamily = fontFamily),
         )
-    drawText(layout, topLeft = Offset(left, bottom - SCALE_BAR_LABEL_UP_DP.dp.toPx()))
+    // To the right of the bar, on its own line, as `drawLegend` places it — not above it.
+    drawText(
+        layout,
+        topLeft =
+            Offset(left + barPixels + 0.3f * textSize, bottom - layout.size.height * 0.8f),
+    )
 }
 
 class Palette(

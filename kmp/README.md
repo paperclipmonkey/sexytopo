@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 800 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 820 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and eight more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -64,7 +64,7 @@ Being precise about this matters more than the demo looking good.
 | A station being made can be felt rather than looked at | **Verified** | the callback fires once per station and not once per reading, the preference round-trips, and `field.mjs` turns it off through the settings screen and checks it stayed off |
 | **The app can be told to stay dark, and remembers it** | **Verified** | `pref_theme` is a three-value list in the Android app — auto, light, dark — and this port had a session-only checkbox that started light on every run. In a cave that is the difference between a survey and fifteen minutes of no night vision. `AppPreferencesTest` covers the three values, the resolution against what the platform reports, and the round trip through the file; `field.mjs` sets Chromium to `prefers-color-scheme: dark` and watches *Automatic* follow it, then chooses **Dark** with the browser back on light, **reloads the page**, and checks the app comes back dark |
 | **The mode the instrument is being held in is remembered** | **Verified** | the Android app reads `inputMode` out of `generalPrefs` on its way in; this port held it in a `var` that started at foresights every run, and the field bar only says anything when the mode is *not* foresights — so the state it came back in is the one that looks normal, and every leg after it is turned end for end with nothing in the numbers to show it. Now written down, along with the tool, the brush and the symbol, which `SketchPreferences` also keeps. `AppPreferencesTest` closes and reopens a `DemoState` over one store — the reading half as well as the writing half — and checks that a tool armed for a single touch is *not* restored; `field.mjs` taps the chips on a phone screen and watches the file follow, both ways round |
-| **A lost instrument can be chased, and given up on** | **Verified** | a cave breaks Bluetooth constantly — the surveyor walks round a corner with the phone, the instrument sleeps, a cold battery sags — and every one of those cost a trip to the connection screen with cold hands. `ReconnectionPolicy` is ported from the Java with its scheduling taken out, so it can be driven by a clock a test controls: `ReconnectionPolicyTest` has the decisions, including that the window is measured from the *first* failure of a run so an instrument left at the last station stops costing battery on the way out, and that a retry landing while an attempt is still running is deferred rather than spent. `ReconnectionTest` drives a fake radio through a drop, a recovery, an instrument that never comes back, a second bad patch four hours later, a drop the radio never reported at all, and a bad packet on a link that is still up. It is **on** by default here where Android has it off — the first trip underground with this app is finding 99, and it settled that argument — so `field.mjs` turns it off, reads the file, and turns it back on |
+| **A lost instrument can be chased, and given up on** | **Verified** | a cave breaks Bluetooth constantly — the surveyor walks round a corner with the phone, the instrument sleeps, a cold battery sags — and every one of those cost a trip to the connection screen with cold hands. `ReconnectionPolicy` is ported from the Java with its scheduling taken out, so it can be driven by a clock a test controls: `ReconnectionPolicyTest` has the decisions, including that the window is measured from the *first* failure of a run so an instrument left at the last station stops costing battery on the way out, and that a retry landing while an attempt is still running is deferred rather than spent. `ReconnectionTest` drives a fake radio through a drop, a recovery, an instrument that never comes back, a second bad patch four hours later, a drop the radio never reported at all, and a bad packet on a link that is still up. It is **on** by default here where Android has it off — the first trip underground with this app is finding 109, and it settled that argument — so `field.mjs` scrolls the settings dialog to the end, turns it off, reads the file, and turns it back on |
 | **And the surveyor can see which of those is happening** | **Verified** | an app quietly coping and an app that has given up looked identical, which was half of what that trip reported. A dot on the field bar: green connected, amber trying, red gone, drawn as a ring rather than a disc while an attempt runs so the difference survives a red light or a colour-blind eye, with the state in words beside it whenever it is not simply connected, and the whole thing a tap target for the instrument screen. `ConnectionStatusTest` pins which situation reads as which state — including that "reconnecting" and "given up" are told apart, since that is the distinction somebody deciding whether to walk back for their instrument is asking about |
 | **The instrument outlives the survey, and the app being closed** | **Verified** | opening another survey dropped the session on the floor with its transport still connected and still observed: the radio stayed on and readings went into a survey nobody could see. It moves across now, because an instrument belongs to the surveyor rather than to the survey. Which one it was is written down too, so opening the app offers it back rather than a list of nine — `LastInstrumentTest`, including that a name this version does not know reads as no instrument rather than a crash, and that somebody who has turned chasing off does not get their radio woken by opening the app |
 | **The instrument's clock runs where the surveyor is** | **Verified** | it used to tick only while the connection or calibration dialog was open, so an attempt abandoned by closing the dialog never timed out and left the radio scanning, and a reconnection could never have happened at all — a surveyor waiting for an instrument to come back is drawing. One loop in `App`, keyed on the attached instrument, so it costs nothing on the demo cave. Finding 51 |
@@ -305,10 +305,11 @@ compiles the Kotlin/Native framework and embeds it. `kmp/iosApp/project.yml` and
 below it describe a fully manual alternative if you would rather install nothing.
 
 The iOS-specific surface is small and every file in it is one screen long:
-`demo/src/iosMain/` holds thirteen — `MainViewController.kt` is one function, and the rest are the
+`demo/src/iosMain/` holds fifteen — `MainViewController.kt` is one function, and the rest are the
 `actual` halves of things a phone has and a browser does not: the Documents file store, the
 clipboard, the file picker, keeping the screen awake, the date and the timestamp, the haptic, the
-two exports (a text file and a zip), the storage-durability answer and the instrument transports. `iosApp/` holds two Swift
+compass, the keyboard nudge the browser needs and iOS does not, the two exports (a text file and
+a zip), the storage-durability answer and the instrument transports. `iosApp/` holds two Swift
 files. `shared/src/iosMain/` holds one more, `CoreBluetoothTransport.kt`, for when you want real
 instruments. Everything else — the whole survey engine, every importer and exporter, the sketch
 editor, the calibration solver, the 3D camera and the entire user interface — is the same code the
@@ -490,8 +491,9 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
 - **Know which way is north.** The plan carries the app's own north arrow, above the scale bar, and
   *Show north* takes it off again for anyone who wants the corner of the screen back. It had one in
   the exported SVG and not on the screen, which is the kind of gap no test finds because nothing is
-  *wrong* — something is simply absent. It does not yet swing with the phone; on a plan north is
-  up, so it is right rather than approximate, and what is missing is the sensor.
+  *wrong* — something is simply absent. It swings, too: turn round in the passage and it turns with
+  you, off the phone's own compass on Android, iOS and in the browser. A desktop has nothing to ask
+  and gets the arrow pointing up, which on a plan is exactly where north is anyway.
 - **Find the switch you are after.** The drawing menu is the app's own, and this port reaches more
   from it than the app does — a nine-column toolbar has no room left — so at eighteen rows it was
   taller than an iPhone SE. It is now what `drawing.xml` always said it was: seven things that
@@ -501,8 +503,10 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
 
   The overflow menu went the same way an hour later, and for the same reason: flat, it was fourteen
   rows plus one per saved survey, and on an SE the last of them was drawn half off the bottom edge.
-  It is `action_bar.xml`'s own five now — File, View, Instrument, Settings, About — with the saved
-  surveys inside File where the app's own *Open* is.
+  It is now `action_bar.xml`'s own seven, in its own order and under its own labels — File, View,
+  Instrument, Input Mode, Tools, Settings, Help, and the checkable *Connection* item under them —
+  with the saved surveys inside File under the app's own *Open Survey…*, and its *Delete Survey…*
+  beside it.
 - **Give the drawing the whole screen.** *Full screen*, in Settings, takes the app bar away and
   leaves a slim handle in its place. It matters most turned sideways, which is how a wide passage
   gets drawn: on a phone in landscape the app's own chrome is about half the height, and the app
@@ -640,12 +644,13 @@ things in this app went past that limit. The drawing menu reached eighteen rows 
 popup, on a 667-pixel screen — and has been split: the seven items that *do* something stay on the
 menu, and the twelve toggles moved into a dialog of their own under `drawing.xml`'s own two group
 names. The overflow menu went the same way and for the same reason, back to `action_bar.xml`'s own
-File / View / Instrument / Settings / About, with the saved surveys inside File; flat, it was
-fourteen rows before a single survey was saved, and the last of them was drawn half off the bottom
-of the screen. And the station dialog — a name, a comment, four passage measurements and the elevation direction — is
-most of a screen before a keyboard takes a third of what is left. Material 3 scrolls a dropdown
-that does not fit and *clips* a dialog that does not, so the three dialogs with several fields in
-them were made scrollable: the station dialog, the reading dialog and the edit-reading dialog.
+File / View / Instrument / Input Mode / Tools / Settings / Help, with the saved surveys inside
+File; flat, it was fourteen rows before a single survey was saved, and the last of them was drawn
+half off the bottom of the screen. And the station menu's dialogs are `context_station.xml`'s own
+one-field ones — *Comment*, *Rename* — rather than the single tall form this port had, which was
+most of a screen before a keyboard took a third of what was left. Material 3 scrolls a dropdown
+that does not fit and *clips* a dialog that does not, so the dialogs with several fields in
+them are scrollable: the station dialogs, the reading dialog and the edit-reading dialog.
 
 Say plainly what that is worth. `field.mjs` finishes at 375x667: it checks the app still draws and
 still takes a stroke there, and then puts up the one dialog guaranteed to overflow that screen —
@@ -726,7 +731,9 @@ Honest limits, so nothing is a surprise in a cave:
 | `GraphView.dpToPixels` on every drawn size | `demo/.../SurveyCanvas.kt` (`CanvasSizes`), `ThreeDView.kt` | Finding 28: a plain number in a `DrawScope` is a physical pixel, so the whole drawing was a third of its size on a phone |
 | `Sketch.addSymbolDetail`'s blue-water override | `shared/sketch/SymbolColour.kt` | A rule about a preference, kept out of the generated `Symbol` enum |
 | `res/menu/context_leg.xml`, `ContextMenuManager.configureMenuVisibility`, `SurveyEditorActivity`'s leg handlers | `demo/.../LegActions.kt`, `SurveyUpdater.can{Downgrade,PromoteToAbove}Leg` | An action that cannot work is left out rather than shown greyed out or answered with a toast |
-| `res/menu/table_station_selected.xml`, `TableActivity.onCellClicked` | `demo/.../SurveyTableView.kt`, `StationMenu.kt` (`fromTable`) | One dialog reached two ways; the jump is left as a request for the sketch to pick up, because the viewport belongs to a canvas that does not exist yet |
+| `res/menu/table_station_selected.xml`, `TableActivity.onRowClick`/`onRowLongClick` | `demo/.../SurveyTableView.kt`, `StationMenu.kt` (`fromTable`) | One dialog reached two ways; a tap edits the reading and a long press opens a menu, as it does upstream. The jump is left as a request for the sketch to pick up, because the viewport belongs to a canvas that does not exist yet |
+| `TableRowAdapter.onBindViewHolder`, `@style/HeaderRow`/`BodyText` | `demo/.../SurveyTableView.kt` | The green header, the five short headings, alternating stripes, bold legs and plain splays, right-aligned numbers and the active station lit in `tableHighlight` |
+| `activity_table.xml`'s two FABs, `updateManualReadingsFabVisibility` | `demo/.../App.kt` (`ManualEntryFabs`) | Add Splay above Add Station, both gone when `pref_manual_controls` is off |
 | `menu_navigate` (`action_jump_to_table`) | `demo/.../SurveyTableView.kt` (`rowIndexFor`), `DemoState.showInTable` | The row a station is found at is the leg that arrived at it, which is also the row its splays sit under |
 | `values/about_text.xml`, `openAboutDialog` | `demo/.../AboutDialog.kt` | Verbatim but for the bullet character, plus a paragraph saying what this build is and is not |
 | `TableRowAdapter`'s `COMMENT_MARKER` | `demo/.../SurveyTableView.kt` | The dagger goes on the station the row *shows*, which for a backsight is not the one the leg starts at |
@@ -741,11 +748,17 @@ Honest limits, so nothing is a surprise in a cave:
 | `res/layout/activity_graph.xml` | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied |
 | `res/values/colors.xml` (+ `values-night`) | `demo/.../SexyTopoTheme.kt` | The app's own palette |
 | `res/drawable-hdpi/*.png` | `demo/src/commonMain/composeResources/drawable/` | The app's own icons |
-| `res/menu/action_bar.xml`'s submenus | `demo/.../App.kt` (`MenuPage`) | File, View, Instrument, Settings and About, one page at a time — Material 3 has no nested `DropdownMenu`, so the one menu swaps its contents |
-| `res/menu/drawing.xml` | `demo/.../SketchToolbar.kt`, `DemoState.BEHAVIOUR_TOGGLES`/`DISPLAY_TOGGLES` | Every checkable item on it except the neighbouring-survey one, in the menu's own three groups: the actions stay on the popup, the twelve toggles are a dialog. Hiding cross-sections stops them being tapped as well as drawn |
+| `res/values/strings.xml` | `demo/.../Strings.kt` | Every string this port shows, mirrored under the app's own resource name; `AndroidStringsTest` reads the real file and holds each one to it |
+| `res/menu/action_bar.xml`'s submenus | `demo/.../App.kt` (`MenuPage`) | File, View, Instrument, Input Mode, Tools, Settings and Help, one page at a time — Material 3 has no nested `DropdownMenu`, so the one menu swaps its contents. Nested pages (Open, Delete, Import, System settings) go back to the menu that opened them |
+| `res/menu/drawing.xml` | `demo/.../SketchToolbar.kt`, `DemoState.BEHAVIOUR_TOGGLES`/`DISPLAY_TOGGLES` | Every item on it except the neighbouring-survey toggle, under its own labels and in its own groups: `drawingMenuActions` stays on the popup, the twelve toggles are a dialog. Hiding cross-sections stops them being tapped as well as drawn |
+| `activity_graph.xml`'s `symbolToolbar`, `GraphActivity.selectSymbol` | `demo/.../SketchToolbar.kt` (`SymbolStrip`), `SymbolPalette.kt` | The app's own scrolling strip on `sexyTopoDarkGreen`, opening on the first-ever tap of the symbol button and toggling thereafter; the armed symbol is drawn on the button. `Symbol.TEXT` is `SketchTool.TEXT` here, and is the strip's first entry as it is the app's |
+| `res/xml/preferences_main.xml`'s sections | `demo/.../GeneralSettingsDialog.kt`, `SketchStyleDialog.kt`, `ManualEntrySettingsDialog.kt`, `InstrumentSettingsDialog.kt` | General, Sketching, Manual Data Entry and Instruments, each holding what its own preference screen holds. Export, Team, Copyright and Developer have no counterpart yet |
+| `openSurveySettingsDialog` | `demo/.../SurveySettingsDialog.kt` | *Settings → Survey*: the plan's own cross-section scale, one field, as upstream |
+| `GraphView.drawLegend`, `setCachedStats` | `demo/.../SurveyCanvas.kt` (`drawLegend`) | The survey's name, length and vertical range at the bottom-left, above the scale bar; the stats are cached on the scene as the Java caches them on the view |
+| `res/menu/cross_section.xml`, `ic_done`/`ic_cancel` | `demo/.../ActionIcons.kt`, `CrossSectionEditor.kt` | The two action-bar icons, drawn from the vector drawables' own path data through the shared SVG parser |
 | `SketchPreferences.Toggle` | `demo/.../AppPreferences.kt` | All twelve persisted, which five of them were not until the menu was split |
 | `action_fullscreen`, `GeneralPreferences.isImmersiveModeOn` | `demo/.../App.kt` (`FullScreenHandle`) | Hides the app's own bar rather than the system's, which is not this port's to hide; a drawn handle brings it back |
-| `GraphView.drawCompass` | `demo/.../SurveyCanvas.kt` (`drawNorthArrow`) | The arrow, plan-only, at a heading of zero — which is *correct* on a plan; the magnetometer that would turn it is not ported |
+| `GraphView.drawCompass` | `demo/.../SurveyCanvas.kt` (`drawNorthArrow`) | The arrow, plan-only, turning with the phone. `GraphActivity`'s `TYPE_ROTATION_VECTOR` listener becomes `demo/.../DeviceHeading.kt` — the rotation vector on Android, `CLHeading` on iOS, `DeviceOrientationEvent` in a browser, and nothing on a desktop |
 | `model/sketch/Sketch`'s twin history stacks | `shared/sketch/SketchEditor.kt` | `DeletedDetail` becomes a sealed type |
 | `control/io/thirdparty/{survex,therion,survextherion}` | `shared/io/export/` | Golden-tested, metadata block included |
 | `ThconfigExporter`, `SurvexTherionUtil.getInputText` | `shared/io/export/SurvexTherion.kt` | The project file Therion actually compiles, and the `input` lines that pull the scraps into the `.th` |
@@ -1149,10 +1162,10 @@ These are the things that would actually shape a real port.
    opened *Import a survey* instead, and the screenshot beside the failure is what said so.
 
    The fix is the one the drawing menu got, from the same source: `action_bar.xml` is seven
-   top-level items with submenus, and this port had flattened them. It is five rows now — File,
+   top-level items with submenus, and this port had flattened them. It became five rows — File,
    View, Instrument, Settings, About — with the saved surveys inside File where the app's own Open
    is. Twice in one sitting the answer to "this menu is too tall" was in the file being ported
-   from, and twice I had flattened it away first.
+   from, and twice I had flattened it away first. Five was still not seven, which is finding 101.
 
 35. **The Xcode project was the half nothing had ever compiled.** CI built Kotlin five ways —
    simulator, Kotlin/Native tests, the Compose framework, the device target, the platform code in a
@@ -3257,64 +3270,477 @@ These are the things that would actually shape a real port.
    the app's own overflow menu the way `field.mjs` does, since a unit test on the arithmetic cannot
    see whether the real `pointerInput` block is wired up to it at all.
 
-99. **A trip underground, and the reconnection nobody could see or reach.** Reported from the first
-   real surveying test on an iPhone: a BRIC4 dropped out repeatedly, never came back on its own,
-   and getting it back meant closing and reopening the app at station after station. Five separate
-   defects, and only the first of them is the one everybody guesses.
+99. **A line that vanished under the pen every time the instrument fired.** Reported from an iPad
+   in the field, one person drawing while another took the shots: the stroke being drawn
+   disappeared the moment a reading landed - and on the build before that one it stayed on the
+   sketch but could not be undone. Two symptoms, one on each side of an unrelated fix, and one
+   cause.
 
-   *The chase was off.* `AutoReconnect.DEFAULT_ENABLED` was false, ported faithfully from
-   `pref_auto_reconnect`. Everything below it worked and nothing ever asked it to run. It is on
-   here now, which is a deliberate divergence from the Android app rather than a slip: a BLE link
-   in a cave drops several times an hour, and a default that spends the trip in the connection
-   screen is the wrong one. The switch and the give-up window are both still there.
+   Every gesture detector on the canvas was keyed on `(scene, tool, options)`, and `scene` is
+   rebuilt on every revision - which the app bumps for every reading, so the drawing shows the new
+   leg. `Modifier.pointerInput` restarts its gesture loop when a key changes, and a restart
+   *cancels the gesture under the finger*. On the current build the drawing loop's own `finally`,
+   put there so a long press that turns into the station menu leaves no stray mark, did exactly
+   what it was written to do and abandoned the stroke. On the build before, the loop was
+   `detectDragGestures`, whose `onDragCancel` does not fire when the coroutine running it is
+   cancelled - it fires when another detector takes the pointer - so the half-drawn stroke stayed
+   in `pathDetails` with `finishPath` never called and no undo step behind it. Both are the same
+   bug reporting itself through whichever cleanup happened to be there.
 
-   *An instrument iOS still had could not be found by looking for it.* A connected BLE peripheral
-   does not advertise. So once the app lost track of a link CoreBluetooth still held open, no scan
-   could ever find it again however long it ran - and killing the app was the one thing that made
-   iOS drop the connection, which is exactly the ritual that was reported. `connect()` now asks
-   `retrieveConnectedPeripheralsWithServices` first, and `retrievePeripheralsWithIdentifiers` for
-   one it has reached before, and only scans when the answer to both is nothing. Skipping the scan
-   is the faster path anyway: a connect request for a known peripheral is honoured the moment it
-   comes back into range, rather than waiting for the next fifteen-second scan to notice.
+   Finding 81 put `options` into those keys because a loop that is *not* restarted holds stale
+   settings; this is the same lesson from the other end. A key that changes too often is as much a
+   defect as one that does not change enough, and `scene` changed on every reading and - since a
+   finished stroke bumps the revision too - after every stroke, tearing every detector down and
+   building it again between gestures, where nobody could see it. The keys are now exactly the
+   things that make a running loop wrong: the tool, the options, and the editor, canvas and survey
+   that change together when the view switches to another sketch. What the loops need from the
+   scene - a station under a long press, a cross-section under a tap - they read live through
+   `rememberUpdatedState`, so a station that arrives mid-stroke is still there to be pressed once
+   the stroke is over. The Android app never had this: `GraphView` keeps the stroke inside the
+   `Sketch`, and a survey update hands it the same `Sketch` back.
 
-   *One badly timed retry ended the chase for good.* Every transport here refuses to start a second
-   attempt over the top of a running one, and refuses **silently**. `retryIsDue()` consumed the
-   retry regardless, so nothing happened, nothing failed, and nothing scheduled another. It now
-   takes `linkIsBusy` and defers instead of spending - and deferring does not extend the window, so
-   an instrument left at the last station is still given up on.
+   Keeping the loop alive was half of it. A reading that grows the survey also moves the view: the
+   automatic re-fit that follows the centreline until the surveyor pans, and *Follow the survey*,
+   which centres on each new station. Either one moves the paper under a pen that has not moved,
+   and the stroke's next point is wherever that spot on the glass now is in survey metres - a
+   spike across the drawing. `CanvasController` now knows when a touch is down, told by the
+   canvas's outermost detector (the one that already gave the keyboard back on a touch, watching
+   until the last finger lifts, with a `finally` so a torn-down loop cannot leave the view held
+   still for good). A `centreOn` asked for while a touch is down waits until it lifts, and only
+   the latest is kept; the re-fit is skipped for as long as one is down and happens on the frame
+   after, which `touchEnded` asks for.
 
-   *A bad packet was recorded as a lost instrument.* Every `onFailure` set `connected = false` and
-   started the policy chasing. A notification that could not be read and a write that did not land
-   both arrive that way from a link that is perfectly up, so the app put "Not connected" on screen
-   over a working instrument and then chased a link it already had - straight into the defect
-   above. The transport is now asked whether the link actually went.
+   `DrawingWhileSurveyingTest` drives the real canvas through `ImageComposeScene`'s own pointer
+   events - press, move, a leg added and the revision bumped as `SurveySession` and `DemoState`
+   do, move, release - and checks that what is left is one committed stroke from where the pen
+   went down to where it lifted, one undo step, drawn on a viewport that did not move until the
+   pen was up and did afterwards. Run against the previous canvas it fails at the assertion the
+   report describes: the active path is gone the frame after the reading. `CanvasControllerTest`
+   covers the deferral on its own.
 
-   *And a link that went quietly was never noticed at all.* Everything else here is driven by a
-   callback from the radio, and underground those are not reliably delivered: a phone asleep in a
-   bag, a Bluetooth stack reset, a disconnect that lands while the app is not running. The session
-   believed it was connected for ever, so nothing started a chase and *Connect* - which read its
-   own stale flag rather than the transport - did nothing when pressed. `tick()` now compares the
-   two every half-second and treats a disagreement as the drop it is, which turns a whole class of
-   silent permanent failures into an ordinary reconnection. This is the level-triggered half of a
-   design that was entirely edge-triggered, and it is what makes the other four fixes hold when a
-   callback is simply never delivered.
+100. **Undo that "did nothing, then took the line a few seconds later" - and a dot a pan left on
+   the end of a wall.** The first is finding 99 seen from the other side, and worth spelling out
+   because it looked like a separate undo bug. On the build before the drawing loop had a
+   `finally`, a reading that cancelled the loop left the half-drawn stroke on the sketch, visible,
+   with `finishPath` never called: not in the history at all. Undo then took back the *previous*
+   stroke, which is "undo did not remove the last line drawn"; and the orphan went when the next
+   stroke began, because `startPath` abandons whatever is still active first - "deleting it a few
+   seconds later", the few seconds being however long it took to start drawing again. Same cause,
+   same fix; `UndoRepaintTest` now also checks the half that was never in doubt but had no evidence
+   behind it, by reading the pixels along a stroke before and after undo rather than the model:
+   the line is off the *screen* on the frame after the toolbar's undo, not on some later frame
+   another event happens to cause.
 
-   The same trip asked for somewhere to *see* all this, which is the other half of the report and
-   arguably the more useful one: an app quietly coping and an app that has given up looked
-   identical. There is now a dot on the field bar - green connected, amber trying, red gone, a ring
-   rather than a disc while an attempt is running so the difference survives a red light or a
-   colour-blind eye - with the state in words beside it whenever it is not simply connected, and
-   the whole thing a tap target for the instrument screen. `ConnectionStatusTest` pins which state
-   each situation reads as, including that "reconnecting" and "given up" are told apart, because
-   that is the distinction somebody deciding whether to walk back for their instrument is asking
-   about.
+   The second was found reading the same loop for anything else that could leave a mark nobody
+   made. A second finger landing mid-stroke turns the gesture into a pan, and `detectModalMove`
+   abandons the stroke so the pan does not commit half a line; the drawing loop then leaves on the
+   consumed change - but it had `started`, and its finishing code ran anyway. With snap-to-lines
+   on, snapping the last point first *started* a fresh stroke at the snap point, because
+   `extendPath` begins one when none is active, and `finishPath` committed it: a dot on the end of
+   the nearest wall, from a pan the surveyor made to get away from that wall, sitting in the undo
+   history as though somebody had drawn it. The finish now runs only if the stroke is still
+   active. `StrokeAbandonmentTest` puts two fingers on the headless canvas through
+   `ComposeScenePointer` - the one API that can, and internal to Compose, hence the opt-in - and
+   against the previous loop finds the second path.
 
-   Two smaller things fell out of the same reading. Opening another survey dropped the session on
-   the floor with its transport still connected and still observed, so the radio stayed on and
-   readings went into a survey nobody could see; the instrument now moves across, because it
-   belongs to the surveyor rather than to the survey. And the instrument last connected to is
-   written down, so opening the app offers it back rather than a list of nine - the part of "I had
-   to close and reopen SexyTopo" that was nobody's radio's fault.
+101. **Five was not seven, and nor was any of the wording: a parity audit of the whole UI.**
+   Findings 33 and 34 both ended by going back to the menu XML the port had flattened, and both
+   stopped a row or two short. Reading `action_bar.xml`, `drawing.xml`, `context_station.xml`,
+   `context_leg.xml` and the four table menus against what this app actually drew turned up rather
+   more than a couple of missing rows, and almost none of it was *wrong* — which is exactly why it
+   had survived. The port said *Statistics…* where the app says *Stats*, *Delete the last leg*
+   where it says *Undo Last Reading*, *Distance* over a column the app heads *Dist*. Every one of
+   those is a defensible label and none of them is this app.
+
+   The wording is now a mirror. `Strings.kt` declares every user-facing string under the resource
+   name `strings.xml` gives it, and `AndroidStringsTest` reads that file and holds each one to it —
+   so the next rename upstream is a failing test rather than a screenshot somebody notices a year
+   later. Two strings cannot be mirrored character for character: the app's jump-to labels use `➔`
+   and its backwards-shot marker `⬅`, and the bundled Liberation Sans has neither, so those go
+   through a `substituted` helper that still checks the Android value and types the nearest
+   character the font has. A third test names the phrases this port used to hardcode, so a reverted
+   edit is caught rather than merely regretted.
+
+   The structural half was larger than the wording. The overflow menu is `action_bar.xml`'s own
+   seven pages now, with the *Input Mode* group that had no UI at all, *Undo last reading*, *Find
+   Station…* and *System Log* back under Tools where the app has them, *Fullscreen* back under
+   View, and Save / Save As… / Delete Survey… / Share… back under File; the app bar has the fourth
+   `showAsAction="always"` action it was missing, and none of the four is lit, because none of the
+   app's is either — lighting the current one had made it invisible, `buttonHighlight` being white
+   and so is the icon. The sketch toolbar's third button is the symbol tool it is in
+   `activity_graph.xml`, opening the app's own scrolling symbol strip on the rule
+   `GraphActivity.handleAction` uses, with the chosen symbol drawn on the button as `selectSymbol`
+   draws it; selected buttons are tinted with `buttonHighlight` rather than an alpha wash of white,
+   the black swatch becomes the white one at night, and every sketch button is disabled with the
+   drawing hidden. The station menu is `context_station.xml`'s rows in its order, including the
+   `menu_elevation` direction group and the `menu_navigate` jumps the port had half of. The table
+   is the app's table: green header, its five short headings, alternating stripes, legs bold and
+   splays plain, numbers right-aligned, the active station lit in amber, chronological order rather
+   than tree order, its two floating action buttons, and tap-to-edit with long-press-for-a-menu the
+   right way round. The settings screens are `preferences_main.xml`'s own sections rather than four
+   dialogs whose contents had drifted between them, and *Settings → Survey* is the app's one-field
+   cross-section-scale dialog it is meant to be.
+
+   Three things in that list are worth separating out as defects rather than divergences. The
+   typed-reading dialogs restated `Leg`'s own bounds instead of asking it, and the restatement was
+   wrong three ways: it refused a distance of zero, which the model allows; it refused the
+   theodolite inclinations of 270 to 360 that `isInclinationLegal` accepts, so a survey booked with
+   a theodolite could not be typed in at all; and it *accepted* an azimuth of exactly 360, which
+   `Leg` rejects — so typing it threw out of the composition of the dialog whose whole job is to be
+   the way in when the radio will not play. `ReadingValidationTest` now walks a grid of boundary
+   values and constructs a `Leg` from every reading the dialog accepts, which is the assertion that
+   cannot drift. The
+   canvas drew a scale bar and no *legend*: `GraphView.drawLegend` writes the survey's name, length
+   and vertical range at the bottom-left, and this port had the same line in its exported SVG and
+   not on the screen, which is the sort of gap no test finds because nothing is *wrong* — something
+   is simply absent. And `SurveySession` called `SurveyUpdater.update` without an input mode, so
+   every reading that arrived from an instrument or the simulator was promoted under `FORWARD`
+   whatever the *Input Mode* menu said: *Backsights* built the cave the wrong way round and *Splays
+   Only* — a run of wall shots round a chamber, the whole point of the mode — made a station out of
+   every third one.
+
+   What is deliberately still not the app: the twelve drawing toggles are a dialog rather than
+   twelve menu rows, because eighteen rows do not fit an iPhone SE (finding 33); *Undo Last
+   Reading* asks, because the survey has no undo stack; undo and redo grey out when their stacks
+   are empty rather than doing nothing; the Example cave, the field bar and the export screen have
+   no counterpart upstream and the port would not be demonstrable without them; and *Linked
+   Surveys*, `Restore Autosave`, `Exit SexyTopo` and the per-instrument laser commands have nothing
+   behind them here to switch on.
+
+102. **The browser checks were measuring a picture of the app, and the app can just be asked.**
+   The audit in finding 101 moved most of this UI to where the Android XML puts it, and every one
+   of those moves broke `demo/browser-test/field.mjs` — which had no way to press anything except
+   by working out which pixel it was drawn at. The first failure is the shape of the whole
+   problem: the overflow menu gained a row, so the tap meant for *New Survey* landed on *Open
+   Survey…*, the survey that followed was never named, and a hundred later checks reported that the
+   sketch had never been saved. Nothing in that chain mentions a menu. A card's rounded corner was
+   counted as a twelfth toggle for the same reason, and a section's frame running off the edge of
+   the screen made a drag look like it had moved half as far as it did.
+
+   The reason it was pixels is real rather than lazy: Compose paints the whole app into one
+   `<canvas>` and there are no elements to point at. But it *also* builds an accessibility tree —
+   real DOM nodes laid over that canvas, where `Modifier.testTag` becomes an element's id, a
+   `contentDescription` its `aria-label`, and a Compose `Role` its ARIA role. It is on by default
+   and had been there all along; nothing here had ever asked it anything. So the app now names what
+   had no name — the overflow button, the cross-section editor's two action icons, the 3D view's
+   close, every square of the symbol strip — which is worth more than the tests, because a screen
+   reader could not read those controls before either.
+
+   Two things had to be learnt before any of it worked. The tree is inside an **open shadow root**:
+   `ComposeViewport` builds canvas, hidden text input and a11y tree under one, so a
+   `document.querySelectorAll` run inside the page reports an app that has named nothing.
+   Playwright's own selectors pierce open shadow roots, which is how `page.$$('input')` had been
+   finding the text input all along, so the checks ask through Playwright and never through the
+   page.
+
+   And Compose 1.12.0's web listener holds **one semantics owner at a time**, while every popup
+   attaches its own. Opening a menu therefore replaces the tree with that menu's rows; closing it
+   leaves the tree frozen on them and nothing syncs again. Which decides what can be asked and what
+   must still be measured: whichever popup is open now can be asked, because opening it is what
+   makes Compose sync — and that is exactly where rows drift, so the menus, the settings dialogs,
+   the saved-survey lists and the station menu are all asked for by name. The menu labels come out
+   of `strings.xml` itself, so a rename upstream moves the tests with it rather than breaking them.
+   `menuBox`, `menuRowAt` and the `holdsSurveys` bookkeeping that counted the saved surveys into
+   every row below them are gone, along with the class of failure they produced.
+
+   The screen *behind* a popup cannot be asked once one has opened, so the app bar and the toolbar
+   are read once at startup — before anything opens — and kept as a distance in from the edge each
+   one follows, since the checks at the end of the file turn the phone sideways and shrink it. That
+   is as good as a constant and better: the numbers come from where the app actually drew the
+   control, and one that has lost its name fails at the top of the file rather than as a mis-tap
+   four hundred lines down. Kept as an absolute x, the three dots pressed whatever a 667-pixel bar
+   had put at 404 — which was *About*.
+
+   What stays on pixels is what pixels are the right instrument for: that the centreline got
+   thicker, that north is drawn, that the rubber rubbed something out, that a section's drag bar
+   followed the section it belongs to. Those are questions about drawing, and an accessibility node
+   cannot answer them. The symbol strip and the table are measured for the duller reason that they
+   are screens rather than popups — though the table finder now reads the row height and the top of
+   the first row off the screen instead of assuming them, which is what `66 + 26 * n` got wrong.
+
+   And it found things. Not test bugs: three defects in the app, each of which a surveyor would
+   have met before a test did.
+
+   - **The leg menu drew *Cancel* on top of its second action.** `AlertDialog` lays the dismiss
+     button out beside the confirm one, and that column is taller than a button and narrower than
+     the card, so *Cancel* sat over *Upgrade to Leg* on a splay's menu and over *Reverse* on a
+     leg's. A tap meant for *Reverse* dismissed the menu. This file had a comment explaining that
+     it clicked well right of centre to get past it, which is how long that had been true. There is
+     no `dismissButton` now: *Cancel* is the last row of the same column, where the station menu's
+     *Close* already was.
+   - **Setting a station's direction from its menu did not carry down the passage.** The dialog's
+     path goes through `SurveyUpdater.setExtendedElevationDirection`, which floods the subtree
+     because LEFT and RIGHT propagate; the menu's `setDirection` assigned the field, and its own
+     comment said it propagated. Everything past the junction went on unrolling the old way — a
+     drawing that is wrong and does not look wrong.
+   - **The reading dialog could be dismissed by a tap meant for one of its boxes.** Which is by
+     design, and the reason it mattered: `EditLegDialog` is a state of the leg menu rather than a
+     screen of its own, so dismissing it puts the menu back, and a correction typed into nothing
+     looks exactly like a correction that was not saved.
+
+   The headless renderer had a real race too, and one this branch made likelier rather than found
+   by luck. `ImageComposeScene.render` measures, lays out and draws on the thread that calls it,
+   while Compose Desktop's main dispatcher is the AWT event thread — so a `LaunchedEffect` body and
+   the snapshot observer's flush run there while the caller is inside a draw, and Compose throws
+   *Detected multithreaded access to SnapshotStateObserver*. The stack goes through
+   `calculateSemanticsConfiguration`: every `testTag` added here is one more thing for the observer
+   to invalidate, which is why a once-in-a-blue-moon failure became a once-in-six one. `RenderPng`
+   does its work on the event thread now.
+
+   The other half is that none of this needed a browser. `MenuStructureUiTest` and
+   `DialogStructureUiTest` drive the real composables through the same semantics tree on the JVM,
+   headlessly, in a couple of seconds — `action_bar.xml`'s seven groups and their pages, and the
+   settings screens holding what `preferences_main.xml` says they do. The failure that started all
+   of this would have been a red `:demo:jvmTest` before anything was pushed, instead of a red CI
+   run and a morning of reading screenshots.
+
+103. **A compass that was drawn but never turned.** `GraphActivity` has listened to
+   `TYPE_ROTATION_VECTOR` since the arrow was added — register in `onResume`, unregister in
+   `onPause`, remap the rotation matrix for the display's own rotation, and invalidate — and this
+   port drew the arrow with nothing behind it. That is a defensible half: on a plan `Projection2D
+   .PLAN` maps the northing to minus the screen y, so an arrow that always points up is *correct*
+   rather than approximate. It is also only half of what a compass is for. Underground the useful
+   question is not "which way is north on this paper" but "which way am I facing", and the fixed
+   arrow answers the first and refuses the second.
+
+   `demo/.../DeviceHeading.kt` is the missing half, as one `expect` per platform. Android is the
+   Java's own algorithm, remap and all, moved into a `DisposableEffect` so the sensor registers and
+   unregisters with the *arrow* rather than with the activity — the fused rotation vector rather
+   than a bare magnetometer, because a cave is full of steel and the fused sensor recovers from a
+   lump of it instead of swinging round to it. iOS is `CLHeading.magneticHeading`, which is also
+   the bearing every leg in the file is already booked in, and which needs no location
+   authorisation, so turning on a compass rose does not put a location prompt in front of a
+   surveyor. The browser is `DeviceOrientationEvent`, in both of the dialects the browsers speak:
+   Chrome's `deviceorientationabsolute` with an `alpha` measured anticlockwise from north, and
+   Safari's own `webkitCompassHeading` — and an `alpha` is only believed when the event says it is
+   absolute, because Safari's is measured from wherever the page happened to start. A desktop
+   reports null, which is not zero: zero is a real heading and drawing it would tell somebody at a
+   desk that the arrow was tracking something.
+
+   Two details are worth the words. The heading is a `State` read in the *draw* phase rather than a
+   value read during composition, so ten readings a second repaint the canvas without recomposing
+   it — on a large cave that is the difference between a compass and a slideshow. And the top of
+   the *screen* is not the top of the *device*: a sensor knows nothing about which way round the
+   picture is being drawn, so a phone turned on its side swings the arrow ninety degrees with it
+   unless the platform's own quarter turn is added back. Android does that by remapping the matrix,
+   which stays correct on a tilted phone; the other two share one tested function.
+
+   Checked at both ends. `DeviceHeadingTest` has the arithmetic — the wrap, and the quarter turn.
+   `NorthArrowTest` renders the arrow through Skia at four headings and reads the ink back: facing
+   east puts more of it on the left of the box than facing west does, and facing north matches, to
+   the pixel, what a device with no compass gets. And `field.mjs` dispatches a real
+   `DeviceOrientationEvent` at the real page and watches the arrow move, so everything between the
+   browser's API and the pixels is exercised — only the sensor is faked.
+
+104. **Every stamped symbol was drawn half its own size down and to the right.** Found by looking
+   at the demo cave rather than at the code, which is the only way it was ever going to be found:
+   the symbols are small, and a symbol that is offset by half of *small* looks like a symbol.
+
+   `Symbol.paths` are SVG path data on a 40-by-40 grid, and the canvas translated to the stamp's
+   position, then scaled, then drew the paths — so the artwork hung off its top-left corner. The
+   Java centres (`offset = size / 2f`, and a `RotateDrawable` pivoted at `0.5, 0.5`), this port's
+   own SVG exporter centres (`x = centreX - size / 2`, rotating about the centre), and
+   `SymbolDetail.getDistanceFrom` measures from the centre — so the screen disagreed with the file
+   it exports, with the app it is a port of, and with its own hit test. A directional symbol was
+   worse than displaced: it swung about that corner rather than turning on the spot, so aiming a
+   water flow moved it as well.
+
+   The fix is one more `translate` at the end of the transform, and no test caught its absence
+   because nothing had ever pinned where a symbol lands relative to where it was put.
+
+   What made it visible was giving the demo cave something worth reading. It used to carry four
+   formation symbols at four stations picked at random, which proves the artwork draws and nothing
+   else — a symbol is how a sketch records what the centreline cannot, and scattered at random they
+   record a cave that makes no sense. Now each is placed against something the cave has: the
+   entrance arrow on the entrance, the stream running on down the main passage, the gradient at the
+   lip of the pitch and the boulders at the landing, and the passages that simply stop carrying the
+   reason they stopped, aimed the way they were still going. The directional ones take the local
+   passage bearing, which is what a surveyor's drag across the screen would have given them, and
+   the water comes out blue through `colourForSymbol` rather than through a hand-picked constant,
+   so the demo shows the rule the app actually applies. They are drawn two and a half metres across
+   for the same reason the cross-sections are drawn at four times scale: a whole cave fitted to a
+   phone screen puts a metre at about a dozen pixels.
+
+105. **A cursor in the box and no keyboard under it.** Reported from a phone browser: tapping *New
+   Survey* puts a caret in the name field and nothing comes up to type with, and the same for the
+   label box — *unless* a keyboard happened to be open already when the app came to the front, in
+   which case everything works. That last clause is the whole diagnosis, and it is not a Compose
+   bug so much as a browser rule nobody had read.
+
+   A browser opens its keyboard when focus moves to an editable element **and** the page holds
+   transient user activation, and the HTML specification is picky about which events grant that: a
+   touch grants it on `pointerup` and `touchend`, and pointedly not on `pointerdown` or
+   `touchstart`. Compose Multiplatform 1.12.0 paints into a canvas and types through a hidden
+   `input` of its own, focused from the text input session — a coroutine, so a frame or more after
+   the tap, by which time the browser has forgotten there was one. Its own recovery path, a
+   `touchstart` listener in `ComposeWindow.initEvents` that re-focuses that input, is on the one
+   touch event that grants no activation either. So the keyboard can be *kept* open and never
+   *opened*, which is exactly what a surveyor sees.
+
+   `rememberOpeningFocus` asked on the way down. It now asks on the way up as well, which costs a
+   no-op call on the platforms that were already working and is the only moment a browser will
+   listen. `Keyboard.wasmJs.kt` is the rest: from inside that same dispatch it calls
+   `navigator.virtualKeyboard.show()` where Chromium offers it — the only route that works on a
+   field that is *already* focused, which the auto-focused dialog's is — and otherwise focuses
+   Compose's hidden input, or, on the first tap of a session when Compose has not built one yet, a
+   decoy input of our own. The keyboard comes up for the decoy, Compose takes the focus back a
+   moment later, and the keyboard stays up: the "unless it was already open" case, arranged on
+   purpose.
+
+   What CI can prove here is bounded, and worth saying rather than implying. `field.mjs` drives a
+   *desktop* Chromium, which has no on-screen keyboard at all, so no check can watch one appear.
+   What it can do is guard the risk the fix introduces — a decoy that keeps the focus is a box
+   every letter disappears into — so there is now a check that the focus is back in the field, and
+   the two existing "there is a DOM input to type through" checks ask for `input:not(#…decoy)` so
+   they cannot be satisfied by our own element. The phone is the only thing that can confirm the
+   rest.
+
+106. **A sweep for the rest of the compass's family, and one more found.** The compass was a
+   feature that was drawn, switched on by default, offered in a menu — and could not work, because
+   the one piece that had to come from the platform was missing. That is a shape worth hunting
+   rather than a one-off, so: every `res/menu/*.xml` item against the port's menus, every
+   `android:key` in `preferences_*.xml`, every `draw*` method in `GraphView`, every activity and
+   service in the Android manifest, every `getSystemService` the app makes, and every preference
+   the port declares checked for whether anything actually *reads* it.
+
+   Most of it came back clean, and two near-misses are worth recording as *not* defects. `buttonRedo`
+   is on `drawing.xml` and not on the port's drawing menu — but it is `android:visible="false"` in
+   the app too, and redo has a toolbar button of its own. The table's splay menu names its upgrade
+   *Force New Station* where the sketch's names it *Upgrade to Leg*; the port unified the two
+   menus, so it shows one name for one action.
+
+   The one real find is the same shape as the compass exactly. `Haptics.android.kt` asks the
+   `Vibrator` for two hundred milliseconds when a station is made, `AppPreferences` defaults that
+   switch to on, the general settings screen offers it — and `androidApp/src/main/AndroidManifest
+   .xml` had never declared `VIBRATE`. `hasVibrator()` answers yes without it, so nothing anywhere
+   says no; the buzz simply does not happen. One line of manifest.
+
+   `AndroidManifestTest` is the guard, and it is deliberately not a list of permissions somebody
+   has to remember to update: it reads the Android sources and asks what they *do* — a `.vibrate(`,
+   a `.startScan(`, a `.connectGatt(` — and requires that each has been declared. Removing the line
+   again fails it, which is the only way to know a test like that works.
+
+   The sweep also caught the README lying about the code: it said there was no Android transport,
+   and `AndroidBleTransport` has been wired into `platformTransportFor` for some time. That bullet
+   now says what is actually missing there, which is the same shape once more — `BLUETOOTH_SCAN`
+   and `BLUETOOTH_CONNECT` are declared and never *requested* at runtime, so on Android 12 and
+   later the scan finds nothing and explains nothing.
+
+107. **Are we there? A third sweep, this time of what the buttons *do*, and the sweeps turned into
+   tests.** Finding 106 checked that every menu item and preference existed. This one read the
+   handlers: `SexyTopoActivity.onOptionsItemSelected`, `GraphActivity.handleAction` and
+   `onMenuItemClick`, `TableActivity.onRowClick` and `onRowLongClick`, the calibration, device,
+   trip, stats and 3D activities, and every `draw*` in `GraphView` — against what this port does
+   for the same tap.
+
+   The honest answer is *nearly*, and the remainder is written down. What the buttons do matches
+   in every case checked but three. Two are small and are now the same: the Android toolbar
+   buzzes on every press — `handleAction` opens with `performHapticFeedback(VIRTUAL_KEY)` before
+   it looks at which button it is — and this port's did not, which on a phone in a wet glove is
+   the difference between knowing a tap landed and wondering; and nineteen pieces of wording were
+   typed inline where `strings.xml` already had a name for them (*Close*, *Cancel*, *Save* on a
+   handful of dialogs, and the whole calibration screen saying *Start*, *Stop*, *Undo* where the
+   app says *Disto Cal Mode On*, *Disto Cal Mode Off*, *Delete Reading*; the stats screen saying
+   *Depth* against *Vertical Range (m)*, with the unit on the number instead of in the label, and
+   no thousands separator where `TextTools.formatTo2dpWithComma` puts one). The third is real and
+   remains: a connected instrument adds its own commands to the Instrument menu at runtime —
+   *Laser On*, *Take Shot*, *Device Off*, the DistoX's silent mode, the BRIC's power-off and
+   clear-memory — through `getCustomCommands`, and this port carries only the DistoX family's
+   calibration. It is the one menu the Android app builds from code rather than XML, which is why
+   no XML sweep found it; and it wants an instrument in hand to do properly, which is the same
+   thing everything else about the transports wants.
+
+   Two more things checked and found to match, recorded so nobody checks them again: picking a
+   colour switches a tool that does not use one to the pencil (`pickColour` does what
+   `handleAction`'s colour loop does); and hiding the sketch disables every drawing button and
+   drops the tool to *Move* (`setSketchButtonsStatus`, mirrored in `SketchToolbar`). The
+   cross-section editor hides *Select* here because the app does (`toolsToHide`). The 3D screen
+   has two buttons the app's has none of, on purpose, and says so where they are drawn.
+
+   On *near-perfect UI replication*: the geometry is the app's — a nine-column toolbar of 40dp
+   buttons over a colour row, the selected one tinted with `buttonHighlight`, the app bar in
+   `panelBackground`, the same swatch PNGs and symbol artwork — and `ColourParityTest` now holds
+   every colour in the theme to a value in `colors.xml` or `values-night/colors.xml`, which found
+   one the port had invented (a night hot-corner colour, kept and listed). What is not replicated
+   is the widget kit: this is Material 3 where the app is AppCompat, so a dialog's corner radius,
+   a switch's shape and the ripple are Compose's. Nobody should mistake it for a pixel-identical
+   port and it does not claim to be one.
+
+   And the sweeps are tests now, because a sweep that finds things is a test that has not been
+   written. `MenuParityTest` reads every XML file under `res/menu/` and requires each visible item
+   to be *shown* by a composable — not merely mirrored in `Strings.kt`, which was the loophole
+   *Restore Autosave* fell through: mirrored, offered nowhere, and counted as present by a search
+   for its wording. Its exceptions are listed with a reason each, and a second test insists every
+   exception still names a real Android item. `AndroidStringsTest` gained the general form of its
+   own blacklist: any `Text("…")` whose wording `strings.xml` already names fails, which is how the
+   nineteen above were found and how the twentieth will be. `AndroidManifestTest` (finding 106)
+   and `ColourParityTest` round out the set. What none of them can do is watch a phone — the
+   on-screen keyboard, the compass, the buzz — and the honest list of what wants a device is in
+   the previous three findings.
+
+108. **The tests that were worth adding, added — and the four Android tests that had never been
+   ported.** Finding 107 ended with a list of tests that would make faithfulness checkable rather
+   than asserted. Three of the four are now in; the fourth, a screenshot comparison against the
+   running Android app, needs an emulator this CI does not have and is not attempted.
+
+   `PreferenceDefaultsTest` reads every `android:defaultValue` across the preference screens and
+   `SketchPreferences.Toggle`, and holds each of this port's defaults to it — with the
+   complication that is the Android app's rather than this port's. Nothing there calls
+   `PreferenceManager.setDefaultValues`, so on a fresh install each getter's own fallback wins over
+   what the screen declares, and for six keys the two disagree: the screen says the SVG grid is
+   off and the app exports it on; the screen says symbols are 35 and the app draws 25; the screen
+   says the calibration algorithm is *auto* and the app uses *linear*. What a surveyor gets is the
+   getter, so the getter is the oracle, and the six are listed with both values so the
+   disagreement is on record. `SketchStyleTest` had reached this for its four numbers; this
+   reaches it for all fifty-five, and every default here matches — bar the one this port takes the
+   screen's side on deliberately, the buzz, whose getter defaults to *off* against a switch that
+   has always been drawn *on*.
+
+   `PortedTestsTest` is the ledger the README's "ported test suite" claim never had. The Kotlin
+   tests were renamed to say what they test rather than `testFoo`, and nothing linked an Android
+   test class to the class here that carries its cases — so thirty-two of the app's fifty-seven
+   were cited nowhere in this module, and nobody could say which were ported under another name
+   and which were not ported at all. The ledger says, per class, and checks that every class it
+   names exists. Building it found four that genuinely were not: `Coord2DTest` and `Coord3DTest`
+   (one case each, now `CoordTest`), `PathDetailTest` (the four rectangle-intersection cases the
+   eraser depends on, against a `DetailBounds.intersects` that existed with no test on it, now
+   `DetailBoundsTest`), and `SurveyToolsTest` (the eight `isInSubtree` cases that stop a moved
+   leg making a cycle, against a function likewise untested, now `SurveyTreeTest`). One more is
+   not ported and now says so: `OldStyleLoaderTest`, for the pre-JSON tab-separated survey format
+   the Android app still reads and this port does not — a real gap, listed under deliberate gaps.
+
+   `DimensionParityTest` is five lines of `dimens.xml` against `SexyTopoDimens`, and is cheap
+   enough to exist. And "What needs a phone" above the deliberate gaps is the list of what none of
+   this can check — the compass, the keyboard, the buzz, a radio — so that "tested" is never read
+   to include them.
+
+108. **The symbol in hand was a white square.** Reported from a phone with a screenshot: open the
+   symbol strip and the selected symbol is a blank white box, while the *A* beside it and the
+   symbol-tool button below it read fine. The strip drew its glyphs in white on its dark green,
+   `selectSymbol`'s `buttonHighlight` is white, and white on white is nothing.
+
+   The Android app cannot have this problem, and looking at why is the fix. Every
+   `symbol_uis_*.xml` gives its paths `strokeColor="#000000"`, `Symbol.createDrawable` hands that
+   to an `ImageButton` untinted, and neither `selectSymbol` nor the night theme ever changes the
+   glyph's colour — only the button *behind* it is tinted. So the glyph is black whether or not it
+   is lit, and a white highlight behind a black glyph is exactly what a selected symbol looks like.
+   This port had reasoned the other way — white "on the green panel, where black would be a hole"
+   — while drawing every tool icon beside the strip as a black PNG on that same green, and the
+   *A* on the strip itself from one.
+
+   Three places drew it that way and all three now draw it the app's: the strip on the plan, the
+   strip in the cross-section editor, and the symbol-tool button's own face, which had been
+   swapping between white and black with its selection state where `selectSymbol` draws black and
+   a black border regardless. `SexyTopoColours.symbolGlyph` names the value and says why, and
+   `ColourParityTest` holds it to `colors.xml` like the rest.
+
+   `SymbolStripUiTest` is the guard, and it looks rather than reasons: it opens the strip the way
+   a surveyor does, captures the lit square's own pixels through `captureToImage`, and requires
+   both `buttonHighlight` white and the glyph's black to be present — before the fix the second
+   count was zero — and that an unselected square is the strip's green with a black glyph and no
+   white at all. `field.mjs`'s scroll check, which had been counting *pale* pixels as symbols,
+   now counts anything that is not the strip's own green, so it no longer cares what colour the
+   glyphs are.
 
 ---
 
@@ -3466,10 +3892,10 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 800
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 466 over the UI's own
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 820
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 528 over the UI's own
 logic, 20 running the iOS half in a simulator,
-119 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
+122 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.
@@ -3496,11 +3922,6 @@ things that are missing are missing on purpose and are listed below.
 
 **Not done, and nothing is stopping it.**
 
-- **The compass *swinging*.** The arrow is drawn, it has its own toggle, and on a plan north
-  genuinely is up — `Projection2D.PLAN` maps the northing to minus the screen y — so a fixed one is
-  correct rather than approximate. What is missing is the magnetometer that turns it as the phone
-  turns: an `expect`/`actual` on three platforms and, on iOS, a usage-description key that crashes
-  the app on launch if it is wrong.
 - **The last four Android preferences.** Every other key in `preferences_*.xml` is offered here;
   these four are not, and each for its own reason rather than because it was missed.
   `pref_orientation` locks the screen to portrait or landscape, which on iOS is a change to the
@@ -3526,6 +3947,28 @@ before it is a branch to write.
 
 ---
 
+## What needs a phone
+
+Every check above runs on a build server, and three things cannot: they need a sensor, a
+keyboard or a motor that no runner has. They are listed here so that a release is not called
+done without somebody holding a device, and so that "tested" is never read to include them.
+
+- **The compass swings.** Open the plan on a phone, turn on the spot: the north arrow turns the
+  other way, and points at the top of the screen when you face north. Then turn the phone on its
+  side and check it still points north rather than swinging a quarter turn with the case. Android,
+  iOS and the browser each have their own sensor path (`DeviceHeading.*.kt`); the browser one needs
+  HTTPS, and on an iPhone's Safari needs one tap before it starts.
+- **The keyboard opens.** In the browser on a phone, tap *New Survey*: a keyboard should come up
+  on the first tap on the name box, not only when one was already open. Then the label tool, then a
+  station rename. `Keyboard.wasmJs.kt` is the code; the desktop Chromium the tests drive has no
+  keyboard to open.
+- **The buzz happens.** With *Vibrate on new station* on, three agreeing readings should be felt.
+  `AndroidManifestTest` proves the permission is declared; only a phone proves the motor runs.
+- **Bluetooth, at all.** Every transport has been driven end to end against a fake instrument and
+  none against a radio; see the next section.
+
+---
+
 ## Deliberate gaps
 
 This is a proof of concept. File formats are no longer one of the gaps: every importer and every
@@ -3535,11 +3978,15 @@ per drawing, each naming the next — Compass `.dat`, PocketTopo `.txt`, SVG and
 
 What it does **not** include:
 
-- **Real Bluetooth on any platform.** `CoreBluetoothTransport` and `WebBluetoothTransport` are
-  both written, both reachable from the app, and both driven end to end against a *fake*
-  instrument — but neither has met a radio. The iOS simulator has no Bluetooth stack, so this one
-  genuinely needs an instrument in hand. There is no Android transport here either (the Android app
-  keeps its own).
+- **Real Bluetooth on any platform.** `CoreBluetoothTransport`, `WebBluetoothTransport` and
+  `AndroidBleTransport` are all written, all reachable from the app, and all driven end to end
+  against a *fake* instrument — but none has met a radio. The iOS simulator has no Bluetooth stack,
+  so this one genuinely needs an instrument in hand.
+
+  The Android one has a second thing missing, and it is the same shape as the compass was:
+  `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT` are declared in the manifest but nothing asks the
+  surveyor for them at runtime, which on Android 12 and later means the scan returns nothing and
+  says nothing about why. The permission dialog is the work, not the transport.
 - **Cross-survey links.** The other half of `Name.metadata.json`. The file itself is no longer a
   gap — it is written on save and on export and read on load and on import, which is finding 73 and
   was the whole of this bullet until today: a survey written here used to open on Android at the
@@ -3554,6 +4001,10 @@ What it does **not** include:
   is exactly what the Android app writes for a survey with no links, so the file is the shape the
   other end expects rather than one it has to tolerate. Nothing here draws a neighbouring survey
   either.
+- **The old-style survey format.** Before the JSON files, SexyTopo wrote a survey as tab-separated
+  lines — `from to distance azimuth inclination` — and `OldStyleLoader` still reads them. This port
+  does not; `PortedTestsTest` records `OldStyleLoaderTest` as unported for that reason. A survey
+  old enough to be in that format wants opening in the Android app and saving again.
 - **The Android app adopting this core.** That is the step that would make the work pay for itself
   regardless of the iOS outcome, and it is deliberately not attempted yet.
 

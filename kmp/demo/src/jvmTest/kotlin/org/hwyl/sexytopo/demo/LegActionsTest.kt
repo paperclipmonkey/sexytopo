@@ -101,11 +101,36 @@ class LegActionsTest {
         }
     }
 
+    /**
+     * `context_leg.xml`'s own order, which this port had put the comment second in — above the
+     * five rows that change the survey, and the one a surveyor least often wants.
+     */
+    @Test
+    fun theItemsComeInTheOrderTheAndroidMenuListsThem() {
+        val survey = passage()
+        val leg = legActionsFor(survey, rowFor(survey, "1", legInto(survey, "2")))
+        assertEquals(
+            listOf(
+                LegAction.EDIT,
+                LegAction.REVERSE,
+                LegAction.COMMENT,
+                LegAction.DELETE,
+            ),
+            leg.filterNot { it == LegAction.MOVE || it == LegAction.DOWNGRADE },
+        )
+        // Delete is the last of `context_leg.xml`'s own rows; *Move to Different Station* comes
+        // from the table's menus, which put it after Delete.
+        if (LegAction.MOVE in leg) assertEquals(LegAction.MOVE, leg.last())
+    }
+
     @Test
     fun aSplayAsksForASplayCommentAndALegForALegOne() {
         assertEquals("Splay comment", LegAction.COMMENT.label(isSplay = true))
         assertEquals("Leg comment", LegAction.COMMENT.label(isSplay = false))
-        assertEquals("Delete", LegAction.DELETE.label(isSplay = true))
+        // `menu_delete_leg` on a leg and `menu_delete_splay` on a splay, which is what
+        // `table_full_leg_selected.xml` and `table_splay_selected.xml` say.
+        assertEquals("Delete", LegAction.DELETE.label(isSplay = false))
+        assertEquals("Delete Splay", LegAction.DELETE.label(isSplay = true))
     }
 
     @Test

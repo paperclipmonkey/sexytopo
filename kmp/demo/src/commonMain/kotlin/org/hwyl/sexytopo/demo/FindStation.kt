@@ -44,7 +44,7 @@ fun FindStationDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Find a station") },
+        title = { Text(Strings.actionFindStation) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
@@ -52,7 +52,7 @@ fun FindStationDialog(
                     onValueChange = { query = it },
                     // Deliberately *not* given [rememberOpeningFocus]: this dialog is also a
                     // list, and focusing the box would raise the keyboard over it.
-                    label = { Text("Name") },
+                    label = { Text(Strings.manualRenameStationHint) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -81,7 +81,7 @@ fun FindStationDialog(
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
     )
 }
 
@@ -112,8 +112,8 @@ fun stationPositionIn(survey: Survey, projection: Projection2D, station: Station
     projection.project(survey).stationMap[station]
 
 /**
- * "Delete the last leg", with the leg named. Asking is the one deliberate difference from
- * Android: the survey has no undo stack, so this is the only irreversible action on the menu.
+ * `buttonDeleteLastLeg`, with the leg named. Asking is the one deliberate difference from Android:
+ * the survey has no undo stack, so this is the only irreversible action on the menu.
  */
 @Composable
 fun DeleteLastLegDialog(survey: Survey, onDismiss: () -> Unit, onDelete: () -> Unit) {
@@ -121,7 +121,12 @@ fun DeleteLastLegDialog(survey: Survey, onDismiss: () -> Unit, onDelete: () -> U
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (leg == null) "Nothing to delete" else "Delete the last leg?") },
+        // `sketch_menu_delete_last_leg`, which is what the drawing menu row that opens this says.
+        title = {
+            Text(
+                if (leg == null) "Nothing to delete" else "${Strings.sketchMenuDeleteLastLeg}?",
+            )
+        },
         text = {
             Text(
                 leg
@@ -130,11 +135,11 @@ fun DeleteLastLegDialog(survey: Survey, onDismiss: () -> Unit, onDelete: () -> U
         },
         confirmButton = {
             if (leg != null) {
-                TextButton(onClick = onDelete) { Text("Delete") }
+                TextButton(onClick = onDelete) { Text(Strings.delete) }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(if (leg == null) "Close" else "Cancel") }
+            TextButton(onClick = onDismiss) { Text(Strings.cancel) }
         },
     )
 }

@@ -16,6 +16,8 @@ import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 import org.jetbrains.skia.EncodedImageFormat
 import java.io.File
+import javax.swing.SwingUtilities
+import kotlin.system.exitProcess
 
 /**
  * Renders the shared Compose UI to PNG files with no display attached.
@@ -24,8 +26,24 @@ import java.io.File
  * exact composable the iOS app hosts, through the same Skia renderer iOS uses, and writes the
  * result to disk.
  */
-@OptIn(ExperimentalComposeUiApi::class)
+/**
+ * Everything on one thread, and the one Compose already uses.
+ *
+ * `ImageComposeScene.render` measures, lays out and draws on whichever thread calls it, while
+ * Compose Desktop's main dispatcher is the AWT event thread — so a `LaunchedEffect` body and the
+ * snapshot observer's flush run over there while this one is inside a draw. Compose checks for
+ * exactly that and throws *Detected multithreaded access to SnapshotStateObserver*, which it did
+ * about one run in six, and more often the more semantics the app carries: the stack goes through
+ * `calculateSemanticsConfiguration`, and every `testTag` is one more thing to invalidate.
+ */
 fun main() {
+    SwingUtilities.invokeAndWait { renderEverything() }
+    // The event thread is running now, and nothing has a window to close, so say so.
+    exitProcess(0)
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
+private fun renderEverything() {
     val outputDir = File("build/demo").apply { mkdirs() }
     val survey = ExampleSurvey.create()
 

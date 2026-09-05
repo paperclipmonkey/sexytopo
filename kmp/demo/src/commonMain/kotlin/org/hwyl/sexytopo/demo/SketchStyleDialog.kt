@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.sketch.SketchStyle
 
@@ -41,10 +42,13 @@ fun SketchStyleDialog(
     var text by remember { mutableStateOf(style.textSizeSp.toString()) }
     var fragments by remember { mutableStateOf(preferences.deletePathFragments) }
     var legacySections by remember { mutableStateOf(preferences.legacyCrossSections) }
+    var hotCorners by remember { mutableStateOf(preferences.hotCorners) }
+    var highlightLatest by remember { mutableStateOf(preferences.highlightLatestLeg) }
+    var twoFingerMove by remember { mutableStateOf(preferences.twoFingerMove) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Sketching") },
+        title = { Text(Strings.settingsSketchingTitle) },
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
@@ -58,46 +62,75 @@ fun SketchStyleDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                NumberField(legWidth, { legWidth = it }, "Leg width (dp)")
-                NumberField(splayWidth, { splayWidth = it }, "Splay width (dp)")
-                NumberField(lineWidth, { lineWidth = it }, "Drawn line width (dp)")
-                NumberField(stationDiameter, { stationDiameter = it }, "Station size (dp)")
-                NumberField(stationLabel, { stationLabel = it }, "Station name size (sp)")
-                NumberField(legend, { legend = it }, "Scale bar and compass size (sp)")
-                NumberField(symbol, { symbol = it }, "Symbol size (dp)")
-                NumberField(text, { text = it }, "Text tool size (sp)")
-
-                HorizontalDivider()
-
-                // `pref_delete_path_fragments`.
+                // `pref_hot_corners`, `pref_delete_path_fragments`,
+                // `pref_highlight_latest_leg`, `pref_two_finger_movement` and
+                // `pref_legacy_cross_sections`, in `preferences_sketching.xml`'s own order.
                 Toggle(
-                    title = "Rub out part of a line",
-                    detail =
-                        "The eraser takes the bit of a wall under your finger and leaves both " +
-                            "ends. Turn it off to delete the whole stroke instead.",
+                    title = Strings.settingsHotCornersTitle,
+                    detail = Strings.settingsHotCornersSummary,
+                    checked = hotCorners,
+                    onCheckedChange = { hotCorners = it },
+                )
+
+                Toggle(
+                    title = Strings.settingsDeleteFragmentsTitle,
+                    detail = Strings.settingsDeleteFragmentsSummary,
                     checked = fragments,
                     onCheckedChange = { fragments = it },
                 )
 
-                // `pref_legacy_cross_sections`.
                 Toggle(
-                    title = "Plain cross-sections",
-                    detail =
-                        "Draw a cross-section as bare splays with a dashed line to its station, " +
-                            "the way the app used to. No frame, no drag bar, and no tapping one " +
-                            "open to draw inside it.",
+                    title = Strings.settingsHighlightLatestLegTitle,
+                    detail = Strings.settingsHighlightLatestLegSummary,
+                    checked = highlightLatest,
+                    onCheckedChange = { highlightLatest = it },
+                )
+
+                Toggle(
+                    title = Strings.settingsTwoFingerTitle,
+                    detail = Strings.settingsTwoFingerSummary,
+                    checked = twoFingerMove,
+                    onCheckedChange = { twoFingerMove = it },
+                )
+
+                Toggle(
+                    title = Strings.settingsLegacyCrossSectionsTitle,
+                    detail = Strings.settingsLegacyCrossSectionsSummary,
                     checked = legacySections,
                     onCheckedChange = { legacySections = it },
                 )
+
+                HorizontalDivider()
+
+                NumberField(text, { text = it }, Strings.settingsTextToolSizeTitle)
+                NumberField(symbol, { symbol = it }, Strings.settingsSymbolSizeTitle)
+                NumberField(lineWidth, { lineWidth = it }, Strings.settingsSketchLineWidthTitle)
+                NumberField(legWidth, { legWidth = it }, Strings.settingsLegWidthTitle)
+                NumberField(splayWidth, { splayWidth = it }, Strings.settingsSplayWidthTitle)
+                NumberField(
+                    stationDiameter,
+                    { stationDiameter = it },
+                    Strings.settingsStationDiameterTitle,
+                )
+                NumberField(
+                    stationLabel,
+                    { stationLabel = it },
+                    Strings.settingsStationLabelSizeTitle,
+                )
+                NumberField(legend, { legend = it }, Strings.settingsLegendSizeTitle)
             }
         },
         confirmButton = {
             TextButton(
+                modifier = Modifier.testTag(SETTINGS_SAVE),
                 onClick = {
                     onSave(
                         preferences.copy(
                             deletePathFragments = fragments,
                             legacyCrossSections = legacySections,
+                            hotCorners = hotCorners,
+                            highlightLatestLeg = highlightLatest,
+                            twoFingerMove = twoFingerMove,
                             sketchStyle =
                                 styleFrom(
                                     style,
@@ -113,9 +146,9 @@ fun SketchStyleDialog(
                         ),
                     )
                 },
-            ) { Text("Save") }
+            ) { Text(Strings.save) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
     )
 }
 

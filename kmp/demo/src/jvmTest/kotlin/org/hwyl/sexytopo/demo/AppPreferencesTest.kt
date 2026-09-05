@@ -79,29 +79,32 @@ class AppPreferencesTest {
     }
 
     /**
-     * The settings screen shows three preferences and the drawing menu sets a fourth. Building the
-     * saved value from the three on screen resets the fourth to its default with nothing to say so
-     * — which is what happened: turning *Follow the survey* on and then adjusting a tolerance
+     * The Instruments screen shows three preferences and other screens set the rest. Building the
+     * saved value from the three on screen resets the others to their defaults with nothing to say
+     * so — which is what happened: turning *Auto-Recentre* on and then adjusting a tolerance
      * turned it off again.
      */
     @Test
     fun savingTheSettingsScreenLeavesThePreferencesItDoesNotShowAlone() {
-        val current = AppPreferences(autoRecentre = true)
-        val saved =
-            preferencesFrom(
-                current,
+        val current =
+            AppPreferences(
+                autoRecentre = true,
                 buzzOnNewStation = false,
                 hotCorners = false,
                 twoFingerMove = true,
+            )
+        val saved =
+            preferencesFrom(
+                current,
                 autoReconnect = false,
                 autoReconnectWindow = "15",
                 developerMode = false,
             )
 
         assertTrue(saved.autoRecentre, "the drawing menu's preference is not this screen's to reset")
-        assertFalse(saved.buzzOnNewStation)
-        assertFalse(saved.hotCorners)
-        assertTrue(saved.twoFingerMove)
+        assertFalse(saved.buzzOnNewStation, "General's preference is not this screen's to reset")
+        assertFalse(saved.hotCorners, "Sketching's preference is not this screen's to reset")
+        assertTrue(saved.twoFingerMove, "Sketching's preference is not this screen's to reset")
     }
 
     /**
@@ -115,9 +118,6 @@ class AppPreferencesTest {
         val saved =
             preferencesFrom(
                 current,
-                buzzOnNewStation = true,
-                hotCorners = true,
-                twoFingerMove = false,
                 autoReconnect = true,
                 autoReconnectWindow = "",
                 developerMode = false,
@@ -330,9 +330,9 @@ class AppPreferencesTest {
         assertEquals(labels.size, labels.toSet().size, "a toggle is listed twice")
         assertEquals(4, BEHAVIOUR_TOGGLES.size, "drawing.xml's behaviour group has four items")
         // Seven of drawing.xml's display group — all but `buttonShowConnections`, which has no
-        // cross-survey links behind it here — plus the latest-leg mark, which the Android app
-        // keeps on its general settings screen rather than this menu.
-        assertEquals(8, DISPLAY_TOGGLES.size)
+        // cross-survey links behind it here. The latest-leg mark used to be an eighth, and is not
+        // on this menu upstream: `pref_highlight_latest_leg` is a Sketching preference.
+        assertEquals(7, DISPLAY_TOGGLES.size)
     }
 
     /**
@@ -536,16 +536,26 @@ class AppPreferencesTest {
     }
 
     /**
-     * The menu row for the theme is a submenu, and *< Back* from it goes to Settings.
+     * *Back* goes to the menu that opened this one, which for the four pages nested two deep is
+     * not the top of the menu.
      *
      * A one-line rule with a test on it because the previous rule — always back to the top — was
-     * right until this page existed, and a surveyor thrown to the top of the menu after choosing a
-     * theme has to walk back down two rows to try the other one.
+     * right until `action_bar.xml`'s own nesting was carried across, and a surveyor thrown to the
+     * top after opening one survey has to walk back down two rows to open a different one.
      */
     @Test
-    fun backFromTheThemeListGoesToSettingsAndNotTheTop() {
-        assertEquals(MenuPage.SETTINGS, MenuPage.THEME.parent)
-        for (page in MenuPage.entries.filter { it != MenuPage.THEME }) {
+    fun backGoesToTheMenuThatOpenedThisOne() {
+        val nested =
+            mapOf(
+                MenuPage.OPEN to MenuPage.FILE,
+                MenuPage.DELETE to MenuPage.FILE,
+                MenuPage.IMPORT to MenuPage.FILE,
+                MenuPage.SYSTEM_SETTINGS to MenuPage.SETTINGS,
+            )
+        for ((page, parent) in nested) {
+            assertEquals(parent, page.parent, "$page")
+        }
+        for (page in MenuPage.entries.filterNot { it in nested }) {
             assertEquals(MenuPage.TOP, page.parent, "$page")
         }
     }

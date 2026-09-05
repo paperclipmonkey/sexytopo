@@ -1,105 +1,33 @@
 package org.hwyl.sexytopo.demo
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
 
 /**
- * The UIS symbol palette: a dialog off the drawing menu rather than the app's toolbar spinner,
- * since all nine toolbar columns are already spoken for. Each swatch is drawn through the same
- * path data and parser the canvas uses, so a swatch cannot disagree with what gets stamped.
+ * One UIS symbol at button size, drawn through the same path data and parser the canvas uses — so
+ * what the symbol strip shows cannot disagree with what a tap stamps.
+ *
+ * The strip itself is in [SketchToolbar], because that is where `activity_graph.xml` puts it: a
+ * `HorizontalScrollView` between the drawing and the button grid, not a dialog. This port did
+ * offer it as a dialog off the drawing menu, which was one tap further away and did not look like
+ * the app.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SymbolPaletteDialog(onDismiss: () -> Unit, onChosen: (Symbol) -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Symbol") },
-        text = {
-            Column(
-                Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    "Tap the sketch to stamp one. Directional symbols point the way you are " +
-                        "looking; the rest are drawn upright.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    for (symbol in Symbol.entries) {
-                        SymbolSwatch(symbol) { onChosen(symbol) }
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-    )
-}
-
-@Composable
-private fun SymbolSwatch(symbol: Symbol, onClick: () -> Unit) {
-    val ink = MaterialTheme.colorScheme.onSurface
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier =
-            Modifier
-                .width(76.dp)
-                .clickable(onClick = onClick)
-                .background(
-                    MaterialTheme.colorScheme.surfaceVariant,
-                    RoundedCornerShape(6.dp),
-                )
-                .padding(4.dp),
-    ) {
-        SymbolGlyph(symbol, ink)
-        Text(
-            symbol.label(),
-            style = MaterialTheme.typography.labelSmall,
-            fontSize = 10.sp,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-        )
-    }
-}
-
-/** The artwork at swatch size, drawn exactly as the canvas draws it. */
-@Composable
-private fun SymbolGlyph(symbol: Symbol, colour: Color) {
-    Canvas(Modifier.size(34.dp)) {
+internal fun SymbolGlyph(symbol: Symbol, colour: Color, size: Dp = 34.dp) {
+    Canvas(Modifier.size(size)) {
         val path = symbolPaths[symbol] ?: return@Canvas
-        val scale = size.minDimension / Symbol.VIEWPORT
+        val scale = this.size.minDimension / Symbol.VIEWPORT
         withTransform({
-            translate(size.width / 2, size.height / 2)
+            translate(this.size.width / 2, this.size.height / 2)
             scale(scale, scale, pivot = Offset.Zero)
         }) {
             drawPath(path, colour, style = Stroke(width = 1f))

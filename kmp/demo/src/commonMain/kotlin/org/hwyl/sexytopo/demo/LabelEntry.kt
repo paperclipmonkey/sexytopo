@@ -28,7 +28,7 @@ fun LabelDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                label = { Text("Text") },
+                label = { Text(Strings.symbolText) },
                 placeholder = { Text("Sump") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().then(focus),
@@ -40,6 +40,6 @@ fun LabelDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
                 onClick = { onConfirm(text.trim()) },
             ) { Text("Place") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
     )
 }

@@ -22,6 +22,40 @@ class SurveyTableTest {
         return survey
     }
 
+    /**
+     * `toChronoListOfSurveyListEntries` sorts the table by the order the shots were taken, and
+     * this port walked the tree instead. The two agree until somebody surveys a side passage and
+     * comes back to push the main one — and that is exactly when a surveyor is checking the table
+     * against a notebook that runs in time order.
+     */
+    @Test
+    fun theTableRunsInTheOrderTheShotsWereTaken() {
+        val survey = Survey("T")
+        SurveyBuilder.updateWithNewStation(survey, Leg(5f, 0f, 0f))
+        val junction = survey.activeStation
+        SurveyBuilder.updateWithNewStation(survey, Leg(5f, 0f, 0f))
+        // Back to the junction and off down a side passage, then onward from there.
+        survey.activeStation = junction
+        SurveyBuilder.updateWithNewStation(survey, Leg(5f, 90f, 0f))
+
+        val taken = survey.getAllLegsInChronoOrder()
+        val rows = asTakenRows(survey)
+
+        assertEquals(taken.size, rows.size, "every leg has a row")
+        assertEquals(
+            taken,
+            rows.map { it.leg },
+            "the table is in tree order rather than the order the legs were shot",
+        )
+    }
+
+    /** `Survey.NULL_STATION` is called "-", and that is what the app's To column shows. */
+    @Test
+    fun aSplayShowsTheAppsOwnHyphenInTheToColumn() {
+        val splay = asTakenRows(passageWithASplay()).first { it.isSplay }
+        assertEquals("-", splay.to)
+    }
+
     @Test
     fun aStationIsFoundAtTheLegThatArrivedAtIt() {
         val rows = asTakenRows(passageWithASplay())

@@ -5,11 +5,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -24,6 +27,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -39,6 +45,7 @@ import org.hwyl.sexytopo.shared.math.Wireframe
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Coord3D
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.sqrt
 
@@ -56,8 +63,11 @@ import kotlin.math.sqrt
  * - **Draw order**: splays behind legs behind stations, fixed rather than sorted per-fragment as
  *   GL did, which is invisible for unfilled lines and too slow to redo every frame.
  *
- * One finger rotates; two pan, and pinch to zoom — the one deliberate divergence from
- * `SurveyView3D`, which pans with one finger and rotates with two.
+ * The gestures are `SurveyView3D.onTouchEvent`'s own: one finger pans, and two fingers either
+ * pinch to zoom or rotate — whichever the movement is predominantly, decided by comparing how much
+ * the spacing changed against how far the midpoint moved. This port had one finger rotating and
+ * two panning, which is the opposite of the app on the one screen where a caver's muscle memory
+ * has nothing else to go on.
  */
 @Composable
 fun ThreeDView(
@@ -97,17 +107,26 @@ fun ThreeDView(
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = onClose) { Text("Close", color = SexyTopoColours.onPanel) }
-            Spacer(Modifier.weight(1f))
+            // `title_activity_3d`, which is what `activity_3d_view.xml` puts on its toolbar —
+            // not the survey name, which the app bar of every other screen already carries.
             Text(
-                survey.name,
-                style = MaterialTheme.typography.titleSmall,
+                Strings.action3d,
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.titleMedium,
                 color = SexyTopoColours.onPanel,
             )
-            Spacer(Modifier.weight(1f))
             TextButton(
                 onClick = { camera = Camera3D(distance = fitDistance) },
-            ) { Text("Reset", color = SexyTopoColours.onPanel) }
+            ) { Text(Strings.reset, color = SexyTopoColours.onPanel) }
+            Box(
+                Modifier
+                    .semantics { contentDescription = Strings.close }
+                    .testTag("three-d-close")
+                    .clickable(onClick = onClose)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            ) {
+                CancelIcon(SexyTopoColours.onPanel)
+            }
         }
 
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
@@ -175,21 +194,26 @@ fun ThreeDView(
                                     val moved = centroid - previous
                                     camera =
                                         if (down.size == 1) {
-                                            camera.rotatedBy(moved.x, moved.y)
+                                            camera.pannedBy(moved.x, moved.y)
                                         } else {
                                             // The Java's guard: two fingers this close together are
                                             // more likely one finger being reported twice than a
                                             // pinch, and the ratio would be wild.
-                                            val zoomed =
-                                                if (pinchToZoom &&
-                                                    previousSpacing > MINIMUM_PINCH &&
+                                            val usable =
+                                                previousSpacing > MINIMUM_PINCH &&
                                                     spacing > MINIMUM_PINCH
-                                                ) {
+                                            // `onTouchEvent`'s own test: whichever of the two
+                                            // movements is the larger is the one the surveyor
+                                            // meant, so a pinch does not also swing the cave and
+                                            // a two-fingered drag does not also zoom it.
+                                            val pinching =
+                                                abs(spacing - previousSpacing) > moved.getDistance()
+                                            when {
+                                                !usable -> camera
+                                                pinching && pinchToZoom ->
                                                     camera.zoomedBy(previousSpacing / spacing)
-                                                } else {
-                                                    camera
-                                                }
-                                            zoomed.pannedBy(moved.x, moved.y)
+                                                else -> camera.rotatedBy(moved.x, moved.y)
+                                            }
                                         }
                                 }
 
@@ -257,15 +281,19 @@ fun ThreeDView(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // `sketch_menu_show_splays`, borrowed from the drawing menu: the Android app's own
+            // 3D screen carries no controls at all, and a cave with every splay drawn is a ball
+            // of fur on a phone.
             TextButton(onClick = { showSplays = !showSplays }) {
-                Text(
-                    if (showSplays) "Hide splays" else "Show splays",
-                    color = SexyTopoColours.onPanel,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CheckDot(showSplays)
+                    Spacer(Modifier.width(6.dp))
+                    Text(Strings.sketchMenuShowSplays, color = SexyTopoColours.onPanel)
+                }
             }
             Spacer(Modifier.weight(1f))
             Text(
-                "One finger turns, two pan and pinch",
+                "One finger pans, two turn and pinch",
                 style = MaterialTheme.typography.labelSmall,
                 color = SexyTopoColours.onPanel,
             )

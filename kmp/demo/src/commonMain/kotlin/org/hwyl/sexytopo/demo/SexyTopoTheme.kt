@@ -23,11 +23,49 @@ object SexyTopoColours {
 
     val onPanel = Color(0xFFFFFFFF)
 
+    /**
+     * `buttonHighlight`: what `GraphActivity.selectSketchTool` and `selectBrushColour` tint the
+     * background of the selected toolbar button with. Not an alpha wash of [onPanel], which is
+     * what this port drew before — the app's own value is opaque, and darker rather than lighter
+     * at night.
+     */
+    val buttonHighlight = Color(0xFFFFFFFF)
+    val buttonHighlightNight = Color(0xFFA9A9A9)
+
+    /**
+     * `sexyTopoDarkGreen`, which `activity_graph.xml` gives the symbol strip so it reads as a
+     * separate band from the button grid below it. The same value in both themes, as upstream.
+     */
+    val symbolToolbarBackground = Color(0xFF3A5738)
+
+    /**
+     * What a symbol on the toolbar is drawn in: the `#000000` every `symbol_uis_*.xml` gives its
+     * `strokeColor`, which `Symbol.createDrawable` hands to an `ImageButton` untinted, in both
+     * themes. Not [onPanel] — this port drew the glyphs white on the strip's green so they would
+     * stand out, and the selected one then sat white on `buttonHighlight`'s white, which is a
+     * blank square where the symbol should be. The tool icons beside them are black PNGs on the
+     * same green; the glyphs are now the same.
+     */
+    val symbolGlyph = Color(0xFF000000)
+
     /** `innerPanelBackground` / `dividerColour`. */
     val innerPanel = Color(0xFFDDDDDD)
     val innerPanelNight = Color(0xFF2A2A2A)
     val divider = Color(0xFFA9A9A9)
     val dividerNight = Color(0xFF7F7F7F)
+
+    // -- The survey table -------------------------------------------------------------------
+
+    /** `tableBackground` and `tableBackgroundAlt`: the alternating row stripes. */
+    val tableBackground = Color(0xFFFFFFFF)
+    val tableBackgroundNight = Color(0xFF2A2A2A)
+    val tableBackgroundAlt = Color(0xFFF5F5F5)
+    val tableBackgroundAltNight = Color(0xFF1F1F1F)
+
+    /** `tableHighlight` / `tableHighlightText`: the active station's own cell. */
+    val tableHighlight = Color(0xFFFFC107)
+    val tableHighlightNight = Color(0xFFFFD54F)
+    val tableHighlightText = Color(0xFF000000)
 
     // -- The survey itself ----------------------------------------------------------------
 

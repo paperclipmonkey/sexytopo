@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.log.LogMessage
@@ -85,6 +86,7 @@ fun LogDialog(
         confirmButton = {
             TextButton(
                 enabled = entries.isNotEmpty(),
+                modifier = Modifier.testTag(LOG_COPY),
                 onClick = {
                     val text = entries.joinToString("\n") { it.toString() }
                     copied =
@@ -103,7 +105,7 @@ fun LogDialog(
                         onClear()
                         copied = null
                     },
-                ) { Text("Clear") }
+                ) { Text(Strings.clear) }
                 TextButton(onClick = onDismiss) { Text("Close") }
             }
         },
@@ -116,3 +118,6 @@ internal fun timeOf(timestamp: String): String {
     if (t < 0 || timestamp.length < t + 9) return timestamp
     return timestamp.substring(t + 1, t + 9)
 }
+
+/** The log dialog's Copy, by name, for the browser tests. */
+const val LOG_COPY: String = "log-copy"

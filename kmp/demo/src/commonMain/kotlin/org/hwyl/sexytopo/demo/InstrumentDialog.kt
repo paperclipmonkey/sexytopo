@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
 
@@ -39,7 +40,7 @@ fun InstrumentDialog(state: DemoState, onDismiss: () -> Unit) {
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Instrument") },
+        title = { Text(Strings.actionDevice) },
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
@@ -129,10 +130,14 @@ fun InstrumentDialog(state: DemoState, onDismiss: () -> Unit) {
                 TextButton(
                     enabled = chosen != null,
                     onClick = { chosen?.let { state.useInstrument(it) } },
-                ) { Text("Connect") }
+                ) { Text(Strings.titleActivityDevice) }
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        dismissButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag(INSTRUMENT_CLOSE)) {
+                Text(Strings.close)
+            }
+        },
     )
 }
 
@@ -141,16 +146,19 @@ internal fun status(state: DemoState): String {
     val session = state.session
     val name = session.profile?.name
     return when {
-        session.connected && name != null -> "Connected to $name"
-        session.connected -> "Using the simulated instrument"
+        session.connected && name != null -> "${Strings.connected} to $name"
+        session.connected -> Strings.usingTheSimulatedInstrument
         // Before the failure, not after: while the app is chasing an instrument, what it is doing
         // now matters more than the message from the attempt that dropped.
-        session.isReconnecting && name != null -> "Reconnecting to $name…"
+        session.isReconnecting && name != null -> "${Strings.reconnecting} to $name…"
         session.failure != null -> session.failure ?: ""
-        name != null -> "Connecting to $name…"
-        else -> "Not connected"
+        name != null -> "${Strings.connecting} to $name…"
+        else -> Strings.notConnected
     }
 }
 
 /** Often enough that a fifteen-second timeout lands within a second of when it should. */
 internal const val TICK_MILLIS = 500L
+
+/** The instrument dialog's Close, by name, for the browser tests. */
+const val INSTRUMENT_CLOSE: String = "instrument-close"

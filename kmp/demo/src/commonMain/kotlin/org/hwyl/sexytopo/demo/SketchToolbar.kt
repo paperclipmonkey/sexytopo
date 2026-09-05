@@ -12,7 +12,10 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -30,9 +33,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.demo.resources.Res
 import org.hwyl.sexytopo.demo.resources.black
@@ -51,15 +60,18 @@ import org.hwyl.sexytopo.demo.resources.select
 import org.hwyl.sexytopo.demo.resources.settings
 import org.hwyl.sexytopo.demo.resources.text
 import org.hwyl.sexytopo.demo.resources.undo
+import org.hwyl.sexytopo.demo.resources.white
 import org.hwyl.sexytopo.demo.resources.zoom_in
 import org.hwyl.sexytopo.demo.resources.zoom_out
 import org.hwyl.sexytopo.shared.model.sketch.Colour
+import org.hwyl.sexytopo.shared.model.sketch.Symbol
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.jetbrains.compose.resources.painterResource
 
 /**
- * SexyTopo's sketch toolbar: nine columns by two rows of icon buttons on a green panel.
+ * SexyTopo's sketch toolbar: nine columns by two rows of icon buttons on a green panel, with the
+ * symbol strip above it.
  *
  * A deliberate copy of `activity_graph.xml`, down to the order of the buttons and the artwork on
  * them — the icons are the app's own PNGs, carried across as Compose resources.
@@ -67,10 +79,15 @@ import org.jetbrains.compose.resources.painterResource
  * Row one is the eight brush colours and zoom in. Row two is the tools — move, draw, symbol, erase,
  * select — then the drawing menu, undo, redo and zoom out.
  *
- * One of those buttons is drawn but disabled: the symbol tool, which the shared model supports
- * (`SketchTool.SYMBOL`) but this demo has no palette to drive, since the app's symbol artwork is
- * SVG rather than the PNGs the toolbar uses. Showing it greyed rather than leaving a gap keeps the
- * layout honest: the toolbar is the app's, and what the demo cannot do is visible, not missing.
+ * `buttonSymbol` behaves as `GraphActivity.handleAction` makes it behave: it selects the symbol
+ * tool, opens the strip the first time it is ever tapped, and toggles the strip when tapped while
+ * the symbol tool is already in hand. The strip itself is the app's `symbolToolbar` — a
+ * horizontally scrolling row of every symbol on `sexyTopoDarkGreen`, the selected one lit.
+ *
+ * The one place the two apps' models differ is the label tool. `Symbol.TEXT` is a member of the
+ * Android app's symbol enum standing for "the label tool" rather than for a drawing, so it is the
+ * first entry on its strip; here it is [SketchTool.TEXT] instead, and the strip's first entry
+ * selects that tool. What a surveyor sees and taps is the same either way.
  */
 @Composable
 fun SketchToolbar(
@@ -80,6 +97,10 @@ fun SketchToolbar(
     modifier: Modifier = Modifier,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    var symbolStripOpen by remember { mutableStateOf(false) }
+    // `symbolToolbarOpenedOnce`: the app opens the strip the first time the symbol button is ever
+    // tapped, to teach the surveyor it is there, and only toggles it thereafter.
+    var symbolStripEverOpened by remember { mutableStateOf(false) }
 
     // Read the revision so this toolbar recomposes when the sketch changes: SketchEditor is a
     // plain object, so `editor.canUndo` is not something Compose can observe on its own.
@@ -93,13 +114,23 @@ fun SketchToolbar(
             SexyTopoColours.panelBackground
         }
 
+    // `setSketchButtonsStatus`: with the sketch hidden there is nothing to draw on, so every
+    // button that marks it is disabled and the tool falls back to moving the view.
+    val canSketch = state.showSketch
+    if (!canSketch && state.tool != SketchTool.MOVE) state.chooseTool(SketchTool.MOVE)
+
     Column(modifier.fillMaxWidth().background(panel)) {
+        if (symbolStripOpen) {
+            SymbolStrip(state) { symbolStripOpen = false }
+        }
+
         Row(Modifier.fillMaxWidth()) {
             for (colour in BRUSH_COLOURS) {
                 ColourButton(
                     colour = colour,
                     selected = state.brushColour == colour,
                     darkMode = state.darkMode,
+                    enabled = canSketch,
                     modifier = Modifier.weight(1f),
                 ) {
                     state.pickColour(colour, editor)
@@ -107,26 +138,58 @@ fun SketchToolbar(
             }
             ToolbarButton(
                 painter = painterResource(Res.drawable.zoom_in),
-                description = "Zoom in",
+                description = Strings.toolbarZoomIn,
+                darkMode = state.darkMode,
                 modifier = Modifier.weight(1f),
                 onClick = { canvas.zoomIn() },
             )
         }
 
-        Row(Modifier.fillMaxWidth()) {
-            ToolButton(state, SketchTool.MOVE, painterResource(Res.drawable.move), "Move")
-            ToolButton(state, SketchTool.DRAW, painterResource(Res.drawable.pencil), "Draw")
-            // The app's own button here is the symbol palette, whose artwork is SVG this port
-            // does not carry. The text tool is the half of it that needs no artwork.
-            ToolButton(state, SketchTool.TEXT, painterResource(Res.drawable.text), "Label")
-            ToolButton(state, SketchTool.ERASE, painterResource(Res.drawable.eraser), "Erase")
-            ToolButton(state, SketchTool.SELECT, painterResource(Res.drawable.select), "Select")
+        // `layout_marginTop="-4dp"`, which every button of the app's second row carries: the two
+        // rows overlap by four pixels, so the grid is a shade tighter than two 40dp rows.
+        Row(Modifier.fillMaxWidth().offset(y = SECOND_ROW_OVERLAP_DP.dp)) {
+            ToolButton(
+                state,
+                SketchTool.MOVE,
+                painterResource(Res.drawable.move),
+                Strings.toolbarMove,
+            )
+            ToolButton(
+                state,
+                SketchTool.DRAW,
+                painterResource(Res.drawable.pencil),
+                Strings.toolbarDraw,
+                enabled = canSketch,
+            )
+            SymbolButton(state, enabled = canSketch) {
+                val wasAlreadyInSymbolMode =
+                    state.tool == SketchTool.SYMBOL || state.tool == SketchTool.TEXT
+                if (state.tool != SketchTool.TEXT) state.chooseTool(SketchTool.SYMBOL)
+                if (!symbolStripEverOpened || wasAlreadyInSymbolMode) {
+                    symbolStripEverOpened = true
+                    symbolStripOpen = !symbolStripOpen
+                }
+            }
+            ToolButton(
+                state,
+                SketchTool.ERASE,
+                painterResource(Res.drawable.eraser),
+                Strings.toolbarEraser,
+                enabled = canSketch,
+            )
+            ToolButton(
+                state,
+                SketchTool.SELECT,
+                painterResource(Res.drawable.select),
+                Strings.toolbarSelector,
+            )
 
             Box(Modifier.weight(1f)) {
                 ToolbarButton(
                     painter = painterResource(Res.drawable.settings),
-                    description = "Drawing menu",
-                    modifier = Modifier.fillMaxWidth(),
+                    description = Strings.toolbarSettings,
+                    darkMode = state.darkMode,
+                    modifier = Modifier.fillMaxWidth().testTag("drawing-menu"),
                     onClick = { menuOpen = true },
                 )
                 DrawingMenu(state, canvas, menuOpen) { menuOpen = false }
@@ -134,27 +197,172 @@ fun SketchToolbar(
 
             ToolbarButton(
                 painter = painterResource(Res.drawable.undo),
-                description = "Undo",
+                description = Strings.toolbarUndo,
+                darkMode = state.darkMode,
                 modifier = Modifier.weight(1f),
-                enabled = editor.canUndo,
+                enabled = canSketch && editor.canUndo,
                 onClick = { state.undo(editor) },
             )
             ToolbarButton(
                 painter = painterResource(Res.drawable.redo),
-                description = "Redo",
+                description = Strings.toolbarRedo,
+                darkMode = state.darkMode,
                 modifier = Modifier.weight(1f),
-                enabled = editor.canRedo,
+                enabled = canSketch && editor.canRedo,
                 onClick = { state.redo(editor) },
             )
             ToolbarButton(
                 painter = painterResource(Res.drawable.zoom_out),
-                description = "Zoom out",
+                description = Strings.toolbarZoomOut,
+                darkMode = state.darkMode,
                 modifier = Modifier.weight(1f),
                 onClick = { canvas.zoomOut() },
             )
         }
     }
 }
+
+/**
+ * `symbolToolbar`: the app's own scrolling strip of symbols, on `sexyTopoDarkGreen`, sitting
+ * between the drawing and the button grid.
+ *
+ * Its first entry is the label tool, which is where `Symbol.TEXT` sits on the app's own strip.
+ */
+@Composable
+private fun SymbolStrip(state: DemoState, onClose: () -> Unit) {
+    val size = SexyTopoDimens.TOOLBAR_BUTTON_HEIGHT_DP.dp
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(SexyTopoColours.symbolToolbarBackground)
+            .horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // `Symbol.TEXT`, which this port models as a tool rather than as a symbol.
+        Box(
+            Modifier
+                .size(size)
+                .then(
+                    if (state.tool == SketchTool.TEXT) {
+                        Modifier.background(highlightFor(state.darkMode))
+                    } else {
+                        Modifier
+                    },
+                )
+                .testTag("symbol-label")
+                .clickable { state.chooseTool(SketchTool.TEXT) }
+                .padding(6.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                painter = painterResource(Res.drawable.text),
+                contentDescription = Strings.toolbarText,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxHeight().aspectRatio(1f),
+            )
+        }
+
+        for (symbol in Symbol.entries) {
+            val lit = state.tool == SketchTool.SYMBOL && state.symbol == symbol
+            Box(
+                Modifier
+                    .size(size)
+                    .then(
+                        if (lit) Modifier.background(highlightFor(state.darkMode)) else Modifier,
+                    )
+                    .semantics { contentDescription = symbol.therionName }
+                    .testTag("symbol-${symbol.therionName}")
+                    .clickable {
+                        state.chooseSymbol(symbol)
+                        state.chooseTool(SketchTool.SYMBOL)
+                    }
+                    .padding(4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                SymbolGlyph(symbol, SexyTopoColours.symbolGlyph, size - 8.dp)
+            }
+        }
+
+        Box(
+            Modifier
+                .size(size)
+                .semantics { contentDescription = Strings.toolbarSymbolClose }
+                .testTag("symbol-close")
+                .clickable(onClick = onClose)
+                .padding(10.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            // "×" not "✕": the bundled font has Latin-1 and no Dingbats.
+            Text(
+                "×",
+                style = MaterialTheme.typography.titleMedium,
+                color = SexyTopoColours.onPanel,
+            )
+        }
+    }
+}
+
+/**
+ * `buttonSymbol`, whose face is the symbol it will stamp.
+ *
+ * `selectSymbol` redraws the Android button with the chosen symbol's own artwork inside a border,
+ * so a surveyor can see what a tap will leave without opening the strip. Here the same, drawn
+ * through the path data the canvas uses — except while the label tool is in hand, when it shows
+ * the app's `text` icon, since a label has no symbol.
+ */
+@Composable
+private fun RowScope.SymbolButton(state: DemoState, enabled: Boolean, onClick: () -> Unit) {
+    val selected = state.tool == SketchTool.SYMBOL || state.tool == SketchTool.TEXT
+    val dim = if (enabled) 1f else DISABLED_BUTTON_ALPHA
+
+    Box(
+        Modifier
+            .weight(1f)
+            .height(SexyTopoDimens.TOOLBAR_BUTTON_HEIGHT_DP.dp)
+            .then(
+                if (selected) {
+                    Modifier.background(highlightFor(state.darkMode))
+                } else {
+                    Modifier
+                },
+            )
+            .testTag("symbol-tool")
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (state.tool == SketchTool.TEXT) {
+            Image(
+                painter = painterResource(Res.drawable.text),
+                contentDescription = Strings.toolbarText,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxHeight().aspectRatio(1f).alpha(dim),
+            )
+        } else {
+            // `selectSymbol` draws the border in `Color.BLACK` and the artwork untinted, lit or
+            // not; the black-on-green of the unselected face is what the app looks like.
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .aspectRatio(1f)
+                    .alpha(dim)
+                    .border(1.dp, SexyTopoColours.symbolGlyph),
+                contentAlignment = Alignment.Center,
+            ) {
+                SymbolGlyph(
+                    state.symbol,
+                    SexyTopoColours.symbolGlyph,
+                    SexyTopoDimens.TOOLBAR_BUTTON_HEIGHT_DP.dp - 14.dp,
+                )
+            }
+        }
+    }
+}
+
+/** `buttonHighlight`, which is what the app tints a selected button's background with. */
+private fun highlightFor(darkMode: Boolean): Color =
+    if (darkMode) SexyTopoColours.buttonHighlightNight else SexyTopoColours.buttonHighlight
 
 /**
  * The menu behind the settings button, from `res/menu/drawing.xml`.
@@ -175,25 +383,11 @@ private fun DrawingMenu(
     expanded: Boolean,
     onDismiss: () -> Unit,
 ) {
-    var choosingSymbol by remember { mutableStateOf(false) }
-    var finding by remember { mutableStateOf(false) }
     var deletingLastLeg by remember { mutableStateOf(false) }
     var adjustingDisplay by remember { mutableStateOf(false) }
 
     if (adjustingDisplay) {
         DrawingOptionsDialog(state) { adjustingDisplay = false }
-    }
-
-    if (finding) {
-        FindStationDialog(
-            survey = state.survey,
-            onDismiss = { finding = false },
-            onGo = { station ->
-                stationPositionIn(state.survey, state.projection, station)
-                    ?.let(canvas::centreOn)
-                finding = false
-            },
-        )
     }
 
     if (deletingLastLeg) {
@@ -208,81 +402,34 @@ private fun DrawingMenu(
         )
     }
 
-    if (choosingSymbol) {
-        SymbolPaletteDialog(
-            onDismiss = { choosingSymbol = false },
-            onChosen = { chosen ->
-                state.chooseSymbol(chosen)
-                state.chooseTool(SketchTool.SYMBOL)
-                choosingSymbol = false
-            },
-        )
-    }
-
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        // `drawingMenuActions`, in its own order. `buttonRedo` is on it too but declared
+        // `android:visible="false"`, and redo has a button of its own on the toolbar.
         DropdownMenuItem(
-            text = { Text("Centre view") },
-            onClick = {
-                canvas.refit()
-                onDismiss()
-            },
-        )
-        // A menu item rather than a tenth button in a nine-column toolbar.
-        DropdownMenuItem(
-            text = { Text("Symbol…") },
-            leadingIcon = { CheckDot(state.tool == SketchTool.SYMBOL) },
-            onClick = {
-                choosingSymbol = true
-                onDismiss()
-            },
-        )
-        DropdownMenuItem(
-            text = { Text("Cross-section at a station") },
-            leadingIcon = {
-                CheckDot(state.tool == SketchTool.POSITION_CROSS_SECTION)
-            },
-            onClick = {
-                state.chooseTool(SketchTool.POSITION_CROSS_SECTION)
-                onDismiss()
-            },
-        )
-        // The bearing is guessed by CrossSectioner and the position by whoever tapped, so each can
-        // need correcting independently.
-        DropdownMenuItem(
-            text = { Text("Re-aim a cross-section") },
-            leadingIcon = { CheckDot(state.tool == SketchTool.ROTATE_CROSS_SECTION) },
-            onClick = {
-                state.chooseTool(SketchTool.ROTATE_CROSS_SECTION)
-                onDismiss()
-            },
-        )
-        DropdownMenuItem(
-            text = { Text("Move a cross-section") },
-            leadingIcon = { CheckDot(state.tool == SketchTool.MOVE_CROSS_SECTION) },
-            onClick = {
-                state.chooseTool(SketchTool.MOVE_CROSS_SECTION)
-                onDismiss()
-            },
-        )
-        // `action_find_station`, from the Android app's tools menu.
-        DropdownMenuItem(
-            text = { Text("Find a station…") },
-            onClick = {
-                finding = true
-                onDismiss()
-            },
-        )
-        // `buttonDeleteLastLeg`.
-        DropdownMenuItem(
-            text = { Text("Delete the last leg") },
+            text = { Text(Strings.sketchMenuDeleteLastLeg) },
+            modifier = Modifier.testTag(tagFor(Strings.sketchMenuDeleteLastLeg)),
             onClick = {
                 deletingLastLeg = true
                 onDismiss()
             },
         )
-        // The twelve toggles, one row instead of twelve.
         DropdownMenuItem(
-            text = { Text("What the drawing shows\u2026") },
+            text = { Text(Strings.sketchMenuCentreView) },
+            modifier = Modifier.testTag(tagFor(Strings.sketchMenuCentreView)),
+            onClick = {
+                // `centreViewOnActiveStation`, not a refit: the app keeps the surveyor's zoom.
+                stationPositionIn(state.survey, state.projection, state.survey.activeStation)
+                    ?.let(canvas::centreOn)
+                onDismiss()
+            },
+        )
+        HorizontalDivider()
+        // The twelve toggles of `drawingMenuBehaviourToggles` and `drawingMenuDisplayToggles`,
+        // one row instead of twelve: flat, this menu reached eighteen rows, which is 864 pixels
+        // of popup on an iPhone SE's 667-pixel screen.
+        DropdownMenuItem(
+            text = { Text(Strings.toolbarSettings) },
+            modifier = Modifier.testTag(tagFor(Strings.toolbarSettings)),
             onClick = {
                 adjustingDisplay = true
                 onDismiss()
@@ -301,17 +448,30 @@ private fun DrawingMenu(
 private fun DrawingOptionsDialog(state: DemoState, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("What the drawing shows") },
+        title = { Text(Strings.toolbarSettings) },
         text = {
+            // `drawing.xml`'s own order: `drawingMenuBehaviourToggles` comes before
+            // `drawingMenuDisplayToggles`.
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                ToggleSection("Shown", DISPLAY_TOGGLES, state)
+                ToggleSection(BEHAVIOUR_GROUP, BEHAVIOUR_TOGGLES, state)
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                ToggleSection("Behaviour", BEHAVIOUR_TOGGLES, state)
+                ToggleSection(SHOWN_GROUP, DISPLAY_TOGGLES, state)
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(Strings.actionCrossSectionDone) }
+        },
     )
 }
+
+/**
+ * `drawingMenuDisplayToggles` and `drawingMenuBehaviourToggles`, named after the group ids the
+ * Android menu gives them — the app draws them as two divider-separated blocks with no headings,
+ * which a dialog has room to label.
+ */
+private const val SHOWN_GROUP = "Shown"
+
+private const val BEHAVIOUR_GROUP = "Behaviour"
 
 /** One of the two groups: a heading, then its rows. */
 @Composable
@@ -344,12 +504,15 @@ private fun RowScope.ToolButton(
     tool: SketchTool,
     painter: Painter,
     description: String,
+    enabled: Boolean = true,
 ) {
     ToolbarButton(
         painter = painter,
         description = description,
+        darkMode = state.darkMode,
         modifier = Modifier.weight(1f),
         selected = state.tool == tool,
+        enabled = enabled,
         onClick = { state.chooseTool(tool) },
     )
 }
@@ -368,19 +531,24 @@ fun ToolbarButton(
     modifier: Modifier = Modifier,
     selected: Boolean = false,
     enabled: Boolean = true,
+    darkMode: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val haptics = LocalHapticFeedback.current
     Box(
         modifier
             .height(SexyTopoDimens.TOOLBAR_BUTTON_HEIGHT_DP.dp)
             .then(
-                if (selected) {
-                    Modifier.background(SexyTopoColours.onPanel.copy(alpha = 0.35f))
-                } else {
-                    Modifier
-                },
+                // `buttonHighlight`, the colour `selectSketchTool` tints the background with.
+                if (selected) Modifier.background(highlightFor(darkMode)) else Modifier,
             )
-            .clickable(enabled = enabled, onClick = onClick)
+            .clickable(enabled = enabled) {
+                // `handleAction` starts with `performHapticFeedback(VIRTUAL_KEY)`, before it has
+                // looked at which button this is: every press on the toolbar is felt, which on
+                // a phone held in a wet glove is how the surveyor knows it registered.
+                haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                onClick()
+            }
             .padding(6.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -391,10 +559,20 @@ fun ToolbarButton(
             // Square, not full-width: the artwork is square, so a full-width box would centre the
             // glyph inside a wide invisible rectangle - which only shows up when something is
             // drawn around the box, as the selection ring on a colour swatch is.
-            modifier = Modifier.fillMaxHeight().aspectRatio(1f).alpha(if (enabled) 1f else 0.35f),
+            modifier =
+                Modifier
+                    .fillMaxHeight()
+                    .aspectRatio(1f)
+                    .alpha(if (enabled) 1f else DISABLED_BUTTON_ALPHA),
         )
     }
 }
+
+/** What `setSketchButtonsStatus` leaves a disabled sketch button looking like. */
+private const val DISABLED_BUTTON_ALPHA = 0.35f
+
+/** `activity_graph.xml`'s `layout_marginTop` on every button of the second row. */
+private const val SECOND_ROW_OVERLAP_DP = -4
 
 /**
  * A brush colour. The app draws these as its own swatch PNGs, so this uses them too.
@@ -409,11 +587,19 @@ internal fun RowScope.ColourButton(
     selected: Boolean,
     darkMode: Boolean,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     val painter =
         when (colour) {
-            Colour.BLACK -> painterResource(Res.drawable.black)
+            // `setSketchButtonsStatus` swaps the black swatch for the white one at night, since
+            // black on `sexyTopoDarkGreen` is a hole rather than a button.
+            Colour.BLACK ->
+                if (darkMode) {
+                    painterResource(Res.drawable.white)
+                } else {
+                    painterResource(Res.drawable.black)
+                }
             Colour.BROWN -> painterResource(Res.drawable.brown)
             Colour.GREY -> painterResource(Res.drawable.grey)
             Colour.RED -> painterResource(Res.drawable.red)
@@ -423,34 +609,48 @@ internal fun RowScope.ColourButton(
             else -> painterResource(Res.drawable.purple)
         }
 
+    val haptics = LocalHapticFeedback.current
     Box(
         modifier
             .height(SexyTopoDimens.TOOLBAR_BUTTON_HEIGHT_DP.dp)
-            .clickable(onClick = onClick)
+            .then(
+                // `selectBrushColour` tints the selected swatch's *background* with
+                // `buttonHighlight`, the same as a selected tool. This port drew a ring round the
+                // swatch instead, which is not what the app looks like.
+                if (selected) Modifier.background(highlightFor(darkMode)) else Modifier,
+            )
+            .clickable(enabled = enabled) {
+                // The same `VIRTUAL_KEY` buzz as every other toolbar button; a colour goes
+                // through `handleAction` too.
+                haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                onClick()
+            }
             .padding(6.dp),
         contentAlignment = Alignment.Center,
     ) {
         Image(
             painter = painter,
-            contentDescription = "Brush colour",
+            contentDescription = descriptionOf(colour),
             contentScale = ContentScale.Fit,
             modifier =
                 Modifier
                     .fillMaxHeight()
                     .aspectRatio(1f)
-                    .then(
-                        // The app has no selected state on these; a ring is added since without
-                        // one there is no way to tell which colour the brush is holding.
-                        if (selected) {
-                            Modifier.border(
-                                2.dp,
-                                if (darkMode) SexyTopoColours.onPanel else SexyTopoColours.legend,
-                            )
-                        } else {
-                            Modifier
-                        },
-                    ),
+                    .alpha(if (enabled) 1f else DISABLED_BUTTON_ALPHA),
         )
     }
 }
+
+/** `sketch_toolbar_colour_*`: what each swatch is called, for a screen reader and a long press. */
+private fun descriptionOf(colour: Colour): String =
+    when (colour) {
+        Colour.BLACK -> Strings.toolbarColourMain
+        Colour.BROWN -> Strings.toolbarColourBrown
+        Colour.GREY -> Strings.toolbarColourGrey
+        Colour.RED -> Strings.toolbarColourRed
+        Colour.ORANGE -> Strings.toolbarColourOrange
+        Colour.GREEN -> Strings.toolbarColourGreen
+        Colour.BLUE -> Strings.toolbarColourBlue
+        else -> Strings.toolbarColourPurple
+    }
 

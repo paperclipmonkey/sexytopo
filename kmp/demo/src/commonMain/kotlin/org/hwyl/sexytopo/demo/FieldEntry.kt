@@ -27,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.Dp
@@ -111,7 +112,7 @@ fun ManualReadingDialog(
                             OutlinedTextField(
                                 value = lrud[index],
                                 onValueChange = { lrud[index] = it },
-                                label = { Text(side.name.take(1)) },
+                                label = { Text(lrudEntryLabel(side)) },
                                 singleLine = true,
                                 keyboardOptions =
                                     KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -138,14 +139,14 @@ fun ManualReadingDialog(
                 TextButton(
                     enabled = parsed.leg != null,
                     onClick = { parsed.leg?.let { onAdd(it, true, emptyList()) } },
-                ) { Text("Add splay") }
+                ) { Text(Strings.manualAddSplayTitle) }
                 TextButton(
                     enabled = parsed.leg != null,
                     onClick = { parsed.leg?.let { onAdd(it, false, lrud.toList()) } },
                 ) { Text("Add leg") }
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
     )
 }
 
@@ -189,7 +190,7 @@ fun AddLegDialog(
     survey: Survey,
     asSplay: Boolean,
     onDismiss: () -> Unit,
-    onAdd: (Leg, String, String, List<String>) -> Unit,
+    onAdd: (AddedLeg) -> Unit,
     lrudFields: Boolean = false,
 ) {
     var distance by remember { mutableStateOf("") }
@@ -201,16 +202,31 @@ fun AddLegDialog(
         )
     }
     var toComment by remember { mutableStateOf("") }
+    // `editFromStation`, pre-filled with the active station as the Android form pre-fills it.
+    var fromName by remember { mutableStateOf(survey.activeStation.name) }
+    var legComment by remember { mutableStateOf("") }
     val lrud = remember { mutableStateListOf("", "", "", "") }
 
     val parsed = parseReading(distance, azimuth, inclination)
     // Refused here rather than at export time: a station quietly renamed on the way out is one
     // nobody can match back to their notes.
     val nameProblem = if (asSplay) null else newStationNameProblem(toName)
+    // `manual_edit_from_station_error`: the leg has to hang off a station that exists.
+    val fromProblem =
+        if (survey.getStationByName(fromName.trim()) == null) {
+            Strings.manualEditFromStationError
+        } else {
+            null
+        }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (asSplay) "Add a splay" else "Add a leg") },
+        // `manual_add_station_title` / `manual_add_splay_title`, as `LegDialogs` titles them.
+        title = {
+            Text(
+                if (asSplay) Strings.manualAddSplayTitle else Strings.manualAddStationTitle,
+            )
+        },
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
@@ -218,14 +234,24 @@ fun AddLegDialog(
             ) {
                 Text(
                     if (asSplay) {
-                        "Recorded at ${survey.activeStation.name}, as written down. " +
-                            "No repeats and no agreement needed."
+                        "As written down. No repeats and no agreement needed."
                     } else {
-                        "From ${survey.activeStation.name}, as written down. The station is made " +
-                            "straight away — no repeats and no agreement needed."
+                        "As written down. The station is made straight away — no repeats and no " +
+                            "agreement needed."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                // `editFromStation`, which the Android form puts above the reading: the leg does
+                // not have to hang off the active station, and a party booking a side passage
+                // from a junction they have already passed needs to say so.
+                OutlinedTextField(
+                    value = fromName,
+                    onValueChange = { fromName = it },
+                    label = { Text(Strings.manualEditFromStation) },
+                    singleLine = true,
+                    isError = fromProblem != null,
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 ReadingFields(
                     distance = distance,
@@ -240,22 +266,38 @@ fun AddLegDialog(
                     OutlinedTextField(
                         value = toName,
                         onValueChange = { toName = it },
-                        label = { Text("To") },
+                        label = { Text(Strings.manualEditToStation) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(
                         value = toComment,
                         onValueChange = { toComment = it },
-                        label = { Text("Note on the new station") },
+                        label = { Text(Strings.manualEditStationComment) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
+                // `editLegComment`.
+                OutlinedTextField(
+                    value = legComment,
+                    onValueChange = { legComment = it },
+                    label = {
+                        Text(
+                            if (asSplay) {
+                                Strings.menuCommentSplay
+                            } else {
+                                Strings.manualEditLegComment
+                            },
+                        )
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 if (lrudFields && !asSplay) {
                     HorizontalDivider()
                     Text(
-                        "Passage size at ${survey.activeStation.name}, where you are standing.",
+                        "Passage size at ${fromName.trim()}, where you are standing.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -264,7 +306,7 @@ fun AddLegDialog(
                             OutlinedTextField(
                                 value = lrud[index],
                                 onValueChange = { lrud[index] = it },
-                                label = { Text(side.name.take(1)) },
+                                label = { Text(lrudEntryLabel(side)) },
                                 singleLine = true,
                                 keyboardOptions =
                                     KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -273,7 +315,7 @@ fun AddLegDialog(
                         }
                     }
                 }
-                (parsed.problem ?: nameProblem)?.let {
+                (parsed.problem ?: nameProblem ?: fromProblem)?.let {
                     Text(
                         it,
                         style = MaterialTheme.typography.bodySmall,
@@ -284,15 +326,43 @@ fun AddLegDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = parsed.leg != null && nameProblem == null,
+                enabled = parsed.leg != null && nameProblem == null && fromProblem == null,
                 onClick = {
-                    parsed.leg?.let { onAdd(it, toName, toComment, lrud.toList()) }
+                    parsed.leg?.let {
+                        onAdd(
+                            AddedLeg(it, toName, toComment, lrud.toList(), fromName, legComment),
+                        )
+                    }
                 },
-            ) { Text("Add") }
+            ) { Text(Strings.add) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Strings.cancel) } },
     )
 }
+
+/**
+ * Everything the add-a-leg form collected, which is more than three numbers now that it carries
+ * `leg_edit_dialog_unified.xml`'s station and comment fields too.
+ */
+data class AddedLeg(
+    val leg: Leg,
+    val toName: String,
+    val toComment: String,
+    val lrud: List<String>,
+    val fromName: String,
+    val legComment: String,
+)
+
+/**
+ * `manual_edit_left` and its three siblings, as the Android form labels its four LRUD fields.
+ */
+internal fun lrudEntryLabel(side: Lrud): String =
+    when (side) {
+        Lrud.LEFT -> Strings.manualEditLeft
+        Lrud.RIGHT -> Strings.manualEditRight
+        Lrud.UP -> Strings.manualEditUp
+        Lrud.DOWN -> Strings.manualEditDown
+    }
 
 /**
  * Adds a leg outright, making the station at the far end of it.
@@ -308,8 +378,16 @@ internal fun addLegOutright(
     toComment: String = "",
     lrud: List<String> = emptyList(),
     lrudMode: LrudMode = LrudMode.DEFAULT,
+    /**
+     * `editFromStation`: which station the leg hangs off. Blank, or a name no station has, means
+     * the active one — which is where the Android form's field is pre-filled from.
+     */
+    fromName: String = "",
+    /** `editLegComment`, written onto the leg itself. */
+    legComment: String = "",
 ): Int {
-    val from = survey.activeStation
+    val from = survey.getStationByName(fromName.trim()) ?: survey.activeStation
+    if (legComment.isNotBlank()) leg.comment = legComment.trim()
     if (asSplay) {
         SurveyBuilder.addSplay(survey, from, leg)
     } else {
@@ -370,6 +448,11 @@ data class AngleEntry(
  * downward shot would be untypable. [KeyboardType.Decimal] rather than [KeyboardType.Number] for
  * the same reason: `Number` maps to iOS `numberPad`, which has no decimal point either.
  */
+/** What the three reading boxes answer to, wherever a dialog lays them out. */
+const val READING_DISTANCE: String = "reading-distance"
+const val READING_AZIMUTH: String = "reading-azimuth"
+const val READING_INCLINATION: String = "reading-inclination"
+
 @Composable
 fun ReadingFields(
     distance: String,
@@ -386,22 +469,39 @@ fun ReadingFields(
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (azimuthInDms) {
-            ReadingField(distance, onDistance, "Distance (m)")
-            DmsFields("Azimuth", azimuth, onAzimuth, signed = false)
+            ReadingField(distance, onDistance, Strings.manualEditDistance, tag = READING_DISTANCE)
+            DmsFields(Strings.manualEditAzimuthDms, azimuth, onAzimuth, signed = false)
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ReadingField(distance, onDistance, "Distance (m)")
-                ReadingField(azimuth, onAzimuth, "Azimuth (\u00b0)")
+                ReadingField(
+                    distance,
+                    onDistance,
+                    Strings.manualEditDistance,
+                    tag = READING_DISTANCE,
+                )
+                ReadingField(azimuth, onAzimuth, Strings.manualEditAzimuth, tag = READING_AZIMUTH)
             }
         }
         if (inclinationInDms) {
-            DmsFields("Inclination", inclination, onInclination, signed = true, lastImeAction)
+            DmsFields(
+                Strings.manualEditInclinationDms,
+                inclination,
+                onInclination,
+                signed = true,
+                lastImeAction,
+            )
         } else {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ReadingField(inclination, onInclination, "Inclination (\u00b0)", lastImeAction)
+                ReadingField(
+                    inclination,
+                    onInclination,
+                    Strings.manualEditInclination,
+                    lastImeAction,
+                    tag = READING_INCLINATION,
+                )
                 OutlinedButton(onClick = { onInclination(withSignFlipped(inclination)) }) {
                     Text("+/-")
                 }
@@ -437,7 +537,7 @@ private fun DmsFields(
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
-            "$label (\u00b0 \u2032 \u2033)",
+            label,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -489,6 +589,12 @@ private fun ReadingField(
     label: String,
     imeAction: ImeAction = ImeAction.Next,
     width: Dp = 140.dp,
+    /**
+     * A name for the box, for a screen reader and for anything driving the app through one. The
+     * label is drawn beside it and read out already; this is what survives the label being
+     * reworded, and what tells the three boxes apart wherever they are laid out.
+     */
+    tag: String? = null,
 ) {
     OutlinedTextField(
         value = value,
@@ -497,7 +603,7 @@ private fun ReadingField(
         singleLine = true,
         keyboardOptions =
             KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = imeAction),
-        modifier = Modifier.width(width),
+        modifier = Modifier.width(width).then(if (tag == null) Modifier else Modifier.testTag(tag)),
     )
 }
 
@@ -508,12 +614,13 @@ private fun ReadingField(
 val OFFERED_MODES =
     listOf(InputMode.FORWARD, InputMode.BACKWARD, InputMode.COMBO, InputMode.CALIBRATION_CHECK)
 
+/** `input_mode_group`'s own four labels, shown on the field bar and in the overflow menu alike. */
 fun labelFor(mode: InputMode): String =
     when (mode) {
-        InputMode.FORWARD -> "Forward"
-        InputMode.BACKWARD -> "Backsight"
-        InputMode.COMBO -> "Fore + back"
-        InputMode.CALIBRATION_CHECK -> "Splays only"
+        InputMode.FORWARD -> Strings.actionInputModeForward
+        InputMode.BACKWARD -> Strings.actionInputModeBackward
+        InputMode.COMBO -> Strings.actionInputModeCombo
+        InputMode.CALIBRATION_CHECK -> Strings.actionInputModeCalCheck
     }
 
 fun promotionRuleFor(mode: InputMode): String =
@@ -531,7 +638,15 @@ fun promotionRuleFor(mode: InputMode): String =
 data class ParsedReading(val leg: Leg?, val problem: String?)
 
 /**
- * Turns three typed strings into a [Leg], refusing anything a real instrument could not produce.
+ * Turns three typed strings into a [Leg], refusing anything [Leg] itself would refuse.
+ *
+ * The bounds are asked of `Leg.isDistanceLegal` and its two siblings rather than restated here,
+ * which they had been — and the restatement was wrong three ways. It refused a distance of zero,
+ * which the model allows; it refused the theodolite inclinations of 270 to 360 that
+ * `isInclinationLegal` accepts, so a survey booked with a theodolite could not be typed in; and it
+ * *accepted* an azimuth of exactly 360, which `Leg` rejects — so typing it threw out of the
+ * dialog's own composition. A reading a surveyor can write down is a reading this app can take.
+ *
  * Commas are accepted as decimal points, since a phone keyboard in a European locale offers one.
  */
 fun parseReading(distance: String, azimuth: String, inclination: String): ParsedReading {
@@ -544,9 +659,9 @@ fun parseReading(distance: String, azimuth: String, inclination: String): Parsed
 
     return when {
         d == null || a == null || i == null -> ParsedReading(null, "Numbers only")
-        d <= 0f -> ParsedReading(null, "Distance must be more than zero")
-        a < 0f || a > 360f -> ParsedReading(null, "Azimuth is 0 to 360")
-        i < -90f || i > 90f -> ParsedReading(null, "Inclination is -90 to 90")
+        !Leg.isDistanceLegal(d) -> ParsedReading(null, Strings.manualEditDistanceError)
+        !Leg.isAzimuthLegal(a) -> ParsedReading(null, Strings.manualEditAzimuthError)
+        !Leg.isInclinationLegal(i) -> ParsedReading(null, Strings.manualEditInclinationError)
         else -> ParsedReading(Leg(d, a, i), null)
     }
 }

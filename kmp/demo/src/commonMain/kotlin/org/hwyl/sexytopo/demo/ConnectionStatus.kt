@@ -27,24 +27,24 @@ import org.hwyl.sexytopo.shared.comms.LinkState
  */
 enum class ConnectionStatus(val label: String) {
     /** Nothing chosen. */
-    NONE("No instrument"),
+    NONE(Strings.noInstrument),
 
     /** The demo's own instrument, which is not a radio at all. */
-    SIMULATED("Simulated instrument"),
+    SIMULATED(Strings.simulatedInstrument),
 
     /** A first attempt, started by the surveyor. */
-    CONNECTING("Connecting…"),
+    CONNECTING("${Strings.connecting}…"),
 
-    CONNECTED("Connected"),
+    CONNECTED(Strings.connected),
 
     /** The app is chasing a link that dropped; nothing for the surveyor to do. */
-    RECONNECTING("Reconnecting…"),
+    RECONNECTING("${Strings.reconnecting}…"),
 
     /** Dropped, and not being chased — the window ran out, or the setting is off. */
-    LOST("Not connected"),
+    LOST(Strings.notConnected),
 
     /** An attempt finished badly and said why. */
-    FAILED("Connection failed"),
+    FAILED(Strings.connectionFailed),
     ;
 
     /** Whether this is a state somebody should act on, rather than wait through. */

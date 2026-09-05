@@ -399,11 +399,12 @@ const menuRowAt = async (index, rows, x) => {
 }
 const menuMiddle = () => box.width - 116
 
-// The overflow menu's own top page - File, View, Instrument, Tools, Settings, Help - then View's
-// own four rows below a Back row: Demo cave, Trip, 3D, Stats.
+// `action_bar.xml`'s own two levels: seven groups and the connection row at the top, then
+// `action_view`'s six views, `view_display` and the demo cave below a Back row - so *View* is the
+// second row of eight and *3D* the sixth of nine.
 await at(...overflowButton()); await page.waitForTimeout(600)
-await at(...(await menuRowAt(1, 6, menuMiddle()))); await page.waitForTimeout(500)
-await at(...(await menuRowAt(3, 5, menuMiddle()))); await page.waitForTimeout(1400)
+await at(...(await menuRowAt(1, 8, menuMiddle()))); await page.waitForTimeout(500)
+await at(...(await menuRowAt(5, 9, menuMiddle()))); await page.waitForTimeout(1400)
 await page.screenshot({ path: join(shotDir, 'desktop-3d.png') })
 
 // The 3D renderer's own red, a darker shade than the 2D sketch's, so `centreline` above would not

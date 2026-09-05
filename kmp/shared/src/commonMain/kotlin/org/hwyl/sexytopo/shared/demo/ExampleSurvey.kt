@@ -18,6 +18,7 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.model.survey.SurveyDate
 import org.hwyl.sexytopo.shared.model.survey.Trip
 import org.hwyl.sexytopo.shared.sketch.MIN_CROSS_SECTION_HALF_EXTENT
+import org.hwyl.sexytopo.shared.sketch.colourForSymbol
 import org.hwyl.sexytopo.shared.survey.CrossSectioner
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
 import kotlin.math.atan2
@@ -42,7 +43,9 @@ object ExampleSurvey {
         val random = Random(seed)
         val survey = Survey("Demo Cave")
 
-        createBranch(survey, numStations, random)
+        // Kept, unlike the side branches, because the annotation below reads as a walk into the
+        // cave: the entrance arrow, then what is just inside it, then the stream running on in.
+        val mainSeries = createBranch(survey, numStations, random)
 
         // Tracked so the demo can guarantee a cross-section on a side passage, not only the
         // entrance series — see addCrossSections.
@@ -60,7 +63,7 @@ object ExampleSurvey {
         survey.activeStation = survey.origin
         addWallLines(survey, random)
         addCrossSections(survey, random, branchStations)
-        addAnnotations(survey, random, pitch)
+        addAnnotations(survey, random, mainSeries, pitch)
         survey.trip = exampleTrip()
         return survey
     }
@@ -156,7 +159,8 @@ object ExampleSurvey {
     private fun addPitch(survey: Survey, random: Random): Pitch? {
         val candidates = survey.getAllStations().filter { !survey.isOrigin(it) }
         if (candidates.isEmpty()) return null
-        survey.activeStation = candidates[random.nextInt(candidates.size)]
+        val top = candidates[random.nextInt(candidates.size)]
+        survey.activeStation = top
 
         val dropMetres = 6 + random.nextInt(5)
         val pitchAzimuth = random.nextInt(360).toFloat()
@@ -175,11 +179,19 @@ object ExampleSurvey {
             )
         addLruds(survey, foot, pitchAzimuth, footDistance.toFloat(), random)
 
-        return Pitch(listOf(head, foot), head, "$dropMetres m pitch")
+        return Pitch(listOf(head, foot), top, head, "$dropMetres m pitch")
     }
 
-    /** [stations] is every station the pitch added, [head] the one straight below the top of it. */
-    private class Pitch(val stations: List<Station>, val head: Station, val label: String)
+    /**
+     * [stations] is every station the pitch added, [top] the one it was hung off — the lip — and
+     * [head] the one straight below it, which is where a caver lands.
+     */
+    private class Pitch(
+        val stations: List<Station>,
+        val top: Station,
+        val head: Station,
+        val label: String,
+    )
 
     private fun addCrossSections(survey: Survey, random: Random, branchStations: Set<Station>) {
         val plan = survey.getSketch(Projection2D.PLAN)
@@ -424,7 +436,12 @@ object ExampleSurvey {
         path.lineTo(to)
     }
 
-    private fun addAnnotations(survey: Survey, random: Random, pitch: Pitch?) {
+    private fun addAnnotations(
+        survey: Survey,
+        random: Random,
+        mainSeries: List<Station>,
+        pitch: Pitch?,
+    ) {
         val plan = survey.getSketch(Projection2D.PLAN)
         val positions = Projection2D.PLAN.project(survey).stationMap
         positions[survey.origin]?.let { plan.addTextDetail(it.add(1f, -1f), "Entrance", 1.2f, Colour.BLUE) }
@@ -440,7 +457,7 @@ object ExampleSurvey {
 
         pitch?.let { positions[it.head]?.let { at -> plan.addTextDetail(at.add(-2.5f, 2.5f), it.label, 1f, Colour.BLACK) } }
 
-        addFormations(plan, positions, survey, random)
+        addSymbols(plan, positions, survey, mainSeries, pitch, random)
 
         // A find worth marking on the sketch as much as in the trip comments. There is no UIS
         // symbol for a bone deposit, so - like Entrance and Sump - it is text, not a stamp.
@@ -451,20 +468,167 @@ object ExampleSurvey {
         }
     }
 
-    /** A few UIS formation symbols, stamped just off stations that have room to spare for one. */
-    private fun addFormations(
+    /**
+     * The UIS symbols, put where they would mean something rather than scattered.
+     *
+     * This used to stamp four formations at four stations picked at random. That showed the
+     * artwork could be drawn and nothing else, because a symbol is not decoration: it is how a
+     * sketch records what the centreline cannot — what the floor is made of, which way the water
+     * runs, why the passage stops. Scattered at random they say none of that, and a reader who
+     * knows the symbols reads a cave that makes no sense.
+     *
+     * So each one here is placed against something this cave actually has. The entrance arrow goes
+     * on the entrance. The stream runs on down the main passage. The gradient points down the
+     * pitch and the boulders are at the bottom of it. A passage that simply stops gets the reason
+     * it stopped, aimed the way it was still going when it did.
+     *
+     * The directional ones — [Symbol.isDirectional] — are turned to the local passage bearing,
+     * which is exactly what a surveyor's drag across the screen would have given them. The rest
+     * are upright, as a stamp with no drag behind it is.
+     */
+    private fun addSymbols(
         plan: Sketch,
         positions: Map<Station, Coord2D>,
         survey: Survey,
+        mainSeries: List<Station>,
+        pitch: Pitch?,
         random: Random,
     ) {
-        val formations = listOf(Symbol.STALACTITE, Symbol.STALAGMITE, Symbol.COLUMN, Symbol.CURTAIN)
-        val candidates = positions.keys.filter { !survey.isOrigin(it) }.shuffled(random)
-        for ((symbol, station) in formations.zip(candidates)) {
-            val position = positions[station] ?: continue
-            val dx = 0.6f - random.nextFloat() * 1.2f
-            val dy = 0.6f - random.nextFloat() * 1.2f
-            plan.addSymbolDetail(position.add(dx, dy), symbol.therionName, 1f, 0f, Colour.BLACK)
+        val bearings = passageBearings(survey)
+        val used = mutableSetOf<Station>()
+
+        fun stamp(station: Station?, symbol: Symbol, size: Float = SYMBOL_SIZE_METRES) {
+            if (station == null || station in used) return
+            val position = positions[station] ?: return
+            used += station
+            val bearing = bearings[station] ?: 0f
+            plan.addSymbolDetail(
+                position + besideThePassage(bearing, random),
+                symbol.therionName,
+                size,
+                if (symbol.isDirectional) bearing else 0f,
+                // Through the app's own rule rather than a hand-picked colour, so the demo shows
+                // what a surveyor's stamp would have come out as: water blue, everything else the
+                // colour in the surveyor's hand.
+                colourForSymbol(symbol.therionName, Colour.BLACK, blueWater = true),
+            )
         }
+
+        /** The first of these with nothing on it yet, so no station ends up carrying two. */
+        fun stampOneOf(candidates: List<Station>, symbol: Symbol) {
+            stamp(candidates.firstOrNull { it !in used }, symbol)
+        }
+
+        // The way in, drawn larger than the rest and pointing the way the first leg goes, which is
+        // the way you walk.
+        stamp(survey.origin, Symbol.ENTRANCE, size = ENTRANCE_SIZE_METRES)
+
+        // What is just inside one: whatever has fallen or washed in, and the bats above it.
+        stamp(mainSeries.getOrNull(0), Symbol.DEBRIS)
+        stamp(mainSeries.getOrNull(1), Symbol.GUANO)
+
+        // The stream, marked along the main passage. Several, because what a water symbol says is
+        // which way it runs, and a single arrow says only that there is water somewhere.
+        for (station in mainSeries.filterIndexed { i, _ -> i >= 2 && i % 4 == 2 }) {
+            stamp(station, Symbol.WATER_FLOW)
+        }
+
+        // The pitch, from both ends. At the lip the floor falls away along the bearing the drop
+        // was shot on, which is what a gradient symbol says; at the landing is whatever has come
+        // off the walls of it over the years.
+        pitch?.let {
+            stamp(it.top, Symbol.GRADIENT)
+            stamp(it.head, Symbol.BLOCKS)
+        }
+
+        // Where the cave stops. A passage that ends does so for a reason, and the two reasons a
+        // surveyor draws are that it got too small to follow and that it is still blowing air —
+        // which is the note that sends somebody back with a hammer.
+        val deadEnds = deadEndsAwayFromTheEntrance(survey, positions)
+        stampOneOf(deadEnds, Symbol.TOO_TIGHT)
+        stampOneOf(deadEnds, Symbol.AIR_DRAUGHT)
+        stampOneOf(deadEnds, Symbol.TOO_TIGHT)
+
+        // Then the floor and the pretties, over whatever is left. These are the ones with no
+        // argument behind where they go — a cave decorates where it decorates — so they are
+        // spread across the stations nothing has claimed rather than reasoned about.
+        val decoration =
+            listOf(
+                Symbol.GOUR,
+                Symbol.STALACTITE,
+                Symbol.SAND,
+                Symbol.STALAGMITE,
+                Symbol.CLAY,
+                Symbol.CURTAIN,
+                Symbol.PEBBLES,
+                Symbol.COLUMN,
+                Symbol.STRAWS,
+                Symbol.CRYSTALS,
+                Symbol.HELICTITES,
+            )
+        val spare = positions.keys.filter { it !in used }.shuffled(random)
+        for ((symbol, station) in decoration.zip(spare)) stamp(station, symbol)
     }
+
+    /**
+     * Which way the passage runs at each station, as a bearing.
+     *
+     * The onward leg where there is one, and the leg that arrived where there is not — so a dead
+     * end still points the way it was going when it stopped, which is the whole meaning of a "too
+     * tight" symbol at the end of a passage.
+     */
+    private fun passageBearings(survey: Survey): Map<Station, Float> {
+        val bearings = mutableMapOf<Station, Float>()
+
+        fun walk(station: Station, arrivedOn: Float) {
+            val onward = station.getConnectedOnwardLegs()
+            bearings[station] = onward.firstOrNull()?.azimuth ?: arrivedOn
+            for (leg in onward) walk(leg.destination, leg.azimuth)
+        }
+
+        walk(survey.origin, 0f)
+        return bearings
+    }
+
+    /** Stations the survey stops at, furthest from the entrance first, since those are the leads. */
+    private fun deadEndsAwayFromTheEntrance(
+        survey: Survey,
+        positions: Map<Station, Coord2D>,
+    ): List<Station> {
+        val entrance = positions[survey.origin] ?: Coord2D.ORIGIN
+        return positions.keys
+            .filter { !survey.isOrigin(it) && it.getConnectedOnwardLegs().isEmpty() }
+            .sortedByDescending { getDistance(positions[it] ?: entrance, entrance) }
+    }
+
+    /**
+     * A little to one side of the centreline, square to the passage, so a symbol reads as being in
+     * the passage rather than on the line.
+     *
+     * Which side is left to chance; how far out is not. Too close and the stamp sits on the
+     * station's own cross and neither can be read; too far and it is outside a passage whose walls
+     * the LRUD splays put one to three metres away.
+     */
+    private fun besideThePassage(bearing: Float, random: Random): Coord2D {
+        val side = if (random.nextBoolean()) 90f else -90f
+        val distance = SYMBOL_OFFSET_METRES + random.nextFloat() * 0.4f
+        val outwards = Leg(distance, adjustAngle(bearing, side), 0f)
+        return Projection2D.PLAN.project(toCartesian(Coord3D.ORIGIN, outwards))
+    }
+
+    /**
+     * How big a stamp is drawn, in metres of cave.
+     *
+     * Larger than life, for the same reason [addCrossSections] draws its sections at four times
+     * scale: a whole cave fitted to a phone screen puts a metre at about a dozen pixels, and a
+     * symbol a dozen pixels across is a smudge. Two and a half metres is a symbol somebody can
+     * actually read at the zoom the demo opens at, and still sits inside a passage.
+     */
+    private const val SYMBOL_SIZE_METRES = 2.5f
+
+    /** The entrance arrow, drawn larger again: it is the one symbol a reader looks for first. */
+    private const val ENTRANCE_SIZE_METRES = 3.5f
+
+    /** Clear of the centreline, and of the station's own cross, without leaving the passage. */
+    private const val SYMBOL_OFFSET_METRES = 1.8f
 }
