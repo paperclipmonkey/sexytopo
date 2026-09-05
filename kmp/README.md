@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 862 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 869 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and sixteen more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -3976,17 +3976,53 @@ These are the things that would actually shape a real port.
    so a dead camera and a quiet one look identical from the outside, and the difference is half a
    minute of sweeping nothing.
 
-   **Still unverified, in the order it matters.** Whether the frames are in fact being handed back:
-   forcing a collection is a workaround against an unstable corner of the Kotlin runtime, nothing
-   here can watch ARKit's buffer pool, and if a third run still freezes the answer is to move the
-   sampling into Swift, where a frame is released at the closing brace and none of this is a
-   question. Then whether feature points are dense and accurate enough to draw a passage wall *at
-   all*, which a scan that dies after two seconds has never had the chance to answer — and the
-   phone in question is a Pro with lidar, so a depth map and a triangle mesh are both available and
-   both better, and that is the next change if the wall still comes back thin. Deliberately not
-   this one: moving the sensor and the frame handling in the same step would leave neither
-   answered. And nothing has been in a cave; whether the sweep can be done one-handed while holding
-   a light is still unknown.
+   **The third run, and the move to lidar.** The picture no longer stops — the frames are being
+   handed back, and that question is closed. The wall was still junk, which is the answer the
+   second run could not give: a scan running its full half minute and still drawing nonsense is the
+   sparse cloud being judged on its merits rather than a symptom of something else. So the scanner
+   now reads `ARFrame.sceneDepth`, smoothed, on any device that has it.
+
+   That is a different kind of measurement rather than a better-tuned one. A depth picture is 256
+   by 192 and every pixel of it is a *measured* distance to what that pixel is looking at, so it
+   does not care whether the rock has any texture on it — which is the whole difficulty with
+   feature tracking on bare wet rock in the dark. Three filters go with it, and each one is aimed
+   at a way the previous version produced nonsense: ARKit's own per-pixel confidence, with the low
+   grade dropped outright, which is where a reflection off a puddle lands; a five-metre ceiling,
+   past which a phone's lidar reports something regardless and that something is noise shaped like
+   a measurement; and a quarter-metre floor, which is the surveyor's own hand.
+
+   The feature-point path is kept rather than replaced. A caver's phone is whatever survived the
+   last trip and most of them are not Pro models, so the scanner falls back to it and the count on
+   screen says which of the two it is reading — four characters that turn "the wall came out thin"
+   into a report somebody can act on.
+
+   **What made this safe enough to write blind is where the arithmetic went.** Un-projecting a
+   depth pixel needs the camera's optics and its pose, and the failure that matters is not a crash:
+   it is a sign in the wrong place, which draws a passage mirrored, or upside-down, or turned a
+   quarter turn. All three look like a scan that nearly worked and none can be told from a good one
+   without knowing the answer in advance. So the conversion is a pure function in `shared/` as
+   `DepthCamera`, and `DepthCameraTest` puts a camera in a known place looking a known way and
+   asks where a given pixel's rock lands: straight ahead is north, the right of the picture is
+   east, the top of it is up, a camera turned a quarter turn has its right hand to the south. Each
+   was checked by breaking the code on purpose — negate the depth, transpose the matrix, read the
+   optics as nine tightly-packed floats instead of twelve padded ones, and every one of the three
+   turns the suite red.
+
+   The matrices are read as raw floats through the same reinterpret the point cloud uses, rather
+   than through whatever cinterop named their fields, because that is the one technique in the file
+   already proven on a phone — and because a three-wide simd column occupies four floats, so a
+   three-by-three of optics is twelve floats with a hole in each column and reading it as nine puts
+   a focal length where the principal point belongs.
+
+   **Still unverified.** Whether the depth map draws a passage that is actually there: the tests
+   pin the arithmetic against a stated convention and cannot pin the convention itself. A wrong one
+   shows as a mirrored, upside-down or quarter-turned section; a depth read as a ray length rather
+   than as a distance along the lens axis — the one genuine coin-toss, where Apple's prose and
+   Apple's sample code disagree, and the sample code is what this follows — shows as a passage a
+   little too wide, bulging where each frame's edges fell. Comparing the drawn wall against splays
+   already on the section is what tells those apart. And nothing has been in a cave: lidar does not
+   care about darkness, which is the one thing that should be *better* underground, but it does
+   care about wet, black and far away, and a passage wall is all three at once.
 
 ---
 
@@ -4138,7 +4174,7 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 862
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 869
 shared tests on three targets, 16 more against `java.util.zip` on the JVM, 529 over the UI's own
 logic, 20 running the iOS half in a simulator,
 133 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
@@ -4210,18 +4246,20 @@ called done without somebody holding a device, and so that "tested" is never rea
   keyboard to open.
 - **The buzz happens.** With *Vibrate on new station* on, three agreeing readings should be felt.
   `AndroidManifestTest` proves the permission is declared; only a phone proves the motor runs.
-- **A scan of a passage runs at all, and then is a passage.** Everything about the arithmetic is
-  checked on a build server against passages of known shape. The sensor has now been tried twice,
-  in a well-lit room, and between them those two runs found four faults nothing here could have —
-  see finding 110. The fourth is still open: the camera picture stops a couple of seconds in, and
-  the fix for it rests on the Kotlin garbage collector handing ARKit's frames back promptly when it
-  is asked to, which no machine here can watch. **So the first thing a phone answers is whether a
-  scan now runs for its full half minute without the picture freezing.** Only then the question
-  behind it, which still needs a cave: whether ARKit finds enough to track on wet rock in the dark,
-  which is the condition feature tracking is weakest in. Stand at a station in a real passage, scan
-  it, and compare the wall it draws against the splays already on the section — they should agree
-  to a few centimetres. Then try it in a chamber too big for a head torch to light, which is where
-  it should be expected to fail.
+- **A scan of a passage is a passage, and is the right way round.** Everything about the
+  arithmetic is checked on a build server — the reduction against passages of known shape, and the
+  depth un-projection against a camera in a known place looking a known way. Three runs on a phone
+  have between them found four faults nothing here could have, all fixed; see finding 110. What no
+  test can reach is whether ARKit means by a pose, a set of optics and a depth what `DepthCamera`
+  assumes. **So the first thing to check is the shape rather than the detail: stand at a station
+  with splays already on the section, scan it, and see whether the drawn wall sits on them.** A
+  wall mirrored left-to-right, upside-down or turned a quarter turn is a wrong convention and is
+  named in that class's own documentation; a wall consistently a little too wide, bulging in
+  patches, is a depth taken for a ray length. A wall that lands on the splays to a few centimetres
+  is the whole thing working. Check the count on screen says `lidar` and not `tracking` while you
+  do it. Then a cave, which is the real question: lidar does not care about darkness but does care
+  about wet, black rock four metres off, and a chamber too big for a head torch is where it should
+  be expected to give up.
 - **The camera opens, and what comes back is the right way up.** The iOS path has now met a lens,
   and taking, pinning, reopening and exporting a photograph all work — but it also locked the app
   solid afterwards, which is finding 109 and is fixed. **So the first thing to re-check on iOS is
