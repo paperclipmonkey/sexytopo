@@ -20,17 +20,20 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import org.hwyl.sexytopo.demo.resources.Res
 import org.hwyl.sexytopo.demo.resources.eraser
 import org.hwyl.sexytopo.demo.resources.move
@@ -40,6 +43,7 @@ import org.hwyl.sexytopo.demo.resources.settings
 import org.hwyl.sexytopo.demo.resources.text
 import org.hwyl.sexytopo.demo.resources.redo
 import org.hwyl.sexytopo.demo.resources.undo
+import org.hwyl.sexytopo.shared.sketch.PassageScan
 import org.hwyl.sexytopo.demo.resources.zoom_in
 import org.hwyl.sexytopo.demo.resources.zoom_out
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
@@ -106,6 +110,39 @@ fun CrossSectionEditor(
     var brushColour by remember(detail) { mutableStateOf(working.activeColour) }
     var menuOpen by remember(detail) { mutableStateOf(false) }
 
+    /** What the last scan did, said for a moment and then got out of the way. */
+    var scanSaid by remember(detail) { mutableStateOf<String?>(null) }
+
+    // Remembered here rather than a level up, unlike the camera. A scan comes back to the same
+    // screen it was started from: on iOS it is a UIKit view presented over the Compose one, so
+    // this composition is still standing underneath it and still holds the editor the strokes go
+    // into. The camera cannot assume that — Android may rebuild the process behind it — which is
+    // why that one is remembered in `App` and this one is not.
+    val scanner = rememberPassageScanner { points ->
+        val outlines = PassageScan.outlines(points, detail.crossSection.angle)
+        if (outlines.isEmpty()) {
+            scanSaid = Strings.scanFoundNothing
+        } else {
+            // Through the editor rather than into the sketch, so a scan can be undone like
+            // anything else drawn here — one stroke at a time, since that is how this app's undo
+            // works everywhere else and a scan is not special enough to change it.
+            for (outline in outlines) {
+                editor.startPath(outline.first(), brushColour)
+                for (point in outline.drop(1)) editor.extendPath(point)
+                editor.finishPath()
+            }
+            revision++
+            scanSaid = Strings.scanDrew(outlines.size)
+        }
+    }
+
+    LaunchedEffect(scanSaid) {
+        if (scanSaid != null) {
+            delay(SCAN_MESSAGE_MS)
+            scanSaid = null
+        }
+    }
+
     val scene =
         remember(detail, revision) { SurveyScene.forCrossSection(detail, working, survey) }
 
@@ -139,6 +176,23 @@ fun CrossSectionEditor(
                 style = MaterialTheme.typography.titleMedium,
                 color = SexyTopoColours.onPanel,
             )
+            // Before the two the Android app has, because it is this port's own: a section can
+            // be measured rather than drawn. Dimmed and still pressable where there is no scanner,
+            // as the camera is, so that a tap gets the reason rather than nothing — which on the
+            // simulator, where most people meet this build, is the difference between a limitation
+            // and a bug report.
+            Box(
+                Modifier
+                    .semantics { contentDescription = Strings.scanPassage }
+                    .testTag("cross-section-scan")
+                    .alpha(if (scanner.available) 1f else DISABLED_BUTTON_ALPHA)
+                    .clickable {
+                        if (scanner.available) scanner.scan() else scanSaid = whyNoScanner()
+                    }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            ) {
+                ScanIcon(SexyTopoColours.onPanel)
+            }
             // Named, because an icon drawn from path data has nothing for a screen reader to
             // read out and nothing for a check to ask for. `cross_section.xml` gives both a title
             // even though it shows neither; these are those titles.
@@ -163,6 +217,19 @@ fun CrossSectionEditor(
             ) {
                 DoneIcon(SexyTopoColours.onPanel)
             }
+        }
+
+        scanSaid?.let { said ->
+            Text(
+                said,
+                Modifier
+                    .fillMaxWidth()
+                    .background(if (darkMode) SexyTopoColours.panelBackgroundNight else SexyTopoColours.panelBackground)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .testTag("cross-section-scan-message"),
+                style = MaterialTheme.typography.bodySmall,
+                color = SexyTopoColours.onPanel,
+            )
         }
 
         SurveyCanvas(
@@ -416,3 +483,6 @@ internal fun commitCrossSectionSketch(
     detail.sketch = committed
     survey.isSaved = false
 }
+
+/** How long the scan's own message stays up before it gets out of the way of the drawing. */
+private const val SCAN_MESSAGE_MS = 6000L
