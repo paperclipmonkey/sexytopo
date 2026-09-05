@@ -56,7 +56,7 @@ import platform.UIKit.UIApplication
 import platform.UIKit.UIImpactFeedbackGenerator
 import platform.UIKit.UIImpactFeedbackStyle
 import platform.UIKit.UILabel
-import platform.UIKit.UIModalPresentationStyle
+import platform.UIKit.UIModalPresentationFullScreen
 import platform.UIKit.UIView
 import platform.UIKit.UIViewController
 import platform.UIKit.UIViewAutoresizingFlexibleHeight
@@ -204,9 +204,12 @@ private class ArKitScanner(private val onScanned: (List<Coord3D>) -> Unit) : Pas
      * bearing mean the same thing to the scan as to the survey. Heading itself is the magnetometer
      * and wants no permission — `DeviceHeading.ios.kt` says so and is right — but ARKit reckons
      * its north as *true* north, and what turns magnetic into true is the local declination, which
-     * is a fact about where you are standing. Refused, or never asked for, and ARKit falls back to
-     * aligning the world with whichever way the phone happened to be pointing when the session
-     * started: every section then comes out square, plausible, and turned by an unknown angle.
+     * is a fact about where you are standing. What ARKit does when it cannot work that out is not
+     * documented: either it aligns to magnetic north, which is what a survey wants anyway, or it
+     * aligns to however the phone happened to be pointing when the session started, which makes
+     * every section square, plausible and turned by an unknown angle. Asking is the half of that
+     * this file can settle; the bearing on the screen is how the other half gets settled, by
+     * somebody standing in a passage with a compass.
      *
      * Asked before the screen opens rather than from inside it, so that the prompt is answered on
      * the drawing the surveyor came from and the session that follows has its answer. Held in a
@@ -244,12 +247,13 @@ private class ArKitScanner(private val onScanned: (List<Coord3D>) -> Unit) : Pas
  * track — and without a number on the screen the surveyor learns that a minute later, when the
  * cross-section comes back blank, standing somewhere they have to walk back to.
  *
- * Under the count is the bearing the phone believes it is pointing on, which is not decoration
- * either: it is the one thing on this screen a surveyor can *check*. Everything a scan measures is
- * placed relative to ARKit's idea of north, and a section measured against a north that is out by
- * a quarter turn is a good section of the wrong plane — which looks exactly like a good section.
- * Pointing the phone along a passage whose bearing has just been booked, and reading the number,
- * settles it in five seconds. `DepthCamera.bearingOf` works it out.
+ * Under the count are two bearings — the one the phone believes it is pointing on, and the one the
+ * passage runs on — and they are not decoration either: together they are the one thing on this
+ * screen a surveyor can *check*. Everything a scan measures is placed relative to ARKit's idea of
+ * north, and a section measured against a north out by a quarter turn is a good section of the
+ * wrong plane, which looks exactly like a good section. Point the phone along the passage and the
+ * two numbers should agree; that settles it in five seconds and wants nothing but the screen.
+ * `DepthCamera.bearingOf` works the first of them out of the pose ARKit is handing over anyway.
  *
  * Under those, in words rather than in numbers, is what to do with all this: stand at the
  * station, sweep slowly over everything including the roof and the floor, watch the outline in the
@@ -663,13 +667,16 @@ private class ScanViewController(
     }
 
     /**
-     * Where the phone is pointing, on a line of its own, or nothing at all.
+     * Which way the phone is pointing and which way the passage runs, on a line of their own.
      *
-     * Nothing when it is aimed within a few degrees of straight up or down, because there is no
-     * bearing there to report and a number spinning through the whole compass while the phone is
-     * held still would be read as the compass being broken.
+     * Both, because one without the other is a number to be remembered and the pair is a check
+     * that needs nothing but the screen: point the phone along the passage and they should agree,
+     * give or take the declination and however straight the passage is. The phone's own drops out
+     * when it is aimed within a few degrees of straight up or down, where there is no bearing to
+     * report and a number spinning round the compass while the phone is held still would be read
+     * as the compass being broken.
      */
-    private fun facing(): String = pointingAt?.let { "\n" + facingSays(it) } ?: ""
+    private fun facing(): String = "\n" + facingSays(pointingAt, bearing)
 
     /**
      * Say what to do next, and make room for it if the amount to say has changed.
@@ -1032,11 +1039,16 @@ private val GRAVITY_AND_HEADING = ARWorldAlignment.ARWorldAlignmentGravityAndHea
 /**
  * Presented over the whole screen, rather than as the card iOS would choose.
  *
- * The same kind of enum as the alignment above, and named here for the same reason. What it is for
- * is on `ArKitScanner.scan`: a card can be wiped away by a drag, and a scan is now as long as the
- * surveyor wants it to be.
+ * The *other* kind of `NS_ENUM`, and a second entry for the note above: `ARWorldAlignment` came
+ * across as an enum class, and `UIModalPresentationStyle` comes across as a bare constant, which
+ * is what `CBManagerStatePoweredOn` does in `CoreBluetoothTransport`. Written the first way, and
+ * the macOS runner said "Unresolved reference 'UIModalPresentationFullScreen'" — the two kinds
+ * cannot be told apart from Linux, and the coin lands both ways within one file.
+ *
+ * What it is for is on `ArKitScanner.scan`: a card can be wiped away by a drag, and a scan is now
+ * as long as the surveyor wants it to be.
  */
-private val FULL_SCREEN = UIModalPresentationStyle.UIModalPresentationFullScreen
+private val FULL_SCREEN = UIModalPresentationFullScreen
 
 /** Four, not three: see the note in `gatherFromFeaturePoints` about padding and a stride. */
 private const val FLOATS_PER_POINT = 4
@@ -1286,21 +1298,40 @@ private fun stillRunning(seconds: Double): String =
 private const val SECONDS_PER_MINUTE = 60.0
 
 /**
- * Which way the phone is pointing, according to the scan itself.
+ * Which way the phone is pointing according to the scan, and which way the passage runs.
  *
  * Worth a line of a small screen because it is the only part of a scan a surveyor can check while
  * they are still standing where it was taken. Everything measured is placed relative to ARKit's
- * idea of north; a north that is out by a quarter turn draws a good section of the wrong plane,
- * and nothing about the drawing says so. Point the phone along a passage whose bearing has just
- * been booked and this either agrees or it does not.
+ * idea of north; a north out by a quarter turn draws a good section of the wrong plane, and
+ * nothing about the drawing says so. The passage's own bearing is the thing to check it against,
+ * so it is put beside it rather than left to be remembered: point the phone along the passage, and
+ * the two numbers should agree.
  *
  * A degree or two of disagreement is the declination — the scan's north is true and the survey's
- * is magnetic — and is expected. A quarter turn of it is not.
+ * is magnetic — and is expected, as is however straight the passage is between two stations. A
+ * quarter turn of it is not, and means the scan is measuring the wrong plane.
  */
-private fun facingSays(bearing: Float): String =
-    "Facing ${bearing.roundToInt() % FULL_TURN_DEGREES}°"
+private fun facingSays(pointing: Float?, passage: Float): String =
+    if (pointing == null) {
+        "Passage ${asBearing(passage)}"
+    } else {
+        "Phone facing ${asBearing(pointing)}, passage ${asBearing(passage)}"
+    }
+
+/**
+ * A bearing written the way a survey writes one: three figures, and the degree sign.
+ *
+ * Three figures because that is what is in the book and on the instrument, and a number meant to be
+ * compared with those at a glance in the dark should not need the comparison done twice.
+ */
+private fun asBearing(degrees: Float): String {
+    val whole = ((degrees.roundToInt() % FULL_TURN_DEGREES) + FULL_TURN_DEGREES) % FULL_TURN_DEGREES
+    return whole.toString().padStart(BEARING_FIGURES, '0') + "°"
+}
 
 private const val FULL_TURN_DEGREES = 360
+
+private const val BEARING_FIGURES = 3
 
 private const val FINISH_TITLE = "Done"
 

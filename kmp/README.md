@@ -4124,19 +4124,25 @@ These are the things that would actually shape a real port.
    Heading is the magnetometer and needs no permission — `DeviceHeading.ios.kt` established that for
    the compass rose — but ARKit reckons its north as *true* north, and turning magnetic into true is
    the local declination, which is a fact about where you are standing. The plist carried no
-   location key at all, so iOS could not be asked; and unable to work out true north, ARKit falls
-   back to aligning its world with whichever way the phone happened to be pointing when the session
-   started. Every section then comes out square, plausible, and turned by an unknown angle — which
-   in a rectangular room is invisible, because a rectangle sliced on any bearing is still a
-   rectangle. The room test that looked like the feature working could not have told the difference.
+   location key at all, so iOS could not be asked for it — that part is simply a fact about the
+   file. What ARKit does when it cannot establish true north is not: Apple's documentation says
+   heading alignment needs location services and does not say what happens without them, and the
+   two possibilities are a world aligned to *magnetic* north, which would be ideal here and nobody
+   the wiser, or a world aligned to however the phone happened to be pointing when the session
+   started, which makes every section square, plausible, and turned by an unknown angle. In a
+   rectangular room the second is invisible: a rectangle sliced on any bearing is still a rectangle.
+   So the run that looked like the feature working could not have told the two apart, and neither
+   can anything on a build server.
 
    So `NSLocationWhenInUseUsageDescription` is now in the plist, asked for before the scanner opens,
    and `IosAssetsTest` holds it there with the reasoning attached. That is the fix as far as it can
    be made from here — and because it *cannot* be checked from here, the screen now prints the
-   bearing it believes it is pointing on. That number is the one part of a scan a surveyor can check
-   without leaving the passage: point the phone along a leg whose bearing has just been booked, and
-   it either agrees or it does not. A degree or two out is the declination and expected. A quarter
-   turn out is the fallback above, and means the scan is measuring the wrong plane.
+   bearing it believes it is pointing on, with the passage's own bearing beside it so that the
+   comparison needs nothing but the screen. That pair is the one part of a scan a surveyor can check
+   without leaving the passage: point the phone along the passage, and the two either agree or they
+   do not. A degree or two out is the declination and expected. A quarter
+   turn out is the second possibility above, and means the scan is measuring the wrong plane —
+   which is worth knowing while still standing at the station rather than at the end of a trip.
    `DepthCamera.bearingOf` works it out from the pose ARKit already hands over, and four tests hold
    it to a compass rather than to a mathematician's angle — clockwise from north, east at ninety —
    because the two agree at north and nowhere else.
@@ -4390,8 +4396,9 @@ called done without somebody holding a device, and so that "tested" is never rea
   test can reach is whether ARKit means by a pose, a set of optics and a depth what `DepthCamera`
   assumes, and whether ARKit knows where north is at all.
   **The north check is first, because it is five seconds and because everything else depends on
-  it:** point the phone along a leg whose bearing you have just booked, and read the *Facing* line
-  on the scan screen. A degree or two apart is the declination and is expected — the scan's north is
+  it:** point the phone along the passage and read the second line on the scan screen, which gives
+  what the phone thinks it is facing and what the passage runs on, side by side. A degree or two
+  apart is the declination and is expected — the scan's north is
   true and the survey's is magnetic. A quarter turn apart means ARKit never found north and is
   aligned to however the phone was held when the scan opened, in which case every section is a good
   section of the wrong plane. That is what the location permission is for, so answer that prompt
