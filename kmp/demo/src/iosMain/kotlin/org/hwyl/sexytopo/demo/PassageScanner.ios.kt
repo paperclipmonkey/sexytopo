@@ -99,11 +99,11 @@ import kotlin.math.roundToInt
  * a pose, a set of optics and a depth what `DepthCamera` says it does. Its own documentation lists
  * each assumption and what a wrong one would look like on the drawing.
  *
- * ## Status: run on a phone three times, in a room, and not yet in a cave
+ * ## Status: run on a phone four times, in a room, and not yet in a cave
  *
  * The macOS runner compiles this and can run none of it — the simulator has no ARKit camera, so
  * available is false on the one machine that proves it builds. Everything known past that comes
- * from three runs on a real device in a well-lit room, and all three have been worth more than
+ * from four runs on a real device in a well-lit room, and every one has been worth more than
  * every check here.
  *
  * The first found three faults at once, all of them the cumulative-cloud bug
@@ -118,7 +118,23 @@ import kotlin.math.roundToInt
  * its full half minute and still drawing nonsense is the sparse cloud being answered on its
  * merits, rather than a symptom of something else.
  *
+ * **The fourth run measured a room correctly** — a rectangle, of the right size — which is the
+ * depth map working and the first time this has measured anything. What came out of it was about
+ * the sweep rather than the answer: a surveyor cannot tell which parts of a passage have been
+ * caught, so the section is now drawn as it fills; a scan that stops itself throws away the sweep
+ * it stopped in the middle of, so nothing stops one now but the surveyor; and a screen that is the
+ * only place this can be explained now explains it.
+ *
+ * That run also made the north question urgent rather than academic, which is the sting in it: a
+ * rectangular room sliced on *any* bearing is still a rectangle, so a correct-looking room says
+ * nothing at all about whether ARKit knows where north is. See the note on that below.
+ *
  * Unverified, in the order it matters:
+ *  - **whether ARKit found north.** Everything measured is placed relative to its idea of one, and
+ *    a section measured against a north out by a quarter turn is a good section of the wrong
+ *    plane. The bearing on the screen, beside the passage's own, is what answers this — point the
+ *    phone along the passage and the two should agree — and it is the first thing to look at
+ *    underground, because everything below assumes it;
  *  - **whether the depth map draws a passage that is actually there.** A wrong convention would
  *    show as a mirrored, upside-down or quarter-turned section, and a depth read as a ray length
  *    rather than along the lens axis would show as a passage a little too wide, bulging where each
@@ -152,11 +168,23 @@ import kotlin.math.roundToInt
  * and tap it before sweeping, and raycast to get the offset. The second is the better answer and
  * the more interop.
  *
- * And ARKit's north is true north, where a survey bearing off a DistoX is magnetic. The difference
- * is the local declination, a degree or two in Britain and more elsewhere; it turns the slice by
- * that much, which over a slab a quarter of a metre thick is not something a wall notices. It is
- * written down because it is the kind of thing that is invisible until somebody scans a cave in a
- * part of the world where declination is fifteen degrees.
+ * And the world this is all measured in is aligned to *heading*, which is the part that used to
+ * be a footnote and turned out not to be. Two things sit behind it.
+ *
+ * The small one is that ARKit's north is true north where a survey bearing off a DistoX is
+ * magnetic: the difference is the local declination, a degree or two in Britain and fifteen in
+ * places, and it turns the slice by that much, which over a slab a quarter of a metre thick is not
+ * something a wall notices.
+ *
+ * The large one is whether ARKit establishes a heading at all. Working out true north from a
+ * magnetic reading needs the declination, which is a fact about where you are standing, which needs
+ * location services — and this app had no location key in its plist, so iOS could not be asked. It
+ * is asked now, in `ArKitScanner`. What ARKit does when it cannot work north out is undocumented:
+ * either it aligns to magnetic north, which a survey would welcome, or it aligns to however the
+ * phone was pointing when the session started, which turns every section by an unknown angle and
+ * looks exactly like a section. Nothing in this repository can tell those apart, which is why the
+ * screen prints the bearing it thinks it is facing with the passage's own beside it, and why that
+ * is the first thing to check in a cave.
  */
 @OptIn(ExperimentalForeignApi::class)
 @Composable
