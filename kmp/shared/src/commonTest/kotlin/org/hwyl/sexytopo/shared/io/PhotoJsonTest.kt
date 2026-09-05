@@ -35,8 +35,8 @@ import kotlin.test.assertTrue
  * team's phones and not on another has effectively been lost, whichever end is the newer.
  *
  * The Android side of that is checked against what its reader actually does rather than against a
- * hope — see readAsAndroidWould, which makes the same lookups `SketchJsonTranslater.toSketch`
- * makes and none of the ones it does not.
+ * hope — see readAsAndroidWould, which makes the lookups `SketchJsonTranslater.toSketch` and its
+ * `toSubSketch` make, at both levels, and touches nothing they do not.
  */
 class PhotoJsonTest {
 
@@ -286,6 +286,10 @@ class PhotoJsonTest {
         val station = survey.getStationByName("2")!!
         val subSketch = Sketch().apply {
             pathDetails.add(PathDetail(listOf(Coord2D.ORIGIN, Coord2D(0f, 1f)), Colour.BLACK))
+            addSymbolDetail(
+                Coord2D(0.2f, 0.2f), "STALAGMITE", size = 1f, angle = 0f, colour = Colour.BROWN
+            )
+            addTextDetail(Coord2D(0.3f, 0.3f), "Crawl", size = 0.5f, colour = Colour.BLUE)
             addPhotoDetail(Coord2D(0.5f, 0.5f), photoId = "9", size = 1f, angle = 0f)
         }
         val sketch = Sketch().apply {
@@ -306,6 +310,8 @@ class PhotoJsonTest {
         assertEquals(listOf("Sump"), reading.labels)
         assertEquals(listOf("2"), reading.stationIds)
         assertEquals(listOf(2), reading.pointsPerSubSketchStroke, "the section's own stroke")
+        assertEquals(listOf("STALAGMITE"), reading.subSketchSymbolIds, "the section's own stamp")
+        assertEquals(listOf("Crawl"), reading.subSketchLabels, "the section's own label")
         assertClose(2f, reading.crossSectionScale)
     }
 
@@ -313,9 +319,12 @@ class PhotoJsonTest {
      * And the other half of that: photographs are confined to their own array, so the one thing
      * Android meets that it does not understand is a key it never looks at.
      *
-     * A photograph's parts leaking into `symbols` or `labels` would be read there — the pin would
-     * come back on Android as a stamp of no known symbol, which its `Symbol.valueOf` throws on,
-     * and the catch around that block loses every symbol in the drawing.
+     * A photograph's parts leaking into `symbols` or `labels` would be read there, and the two
+     * cost differently. `toSymbolDetail` throws on `Symbol.valueOf` of a name its enum has not
+     * got, but `toSketch` catches that around each entry, so a leaked pin costs only itself.
+     * `toTextDetail` throws on the `text` a pin does not carry and nothing catches it until the
+     * whole block is abandoned before `setTextDetails` — so one leaked pin costs a surveyor every
+     * label in the drawing.
      */
     @Test
     fun photographsAddExactlyOneKeyTheAndroidAppDoesNotKnow() {
@@ -372,6 +381,8 @@ class PhotoJsonTest {
         val labels: List<String>,
         val stationIds: List<String>,
         val pointsPerSubSketchStroke: List<Int>,
+        val subSketchSymbolIds: List<String>,
+        val subSketchLabels: List<String>,
         val crossSectionScale: Float,
     )
 
@@ -388,15 +399,17 @@ class PhotoJsonTest {
 
     private fun JsonObject.colourName(): String =
         text(SketchJson.COLOUR_TAG).also {
-            // Android's Colour.valueOf throws on a name its enum has not got, and that throw is
-            // caught a level up, losing the whole array it was in.
+            // Android's Colour.valueOf throws on a name its enum has not got. In `symbols` that
+            // throw is caught per entry and costs one stamp; in `paths` and `labels` nothing
+            // catches it until the whole array has been abandoned, so a single unknown colour
+            // takes every stroke or every label in the drawing with it.
             assertNotNull(Colour.fromNameOrNull(it), "no such colour as $it")
         }
 
     /**
-     * The file read the way `SketchJsonTranslater.toSketch` reads it: every key it names, in the
-     * types its getJSONArray, getJSONObject, getString and getDouble calls demand, and nothing else
-     * touched at all.
+     * The file read the way `SketchJsonTranslater.toSketch` and its `toSubSketch` read it: every
+     * key they name, in the types their getJSONArray, getJSONObject, getString and getDouble calls
+     * demand, and nothing else touched at all.
      *
      * The bang-bangs are the point rather than laziness. Each of those Java getters throws where
      * the file disagrees with it, and the reader answers a throw by logging and carrying on with an
@@ -413,36 +426,50 @@ class PhotoJsonTest {
                 entry.array(SketchJson.POINTS_TAG).map { it.jsonObject.coord2D() }.size
             }
 
-        val symbolIds = root.array(SketchJson.SYMBOLS_TAG).map { element ->
-            val entry = element.jsonObject
-            entry.colourName()
-            entry.coord(SketchJson.POSITION_TAG)
-            entry.text(SketchJson.SYMBOL_ID_TAG)
-        }
+        fun symbolIdsIn(from: JsonObject): List<String> =
+            from.array(SketchJson.SYMBOLS_TAG).map { element ->
+                val entry = element.jsonObject
+                entry.colourName()
+                entry.coord(SketchJson.POSITION_TAG)
+                entry.text(SketchJson.SYMBOL_ID_TAG)
+            }
 
-        val labels = root.array(SketchJson.LABELS_TAG).map { element ->
-            val entry = element.jsonObject
-            entry.colourName()
-            entry.coord(SketchJson.POSITION_TAG)
-            entry.text(SketchJson.TEXT_TAG)
-        }
+        fun labelsIn(from: JsonObject): List<String> =
+            from.array(SketchJson.LABELS_TAG).map { element ->
+                val entry = element.jsonObject
+                entry.colourName()
+                entry.coord(SketchJson.POSITION_TAG)
+                entry.text(SketchJson.TEXT_TAG)
+            }
 
         val subSketchStrokes = mutableListOf<Int>()
+        val subSketchSymbolIds = mutableListOf<String>()
+        val subSketchLabels = mutableListOf<String>()
         val stationIds = root.array(SketchJson.CROSS_SECTIONS_TAG).map { element ->
             val entry = element.jsonObject
             entry.coord(SketchJson.POSITION_TAG)
             entry.number(SketchJson.ANGLE_TAG)
-            // toSubSketch guards every array with a has() check, so only the outer key is required.
-            entry[SketchJson.SKETCH_TAG]?.let { subSketchStrokes += strokes(it.jsonObject) }
+            // A sub-sketch is read by toSubSketch, which takes the same three arrays as toSketch —
+            // the photos go in beside them, so all three have to be checked here and not just the
+            // strokes. Its has() guards are deliberately not mirrored: toSubSketchJson always
+            // writes all three, so one going missing is a regression even though Android would
+            // step over it.
+            entry[SketchJson.SKETCH_TAG]?.jsonObject?.let { sub ->
+                subSketchStrokes += strokes(sub)
+                subSketchSymbolIds += symbolIdsIn(sub)
+                subSketchLabels += labelsIn(sub)
+            }
             entry.text(SketchJson.STATION_ID_TAG)
         }
 
         return AndroidReading(
             pointsPerStroke = strokes(root),
-            symbolIds = symbolIds,
-            labels = labels,
+            symbolIds = symbolIdsIn(root),
+            labels = labelsIn(root),
             stationIds = stationIds,
             pointsPerSubSketchStroke = subSketchStrokes,
+            subSketchSymbolIds = subSketchSymbolIds,
+            subSketchLabels = subSketchLabels,
             crossSectionScale =
                 root.obj(SketchJson.SETTINGS_TAG).number(SketchJson.CROSS_SECTION_SCALE_TAG),
         )

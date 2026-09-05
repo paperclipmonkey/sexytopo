@@ -1,5 +1,6 @@
 package org.hwyl.sexytopo.shared.io.store
 
+import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.survey.Survey
 
 /**
@@ -83,7 +84,25 @@ object PhotoStore {
      * with duplicates dropped — the same picture can be pinned twice, and is one file either way.
      */
     fun photoIdsIn(survey: Survey): List<String> =
-        (survey.planSketch.photoDetails + survey.elevationSketch.photoDetails)
-            .map { it.photoId }
-            .distinct()
+        (photoIdsIn(survey.planSketch) + photoIdsIn(survey.elevationSketch)).distinct()
+
+    /**
+     * Every photograph a sketch names, its cross-sections' own drawings included.
+     *
+     * The nested half is the part that is easy to leave out, and it was: this walked the two
+     * top-level sketches only, while [SketchJson] writes photographs into a cross-section's
+     * sub-sketch and reads them back again. Two things go wrong when the two disagree, and both
+     * lose a photograph rather than merely mislaying one. [nextPhotoId] would hand back an id a
+     * nested pin already held, and [save] would then write over that picture; and `SurveyZip` packs
+     * what this returns, so a nested photograph would be left out of the archive and arrive at the
+     * other end as a pin with nothing behind it.
+     *
+     * Nothing in this port puts a pin inside a cross-section yet — `SketchEditor` only ever writes
+     * to the top-level sketch — but the reader will happily load a file that has one, and a survey
+     * is a file a person can be handed. Recursive rather than one level deep for the same reason:
+     * what the format allows is what has to be counted, not what this app happens to write.
+     */
+    private fun photoIdsIn(sketch: Sketch): List<String> =
+        sketch.photoDetails.map { it.photoId } +
+            sketch.crossSectionDetails.flatMap { photoIdsIn(it.sketch) }
 }

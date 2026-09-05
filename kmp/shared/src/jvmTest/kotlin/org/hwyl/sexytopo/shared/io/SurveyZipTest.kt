@@ -175,6 +175,16 @@ class SurveyZipTest {
          * exactly three headers, then reported the miscount as a missing UTF-8 flag.
          */
         const val ENTRIES = 4
+
+        /**
+         * Padding that brings a sample photograph up to the size a phone really hands over.
+         *
+         * Wanted by one test only, and for one reason: with entries of a few hundred bytes every
+         * offset in the central directory fits in two, and a writer that recorded them in two
+         * would be indistinguishable from one that got it right. Every photograph a surveyor takes
+         * is past that boundary, so one sample here has to be as well.
+         */
+        const val PHONE_SIZED = 70_000
     }
 
     /**
@@ -531,11 +541,23 @@ class SurveyZipTest {
      * offsets stop making sense once a few hundred kilobytes of JPEG sit between the entries would
      * pass every test here and fail in Finder, Explorer and the iOS Files app. Photographs are what
      * makes that plausible: until now every entry was under a kilobyte.
+     *
+     * Which is why the two pictures here are the size a camera produces rather than the few
+     * hundred bytes the rest of this file uses. That is the whole case: small entries leave every
+     * offset inside two bytes, where a writer that truncated them would still be read correctly,
+     * and the archive would only come apart in the field once someone pinned a real photograph.
      */
     @Test
     fun theDirectoryAndTheRecordAtTheEndAccountForThePhotographs() {
-        val photos = mapOf("1" to imageBytes(1), "2" to imageBytes(2))
+        val photos = mapOf("1" to imageBytes(1, PHONE_SIZED), "2" to imageBytes(2, PHONE_SIZED))
         val archive = SurveyZip.archive(pinnedCave(), "test", 1) { photos[it] }
+
+        // Said out loud so that shrinking the samples later has to argue with a test: below the
+        // 65,535 bytes a two-byte offset reaches, the seeks this test makes prove nothing.
+        assertTrue(
+            indexOf(archive, photos.getValue("2")) > 0xFFFF,
+            "the samples are too small for the offsets in the directory to be worth reading",
+        )
 
         val file = File.createTempFile("survey-with-photographs", ".zip")
         file.deleteOnExit()
@@ -584,13 +606,20 @@ class SurveyZipTest {
      * the sample carries the two that break things: 0x00, which ends a string in anything that
      * reaches for C, and 0xFF, which is not a byte any UTF-8 sequence can contain. The seed makes
      * two photographs in one archive tell each other apart.
+     *
+     * The padding is for the one test that needs a picture the size a real one is; everything else
+     * wants the smallest sample that still cannot be mistaken for text, and leaves it out.
      */
-    private fun imageBytes(seed: Int): ByteArray =
+    private fun imageBytes(seed: Int, padding: Int = 0): ByteArray =
         byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), seed.toByte()) +
             ByteArray(256) { it.toByte() } +
+            ByteArray(padding) { ((it + seed) and 0xFF).toByte() } +
             byteArrayOf(0xFF.toByte(), 0xD9.toByte())
 
-    /** Where the needle starts in the haystack, or -1. Used to find a picture to spoil. */
+    /**
+     * Where the needle starts in the haystack, or -1. Used to find a picture to spoil, and to see
+     * how far into an archive one of them lies.
+     */
     private fun indexOf(haystack: ByteArray, needle: ByteArray): Int {
         outer@ for (start in 0..haystack.size - needle.size) {
             for (i in needle.indices) {
