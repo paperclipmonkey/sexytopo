@@ -55,8 +55,14 @@ import kotlin.math.roundToInt
  * remembering before reading a green build as evidence that a photograph was ever taken.
  *
  * What is unverified is everything past the shutter: whether the downscale below lands a portrait
- * photograph the right way up (see [encodeForStorage]), and how long re-encoding a twelve-megapixel
- * image takes on the main thread of a phone rather than in theory.
+ * photograph the right way up (see [encodeForStorage]), and how long re-encoding a
+ * forty-eight-megapixel image takes on the main thread of a phone rather than in theory.
+ *
+ * The second of those stopped being a tidiness question. It is main-thread work; it now happens in
+ * the dismissal's completion block rather than across the transition, which is what
+ * [PhotoPickerDelegate] sets out; and if it proves long enough to notice it belongs on a
+ * background queue with the bytes handed back to the main one. Worth measuring on a phone before
+ * making, because UIKit drawing off the main thread is something this port has never done.
  */
 @Composable
 actual fun rememberPhotoCapture(onPhoto: (ByteArray) -> Unit): PhotoCapture {
@@ -159,8 +165,26 @@ private class UIKitPhotoCapture(private val delegate: PhotoPickerDelegate) : Pho
  * deprecated `imagePickerController:didFinishPickingImage:editingInfo:` takes three parameters and
  * the one used here takes two, which is enough to keep them apart.
  *
- * Dismissed before the image is encoded rather than after: the re-encoding below runs on the main
- * thread, and leaving the camera up while it does would read as the shutter having stuck.
+ * ## The encoding waits for the camera to finish leaving, and that is not a preference
+ *
+ * This used to dismiss the picker and then encode the photograph immediately, on the reasoning
+ * that the re-encode runs on the main thread and leaving the camera up while it ran would read as
+ * the shutter having stuck. Reasonable, and a good way to wedge an iOS app.
+ *
+ * `dismissViewControllerAnimated` starts an animation and returns straight away. Blocking the main
+ * thread with a several-hundred-millisecond re-encode while that transition is still in flight can
+ * leave it never completing, and what is then left on the window is the transition's own
+ * full-screen view: invisible, on top of everything, and eating every touch. The app looks
+ * perfectly normal and answers nothing, which is what a phone reported — every button dead, and a
+ * restart the only way out of it.
+ *
+ * So the work goes in the completion block, where UIKit has finished and there is no transition
+ * left to interrupt. The scanner next door already did it that way, which is the strongest thing
+ * that can be said for it: two modals in this port, one written each way, and the one that put its
+ * work in the completion block is the one nobody has had to restart the app over.
+ *
+ * The photograph is taken out of the info dictionary *before* the dismissal rather than inside the
+ * completion, because by then the picker is being torn down and the dictionary is the picker's.
  */
 @OptIn(BetaInteropApi::class)
 private class PhotoPickerDelegate(private val onImage: (UIImage) -> Unit) :
@@ -170,9 +194,8 @@ private class PhotoPickerDelegate(private val onImage: (UIImage) -> Unit) :
         picker: UIImagePickerController,
         didFinishPickingMediaWithInfo: Map<Any?, *>,
     ) {
-        picker.dismissViewControllerAnimated(true, null)
-        (didFinishPickingMediaWithInfo[UIImagePickerControllerOriginalImage] as? UIImage)
-            ?.let(onImage)
+        val image = didFinishPickingMediaWithInfo[UIImagePickerControllerOriginalImage] as? UIImage
+        picker.dismissViewControllerAnimated(true) { image?.let(onImage) }
     }
 
     override fun imagePickerControllerDidCancel(picker: UIImagePickerController) {

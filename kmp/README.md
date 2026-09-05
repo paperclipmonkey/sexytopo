@@ -3832,12 +3832,31 @@ These are the things that would actually shape a real port.
    cannot check it, so `PhotoPinUiTest` measures the ten cells from real bounds and fails naming
    the scripts, which puts the guard somewhere the scripts can be held to.
 
-   What is not verified is what needs a phone, and it is more than usual here. Nothing has met a
-   real camera: whether iOS Safari honours `capture` or still offers its Take Photo / Photo Library
-   sheet, whether a portrait photograph arrives the right way up, what a twelve-megapixel decode
-   costs on a phone rather than a laptop, and whether the browser's transient user activation
-   survives Compose's own dispatch to reach `input.click()`. A Playwright check drives the file
-   input directly and so cannot answer that last one either.
+   **What an iPhone found, which no runner could have.** The feature works: photographs are taken,
+   pinned, reopened and exported. And then the app locked solid — every button dead, a restart the
+   only way out — after the camera closed.
+
+   Not the Compose half, which is the same code the browser and the JVM run and neither has ever
+   done this. The iOS delegate dismissed the picker and then re-encoded the photograph on the main
+   thread straight away, which is to say it blocked the main thread in the middle of a dismissal
+   animation. A transition interrupted like that can fail to complete, and what stays on the window
+   is the transition's own full-screen view: invisible, on top of everything, swallowing every
+   touch. An app that looks completely normal and answers nothing.
+
+   The comment above that line had argued for it — leaving the camera up during the re-encode would
+   read as a stuck shutter — so this is a considered decision that was wrong, rather than an
+   oversight. The work now goes in the dismissal's completion block. Worth noting that the passage
+   scanner, written days later and by the same hand, already did exactly that: two modals in this
+   port, one written each way, and only one of them wedged a phone.
+
+   Still not verified, and it needs a phone. Nothing has met a browser's camera: whether iOS Safari
+   honours `capture` or still offers its Take Photo / Photo Library sheet, whether a portrait
+   photograph arrives the right way up, and whether the browser's transient user activation
+   survives Compose's own dispatch to reach `input.click()` — a Playwright check drives the file
+   input directly and so cannot answer that last one. And on iOS itself, what a forty-eight-
+   megapixel decode and redraw costs on the main thread: it is now in the completion block rather
+   than across the transition, which is the part that mattered, but if it proves long enough to
+   notice then it belongs on a background queue.
 
 110. **The shape of a passage is arithmetic; only the sensor is iOS.** The second thing here with
    no counterpart upstream, and the one that most looks like it ought to be a platform feature. An
@@ -4203,16 +4222,19 @@ called done without somebody holding a device, and so that "tested" is never rea
   it, and compare the wall it draws against the splays already on the section — they should agree
   to a few centimetres. Then try it in a chamber too big for a head torch to light, which is where
   it should be expected to fail.
-- **The camera opens, and what comes back is the right way up.** Every platform's capture path is
-  written and none has met a lens. Four things need a phone rather than a runner: whether iOS
-  Safari honours `capture` on a file input or still offers its Take Photo / Photo Library sheet;
-  whether a photograph taken in portrait arrives upright, which turns on EXIF orientation being
-  honoured by the `<img>` decode; what a twelve-megapixel photograph costs to decode and redraw on
-  a phone rather than a laptop; and whether the browser's transient user activation survives
-  Compose's own event dispatch as far as `input.click()`. The browser check drives the file input
-  directly, so it proves the rest of the chain and cannot answer that last one. Take one
-  photograph, place it, close the app, reopen it, and check the pin and the picture are both still
-  there.
+- **The camera opens, and what comes back is the right way up.** The iOS path has now met a lens,
+  and taking, pinning, reopening and exporting a photograph all work — but it also locked the app
+  solid afterwards, which is finding 109 and is fixed. **So the first thing to re-check on iOS is
+  that the app still answers its buttons after the camera closes**, and then how long the pause
+  between shutter and pin is: that is a main-thread re-encode of a forty-eight-megapixel image, and
+  if it is long enough to notice it belongs on a background queue. The browser path has met
+  nothing. Three things there need a phone rather than a runner: whether iOS Safari honours
+  `capture` on a file input or still offers its Take Photo / Photo Library sheet; whether a
+  photograph taken in portrait arrives upright, which turns on EXIF orientation being honoured by
+  the `<img>` decode; and whether the browser's transient user activation survives Compose's own
+  event dispatch as far as `input.click()`. The browser check drives the file input directly, so it
+  proves the rest of the chain and cannot answer that last one. Take one photograph, place it,
+  close the app, reopen it, and check the pin and the picture are both still there.
 - **Bluetooth, at all.** Every transport has been driven end to end against a fake instrument and
   none against a radio; see the next section.
 
