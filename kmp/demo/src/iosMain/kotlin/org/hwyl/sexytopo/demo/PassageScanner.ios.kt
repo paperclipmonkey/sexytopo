@@ -255,9 +255,10 @@ private class ArKitScanner(private val onScanned: (List<Coord3D>) -> Unit) : Pas
  * two numbers should agree; that settles it in five seconds and wants nothing but the screen.
  * `DepthCamera.bearingOf` works the first of them out of the pose ARKit is handing over anyway.
  *
- * Under those, in words rather than in numbers, is what to do with all this: stand at the
- * station, sweep slowly over everything including the roof and the floor, watch the outline in the
- * corner fill in, and tap Done. None of that is ever learnt by repetition, because a scan is opened
+ * Under those, in words rather than in numbers, is what to do with all this: start at the station
+ * — the section is drawn from where the phone was when this opened, which is a limitation stated
+ * as an instruction — then sweep slowly over everything including the roof and the floor, watch the
+ * outline in the corner fill in, and tap Done. None of that is ever learnt by repetition, because a scan is opened
  * once a trip at most; and the manual cannot carry it either, since that file is shared with an
  * Android app which has no scanner in it. So it is said here. It comes down to a single line once
  * the section is filling and there has been time to read it — both, since a phone opened facing a
@@ -1263,14 +1264,22 @@ private const val SCANNING_NOTHING_YET = "Nothing measured yet"
  * walls. The manual is the obvious place to say so and cannot be — `manual.html` is shared with the
  * Android app, which has no scanner — so this screen says it.
  *
- * Four things, in the order they are needed: where to stand, how to sweep, what the outline in the
- * corner is for, and what ends the scan. The last is not a nicety now that nothing else does end
- * one.
+ * Four things, in the order they are needed: where the section is drawn from, how to sweep, what
+ * the outline in the corner is for, and what ends the scan. The last is not a nicety now that
+ * nothing else does end one.
+ *
+ * The first is a limitation stated as an instruction, which is the honest way round while it is
+ * still a limitation. ARKit's origin is wherever the device was when the session started — which
+ * is when this screen appeared — and the drawing treats that as the station, so a scan begun two
+ * metres away is a good section of the passage drawn two metres out of place. Saying where the
+ * origin *is* rather than "stand at the station" also tells a surveyor what to do about the
+ * vertical half of it, which standing anywhere does not fix: a station on the floor is a metre and
+ * a half below a phone held at the chest.
  */
 private const val HOW_TO_SCAN =
-    "Stand at the station and sweep the phone slowly over the walls, the roof and the floor. " +
-        "The outline below fills in as you go; the gaps are what is left. Take as long as you " +
-        "need, then tap Done to draw it."
+    "The section is drawn from where the phone was when this opened, so start at the station. " +
+        "Sweep slowly over the walls, the roof and the floor: the outline below fills in as you " +
+        "go, and the gaps are what is left. Take as long as you need, then tap Done to draw it."
 
 /** Said to a lidar phone, because the gap a chamber leaves is otherwise a mystery to sweep at. */
 private const val LIDAR_RANGE =

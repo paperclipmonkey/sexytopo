@@ -4109,13 +4109,18 @@ These are the things that would actually shape a real port.
    **What the screen says, and why not the manual.** A scan is opened once a trip at most, so
    nothing about it is ever learnt by repetition; and `manual.html` is shared byte-for-byte with the
    Android app, which has no scanner in it, so the obvious place to explain it is a place where it
-   would be explained to people who cannot do it. The scan screen therefore says it itself: where to
-   stand, how to sweep, what the outline in the corner is for, and what ends a scan — plus the
-   sentence belonging to whichever sensor is being read, since *"rock more than five metres off is
-   not measured"* is otherwise found out as a hole in a chamber's section that will not fill however
-   long it is swept at. It comes down to one line once the section is filling *and* fifteen seconds
-   have gone by; on the first condition alone a phone opened facing a wall would take it away before
-   anybody had read it. The panel is sized by asking the labels how tall they need to be, because a
+   would be explained to people who cannot do it. The scan screen therefore says it itself: where
+   the section is drawn from, how to sweep, what the outline in the corner is for, and what ends a
+   scan — plus the sentence belonging to whichever sensor is being read, since *"rock more than five
+   metres off is not measured"* is otherwise found out as a hole in a chamber's section that will
+   not fill however long it is swept at. The first of the four is a limitation stated as an instruction, which is
+   the honest way round while it is still one: the origin is where the phone was, so "start at the
+   station" is the whole of what a surveyor can do about it, and saying *why* is also what tells
+   them about the vertical half, which standing in the right place does not fix — a station on the
+   floor is a metre and a half below a phone held at the chest.
+
+   It comes down to one line once the section is filling *and* fifteen seconds have gone by; on the
+   first condition alone a phone opened facing a wall would take it away before anybody had read it. The panel is sized by asking the labels how tall they need to be, because a
    guess generous enough for the longest sentence on the narrowest phone is a guess that wastes a
    third of a big screen, and a guess that is too small drops the end of a sentence in silence.
 
@@ -4395,16 +4400,15 @@ called done without somebody holding a device, and so that "tested" is never rea
   have between them found five faults nothing here could have, all fixed; see finding 111. What no
   test can reach is whether ARKit means by a pose, a set of optics and a depth what `DepthCamera`
   assumes, and whether ARKit knows where north is at all.
-  **The north check is first, because it is five seconds and because everything else depends on
+  **The north check is first, because it takes five seconds and because everything else depends on
   it:** point the phone along the passage and read the second line on the scan screen, which gives
   what the phone thinks it is facing and what the passage runs on, side by side. A degree or two
-  apart is the declination and is expected — the scan's north is
-  true and the survey's is magnetic. A quarter turn apart means ARKit never found north and is
-  aligned to however the phone was held when the scan opened, in which case every section is a good
-  section of the wrong plane. That is what the location permission is for, so answer that prompt
-  before deciding.
-  **Then the shape rather than the detail: stand at a station
-  with splays already on the section, scan it, and see whether the drawn wall sits on them.** A
+  apart is the declination and is expected — the scan's north is true and the survey's is magnetic.
+  A quarter turn apart means ARKit never found north and has aligned its world to however the phone
+  was held when the scan opened, in which case every section is a good section of the wrong plane.
+  That is what the location permission is for, so answer that prompt before deciding anything else.
+  **Then the shape rather than the detail: stand at a station with splays already on the section,
+  scan it, and see whether the drawn wall sits on them.** A
   wall mirrored left-to-right, upside-down or turned a quarter turn is a wrong convention and is
   named in that class's own documentation; a wall consistently a little too wide, bulging in
   patches, is a depth taken for a ray length. A wall that lands on the splays to a few centimetres
