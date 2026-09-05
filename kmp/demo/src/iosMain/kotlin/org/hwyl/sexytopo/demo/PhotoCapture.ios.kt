@@ -191,13 +191,17 @@ private class PhotoPickerDelegate(private val onImage: (UIImage) -> Unit) :
  * of its own for things like the text-selection menu. Walking the chain costs two lines and removes
  * a whole class of "the button did nothing".
  *
+ * Shared with the passage scanner next door, which needs exactly this and would otherwise carry a
+ * worse copy of it: walking the presented chain is what makes a modal open over whatever is already
+ * on screen rather than under it.
+ *
  * `keyWindow` is deprecated from iOS 13 in favour of asking the scene, and is still right here:
  * this app declares `UIApplicationSupportsMultipleScenes` false in `Info.plist`, so there is
  * exactly one window and the scene walk would have nothing to choose between. The alternative costs
  * `UIWindowScene` and `connectedScenes`, which is more interop surface than a Linux machine should
  * be writing blind for an answer that cannot differ.
  */
-private fun topmostViewController(): UIViewController? {
+internal fun topmostViewController(): UIViewController? {
     var controller = UIApplication.sharedApplication.keyWindow?.rootViewController ?: return null
     while (true) {
         controller = controller.presentedViewController ?: return controller
