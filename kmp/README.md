@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 877 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 886 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and sixteen more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -3875,7 +3875,13 @@ These are the things that would actually shape a real port.
    worked include the rubber, which does not open a pin: it takes it off, correctly and by design.
 
    So a tap on a pin now opens its photograph under every tool but the rubber, and a table-shaped
-   test says which tools those are. The rubber's own test sits beside it, asserting that it still
+   test says which tools those are. A later screenshot from the same phone shows the rubber selected
+   in the toolbar, which is very likely the whole of the original report: the rubber is one of the
+   six tools restored across a restart, so re-opening a survey can put it in a surveyor's hand
+   without their having chosen it in that session, and a tap on a pin then takes it off exactly as
+   it takes off any other mark. Not acted on yet — a screenshot of a later moment is evidence and
+   not proof — but if it is confirmed, the fix is to stop restoring a destructive tool rather than
+   to change what the rubber does. The rubber's own test sits beside it, asserting that it still
    erases a pin rather than opening one — "every tool but the rubber" is worth nothing unless the
    exception is held to as firmly as the rule.
 
@@ -4221,7 +4227,7 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 877
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 886
 shared tests on three targets, 16 more against `java.util.zip` on the JVM, 548 over the UI's own
 logic, 20 running the iOS half in a simulator,
 134 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then

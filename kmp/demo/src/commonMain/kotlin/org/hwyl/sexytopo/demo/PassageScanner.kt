@@ -19,8 +19,14 @@ interface PassageScanner {
     /**
      * Open the scanner. The points arrive at the callback given to [rememberPassageScanner], in
      * metres and in survey axes, relative to where the surveyor was standing when it opened.
+     *
+     * [bearing] is the section's own, in degrees, and is passed in for the scanner's own use rather
+     * than for the arithmetic afterwards — the caller slices the points itself when they arrive. A
+     * scanner that knows it can show the surveyor the section filling in as they sweep, which is
+     * the only thing on that screen that says which *directions* are still to do. A count of points
+     * rises just as fast for somebody sweeping one wall over and over.
      */
-    fun scan()
+    fun scan(bearing: Float)
 }
 
 /**
