@@ -43,6 +43,74 @@ import kotlin.math.sqrt
  * this adds a stroke to the section's own sketch rather than replacing anything: what it draws can
  * be rubbed out and drawn over like any other stroke.
  */
+/**
+ * The patches of surface a scan has already seen, so the same rock is not counted twice.
+ *
+ * A depth scanner does not hand back what is new since the last read: ARKit's `rawFeaturePoints`
+ * is the *whole* cloud it is currently holding, re-reported every time it is asked. Keeping all of
+ * that on every read counts reads rather than rock, and it does more harm than waste — see
+ * [PassageScan] on why duplication disables the noise floor rather than reinforcing it.
+ *
+ * So space is divided into small boxes and each box counts once. Quantising rather than trusting
+ * the scanner's own per-point identifiers is deliberate: ARKit refines a feature's position as it
+ * sees more of it, so one identifier arrives at slightly different places over a sweep and
+ * identifier-dedup would keep the first and least-refined estimate of each. It also thins a near
+ * wall that is tracked far more densely than the far one, which is the difference between a
+ * percentile that describes the passage and one that describes whatever the phone was nearest.
+ *
+ * Here rather than in `PassageScanner.ios.kt` because it is arithmetic, and because the bit-packing
+ * below is the kind of thing that is wrong silently: a scan would simply come out sparse. On this
+ * side of the line it is tested, and the Android scanner that does not exist yet will want it too.
+ */
+class SeenSurfaces(private val voxelMetres: Float = DEFAULT_VOXEL_METRES) {
+
+    init {
+        require(voxelMetres > 0) { "a box of no size holds nothing" }
+    }
+
+    private val seen = mutableSetOf<Long>()
+
+    /** How many distinct patches have been seen, which is what a scan should show a surveyor. */
+    val size: Int get() = seen.size
+
+    /**
+     * Whether this point is somewhere nothing has been seen before, remembering it either way.
+     *
+     * Takes three floats rather than a [Coord3D] so that a caller walking a raw buffer — which is
+     * what the iOS scanner does, several thousand times a second — need not allocate an object per
+     * point just to ask.
+     */
+    fun isNew(east: Float, north: Float, up: Float): Boolean = seen.add(key(east, north, up))
+
+    private fun key(east: Float, north: Float, up: Float): Long {
+        // `floor` and not a cast. A cast truncates towards zero, which folds the box just below
+        // the origin onto the box just above it on every axis — so the eight boxes meeting at the
+        // surveyor's feet would be one, and points either side of them would wrongly collapse.
+        val x = floor(east / voxelMetres).toLong() and AXIS_MASK
+        val y = floor(north / voxelMetres).toLong() and AXIS_MASK
+        val z = floor(up / voxelMetres).toLong() and AXIS_MASK
+        return (x shl (2 * AXIS_BITS)) or (y shl AXIS_BITS) or z
+    }
+
+    companion object {
+        /**
+         * Two centimetres: finer than the rock is rough, so two returns off genuinely different
+         * bits of wall stay two, and coarse enough that the hundreds of re-reports of one feature
+         * collapse to one.
+         */
+        const val DEFAULT_VOXEL_METRES = 0.02f
+
+        /**
+         * Twenty-one bits an axis, which at two centimetres reaches twenty kilometres each way
+         * from where the surveyor stood — rather more cave than anybody will sweep a phone round.
+         * Three of them fit in a Long with a bit to spare.
+         */
+        private const val AXIS_BITS = 21
+
+        private const val AXIS_MASK = 0x1FFFFFL
+    }
+}
+
 object PassageScan {
 
     /**
@@ -97,6 +165,19 @@ object PassageScan {
      * The caller converts. Every scanner has its own idea of which way is up — ARKit's world
      * space is y-up and z-towards-the-viewer, which is not this — and doing that conversion in the
      * platform half keeps one set of axes in the shared code. See `PassageScanner.ios.kt`.
+     *
+     * ## [points] must be distinct observations, not a cumulative cloud
+     *
+     * A hard precondition rather than a preference, and a phone found it being broken. Both
+     * defences here count observations: a direction needs [minimumPointsPerSector] before it is
+     * believed, and a sector's wall is its [wallPercentile]. Hand the same return in a hundred and
+     * fifty times and it clears the minimum on its own and is every value the percentile sorts, so
+     * a single stray becomes a confident wall and the section comes out as a star of spikes.
+     * Duplication does not reinforce the noise floor, it removes it.
+     *
+     * Depth scanners invite exactly that mistake, because they hand back everything they hold on
+     * every read rather than what is new — so a caller reading on a timer must sieve. [SeenSurfaces]
+     * is what does it, and `theSameReturnSentAgainIsNotASecondObservation` pins the property.
      */
     fun outlines(
         points: List<Coord3D>,
