@@ -12,12 +12,11 @@ import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.useContents
 import org.hwyl.sexytopo.shared.model.graph.Coord3D
 import platform.ARKit.ARSCNView
-import platform.ARKit.ARWorldAlignmentGravityAndHeading
+import platform.ARKit.ARWorldAlignment
 import platform.ARKit.ARWorldTrackingConfiguration
 import platform.CoreGraphics.CGRectMake
 import platform.Foundation.NSTimer
 import platform.UIKit.NSTextAlignmentCenter
-import platform.UIKit.UIApplication
 import platform.UIKit.UIButton
 import platform.UIKit.UIButtonTypeSystem
 import platform.UIKit.UIColor
@@ -121,10 +120,12 @@ private class ArKitScanner(private val onScanned: (List<Coord3D>) -> Unit) : Pas
 
     override fun scan() {
         if (!available) return
-        val root = UIApplication.sharedApplication.keyWindow?.rootViewController ?: return
-        // Presented over whatever is on screen rather than replacing it, so that dismissing the
-        // scan puts the surveyor back on the drawing they came from with nothing lost.
-        root.presentViewController(ScanViewController(onScanned), animated = true, completion = null)
+        // The same walk the camera uses, shared rather than copied: it climbs the presented chain,
+        // so the scan opens over whatever is already on screen rather than under it. Presented
+        // rather than pushed, so that dismissing it puts the surveyor back on the drawing they came
+        // from with nothing lost.
+        val host = topmostViewController() ?: return
+        host.presentViewController(ScanViewController(onScanned), animated = true, completion = null)
     }
 }
 
@@ -203,7 +204,7 @@ private class ScanViewController(
         val configuration = ARWorldTrackingConfiguration()
         // True north and gravity, so that a bearing means the same thing to the scan as it does to
         // the survey — see the note about declination on this file.
-        configuration.worldAlignment = ARWorldAlignmentGravityAndHeading
+        configuration.worldAlignment = GRAVITY_AND_HEADING
         arView?.session?.runWithConfiguration(configuration)
 
         // Read on a timer rather than through a delegate. `ARSessionDelegate.didUpdateFrame` fires
@@ -284,6 +285,17 @@ private class ScanViewController(
         arView?.session?.pause()
     }
 }
+
+/**
+ * Gravity and true north, named once because this is the spelling that was wrong first time.
+ *
+ * Kotlin/Native exposes some Objective-C `NS_ENUM`s as enum classes and others as bare top-level
+ * constants, and which one you get is not something a Linux machine can find out — this was
+ * written as the bare constant, and the macOS runner rejected it. `ARWorldAlignment` is the first
+ * kind, as `UIImagePickerControllerSourceType` next door is; `CBManagerStatePoweredOn` in
+ * `CoreBluetoothTransport` is the second.
+ */
+private val GRAVITY_AND_HEADING = ARWorldAlignment.ARWorldAlignmentGravityAndHeading
 
 /** Four, not three: see the note in `sample` about what padding does to a misread stride. */
 private const val FLOATS_PER_POINT = 4
