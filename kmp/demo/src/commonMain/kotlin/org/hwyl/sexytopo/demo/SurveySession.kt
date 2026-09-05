@@ -19,6 +19,7 @@ import org.hwyl.sexytopo.shared.comms.InstrumentPacket
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
 import org.hwyl.sexytopo.shared.comms.InstrumentTransport
 import org.hwyl.sexytopo.shared.comms.InstrumentTransportListener
+import org.hwyl.sexytopo.shared.comms.LinkState
 import org.hwyl.sexytopo.shared.comms.ReconnectionPolicy
 import org.hwyl.sexytopo.shared.comms.ShotDetail
 import org.hwyl.sexytopo.shared.comms.TransportSubscription
@@ -102,6 +103,14 @@ class SurveySession(
         private set
 
     var connected by mutableStateOf(false)
+        private set
+
+    /** Whether a run of reconnection attempts is under way, for the connection indicator. */
+    var isReconnecting by mutableStateOf(false)
+        private set
+
+    /** How far along the link is, as last seen from whichever radio is attached. */
+    var linkState by mutableStateOf(LinkState.IDLE)
         private set
 
     var readingsTaken by mutableIntStateOf(0)
@@ -279,19 +288,33 @@ class SurveySession(
                 // distinction `ReconnectionPolicy.noteReady` is documented to need.
                 reconnection.noteReady()
                 note("connected to ${profile?.name ?: "the simulated instrument"}")
+                refreshLinkState()
             }
 
             override fun onDisconnected(reason: String?) {
                 connected = false
                 note("disconnected${reason?.let { ": $it" } ?: ""}")
                 considerReconnecting()
+                refreshLinkState()
             }
 
+            /**
+             * Something went wrong. Whether the *link* went with it is the transport's to say.
+             *
+             * A failure is not always a disconnection: a notification that could not be read and a
+             * write that did not land both arrive here from a link that is still perfectly up. The
+             * session used to record every one of them as a disconnection, which put "Not
+             * connected" on screen over a working instrument and — worse — started the
+             * reconnection policy chasing a link it already had. The retry that followed was then
+             * refused by the transport, silently, and the chase ended there.
+             */
             override fun onFailure(reason: String) {
-                connected = false
                 failure = reason
                 note(reason, isError = true)
+                if (transport.isConnected) return
+                connected = false
                 considerReconnecting()
+                refreshLinkState()
             }
 
             /**
@@ -405,7 +428,12 @@ class SurveySession(
     fun connect() {
         failure = null
         reconnection.noteUserRequestedConnect()
-        if (!connected) transport.connect()
+        // `transport.isConnected`, not this session's own `connected` flag. The two can disagree —
+        // a link that went while the app was suspended leaves the flag set — and when they do, the
+        // surveyor pressing Connect is right and the flag is wrong. Deciding from the flag meant
+        // the one button that should always do something did nothing at all.
+        if (!transport.isConnected) transport.connect()
+        refreshLinkState()
     }
 
     fun disconnect() {
@@ -414,6 +442,7 @@ class SurveySession(
         reconnection.noteUserRequestedDisconnect()
         transport.disconnect()
         connected = false
+        refreshLinkState()
     }
 
     /**
@@ -475,6 +504,7 @@ class SurveySession(
         this.failure = null
         decoder.reset()
         subscription = transport.observe(listener)
+        refreshLinkState()
         note(if (profile == null) "using the simulated instrument" else "connecting to ${profile.name}")
     }
 
@@ -491,10 +521,49 @@ class SurveySession(
         // platform's own connection state machine, from a Compose effect, on the main thread.
         runCatching { tickTransport(transport) }
             .onFailure { note("the instrument link failed: ${it.message}", isError = true) }
-        if (reconnection.retryIsDue()) {
+
+        watchForALinkThatWentQuietly()
+
+        if (reconnection.retryIsDue(linkIsBusy = transport.linkState == LinkState.CONNECTING)) {
             note("reconnecting to ${profile?.name ?: "the instrument"}")
             transport.connect()
         }
+
+        refreshLinkState()
+    }
+
+    /**
+     * Notice a link that has gone without saying so.
+     *
+     * Everything else here is driven by a callback from the radio, and underground those callbacks
+     * are not reliably delivered: an app suspended in a bag while the phone sleeps, a Bluetooth
+     * stack reset, an iOS disconnect that arrives during a moment the app was not running. The
+     * session was then left believing it was connected forever, with nothing to start a chase,
+     * and the only cure was to close the app — which is what the trip that prompted this reported.
+     *
+     * The transport is the authority. Asking it on every tick costs a field read, and turns a
+     * whole class of silent, permanent failures into an ordinary reconnection.
+     */
+    private fun watchForALinkThatWentQuietly() {
+        if (!connected || transport.linkState == LinkState.CONNECTED) return
+        connected = false
+        note("the link to ${profile?.name ?: "the instrument"} has gone")
+        considerReconnecting()
+        refreshLinkState()
+    }
+
+    /**
+     * Copy what the policy and the transport are doing into state Compose can see.
+     *
+     * They are both plain objects — a policy that posted its own work could not be tested, and a
+     * transport does not know what a recomposition is — so an indicator reading them directly
+     * would draw whatever was true when something *else* changed. Called from [tick], which runs
+     * every half-second while an instrument is attached, and from each callback so the common
+     * transitions land at once rather than on the next tick.
+     */
+    private fun refreshLinkState() {
+        linkState = transport.linkState
+        isReconnecting = reconnection.isChasing && !connected
     }
 
     /** Takes one reading from the simulator, connecting first if needed. */

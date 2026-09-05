@@ -169,8 +169,8 @@ fun SurveySettingsDialog(
                     title = "Chase a lost instrument",
                     detail =
                         "A cave breaks Bluetooth constantly: you walk round a corner with the " +
-                            "phone, the instrument sleeps, a cold battery sags. Off by default, " +
-                            "as on Android.",
+                            "phone, the instrument sleeps, a cold battery sags. On by default " +
+                            "here, unlike Android.",
                     checked = autoReconnect,
                     onCheckedChange = { autoReconnect = it },
                 )

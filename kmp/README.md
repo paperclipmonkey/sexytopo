@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 793 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 800 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and eight more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -64,7 +64,9 @@ Being precise about this matters more than the demo looking good.
 | A station being made can be felt rather than looked at | **Verified** | the callback fires once per station and not once per reading, the preference round-trips, and `field.mjs` turns it off through the settings screen and checks it stayed off |
 | **The app can be told to stay dark, and remembers it** | **Verified** | `pref_theme` is a three-value list in the Android app — auto, light, dark — and this port had a session-only checkbox that started light on every run. In a cave that is the difference between a survey and fifteen minutes of no night vision. `AppPreferencesTest` covers the three values, the resolution against what the platform reports, and the round trip through the file; `field.mjs` sets Chromium to `prefers-color-scheme: dark` and watches *Automatic* follow it, then chooses **Dark** with the browser back on light, **reloads the page**, and checks the app comes back dark |
 | **The mode the instrument is being held in is remembered** | **Verified** | the Android app reads `inputMode` out of `generalPrefs` on its way in; this port held it in a `var` that started at foresights every run, and the field bar only says anything when the mode is *not* foresights — so the state it came back in is the one that looks normal, and every leg after it is turned end for end with nothing in the numbers to show it. Now written down, along with the tool, the brush and the symbol, which `SketchPreferences` also keeps. `AppPreferencesTest` closes and reopens a `DemoState` over one store — the reading half as well as the writing half — and checks that a tool armed for a single touch is *not* restored; `field.mjs` taps the chips on a phone screen and watches the file follow, both ways round |
-| **A lost instrument can be chased, and given up on** | **Verified** | a cave breaks Bluetooth constantly — the surveyor walks round a corner with the phone, the instrument sleeps, a cold battery sags — and every one of those cost a trip to the connection screen with cold hands. `ReconnectionPolicy` is ported from the Java with its scheduling taken out, so it can be driven by a clock a test controls: `ReconnectionPolicyTest` has the decisions, including that the window is measured from the *first* failure of a run so an instrument left at the last station stops costing battery on the way out. `ReconnectionTest` drives a fake radio through a drop, a recovery, an instrument that never comes back, and a second bad patch four hours later. `field.mjs` scrolls the settings dialog to the end, turns it on and reads the file |
+| **A lost instrument can be chased, and given up on** | **Verified** | a cave breaks Bluetooth constantly — the surveyor walks round a corner with the phone, the instrument sleeps, a cold battery sags — and every one of those cost a trip to the connection screen with cold hands. `ReconnectionPolicy` is ported from the Java with its scheduling taken out, so it can be driven by a clock a test controls: `ReconnectionPolicyTest` has the decisions, including that the window is measured from the *first* failure of a run so an instrument left at the last station stops costing battery on the way out, and that a retry landing while an attempt is still running is deferred rather than spent. `ReconnectionTest` drives a fake radio through a drop, a recovery, an instrument that never comes back, a second bad patch four hours later, a drop the radio never reported at all, and a bad packet on a link that is still up. It is **on** by default here where Android has it off — the first trip underground with this app is finding 99, and it settled that argument — so `field.mjs` turns it off, reads the file, and turns it back on |
+| **And the surveyor can see which of those is happening** | **Verified** | an app quietly coping and an app that has given up looked identical, which was half of what that trip reported. A dot on the field bar: green connected, amber trying, red gone, drawn as a ring rather than a disc while an attempt runs so the difference survives a red light or a colour-blind eye, with the state in words beside it whenever it is not simply connected, and the whole thing a tap target for the instrument screen. `ConnectionStatusTest` pins which situation reads as which state — including that "reconnecting" and "given up" are told apart, since that is the distinction somebody deciding whether to walk back for their instrument is asking about |
+| **The instrument outlives the survey, and the app being closed** | **Verified** | opening another survey dropped the session on the floor with its transport still connected and still observed: the radio stayed on and readings went into a survey nobody could see. It moves across now, because an instrument belongs to the surveyor rather than to the survey. Which one it was is written down too, so opening the app offers it back rather than a list of nine — `LastInstrumentTest`, including that a name this version does not know reads as no instrument rather than a crash, and that somebody who has turned chasing off does not get their radio woken by opening the app |
 | **The instrument's clock runs where the surveyor is** | **Verified** | it used to tick only while the connection or calibration dialog was open, so an attempt abandoned by closing the dialog never timed out and left the radio scanning, and a reconnection could never have happened at all — a surveyor waiting for an instrument to come back is drawing. One loop in `App`, keyed on the attached instrument, so it costs nothing on the demo cave. Finding 51 |
 | **The drawing can be made big enough to read by head torch** | **Verified** | `preferences_sketching.xml`'s eight numbers — line widths, station size, the two font sizes, the symbol and text starting sizes — plus `pref_delete_path_fragments`, which decides whether the eraser takes the bit of a wall under your finger or the whole stroke. All nine were hard-coded here, and the eraser rule was worse than that: `SketchEditor.eraseAt` has taken the flag since the sketch was ported and nothing ever passed it. `SketchStyleTest` covers the file and the bounds; `DrawingSizeTest` renders the same survey at two leg widths through headless Skia and counts the red, because a number in a file is not a thicker line; `field.mjs` types 8 into the box on a phone screen and watches the plan go from 605 red pixels to 1852. Two upstream preferences that do nothing came out of reading this — finding 52 |
 | **A bearing can be typed the way a compass reads it** | **Verified** | `pref_deg_mins_secs` and `pref_inc_deg_mins_secs`. A DistoX reports a decimal and nobody needs this; a sighting compass is graduated in minutes and reads 123° 30′, and converting that in your head at every station is how a survey acquires arithmetic errors nobody can find afterwards — which matters here because this port already went out of its way to support a compass and tape and then asked for a decimal nobody's instrument shows. `DegreesMinutesSecondsTest` has the conversion both ways, the rounding carry, and the case upstream gets wrong; `field.mjs` turns both switches on, types 123 and 30 into the three boxes on a phone screen, flips the inclination's sign with the +/- button, and checks the survey stored 123.5 and **-5.5** — the direction as well as the size |
@@ -3255,6 +3257,65 @@ These are the things that would actually shape a real port.
    the app's own overflow menu the way `field.mjs` does, since a unit test on the arithmetic cannot
    see whether the real `pointerInput` block is wired up to it at all.
 
+99. **A trip underground, and the reconnection nobody could see or reach.** Reported from the first
+   real surveying test on an iPhone: a BRIC4 dropped out repeatedly, never came back on its own,
+   and getting it back meant closing and reopening the app at station after station. Five separate
+   defects, and only the first of them is the one everybody guesses.
+
+   *The chase was off.* `AutoReconnect.DEFAULT_ENABLED` was false, ported faithfully from
+   `pref_auto_reconnect`. Everything below it worked and nothing ever asked it to run. It is on
+   here now, which is a deliberate divergence from the Android app rather than a slip: a BLE link
+   in a cave drops several times an hour, and a default that spends the trip in the connection
+   screen is the wrong one. The switch and the give-up window are both still there.
+
+   *An instrument iOS still had could not be found by looking for it.* A connected BLE peripheral
+   does not advertise. So once the app lost track of a link CoreBluetooth still held open, no scan
+   could ever find it again however long it ran - and killing the app was the one thing that made
+   iOS drop the connection, which is exactly the ritual that was reported. `connect()` now asks
+   `retrieveConnectedPeripheralsWithServices` first, and `retrievePeripheralsWithIdentifiers` for
+   one it has reached before, and only scans when the answer to both is nothing. Skipping the scan
+   is the faster path anyway: a connect request for a known peripheral is honoured the moment it
+   comes back into range, rather than waiting for the next fifteen-second scan to notice.
+
+   *One badly timed retry ended the chase for good.* Every transport here refuses to start a second
+   attempt over the top of a running one, and refuses **silently**. `retryIsDue()` consumed the
+   retry regardless, so nothing happened, nothing failed, and nothing scheduled another. It now
+   takes `linkIsBusy` and defers instead of spending - and deferring does not extend the window, so
+   an instrument left at the last station is still given up on.
+
+   *A bad packet was recorded as a lost instrument.* Every `onFailure` set `connected = false` and
+   started the policy chasing. A notification that could not be read and a write that did not land
+   both arrive that way from a link that is perfectly up, so the app put "Not connected" on screen
+   over a working instrument and then chased a link it already had - straight into the defect
+   above. The transport is now asked whether the link actually went.
+
+   *And a link that went quietly was never noticed at all.* Everything else here is driven by a
+   callback from the radio, and underground those are not reliably delivered: a phone asleep in a
+   bag, a Bluetooth stack reset, a disconnect that lands while the app is not running. The session
+   believed it was connected for ever, so nothing started a chase and *Connect* - which read its
+   own stale flag rather than the transport - did nothing when pressed. `tick()` now compares the
+   two every half-second and treats a disagreement as the drop it is, which turns a whole class of
+   silent permanent failures into an ordinary reconnection. This is the level-triggered half of a
+   design that was entirely edge-triggered, and it is what makes the other four fixes hold when a
+   callback is simply never delivered.
+
+   The same trip asked for somewhere to *see* all this, which is the other half of the report and
+   arguably the more useful one: an app quietly coping and an app that has given up looked
+   identical. There is now a dot on the field bar - green connected, amber trying, red gone, a ring
+   rather than a disc while an attempt is running so the difference survives a red light or a
+   colour-blind eye - with the state in words beside it whenever it is not simply connected, and
+   the whole thing a tap target for the instrument screen. `ConnectionStatusTest` pins which state
+   each situation reads as, including that "reconnecting" and "given up" are told apart, because
+   that is the distinction somebody deciding whether to walk back for their instrument is asking
+   about.
+
+   Two smaller things fell out of the same reading. Opening another survey dropped the session on
+   the floor with its transport still connected and still observed, so the radio stayed on and
+   readings went into a survey nobody could see; the instrument now moves across, because it
+   belongs to the surveyor rather than to the survey. And the instrument last connected to is
+   written down, so opening the app offers it back rather than a list of nine - the part of "I had
+   to close and reopen SexyTopo" that was nobody's radio's fault.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3405,10 +3466,10 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 793
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 450 over the UI's own
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 800
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 466 over the UI's own
 logic, 20 running the iOS half in a simulator,
-118 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
+119 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.

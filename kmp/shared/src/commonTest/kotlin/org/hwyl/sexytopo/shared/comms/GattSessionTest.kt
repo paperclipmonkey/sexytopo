@@ -395,4 +395,70 @@ class GattSessionTest {
         assertEquals(GattSession.Action.REPORT_CONNECTED, action)
         assertNotNull(session.link)
     }
+
+    /**
+     * A peripheral the platform hands over without a scan.
+     *
+     * The case that matters is an instrument iOS still holds connected: a connected BLE peripheral
+     * does not advertise, so scanning cannot find it however long it runs, and the app looked
+     * broken until it was killed and reopened. Asking CoreBluetooth for it outright is the way out,
+     * and this is the lifecycle half of that.
+     */
+    @Test
+    fun aPeripheralTheSystemAlreadyKnowsSkipsTheScan() {
+        val session = session()
+        assertEquals(GattSession.Action.SCAN, session.start(0))
+
+        assertEquals(GattSession.Action.CONNECT, session.knownPeripheralOffered(session.generation))
+        assertEquals(GattSession.Phase.CONNECTING, session.phase)
+    }
+
+    /** But only as an alternative to scanning, never as a way in from anywhere else. */
+    @Test
+    fun aKnownPeripheralIsNotTakenUpOutsideAnAttempt() {
+        val idle = session()
+        assertEquals(GattSession.Action.NONE, idle.knownPeripheralOffered(idle.generation))
+
+        val live = connected()
+        assertEquals(GattSession.Action.NONE, live.knownPeripheralOffered(live.generation))
+        assertEquals(GattSession.Phase.READY, live.phase, "a live link was disturbed")
+
+        val stale = session()
+        stale.start(0)
+        assertEquals(GattSession.Action.NONE, stale.knownPeripheralOffered(stale.generation - 1))
+    }
+
+    /**
+     * Each attempt reports what *it* saw.
+     *
+     * The list was never cleared, so a timeout named devices the radio had turned down half an
+     * hour before — and once six of them had accumulated, no later sighting could ever be
+     * recorded, which is worst on the attempt somebody is actually watching.
+     */
+    @Test
+    fun theScanReportsWhatThisAttemptSawRatherThanEveryAttempt() {
+        val session = session()
+        session.start(0)
+        session.peripheralDiscovered("Somebody's headphones", session.generation)
+        assertNotNull(session.whatElseWasSeen())
+
+        session.tick(session.timeoutMillis) // times out, leaving FAILED
+        session.start(0)
+        assertNull(session.whatElseWasSeen(), "the new attempt inherited the old one's sightings")
+    }
+
+    /** The four states anything above a transport is allowed to reason about. */
+    @Test
+    fun theCoarseStateFollowsThePhase() {
+        val session = session()
+        assertEquals(LinkState.IDLE, session.linkState)
+
+        session.start(0)
+        assertEquals(LinkState.CONNECTING, session.linkState)
+
+        assertEquals(LinkState.CONNECTED, connected().linkState)
+
+        session.tick(session.timeoutMillis)
+        assertEquals(LinkState.FAILED, session.linkState)
+    }
 }

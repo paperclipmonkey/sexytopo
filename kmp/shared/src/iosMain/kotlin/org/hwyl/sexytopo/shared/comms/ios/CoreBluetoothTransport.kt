@@ -9,6 +9,7 @@ import org.hwyl.sexytopo.shared.comms.BaseInstrumentTransport
 import org.hwyl.sexytopo.shared.comms.GattLink
 import org.hwyl.sexytopo.shared.comms.GattSession
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
+import org.hwyl.sexytopo.shared.comms.LinkState
 import org.hwyl.sexytopo.shared.comms.WriteType
 import platform.CoreBluetooth.CBAdvertisementDataLocalNameKey
 import platform.CoreBluetooth.CBCentralManager
@@ -25,6 +26,7 @@ import platform.Foundation.NSData
 import platform.Foundation.NSDate
 import platform.Foundation.NSError
 import platform.Foundation.NSNumber
+import platform.Foundation.NSUUID
 import platform.Foundation.create
 import platform.Foundation.timeIntervalSince1970
 import platform.darwin.NSObject
@@ -108,6 +110,19 @@ class CoreBluetoothTransport(profile: InstrumentProfile) : BaseInstrumentTranspo
     override val isConnected: Boolean
         get() = session.isConnected
 
+    override val linkState: LinkState
+        get() = session.linkState
+
+    /**
+     * The last peripheral this transport actually reached, by iOS's own identifier for it.
+     *
+     * Kept so a later attempt can ask CoreBluetooth for it by name rather than hunting for it in
+     * the air. The identifier is stable for as long as iOS remembers the device, and is the only
+     * durable handle on offer: a `CBPeripheral` belongs to the manager that produced it, so the
+     * object itself cannot outlive the attempt.
+     */
+    private var lastKnownIdentifier: NSUUID? = null
+
     // ---------------------------------------------------------------------------------------
     // Lifecycle
     // ---------------------------------------------------------------------------------------
@@ -186,8 +201,13 @@ class CoreBluetoothTransport(profile: InstrumentProfile) : BaseInstrumentTranspo
             GattSession.Action.NONE -> Unit
 
             // Scanning for all services rather than filtering: several instruments advertise no
-            // service UUID at all, and matching is by name anyway.
-            GattSession.Action.SCAN -> central?.scanForPeripheralsWithServices(null, null)
+            // service UUID at all, and matching is by name anyway. But not before asking iOS
+            // whether it already has the instrument - see adoptKnownPeripheral, which is what
+            // turns "close and reopen the app" back into "press Connect".
+            GattSession.Action.SCAN ->
+                if (!adoptKnownPeripheral()) {
+                    central?.scanForPeripheralsWithServices(null, null)
+                }
 
             GattSession.Action.CONNECT ->
                 peripheral?.let { central?.connectPeripheral(it, null) }
@@ -215,6 +235,59 @@ class CoreBluetoothTransport(profile: InstrumentProfile) : BaseInstrumentTranspo
                 emitFailure(session.failure ?: "could not connect")
             }
         }
+    }
+
+    /**
+     * Ask CoreBluetooth for the instrument instead of listening for it, and take it if it answers.
+     *
+     * Two questions, in the order that matters:
+     *
+     * 1. `retrieveConnectedPeripheralsWithServices` - is it *still connected to this phone*? A BLE
+     *    peripheral that is connected does not advertise, so if the app has lost track of a link
+     *    iOS still holds open, no amount of scanning will ever find it again. That is the state
+     *    that used to be escapable only by killing the app, because killing the app is what makes
+     *    iOS drop the connection. Asking outright costs one call and gets the instrument back in
+     *    a second rather than never.
+     * 2. `retrievePeripheralsWithIdentifiers` - is it one we have reached before? Then connect
+     *    straight to it. A connect request for a known peripheral is honoured by iOS the moment
+     *    the device comes back into range, which is a better way to wait out a caver walking round
+     *    a corner than a scan that has to be restarted every fifteen seconds.
+     *
+     * Returns whether a peripheral was taken up; false means fall back to scanning, which is the
+     * only option for an instrument this phone has never met.
+     */
+    private fun adoptKnownPeripheral(): Boolean {
+        val manager = central ?: return false
+        val services = session.link.servicesToDiscover.map { CBUUID.UUIDWithString(it) }
+
+        val alreadyConnected =
+            manager
+                .retrieveConnectedPeripheralsWithServices(services)
+                .filterIsInstance<CBPeripheral>()
+                .firstOrNull { session.link.matches(it.name) }
+
+        val known =
+            alreadyConnected
+                ?: lastKnownIdentifier?.let { identifier ->
+                    manager
+                        .retrievePeripheralsWithIdentifiers(listOf(identifier))
+                        .filterIsInstance<CBPeripheral>()
+                        .firstOrNull()
+                }
+                ?: return false
+
+        val action = session.knownPeripheralOffered(session.generation)
+        if (action != GattSession.Action.CONNECT) return false
+        take(known)
+        apply(action)
+        return true
+    }
+
+    /** Hold a peripheral, its delegate and its identifier together, since they are one decision. */
+    private fun take(found: CBPeripheral) {
+        peripheral = found
+        found.delegate = delegates?.peripheralDelegate
+        lastKnownIdentifier = found.identifier
     }
 
     private fun releasePeripheral() {
@@ -280,10 +353,10 @@ class CoreBluetoothTransport(profile: InstrumentProfile) : BaseInstrumentTranspo
                     if (action != GattSession.Action.CONNECT) return
 
                     central.stopScan()
-                    // Qualified because `peripheral` alone would bind to the CBPeripheral this
-                    // callback is about, not to the transport's own field.
-                    this@CoreBluetoothTransport.peripheral = didDiscoverPeripheral
-                    didDiscoverPeripheral.delegate = peripheralDelegate
+                    // Qualified because `take` assigns the transport's own `peripheral` field, and
+                    // an unqualified call from in here reads well as if it were about this
+                    // callback's `peripheral` parameter instead.
+                    this@CoreBluetoothTransport.take(didDiscoverPeripheral)
                     apply(action)
                 }
 

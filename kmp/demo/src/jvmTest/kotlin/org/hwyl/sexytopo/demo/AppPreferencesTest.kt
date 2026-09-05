@@ -16,6 +16,7 @@ import org.hwyl.sexytopo.shared.survey.SurveySettings
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AppPreferencesTest {
@@ -174,11 +175,34 @@ class AppPreferencesTest {
         assertEquals(AngleEntry(azimuthInDms = true), reopened.angleEntry)
     }
 
-    /** Off, as `pref_auto_reconnect` is: chasing a radio is the surveyor's decision to make. */
+    /**
+     * On, where upstream's `pref_auto_reconnect` is off.
+     *
+     * The first field trip with this app spent it reconnecting a BRIC4 by hand, which is the
+     * argument: a BLE link underground drops several times an hour, and the default that leaves a
+     * surveyor doing that at every station is the wrong one. Still a setting, and still bounded by
+     * the window, so an instrument genuinely left behind is not chased all the way out.
+     */
     @Test
-    fun chasingALostInstrumentIsOffUntilAskedFor() {
-        assertFalse(AppPreferences.DEFAULT.autoReconnect)
+    fun aLostInstrumentIsChasedUnlessTheSurveyorSaysOtherwise() {
+        assertTrue(AppPreferences.DEFAULT.autoReconnect)
         assertEquals(15, AppPreferences.DEFAULT.autoReconnectWindowMinutes)
+        assertFalse(AppPreferencesStore.parse("autoReconnect=false").autoReconnect)
+    }
+
+    /** The instrument, not the survey: opening the app puts the surveyor back on their own. */
+    @Test
+    fun theInstrumentLastUsedIsRemembered() {
+        val store = InMemoryFileStore()
+        AppPreferencesStore.save(store, AppPreferences.DEFAULT.copy(lastInstrument = "BRIC4"))
+        assertEquals("BRIC4", AppPreferencesStore.load(store).lastInstrument)
+    }
+
+    @Test
+    fun noInstrumentHasEverBeenUsedUntilOneHas() {
+        assertNull(AppPreferences.DEFAULT.lastInstrument)
+        assertNull(AppPreferencesStore.parse("lastInstrument=").lastInstrument)
+        assertNull(AppPreferencesStore.parse("lastInstrument=   ").lastInstrument)
     }
 
     @Test
