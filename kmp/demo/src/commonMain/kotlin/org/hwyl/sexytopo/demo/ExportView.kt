@@ -110,6 +110,13 @@ fun ExportView(
             exportText(survey, format, projection, today, svgOptions, therionOptions)
         }
 
+    // Remembered rather than recomputed where it is used: writing a Therion project means
+    // emitting five more files, and the button's own label asks whether there are any.
+    val companions =
+        remember(survey, revision, format, today, projection, therionOptions) {
+            companionFiles(survey, format, projection, today, therionOptions)
+        }
+
     if (choosingTherionOptions) {
         TherionExportDialog(
             survey = survey.name,
@@ -160,13 +167,12 @@ fun ExportView(
                             fileNameFor(survey, format, projection, therionOptions),
                             text,
                         )
-                    val companions = companionFiles(survey, format)
                     val companionsSaved =
                         companions.all { (name, body) -> saveTextFile(name, body) != null }
                     savedTo = if (where != null && companionsSaved) where else null
                     saveFailed = where == null || !companionsSaved
                 },
-            ) { Text(if (companionFiles(survey, format).isEmpty()) "Save file" else "Save files") }
+            ) { Text(if (companions.isEmpty()) "Save file" else "Save files") }
             // The preview below redraws as options are changed, so the export itself stays a
             // single button.
             if (format == ExportFormat.SVG) {
@@ -182,7 +188,7 @@ fun ExportView(
                     savedTo != null -> "Saved to $savedTo"
                     else ->
                         (listOf(fileNameFor(survey, format, projection, therionOptions)) +
-                            companionFiles(survey, format).map { it.first })
+                            companions.map { it.first })
                             .joinToString(", ")
                 },
                 style = MaterialTheme.typography.bodySmall,
@@ -320,26 +326,97 @@ internal fun exportText(
             ExportFormat.NATIVE -> SurveyJson.write(survey)
         }
 
+/** One file of a Therion project: what it is called, and which chip and drawing it belongs to. */
+private data class TherionFile(
+    val format: ExportFormat,
+    /** Null for the files there is one of per survey rather than per drawing. */
+    val projection: Projection2D?,
+    val name: String,
+    val content: String,
+)
+
 /**
- * The other files a format writes, besides the one shown on screen. Only this app's own format
- * has any: a SexyTopo survey is `Name.data.json` **and** its two sketches.
+ * Every file a Therion project is made of, which is the only way it is any use.
+ *
+ * Therion compiles a project, and the files name each other: the `.thconfig` sources the `.th`,
+ * the `.th` has an `input` line for each `.th2`, and each `.th2` names the `.xvi` it is traced
+ * over. Write one of them on its own and Therion stops at the first name it cannot open —
+ * `error -- C7.th [6] -- can't open file for input -- C7.ee.th2` — so the Android exporter
+ * writes all six in one go, and so does this.
  */
-internal fun companionFiles(survey: Survey, format: ExportFormat): List<Pair<String, String>> =
-    if (format == ExportFormat.NATIVE) {
-        listOf(
-            SurveyFileType.METADATA.filenameFor(survey.name) to
-                MetadataJson.write(
-                    survey,
-                    SurveyStorage.DEFAULT_VERSION_NAME,
-                    0,
-                ),
-            SurveyFileType.PLAN_SKETCH.filenameFor(survey.name) to
-                SketchJson.write(survey.planSketch, survey.name),
-            SurveyFileType.EXTENDED_ELEVATION_SKETCH.filenameFor(survey.name) to
-                SketchJson.write(survey.elevationSketch, survey.name),
+private fun therionProject(
+    survey: Survey,
+    today: String,
+    therion: TherionExport,
+): List<TherionFile> = buildList {
+    for (format in listOf(ExportFormat.THERION, ExportFormat.THCONFIG)) {
+        add(
+            TherionFile(
+                format,
+                null,
+                fileNameFor(survey, format, Projection2D.PLAN, therion),
+                exportText(survey, format, Projection2D.PLAN, today, therion = therion),
+            ),
         )
-    } else {
-        emptyList()
+    }
+    for (projection in Projection2D.entries.filter { it.isDrawable }) {
+        add(
+            TherionFile(
+                ExportFormat.TH2,
+                projection,
+                fileNameFor(survey, ExportFormat.TH2, projection, therion),
+                exportText(survey, ExportFormat.TH2, projection, today, therion = therion),
+            ),
+        )
+        add(
+            TherionFile(
+                ExportFormat.XVI,
+                projection,
+                // The path the .th2 names, folder and all, rather than the bare filename: a
+                // tracing image the .th2 cannot find is a scrap with no passage walls in it.
+                therion.xviReference(survey.name, projection),
+                exportText(survey, ExportFormat.XVI, projection, today, therion = therion),
+            ),
+        )
+    }
+}
+
+/**
+ * The other files a format writes, besides the one shown on screen.
+ *
+ * Two formats have any. A SexyTopo survey is `Name.data.json` **and** its two sketches; and any
+ * one Therion file is only useful alongside the rest of its project, so selecting any of the
+ * four Therion chips writes the lot.
+ */
+internal fun companionFiles(
+    survey: Survey,
+    format: ExportFormat,
+    projection: Projection2D = Projection2D.PLAN,
+    today: String = "",
+    therion: TherionExport = TherionExport.DEFAULT,
+): List<Pair<String, String>> =
+    when {
+        format == ExportFormat.NATIVE ->
+            listOf(
+                SurveyFileType.METADATA.filenameFor(survey.name) to
+                    MetadataJson.write(
+                        survey,
+                        SurveyStorage.DEFAULT_VERSION_NAME,
+                        0,
+                    ),
+                SurveyFileType.PLAN_SKETCH.filenameFor(survey.name) to
+                    SketchJson.write(survey.planSketch, survey.name),
+                SurveyFileType.EXTENDED_ELEVATION_SKETCH.filenameFor(survey.name) to
+                    SketchJson.write(survey.elevationSketch, survey.name),
+            )
+        format.isTherion ->
+            therionProject(survey, today, therion)
+                // All but the one on screen, which the caller writes itself.
+                .filterNot {
+                    it.format == format && (it.projection == null || it.projection == projection)
+                }
+                .map { it.name to it.content }
+        else -> emptyList()
     }
 
 /**
