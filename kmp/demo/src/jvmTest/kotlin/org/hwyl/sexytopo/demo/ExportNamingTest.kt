@@ -50,9 +50,48 @@ class ExportNamingTest {
         )
     }
 
+    /**
+     * The bug this was written for: saving the `.th` wrote the `.th` and nothing else, so Therion
+     * stopped at the first `input` line for a scrap that had never been written --
+     * `can't open file for input -- Swildons.ee.th2`. The Android exporter writes the whole
+     * project at once, and picking any of the Therion chips here now does the same.
+     */
+    @Test
+    fun aTherionExportIsTheWholeProject() {
+        val expected =
+            listOf(
+                "Swildons.th",
+                "Swildons.thconfig",
+                "Swildons.plan.th2",
+                "Swildons.plan.xvi",
+                "Swildons.ee.th2",
+                "Swildons.ee.xvi",
+            )
+
+        for (format in ExportFormat.entries.filter { it.isTherion }) {
+            for (projection in Projection2D.entries.filter { it.isDrawable }) {
+                val written =
+                    listOf(fileNameFor(survey, format, projection)) +
+                        companionFiles(survey, format, projection).map { it.first }
+
+                assertEquals(
+                    expected.toSet(),
+                    written.toSet(),
+                    "saving $format ($projection) does not write a whole Therion project",
+                )
+                assertEquals(
+                    written.size,
+                    written.toSet().size,
+                    "$format ($projection) writes the same name twice",
+                )
+            }
+        }
+    }
+
     @Test
     fun everyOtherFormatIsStillOneFile() {
-        for (format in ExportFormat.entries.filterNot { it == ExportFormat.NATIVE }) {
+        val complete = ExportFormat.entries.filter { it == ExportFormat.NATIVE || it.isTherion }
+        for (format in ExportFormat.entries.filterNot { it in complete }) {
             assertEquals(
                 emptyList(),
                 companionFiles(survey, format).map { it.first },

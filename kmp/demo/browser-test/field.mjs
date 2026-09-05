@@ -4371,15 +4371,36 @@ await page.screenshot({ path: join(shotDir, 'field-export-formats.png') })
 await at(...(await exportChip('th2'))); await page.waitForTimeout(700)
 await page.screenshot({ path: join(shotDir, 'field-export-th2.png') })
 
-const th2Download = await Promise.all([
-  page.waitForEvent('download', { timeout: 10000 }).catch(() => null),
-  at(...(await exportSaveFile())),
-]).then(([d]) => d)
+// Every download is collected rather than only the first, because one press of Save here is
+// supposed to write the whole project. It used to write the chip you were looking at, so a
+// surveyor who exported the .th2 and the .th got a centreline naming a scrap nobody had saved —
+// and Therion says so and stops: `can't open file for input -- Swildons.ee.th2`.
+const therionDownloads = []
+const collectTherion = (download) => therionDownloads.push(download)
+page.on('download', collectTherion)
+await at(...(await exportSaveFile()))
+await page.waitForTimeout(3000)
+page.off('download', collectTherion)
 
-if (!th2Download) {
+const therionNames = therionDownloads.map((d) => d.suggestedFilename())
+const wantedTherion = [
+  'Swildons.th',
+  'Swildons.thconfig',
+  'Swildons.plan.th2',
+  'Swildons.plan.xvi',
+  'Swildons.ee.th2',
+  'Swildons.ee.xvi',
+]
+const missingTherion = wantedTherion.filter((name) => !therionNames.includes(name))
+const th2Download = therionDownloads.find((d) => d.suggestedFilename() === 'Swildons.plan.th2')
+
+if (therionDownloads.length === 0) {
   fail('the .th2 chip produced no download — the format may be off the edge of the screen again')
-} else if (th2Download.suggestedFilename() !== 'Swildons.plan.th2') {
-  fail(`the .th2 came out named ${th2Download.suggestedFilename()}`)
+} else if (missingTherion.length > 0) {
+  fail(
+    `the Therion export wrote ${therionNames.join(', ')} and is missing ` +
+      `${missingTherion.join(', ')}, so Therion stops at the first file it cannot open`,
+  )
 } else {
   const th2 = readFileSync(await th2Download.path(), 'utf8')
   if (!th2.includes('encoding utf-8')) {
@@ -4401,24 +4422,30 @@ if (!th2Download) {
 //
 // The two are checked together because that is the only way to check either: what matters is that
 // the names in one file are the names the other saves under.
-await at(...(await exportChip('thconfig'))); await page.waitForTimeout(700)
-
-const thconfig = await Promise.all([
-  page.waitForEvent('download', { timeout: 10000 }).catch(() => null),
-  at(...(await exportSaveFile())),
-]).then(([d]) => d)
-
 await at(...(await exportChip('th'))); await page.waitForTimeout(700)
 
-const th = await Promise.all([
-  page.waitForEvent('download', { timeout: 10000 }).catch(() => null),
-  at(...(await exportSaveFile())),
-]).then(([d]) => d)
+// A press of Save on any Therion chip writes the whole project, so both files wanted here come
+// out of one press of the .th chip — picked by name rather than by which download arrived first.
+// That the project file comes out of a press aimed at the centreline is the point: the two are
+// only any use together.
+const projectDownloads = []
+const collectProject = (download) => projectDownloads.push(download)
+page.on('download', collectProject)
+await at(...(await exportSaveFile()))
+await page.waitForTimeout(3000)
+page.off('download', collectProject)
+
+const projectFile = (name) =>
+  projectDownloads.find((d) => d.suggestedFilename() === name) ?? null
+const thconfig = projectFile('Swildons.thconfig')
+const th = projectFile('Swildons.th')
 
 if (!thconfig || !th) {
-  fail('the .thconfig or the .th produced no download')
-} else if (thconfig.suggestedFilename() !== 'Swildons.thconfig') {
-  fail(`the project file came out named ${thconfig.suggestedFilename()}`)
+  fail(
+    'saving the Therion export wrote ' +
+      `${projectDownloads.map((d) => d.suggestedFilename()).join(', ') || 'nothing'}` +
+      ' — without both the .thconfig and the .th there is nothing for Therion to compile',
+  )
 } else {
   const config = readFileSync(await thconfig.path(), 'utf8')
   const centreline = readFileSync(await th.path(), 'utf8')

@@ -181,8 +181,9 @@ missing.
   iOS, Android, the desktop and the web from one file.
 - **The active station**, in the app's amber corner brackets, and the select tool that moves them.
 - **Export** to Survex `.svx`, a Therion project — `.thconfig`, `.th`, and a `.th2` scrap and
-  `.xvi` tracing image for each drawing — Compass `.dat`, PocketTopo `.txt`, SVG, and the app's own
-  JSON, the same bytes the Android app would read back.
+  `.xvi` tracing image for each drawing, all six written together by one press of *Save files*,
+  since five of them are what Therion complains about — Compass `.dat`, PocketTopo `.txt`, SVG,
+  and the app's own JSON, the same bytes the Android app would read back.
 - **Import** of a Survex `.svx`, Therion `.th`, PocketTopo `.txt` or PocketTopo's own binary
   `.top`, as well as the app's own files: the club's existing survey of the cave, opened here to be
   extended. Both PocketTopo readers bring the *drawing* in as well as the centreline.
@@ -3742,6 +3743,32 @@ These are the things that would actually shape a real port.
    now counts anything that is not the strip's own green, so it no longer cares what colour the
    glyphs are.
 
+109. **Finding 33, a third time: five sixths of a Therion project.** Reported from the field with
+   Therion's own words for it: `error -- C7.th [6] -- can't open file for input -- C7.ee.th2`,
+   and the surveyor commenting the line out to get a build at all.
+
+   Nothing was wrong with any file. The `.th` names both scraps, as finding 33 taught it to, and
+   the `.th2` it names is byte-identical to the Android app's. The bug was in *how many files a
+   press of Save writes*: the export screen wrote the chip you had selected, and the `.th2` chip
+   means one drawing — the one on screen. So the `.th` promised `C7.plan.th2` and `C7.ee.th2` and
+   the surveyor was handed one of them, plus a `.thconfig` and a `.th` only if they thought to
+   select those chips too and press Save three more times. `TherionExporter.run` in the Android
+   app does not offer that choice: it writes the `.thconfig`, both scraps, both tracing images and
+   the `.th` in one call, because that is the smallest thing Therion can compile.
+
+   Selecting any of the four Therion chips now writes all six files, the way *SexyTopo JSON*
+   already wrote a survey's four. The rest of the screen needed no change: the button was already
+   *Save files* when a format had companions, and already listed their names beside it.
+
+   What is worth keeping is that this is finding 33 and finding 42's `NATIVE` export in a third
+   costume, and the previous two fixes did not prevent it. Both were about a *file set* being
+   written wrongly; this one is about the set being **offered** as separate menu items, so the
+   surveyor is the one who has to know that six things must happen. The rule that would have
+   caught all three: when a format is a project rather than a file, the unit the UI writes is the
+   project, and no chip, projection or option may reduce it. `aTherionExportIsTheWholeProject`
+   asserts exactly that — for every Therion chip and both projections, the names written are the
+   same six, with none repeated.
+
 ---
 
 ## A defect worth reporting upstream
@@ -3893,7 +3920,7 @@ Written down here rather than left in a commit log, because the useful thing to 
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
 **The state of it.** Everything in the evidence table above is on this branch and green in CI: 820
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 528 over the UI's own
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 529 over the UI's own
 logic, 20 running the iOS half in a simulator,
 122 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
