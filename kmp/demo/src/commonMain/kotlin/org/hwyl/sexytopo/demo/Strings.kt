@@ -100,6 +100,31 @@ object Strings {
 
     val demoCaveIsNotKept = local("An example. Nothing recorded here is kept.")
 
+    /**
+     * The connection indicator's six states, and the instrument dialog's line of status.
+     *
+     * The Android app has nothing to mirror here: its connection state is a switch on a whole
+     * screen of its own, and these are the words beside a dot on the field bar. `device_connected`
+     * and friends in `strings.xml` are log lines rather than labels — *Connected to %1$s* is
+     * written to the device log, not shown as a caption — so copying them would be borrowing
+     * wording for a job it was not written for.
+     */
+    val noInstrument = local("No instrument")
+
+    val simulatedInstrument = local("Simulated instrument")
+
+    val connecting = local("Connecting")
+
+    val connected = local("Connected")
+
+    val reconnecting = local("Reconnecting")
+
+    val notConnected = local("Not connected")
+
+    val connectionFailed = local("Connection failed")
+
+    val usingTheSimulatedInstrument = local("Using the simulated instrument")
+
     // -- Common ---------------------------------------------------------------------------
 
     val ok = s("ok", "OK")

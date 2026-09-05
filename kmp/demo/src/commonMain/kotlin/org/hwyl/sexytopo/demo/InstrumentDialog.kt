@@ -33,7 +33,9 @@ import org.hwyl.sexytopo.shared.comms.InstrumentProfile
 @Composable
 fun InstrumentDialog(state: DemoState, onDismiss: () -> Unit) {
     val session = state.session
-    var chosen by remember { mutableStateOf(session.profile) }
+    // Falls back to the instrument this app was last used with, so somebody who has just opened
+    // it can press Connect without picking their own device out of the list again.
+    var chosen by remember { mutableStateOf(session.profile ?: state.lastInstrument) }
 
 
     AlertDialog(
@@ -91,14 +93,14 @@ fun InstrumentDialog(state: DemoState, onDismiss: () -> Unit) {
                     )
                     for (profile in InstrumentProfile.ALL) {
                         Text(
-                            profile.name,
+                            if (profile == chosen) "${profile.name} ✓" else profile.name,
                             style = MaterialTheme.typography.bodyLarge,
                             modifier =
                                 Modifier
                                     .fillMaxWidth()
                                     .clickable {
                                         chosen = profile
-                                        session.useInstrument(profile)
+                                        state.useInstrument(profile)
                                     }
                                     .padding(vertical = 6.dp),
                         )
@@ -127,7 +129,7 @@ fun InstrumentDialog(state: DemoState, onDismiss: () -> Unit) {
             } else {
                 TextButton(
                     enabled = chosen != null,
-                    onClick = { chosen?.let { session.useInstrument(it) } },
+                    onClick = { chosen?.let { state.useInstrument(it) } },
                 ) { Text(Strings.titleActivityDevice) }
             }
         },
@@ -142,12 +144,16 @@ fun InstrumentDialog(state: DemoState, onDismiss: () -> Unit) {
 /** What is happening, in one line. */
 internal fun status(state: DemoState): String {
     val session = state.session
+    val name = session.profile?.name
     return when {
+        session.connected && name != null -> "${Strings.connected} to $name"
+        session.connected -> Strings.usingTheSimulatedInstrument
+        // Before the failure, not after: while the app is chasing an instrument, what it is doing
+        // now matters more than the message from the attempt that dropped.
+        session.isReconnecting && name != null -> "${Strings.reconnecting} to $name…"
         session.failure != null -> session.failure ?: ""
-        session.connected && session.profile != null -> "Connected to ${session.profile?.name}"
-        session.connected -> "Using the simulated instrument"
-        session.profile != null -> "Connecting to ${session.profile?.name}…"
-        else -> "Not connected"
+        name != null -> "${Strings.connecting} to $name…"
+        else -> Strings.notConnected
     }
 }
 

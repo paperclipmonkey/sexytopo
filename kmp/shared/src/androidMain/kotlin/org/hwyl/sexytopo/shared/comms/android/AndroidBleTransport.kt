@@ -21,6 +21,7 @@ import org.hwyl.sexytopo.shared.comms.BaseInstrumentTransport
 import org.hwyl.sexytopo.shared.comms.GattLink
 import org.hwyl.sexytopo.shared.comms.GattSession
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
+import org.hwyl.sexytopo.shared.comms.LinkState
 import org.hwyl.sexytopo.shared.comms.WriteType
 
 /**
@@ -78,6 +79,9 @@ class AndroidBleTransport(
 
     override val isConnected: Boolean
         get() = session.isConnected
+
+    override val linkState: LinkState
+        get() = session.linkState
 
     // ---------------------------------------------------------------------------------------
     // Lifecycle

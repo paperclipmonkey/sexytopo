@@ -72,6 +72,17 @@ class GattSession(
     val isConnected: Boolean
         get() = phase == Phase.READY
 
+    /** [phase] as the four states anything above a transport is allowed to reason about. */
+    val linkState: LinkState
+        get() =
+            when (phase) {
+                Phase.IDLE -> LinkState.IDLE
+                Phase.READY -> LinkState.CONNECTED
+                Phase.FAILED -> LinkState.FAILED
+                Phase.SCANNING, Phase.CONNECTING, Phase.DISCOVERING, Phase.SUBSCRIBING ->
+                    LinkState.CONNECTING
+            }
+
     private var startedAtMillis: Long = 0
 
     /**
@@ -85,7 +96,30 @@ class GattSession(
         failure = null
         startedAtMillis = nowMillis
         link.reset()
+        // Otherwise the timeout message names devices the radio saw half an hour ago, and once
+        // MOST_NAMES_WORTH_REPORTING of them have accumulated it can never name a new one.
+        declined.clear()
         return Action.SCAN
+    }
+
+    /**
+     * Take up a peripheral the platform already knows about, skipping the scan.
+     *
+     * Both platforms can hand back a peripheral without discovering it: iOS by
+     * `retrieveConnectedPeripheralsWithServices` or `retrievePeripheralsWithIdentifiers`, and the
+     * first of those is the way out of a genuinely stuck app. A BLE peripheral that is still
+     * connected at the system level does not advertise, so a scan cannot find it however long it
+     * runs - which is why an instrument that dropped out of the *app* while iOS still held the
+     * connection could only be reached again by killing the app, and why the surveyor who reported
+     * this was closing and reopening SexyTopo at every station.
+     *
+     * Only from [Phase.SCANNING], which is where [start] leaves the session: this is an
+     * alternative to scanning, not a way in from anywhere.
+     */
+    fun knownPeripheralOffered(generation: Int): Action {
+        if (!isCurrent(generation) || phase != Phase.SCANNING) return Action.NONE
+        phase = Phase.CONNECTING
+        return Action.CONNECT
     }
 
     /** Always safe to call, whatever the phase. */
@@ -117,8 +151,7 @@ class GattSession(
             noteSeen(advertisedName)
             return Action.NONE
         }
-        phase = Phase.CONNECTING
-        return Action.CONNECT
+        return knownPeripheralOffered(generation)
     }
 
     /**

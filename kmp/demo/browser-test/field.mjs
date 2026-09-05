@@ -3924,8 +3924,12 @@ await at(...(await settingsSave())); await page.waitForTimeout(700)
 // ---- chasing a lost instrument -------------------------------------------------------------
 // `pref_auto_reconnect`. A cave breaks Bluetooth constantly — the surveyor walks round a corner
 // with the phone, the instrument sleeps, a cold battery sags — and every one of those costs a trip
-// to the connection screen with cold hands unless the app chases it. Off by default, as on
-// Android, which is why it has to be reachable: a setting nobody can find is a setting nobody has.
+// to the connection screen with cold hands unless the app chases it. **On** by default here, where
+// Android has it off: the first trip underground with this app spent itself reconnecting a BRIC4
+// by hand, which settled the argument about which way round the default should be.
+//
+// So this drives the switch the other way — off, then back on — which checks the same wiring and
+// also that somebody who would rather their radio stayed quiet can say so.
 //
 // `ReconnectionPolicy` decides *whether* to chase and `ReconnectionTest` drives a fake radio
 // through a drop and a recovery. What neither can do is show that the switch on the screen is
@@ -3940,24 +3944,33 @@ await scrollSettingsToTheEnd()
 await page.screenshot({ path: join(shotDir, 'field-settings-reconnect.png') })
 
 await at(...(await chaseSwitch())); await page.waitForTimeout(400)
-await page.screenshot({ path: join(shotDir, 'field-settings-reconnect-on.png') })
+await page.screenshot({ path: join(shotDir, 'field-settings-reconnect-off.png') })
 await at(...(await settingsSave())); await page.waitForTimeout(800)
 
 const savedReconnect = await page.evaluate(() =>
   localStorage.getItem('sexytopo:f:preferences.txt'),
 )
-if (!savedReconnect || !savedReconnect.includes('autoReconnect=true')) {
-  fail(`chasing a lost instrument was not turned on (${JSON.stringify(savedReconnect)})`)
+if (!savedReconnect || !savedReconnect.includes('autoReconnect=false')) {
+  fail(`chasing a lost instrument could not be turned off (${JSON.stringify(savedReconnect)})`)
 } else {
-  pass('a lost instrument can be told to be chased, and the setting is written down')
+  pass('chasing a lost instrument can be turned off, and the setting is written down')
 }
 
-// Back off, because the rest of this file is written for the app's own defaults.
+// Back on, because that is the app's own default and the rest of this file is written for them.
 await at(...(await overflowButton())); await page.waitForTimeout(500)
 await at(...(await menuRow('instruments'))); await page.waitForTimeout(800)
 await scrollSettingsToTheEnd()
 await at(...(await chaseSwitch())); await page.waitForTimeout(400)
 await at(...(await settingsSave())); await page.waitForTimeout(700)
+
+const restoredReconnect = await page.evaluate(() =>
+  localStorage.getItem('sexytopo:f:preferences.txt'),
+)
+if (!restoredReconnect || !restoredReconnect.includes('autoReconnect=true')) {
+  fail(`chasing could not be turned back on (${JSON.stringify(restoredReconnect)})`)
+} else {
+  pass('and back on again, which is where a cave survey wants it')
+}
 
 for (const [d, a, i] of sloppy) await reading(d, a, i)
 if ((await connectingLegs()) !== beforeSloppy + 1) {
