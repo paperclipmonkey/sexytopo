@@ -1,6 +1,8 @@
 package org.hwyl.sexytopo.shared.io.store
 
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
+import org.hwyl.sexytopo.shared.model.sketch.CrossSection
+import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -220,5 +222,33 @@ class PhotoStoreTest {
     @Test
     fun aSurveyWithNoPhotographsRefersToNone() {
         assertEquals(emptyList<String>(), PhotoStore.photoIdsIn(survey()))
+    }
+
+    /**
+     * A pin inside a cross-section counts too, and for two reasons that both lose a photograph.
+     *
+     * [PhotoStore.nextPhotoId] takes the highest id in use, so a nested pin it cannot see is an id
+     * it will hand out again — and the next [PhotoStore.save] writes over a picture somebody took
+     * underground. `SurveyZip` packs exactly this list, so a nested photograph it cannot see never
+     * reaches the archive, and whoever is handed the zip gets a pin pointing at nothing.
+     *
+     * `SketchEditor` does not put pins in cross-sections today, but [SketchJson] writes and reads
+     * them there, so a survey that arrives from anywhere else can have one. What the format allows
+     * is what has to be counted.
+     */
+    @Test
+    fun aPhotographPinnedInsideACrossSectionIsCountedLikeAnyOther() {
+        val survey = survey()
+        survey.planSketch.pin("1")
+        survey.planSketch.crossSectionDetails.add(
+            CrossSectionDetail(
+                Coord2D(3f, 0f),
+                CrossSection(survey.activeStation, 0f),
+                Sketch().also { it.pin("2") },
+            ),
+        )
+
+        assertEquals(listOf("1", "2"), PhotoStore.photoIdsIn(survey))
+        assertEquals("3", PhotoStore.nextPhotoId(survey))
     }
 }
