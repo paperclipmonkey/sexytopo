@@ -278,6 +278,55 @@ class PassageScanTest {
     }
 
     /**
+     * The noise rules count observations, so the same return sent twice is not two observations.
+     *
+     * This is the property a phone caught being violated, and it is worth pinning because it is
+     * counter-intuitive: duplication does not merely fail to strengthen the percentile, it removes
+     * the noise floor altogether. Three points are needed before a direction is believed and the
+     * eightieth percentile of a sector is taken — but one stray return repeated a hundred and fifty
+     * times clears the three on its own and is every value the percentile sorts, so it comes out as
+     * a confident wall. That is what turned a scanned room into a star of spikes.
+     *
+     * [SeenSurfaces] is what keeps the promise on the way in. This states the promise, so that
+     * anything else that ever feeds this — ARCore on Android, a replayed recording — knows it is
+     * expected to hand over distinct observations rather than a cumulative cloud.
+     */
+    @Test
+    fun theSameReturnSentAgainIsNotASecondObservation() {
+        val stray = Coord3D(4f, 0f, 0f)
+
+        val once = PassageScan.wallDistances(listOf(stray), bearing = 0f)
+        assertTrue(
+            once.all { it == null },
+            "a single stray return is not a wall, which is the noise floor doing its job",
+        )
+
+        // The same one return, as a cumulative scanner would re-report it.
+        val repeated = PassageScan.wallDistances(List(150) { stray }, bearing = 0f)
+        val believed = repeated.filterNotNull()
+        assertEquals(
+            1,
+            believed.size,
+            "one stray repeated should still reach exactly one direction, not spread",
+        )
+        assertEquals(
+            4f,
+            believed.single(),
+            "this test only means anything while repetition still promotes a stray: if that has " +
+                "stopped being true the noise floor now counts something other than observations, " +
+                "and this wants rewriting rather than deleting",
+        )
+
+        // Sieved as the scanner sieves it, the stray is back to being one observation and ignored.
+        val seen = SeenSurfaces()
+        val sieved = List(150) { stray }.filter { seen.isNew(it.x, it.y, it.z) }
+        assertTrue(
+            PassageScan.wallDistances(sieved, bearing = 0f).all { it == null },
+            "sieved to distinct observations, one stray return is not a wall again",
+        )
+    }
+
+    /**
      * Nothing scanned at all draws nothing at all, rather than a point at the surveyor's feet.
      *
      * A scan that is started and abandoned, or run with the phone in a pocket, has to come back
