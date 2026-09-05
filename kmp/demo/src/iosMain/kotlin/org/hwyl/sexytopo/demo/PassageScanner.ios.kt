@@ -54,18 +54,29 @@ import platform.darwin.sel_registerName
  *
  * `PassageScan` was written for exactly this kind of input — it takes a percentile of each sector
  * rather than the farthest point, needs several points before it believes a direction, and leaves
- * blank what was not scanned — so a sparse noisy cloud degrades into a rougher wall rather than
+ * blank what was not scanned — so a sparse cloud should degrade into a rougher wall rather than
  * into a wrong one. Moving to the mesh later changes this file and nothing else.
  *
- * ## Status: written on Linux, compiled by CI, never pointed at a cave
+ * "Should" is doing work in that sentence, and see the status below for what a phone made of it.
  *
- * Like `CoreBluetoothTransport` and the camera beside it, the macOS runner is the first thing to
- * compile this and there is nothing here it can run: the simulator has no ARKit camera, so
- * [available] is false on the one machine that proves this builds. Unverified past that point:
- * whether feature points are dense enough on wet limestone under a head torch to make a wall
- * (bare rock in torchlight is a hard case for a system that wants texture and light), what the
- * tracking does when the surveyor turns on the spot in the dark, and whether the sweep can be done
- * one-handed while holding a light.
+ * ## Status: run on a phone once, in a room, and not yet in a cave
+ *
+ * The macOS runner compiles this and can run none of it — the simulator has no ARKit camera, so
+ * [available] is false on the one machine that proves it builds. What is known past that comes from
+ * a single report off a real device, in a well-lit room, and it was worth more than every check
+ * here: the button worked and a scan came back, and three faults showed at once that no amount of
+ * arithmetic on a build server would have found. All three were the cumulative-cloud bug [sample]
+ * now describes, and all three are fixed.
+ *
+ * Still unverified, and the second is now the open question rather than a hypothetical:
+ *  - whether the sweep can be done one-handed while holding a light, and what the tracking does
+ *    when a surveyor turns on the spot in the dark;
+ *  - **whether feature points are dense and accurate enough to draw a passage wall at all.** The
+ *    room that produced spikes did so because one stray return was being counted a hundred and
+ *    fifty times, which is fixed — but that fix removes a known cause rather than proving the
+ *    source is good enough. Bare wet rock under a head torch is the hard case for a system that
+ *    wants texture and light, and if a re-test still comes back thin then the answer is the depth
+ *    map rather than a cleverer reduction of these points.
  *
  * ## Two things about the frame that matter to a surveyor
  *
