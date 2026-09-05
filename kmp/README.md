@@ -3900,11 +3900,39 @@ These are the things that would actually shape a real port.
    DistoX is magnetic, so the slice is turned by the local declination: a degree or two in Britain,
    fifteen in places, and not something a slab a quarter of a metre thick notices either way.
 
-   **Not verified, and more of it than usual.** Nothing here has been near a cave or a phone. The
-   real question is whether wet limestone in the dark gives ARKit enough to track on at all —
-   feature tracking wants texture and light, and a cave is short of both — and no amount of
-   arithmetic answers it. Nor whether the sweep can be done one-handed while holding a light, which
-   is the difference between a feature and a demonstration.
+   **What a phone said, an hour after this was written.** Worth recording, because it is the
+   clearest case on this branch of something a build server cannot tell you. The scan ran, and
+   three things were wrong at once: the point count climbed while the phone sat still, the screen
+   froze for seconds at a time, and a well-lit room came back as a star of spikes.
+
+   One cause. `ARFrame.rawFeaturePoints` is *cumulative* — every read returns the whole cloud
+   ARKit is holding, not what is new since the last one — and the scanner kept all of it, five
+   times a second. So the count measured reads rather than rock; each read copied thousands of
+   points on the main thread and reached the cap within seconds, which ended a half-minute scan
+   after two; and the section fell apart.
+
+   That last one is the part worth carrying away, because the code carried a comment arguing the
+   opposite: that a wall reported ten times is a wall the percentile is surer of. It is not. Both
+   noise defences count *observations* — three points before a direction is believed, and the
+   sector's eightieth percentile — so one stray return repeated a hundred and fifty times clears
+   the three-point bar on its own and is every value the percentile sorts. **Duplication did not
+   weaken the noise floor, it removed it.** A test demonstrates exactly that, because the reasoning
+   is counter-intuitive enough for somebody to reintroduce it thinking as I did.
+
+   The fix keeps each patch of surface once, quantising space into two-centimetre boxes, and that
+   arithmetic went into `shared/` as `SeenSurfaces` rather than staying in `iosMain`: its
+   bit-packing fails *silently* — a scan would simply come out sparse, with nothing to see — so it
+   belongs where a test can run. It is tested, including that the eight boxes meeting at the
+   surveyor's feet stay eight, which a cast towards zero would have folded into one, in the middle
+   of every section.
+
+   **Still unverified, and one of these is now the open question rather than a hypothetical.**
+   Nothing has been in a cave. Whether the sweep can be done one-handed while holding a light is
+   unknown. And whether feature points are dense and accurate enough to draw a passage wall *at
+   all* is now the thing to settle: removing a known cause of nonsense is not the same as showing
+   the source is good enough, and bare wet rock under a head torch is exactly where feature
+   tracking is weakest. If a re-test still comes back thin, the answer is the lidar depth map
+   rather than a cleverer reduction of these points.
 
 ---
 
@@ -4129,12 +4157,13 @@ called done without somebody holding a device, and so that "tested" is never rea
 - **The buzz happens.** With *Vibrate on new station* on, three agreeing readings should be felt.
   `AndroidManifestTest` proves the permission is declared; only a phone proves the motor runs.
 - **A scan of a passage is a passage.** Everything about the arithmetic is checked on a build
-  server against passages of known shape; nothing about the sensor is. The question a phone answers
-  and a runner cannot is whether ARKit finds anything to track on wet rock in the dark, which is
-  the condition it is weakest in — feature tracking wants texture and light. Stand at a station in
-  a real passage, scan it, and compare the wall it draws against the splays already on the section:
-  they should agree to a few centimetres. Then try it in a chamber too big for a head torch to
-  light, which is where it should be expected to fail.
+  server against passages of known shape. The sensor has now been tried once, in a well-lit room,
+  and that one run found three faults nothing here could have — see finding 110. What it did not
+  answer, and what still needs a cave: whether ARKit finds enough to track on wet rock in the dark,
+  which is the condition feature tracking is weakest in. Stand at a station in a real passage, scan
+  it, and compare the wall it draws against the splays already on the section — they should agree
+  to a few centimetres. Then try it in a chamber too big for a head torch to light, which is where
+  it should be expected to fail.
 - **The camera opens, and what comes back is the right way up.** Every platform's capture path is
   written and none has met a lens. Four things need a phone rather than a runner: whether iOS
   Safari honours `capture` on a file input or still offers its Take Photo / Photo Library sheet;
