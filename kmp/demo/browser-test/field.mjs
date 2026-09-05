@@ -4180,36 +4180,62 @@ if (secondPhoto.stored === null) {
   pass('a drag pins the photograph facing whichever way the surveyor was looking')
 }
 
-// Where the two pins are in the survey against where the two fingers were on the glass. Both
-// distances are divided rather than compared to a number: this file has no business knowing the
-// zoom, and the mapping from pixels to metres is the same for both pins, so the two ratios have to
-// agree. They do not if a pin lands at the end of a drag instead of its start, or under some
-// stale layout of the screen — which is what a message strip left up would do to it.
+// Where the second pin is in the survey against where the two fingers were on the glass.
+//
+// Asked as a *direction* rather than as a scale, and the first version of this check is the reason
+// why. It divided metres by pixels along each axis and required the two ratios to agree within two
+// per cent, on the reasoning that the mapping from pixels to metres is the same both ways. That is
+// true of the mapping and false of the measurement: CI reported 0.0168 m to the pixel across
+// against 0.0157 down, which is not a broken drawing but a pin sitting 8.8 pixels along the drag
+// from where the finger went down.
+//
+// It sits there because `detectDragGestures` does not call `onDragStart` at the first pixel
+// touched — it calls it once the finger has moved far enough to prove the gesture is a drag rather
+// than a tap, and hands over the position that proved it. So the pin lands a touch slop into the
+// drag. `PhotoPinUiTest.aDragPinsWhereTheFingerLandedAndAimsWhereItWent` allows exactly the same
+// slop for exactly the same reason, and the symbol stamp this tool was copied from behaves the
+// same way, which is what makes a photograph feel like the icons rather than like an exception.
+//
+// A slop is a few pixels along one direction; the mistake worth catching is a pin dropped where
+// the drag *ended*, which is eighty pixels away in another. So the two are told apart by angle,
+// which the slop barely moves — measured here at 1.9 degrees off the landing and 21 off the
+// lift-off — and which needs no knowledge of the zoom at all.
 if ((both ?? []).length === 2) {
-  const acrossInPixels = PHOTO_LOOKED_FROM[0] - PHOTO_TAKEN_HERE[0]
-  const downInPixels = PHOTO_LOOKED_FROM[1] - PHOTO_TAKEN_HERE[1]
   const acrossInMetres = both[1].location.x - both[0].location.x
   const downInMetres = both[1].location.y - both[0].location.y
-  const acrossScale = acrossInMetres / acrossInPixels
-  const downScale = downInMetres / downInPixels
-  if (!Number.isFinite(acrossScale) || !Number.isFinite(downScale)) {
+  const bearingOfOffset = (x, y) => (Math.atan2(y, x) * 180) / Math.PI
+  const apart = (a, b) => Math.abs(((a - b + 540) % 360) - 180)
+  const measured = bearingOfOffset(acrossInMetres, downInMetres)
+  const towardsLanding = bearingOfOffset(
+    PHOTO_LOOKED_FROM[0] - PHOTO_TAKEN_HERE[0],
+    PHOTO_LOOKED_FROM[1] - PHOTO_TAKEN_HERE[1],
+  )
+  const towardsLiftOff = bearingOfOffset(
+    PHOTO_LOOKED_TOWARDS[0] - PHOTO_TAKEN_HERE[0],
+    PHOTO_LOOKED_TOWARDS[1] - PHOTO_TAKEN_HERE[1],
+  )
+  const offLanding = apart(measured, towardsLanding)
+  const offLiftOff = apart(measured, towardsLiftOff)
+  if (!Number.isFinite(measured)) {
     fail(
       `a pin was saved without a position: ${JSON.stringify(both[0].location)} and ` +
         `${JSON.stringify(both[1].location)}`,
     )
-  } else if (acrossScale <= 0 || downScale <= 0) {
+  } else if (offLiftOff <= offLanding) {
     fail(
-      `the second pin is ${acrossInMetres.toFixed(3)} m across and ${downInMetres.toFixed(3)} m ` +
-        `down from the first, for a finger that moved ${acrossInPixels} right and ` +
-        `${downInPixels} down — the drawing is mirrored somewhere between the two`,
+      `the second pin lies ${measured.toFixed(1)} degrees from the first, which is nearer the ` +
+        `${towardsLiftOff.toFixed(1)} where the drag ended than the ${towardsLanding.toFixed(1)} ` +
+        'where it began — a photograph is taken from where the surveyor stood, not from where ' +
+        'they pointed',
     )
-  } else if (Math.abs(acrossScale - downScale) > 0.02 * Math.max(acrossScale, downScale)) {
+  } else if (offLanding > 10) {
     fail(
-      `the pins are ${acrossScale.toFixed(4)} m to the pixel across and ${downScale.toFixed(4)} ` +
-        'down, so a photograph does not land under the finger that placed it',
+      `the second pin lies ${offLanding.toFixed(1)} degrees off the line from the first to where ` +
+        'the finger landed, which is more than a touch slop — a photograph does not land under ' +
+        'the finger that placed it',
     )
   } else {
-    pass('a pin lands under the finger that placed it, at the scale the drawing is shown at')
+    pass('a pin lands under the finger that placed it, not where the drag it was aimed with ended')
   }
 }
 
