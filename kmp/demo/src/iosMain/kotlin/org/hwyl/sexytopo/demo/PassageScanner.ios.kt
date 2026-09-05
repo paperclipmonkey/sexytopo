@@ -11,6 +11,7 @@ import kotlinx.cinterop.get
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.useContents
 import org.hwyl.sexytopo.shared.model.graph.Coord3D
+import org.hwyl.sexytopo.shared.sketch.SeenSurfaces
 import platform.ARKit.ARSCNView
 import platform.ARKit.ARWorldAlignment
 import platform.ARKit.ARWorldTrackingConfiguration
@@ -152,6 +153,17 @@ private class ScanViewController(
     private var finished = false
     private var finishButton: UIButton? = null
 
+    /**
+     * One entry per small box of space already kept, so the cumulative cloud is only news once.
+     *
+     * A set of packed integers rather than of points: the whole cloud is walked on every read, so
+     * this is asked several thousand times a second and wants to cost a hash of a `Long`.
+     */
+    private val seen = SeenSurfaces()
+
+    /** Reads so far, which is this screen's clock — see the backstop in [sample]. */
+    private var samples = 0
+
     override fun viewDidLoad() {
         super.viewDidLoad()
 
@@ -218,15 +230,47 @@ private class ScanViewController(
     }
 
     /**
-     * One read of what ARKit has recognised so far, converted and kept.
+     * One read of what ARKit has recognised so far: the points not already kept, converted and
+     * added.
      *
-     * Feature points are cumulative and re-reported, so the same piece of rock arrives many times
-     * over a sweep. That is left alone rather than deduplicated: `PassageScan` takes a percentile
-     * of each sector, and a wall reported ten times is a wall the percentile is more sure of, which
-     * is the right way round.
+     * The "not already kept" is the whole of this method and it was missing. `rawFeaturePoints` is
+     * *cumulative* — every read hands back the entire cloud ARKit is holding, not the part that is
+     * new since the last one — so appending all of it five times a second appends the same rock
+     * over and over. A phone standing still on a table gathered points as fast as one being swept
+     * round a chamber.
+     *
+     * Reported from a device, and it was three faults rather than one, all from that:
+     *
+     *  - the count climbed without the phone moving, because it was counting reads rather than rock;
+     *  - the screen froze for seconds at a time, because each read copied thousands of points into
+     *    fresh objects on the main thread, and the cap of [SCAN_POINT_LIMIT] was reached in seconds
+     *    — so a scan meant to last half a minute ended having seen one wall from one angle;
+     *  - and the cross-section came out as a star of spikes, which is the subtle one. `PassageScan`
+     *    rejects a direction holding fewer than three points, and takes a sector's eightieth
+     *    percentile rather than its farthest point. Both defences count *observations*. A single
+     *    stray return duplicated a hundred and fifty times clears the three-point bar on its own
+     *    and is a hundred and fifty of the hundred and fifty values the percentile sorts, so it
+     *    becomes a confident wall. Duplication did not merely fail to help the percentile, as the
+     *    comment here used to claim — it disabled the noise floor entirely.
+     *
+     * So the same surface is kept once, through [SeenSurfaces]. That lives in the shared module
+     * rather than here because it is arithmetic and because its bit-packing fails *silently* — a
+     * scan would simply come out sparse — so it wants to be somewhere a test can run. Its own
+     * documentation says why space is quantised rather than the scanner's per-point identifiers
+     * trusted.
      */
     private fun sample() {
         val frame = arView?.session?.currentFrame ?: return
+
+        samples++
+        // The backstop this file documented and never had: a surveyor who forgets about a running
+        // scan is standing in the dark holding a camera. Counted in ticks rather than clock-read,
+        // since the tick is the only clock this screen needs.
+        if (samples * SAMPLE_SECONDS >= SCAN_SECONDS) {
+            finish()
+            return
+        }
+
         val cloud = frame.rawFeaturePoints ?: return
         val count = cloud.count.toInt()
         if (count <= 0) return
@@ -247,8 +291,13 @@ private class ScanViewController(
             //
             // ARKit's axes into the survey's. Aligned to gravity and heading, ARKit gives x east,
             // y up and negative z north; `toCartesian` builds x east, y north, z up.
-            gathered.add(Coord3D(floats[base], -floats[base + 2], floats[base + 1]))
+            val east = floats[base]
+            val north = -floats[base + 2]
+            val up = floats[base + 1]
             index++
+            // Seen before, in this box of space, on any earlier read: not news.
+            if (!seen.isNew(east, north, up)) continue
+            gathered.add(Coord3D(east, north, up))
         }
 
         counter?.text = if (gathered.isEmpty()) SCANNING_NOTHING_YET else scanningCount(gathered.size)
@@ -299,6 +348,8 @@ private val GRAVITY_AND_HEADING = ARWorldAlignment.ARWorldAlignmentGravityAndHea
 
 /** Four, not three: see the note in `sample` about what padding does to a misread stride. */
 private const val FLOATS_PER_POINT = 4
+
+
 
 /** Five reads a second, which is a sweep's worth without cooking the phone. */
 private const val SAMPLE_SECONDS = 0.2
