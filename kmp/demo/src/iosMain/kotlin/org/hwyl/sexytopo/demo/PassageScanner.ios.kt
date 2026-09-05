@@ -20,6 +20,8 @@ import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.useContents
 import org.hwyl.sexytopo.shared.model.graph.Coord3D
 import org.hwyl.sexytopo.shared.sketch.DepthCamera
+import org.hwyl.sexytopo.shared.sketch.PassageScan
+import org.hwyl.sexytopo.shared.sketch.ScanPreview
 import org.hwyl.sexytopo.shared.sketch.SeenSurfaces
 import platform.ARKit.ARFrame
 import platform.ARKit.ARFrameSemanticNone
@@ -29,6 +31,7 @@ import platform.ARKit.ARFrameSemantics
 import platform.ARKit.ARSCNView
 import platform.ARKit.ARWorldAlignment
 import platform.ARKit.ARWorldTrackingConfiguration
+import platform.CoreGraphics.CGPointMake
 import platform.CoreGraphics.CGRectMake
 import platform.CoreVideo.CVPixelBufferGetBaseAddress
 import platform.CoreVideo.CVPixelBufferGetBytesPerRow
@@ -41,11 +44,16 @@ import platform.Foundation.NSTimer
 import platform.UIKit.NSTextAlignmentCenter
 import platform.UIKit.UIButton
 import platform.UIKit.UIButtonTypeSystem
+import platform.QuartzCore.CAShapeLayer
+import platform.UIKit.UIBezierPath
 import platform.UIKit.UIColor
 import platform.UIKit.UIControlEventTouchUpInside
 import platform.UIKit.UIControlStateNormal
+import platform.UIKit.UIImpactFeedbackGenerator
+import platform.UIKit.UIImpactFeedbackStyle
 import platform.UIKit.UILabel
 import platform.UIKit.UIScreen
+import platform.UIKit.UIView
 import platform.UIKit.UIViewController
 import platform.UIKit.UIViewAutoresizingFlexibleHeight
 import platform.UIKit.UIViewAutoresizingFlexibleWidth
@@ -185,14 +193,18 @@ private class ArKitScanner(private val onScanned: (List<Coord3D>) -> Unit) : Pas
      */
     override val available: Boolean = ARWorldTrackingConfiguration.isSupported()
 
-    override fun scan() {
+    override fun scan(bearing: Float) {
         if (!available) return
         // The same walk the camera uses, shared rather than copied: it climbs the presented chain,
         // so the scan opens over whatever is already on screen rather than under it. Presented
         // rather than pushed, so that dismissing it puts the surveyor back on the drawing they came
         // from with nothing lost.
         val host = topmostViewController() ?: return
-        host.presentViewController(ScanViewController(onScanned), animated = true, completion = null)
+        host.presentViewController(
+            ScanViewController(bearing, onScanned),
+            animated = true,
+            completion = null,
+        )
     }
 }
 
@@ -209,12 +221,14 @@ private class ArKitScanner(private val onScanned: (List<Coord3D>) -> Unit) : Pas
  */
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class, NativeRuntimeApi::class)
 private class ScanViewController(
+    private val bearing: Float,
     private val onScanned: (List<Coord3D>) -> Unit,
 ) : UIViewController(nibName = null, bundle = null) {
 
     private val gathered = mutableListOf<Coord3D>()
     private var arView: ARSCNView? = null
     private var counter: UILabel? = null
+    private var previewPanel: UIView? = null
     private var timer: NSTimer? = null
     private var finished = false
     private var finishButton: UIButton? = null
@@ -249,6 +263,33 @@ private class ScanViewController(
     private var samples = 0
 
     /**
+     * The section as it stands, drawn small in the corner while the surveyor sweeps.
+     *
+     * The one thing on this screen that answers "which way do I still have to point it?". A count
+     * of points does not: it rises at the same rate for a surveyor sweeping one wall over and over
+     * as for one who has been the whole way round. The drawn section does, because the gaps in it
+     * *are* the directions nothing has been measured in — `PassageScan` breaks its strokes exactly
+     * there, so the picture and the answer are the same object.
+     *
+     * A shape layer rather than a `UIView` that draws itself: the path is replaced once a second
+     * and nothing else about the panel changes, which is what a `CAShapeLayer` is for.
+     */
+    private var preview: CAShapeLayer? = null
+    private var stationMark: CAShapeLayer? = null
+
+    /**
+     * How many of the section's sixty directions have been measured, and a tap when that goes up.
+     *
+     * The vibration is the half that works when the phone is not being looked at, which underground
+     * is most of the time: a surveyor sweeping a wall in the dark feels the section filling in
+     * rather than having to hold the screen where they can see it. It fires on a new *direction*
+     * rather than on new points, so standing still and gathering the same wall again is silent —
+     * which is the information.
+     */
+    private val haptics = UIImpactFeedbackGenerator(UIImpactFeedbackStyle.UIImpactFeedbackStyleLight)
+    private var directionsMeasured = 0
+
+    /**
      * When ARKit last produced a frame, and how many reads have gone by without a newer one.
      *
      * The only way this screen can tell a camera that is working and finding nothing from one that
@@ -281,6 +322,28 @@ private class ScanViewController(
         root.addSubview(label)
         counter = label
 
+        // The section, small and out of the way in a corner. Behind the Done button's row rather
+        // than beside it, since a surveyor sweeping the phone about is holding it by the edges.
+        val panel = UIView(frame = CGRectMake(0.0, 0.0, PREVIEW_SIZE, PREVIEW_SIZE))
+        panel.backgroundColor = UIColor.blackColor.colorWithAlphaComponent(PREVIEW_DIMNESS)
+        panel.layer.cornerRadius = PREVIEW_CORNER
+        root.addSubview(panel)
+        previewPanel = panel
+
+        val wall = CAShapeLayer()
+        wall.strokeColor = UIColor.whiteColor.CGColor
+        wall.fillColor = null
+        wall.lineWidth = PREVIEW_STROKE
+        panel.layer.addSublayer(wall)
+        preview = wall
+
+        // Where the surveyor is, which is what makes a half-finished section readable: one wall
+        // and a dot says "that wall is over there and you have not looked behind you".
+        val station = CAShapeLayer()
+        station.fillColor = UIColor.whiteColor.CGColor
+        panel.layer.addSublayer(station)
+        stationMark = station
+
         val done = UIButton.buttonWithType(UIButtonTypeSystem)
         done.setTitle(FINISH_TITLE, forState = UIControlStateNormal)
         done.setTitleColor(UIColor.whiteColor, forState = UIControlStateNormal)
@@ -303,6 +366,14 @@ private class ScanViewController(
     private fun layOut(width: Double, height: Double) {
         counter?.setFrame(CGRectMake(0.0, 60.0, width, 40.0))
         finishButton?.setFrame(CGRectMake(width / 2 - 90, height - 120, 180.0, 56.0))
+        previewPanel?.setFrame(
+            CGRectMake(
+                PREVIEW_MARGIN,
+                height - 120 - PREVIEW_SIZE - PREVIEW_MARGIN,
+                PREVIEW_SIZE,
+                PREVIEW_SIZE,
+            ),
+        )
     }
 
     override fun viewDidAppear(animated: Boolean) {
@@ -373,14 +444,71 @@ private class ScanViewController(
             stalledReads++
         }
 
+        // Not on every read. Reducing the whole cloud is a pass over every point kept so far, and
+        // a surveyor cannot sweep a phone fast enough for twice a second to say anything twice a
+        // second does not.
+        if (samples % READS_PER_PREVIEW == 0) drawTheSectionSoFar()
+
         counter?.text =
             when {
                 stalledReads * SAMPLE_SECONDS >= STALL_SECONDS -> CAMERA_STOPPED
                 gathered.isEmpty() -> SCANNING_NOTHING_YET
-                else -> scanningCount(gathered.size, usesDepth)
+                else -> scanningProgress(directionsMeasured, usesDepth)
             }
 
         if (gathered.size >= SCAN_POINT_LIMIT) finish()
+    }
+
+    /**
+     * Reduce what has been gathered to a section, draw it in the corner, and tap if it grew.
+     *
+     * One pass over the points for both answers, which is why `PassageScan.strokesFrom` is public:
+     * the wall distances give the strokes to draw *and* the count of directions measured, and
+     * asking `outlines` for the first and `wallDistances` for the second would walk the cloud twice.
+     *
+     * The fitting is `ScanPreview`'s rather than this file's, for the reason the un-projection is
+     * `DepthCamera`'s: a scale worked out from the walls alone, or a y flipped once too often,
+     * draws a plausible section of somewhere else. Here there is nothing but the handover.
+     */
+    private fun drawTheSectionSoFar() {
+        val walls = PassageScan.wallDistances(gathered, bearing)
+        val measured = ScanPreview.sectorsMeasured(walls)
+        if (measured > directionsMeasured) {
+            directionsMeasured = measured
+            // Prepared and fired together. The generator warms the motor when it is prepared, and
+            // preparing it on a tick that is about to fire it is the cheapest way to get the tap
+            // promptly without holding the hardware awake for half a minute.
+            haptics.prepare()
+            haptics.impactOccurred()
+        }
+
+        val fitted =
+            ScanPreview.fit(
+                PassageScan.strokesFrom(walls),
+                PREVIEW_SIZE.toFloat(),
+                PREVIEW_INSET.toFloat(),
+            )
+
+        val path = UIBezierPath()
+        for (stroke in fitted.strokes) {
+            val first = stroke.firstOrNull() ?: continue
+            path.moveToPoint(CGPointMake(first.x.toDouble(), first.y.toDouble()))
+            for (point in stroke.drop(1)) {
+                path.addLineToPoint(CGPointMake(point.x.toDouble(), point.y.toDouble()))
+            }
+        }
+        preview?.path = path.CGPath
+
+        val dot =
+            UIBezierPath.bezierPathWithOvalInRect(
+                CGRectMake(
+                    fitted.station.x.toDouble() - STATION_DOT / 2,
+                    fitted.station.y.toDouble() - STATION_DOT / 2,
+                    STATION_DOT,
+                    STATION_DOT,
+                ),
+            )
+        stationMark?.path = dot.CGPath
     }
 
     /**
@@ -710,6 +838,39 @@ private const val NEAREST_USEFUL_METRES = 0.25f
 private const val FURTHEST_USEFUL_METRES = 5f
 
 /**
+ * The live section's panel: how big, how far in from the corner, and how it is drawn.
+ *
+ * Points rather than pixels, as every frame on this screen is. Big enough to read a passage shape
+ * at arm's length in the dark, small enough to leave the camera worth looking at — the surveyor is
+ * aiming the phone at rock, and a preview that covered the view would defeat the sweep it exists
+ * to guide.
+ */
+private const val PREVIEW_SIZE = 150.0
+
+private const val PREVIEW_MARGIN = 20.0
+
+/** Inside the panel, so the outermost wall cannot be mistaken for the panel's own edge. */
+private const val PREVIEW_INSET = 10.0
+
+private const val PREVIEW_DIMNESS = 0.45
+
+private const val PREVIEW_CORNER = 10.0
+
+private const val PREVIEW_STROKE = 2.0
+
+/** The surveyor's own mark, which is what makes a section with one wall in it readable. */
+private const val STATION_DOT = 6.0
+
+/**
+ * How many reads go by between drawings of the section.
+ *
+ * Every read is cheap — a walk of the depth picture — but reducing the whole cloud to a section is
+ * a pass over every point kept so far, and that grows all scan. Once a second is faster than a
+ * surveyor can sweep a phone and slower than the arithmetic costs.
+ */
+private const val READS_PER_PREVIEW = 2
+
+/**
  * ARKit grades a depth pixel low, medium or high; low is where wet rock and puddles land.
  *
  * Not a `const`, since an unsigned byte is an inline class over a primitive rather than a
@@ -758,12 +919,18 @@ private const val FINISH_TITLE = "Done"
 private const val CAMERA_STOPPED = "The camera has stopped - tap Done and scan again"
 
 /**
- * The count, and which sensor found them.
+ * How much of the section is done, and which sensor is doing it.
  *
- * The sensor is named on the screen because it is the one thing about a scan that cannot be worked
- * out afterwards from what it drew. A thin wall from a phone with no lidar is the sparse cloud
- * doing its best; the same thin wall from one with lidar is a bug. Four characters on screen turn
- * a bug report into a useful one.
+ * Directions rather than points, and the difference is the whole reason the preview exists: a point
+ * count rises just as fast for a surveyor sweeping one wall over and over as for one who has been
+ * the whole way round, so it says the sensor is alive and nothing about whether the passage has
+ * been covered. Sixty is `PassageScan.DEFAULT_SECTORS`, which is what decides where the drawn
+ * strokes break, so the number and the picture beneath it are the same measurement.
+ *
+ * The sensor is still named, because it is the one thing about a scan that cannot be worked out
+ * afterwards from what it drew: a thin wall from a phone with no lidar is the sparse cloud doing
+ * its best, and the same thin wall from one with lidar is a bug.
  */
-private fun scanningCount(points: Int, lidar: Boolean): String =
-    "$points points (" + (if (lidar) "lidar" else "tracking") + ")"
+private fun scanningProgress(directions: Int, lidar: Boolean): String =
+    "$directions of ${PassageScan.DEFAULT_SECTORS} directions (" +
+        (if (lidar) "lidar" else "tracking") + ")"

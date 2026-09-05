@@ -19,7 +19,7 @@ private object NoScanner : PassageScanner {
 
     override val available = false
 
-    override fun scan() = Unit
+    override fun scan(bearing: Float) = Unit
 }
 
 @Composable

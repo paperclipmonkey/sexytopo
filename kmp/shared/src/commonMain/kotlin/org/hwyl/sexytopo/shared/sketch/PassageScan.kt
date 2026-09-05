@@ -283,11 +283,17 @@ object PassageScan {
      * its first and last sectors adjacent on the drawing, and treating the list as a line rather
      * than a ring would put a break at due right of the station on every complete scan — a nick in
      * the wall exactly where nothing happened.
+     *
+     * Public, and separate from [outlines], for the live preview a surveyor watches while sweeping.
+     * That screen wants two things from one pass over the points — the strokes to draw, and how
+     * many directions have been measured — and calling [outlines] for the first and
+     * [wallDistances] for the second would walk the whole cloud twice a second on a cold phone for
+     * an answer it already had.
      */
-    private fun strokesFrom(
+    fun strokesFrom(
         wall: List<Float?>,
-        sectors: Int,
-        gapTolerance: Int,
+        sectors: Int = DEFAULT_SECTORS,
+        gapTolerance: Int = DEFAULT_GAP_TOLERANCE,
     ): List<List<Coord2D>> {
         if (wall.all { it == null }) return emptyList()
 

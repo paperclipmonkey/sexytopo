@@ -187,7 +187,8 @@ fun CrossSectionEditor(
                     .testTag("cross-section-scan")
                     .alpha(if (scanner.available) 1f else DISABLED_BUTTON_ALPHA)
                     .clickable {
-                        if (scanner.available) scanner.scan() else scanSaid = whyNoScanner()
+                        if (scanner.available) scanner.scan(detail.crossSection.angle)
+                        else scanSaid = whyNoScanner()
                     }
                     .padding(horizontal = 10.dp, vertical = 6.dp),
             ) {
