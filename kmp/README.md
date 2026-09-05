@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 886 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 890 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and sixteen more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -188,9 +188,11 @@ missing.
   `.top`, as well as the app's own files: the club's existing survey of the cave, opened here to be
   extended. Both PocketTopo readers bring the *drawing* in as well as the centreline.
 - **Scanning the shape of a passage instead of drawing it.** On an iPhone or iPad, the
-  cross-section editor offers a scan: sweep the phone round the passage and ARKit's tracking gives
-  a cloud of points on the rock, which is sliced at right angles to the passage and drawn as the
-  wall. It is this port's own — the Android app has no scanner — and the arithmetic is shared and
+  cross-section editor offers a scan: sweep the phone round the passage and the lidar — or ARKit's
+  tracking, on a phone without one — gives a cloud of points on the rock, which is sliced at right
+  angles to the passage and drawn as the wall. The section is drawn small in the corner as it
+  fills, so the gaps show what is still to sweep at, and a scan runs until the surveyor ends it.
+  It is this port's own — the Android app has no scanner — and the arithmetic is shared and
   tested against passages of known shape, so only the sensor is iOS-only. See finding 111.
 - **Photographs of the passage, pinned where they were taken.** The camera button on the sketch
   toolbar opens the phone's own camera; the picture comes back, and the next tap on the drawing
@@ -4067,15 +4069,97 @@ These are the things that would actually shape a real port.
    three-by-three of optics is twelve floats with a hole in each column and reading it as nine puts
    a focal length where the principal point belongs.
 
+   **The fourth run, which measured a room correctly, and what a surveyor asked for next.** The
+   depth map works: a rectangular room came back a rectangle of the right size. The complaint was
+   about the sweep rather than the answer — *"it can be a bit hard to properly scan because I don't
+   know which bits have correctly scanned already"* — with a suggestion of the mesh overlay Polycam
+   draws, or the section itself as it fills.
+
+   The second is the better answer here, and not by a little: the gaps in the section **are** the
+   directions nothing has been measured in. `PassageScan` breaks its strokes exactly there, so the
+   picture and the answer are one object rather than two views of one. So the scan screen draws the
+   section, small and dim in a corner, with a dot for the surveyor; the count above it counts
+   *directions* rather than points, which is the same complaint in numbers, since a point count
+   rises just as fast for somebody sweeping one wall over and over as for somebody who has been the
+   whole way round; and a light haptic tap fires when a direction is measured for the first time,
+   which is the half of it that works while the phone is pointed at rock rather than at a face.
+   Standing still and re-measuring the same wall is silent, and that silence is the information.
+
+   The fitting arithmetic went to `shared/sketch/ScanPreview.kt` for `DepthCamera`'s reason one
+   layer up: every way it can be wrong still draws something plausible. A scale taken from the
+   walls alone blows one measured wall up to fill the box with the surveyor off the edge; a y
+   flipped once too often puts the roof underfoot; a scale per axis draws every passage as the same
+   rectangle. Nine tests hold each to an answer worked out in advance, the sharpest being that the
+   station stays on the drawing when only one wall has been found — the half-finished case the
+   preview exists for.
+
+   **Then the timeout came off, on the same surveyor's word.** A scan used to stop itself after
+   half a minute, on the reasoning that somebody who forgets a running scan is standing in the dark
+   holding a camera. That is a real cost, and it was being paid for by a worse one: a passage takes
+   as long as it takes, and a cut-off that fires mid-sweep throws away the sweep. So a scan now
+   runs until the surveyor ends it, and three things follow.
+
+   The point cap would otherwise have become the timeout in disguise — reaching it used to end the
+   scan — so a full scan now stops gathering, says so, and stays open. Nothing else ends one, which
+   makes the screen's own words load-bearing: it says what stops a scan, and after three minutes it
+   says how long it has been going, which is the half of the old cut-off worth keeping for a phone
+   left scanning in a pocket. And because a scan may now be long, the screen sets the idle timer
+   off itself on every tick rather than trusting the composition underneath to still be holding it.
+
+   **What the screen says, and why not the manual.** A scan is opened once a trip at most, so
+   nothing about it is ever learnt by repetition; and `manual.html` is shared byte-for-byte with the
+   Android app, which has no scanner in it, so the obvious place to explain it is a place where it
+   would be explained to people who cannot do it. The scan screen therefore says it itself: where to
+   stand, how to sweep, what the outline in the corner is for, and what ends a scan — plus the
+   sentence belonging to whichever sensor is being read, since *"rock more than five metres off is
+   not measured"* is otherwise found out as a hole in a chamber's section that will not fill however
+   long it is swept at. It comes down to one line once the section is filling *and* fifteen seconds
+   have gone by; on the first condition alone a phone opened facing a wall would take it away before
+   anybody had read it. The panel is sized by asking the labels how tall they need to be, because a
+   guess generous enough for the longest sentence on the narrowest phone is a guess that wastes a
+   third of a big screen, and a guess that is too small drops the end of a sentence in silence.
+
+   **And the thing that no room test could have caught: north.** ARKit is asked for a world aligned
+   to gravity *and heading*, which is what lets the slab be taken across the passage's own bearing.
+   Heading is the magnetometer and needs no permission — `DeviceHeading.ios.kt` established that for
+   the compass rose — but ARKit reckons its north as *true* north, and turning magnetic into true is
+   the local declination, which is a fact about where you are standing. The plist carried no
+   location key at all, so iOS could not be asked; and unable to work out true north, ARKit falls
+   back to aligning its world with whichever way the phone happened to be pointing when the session
+   started. Every section then comes out square, plausible, and turned by an unknown angle — which
+   in a rectangular room is invisible, because a rectangle sliced on any bearing is still a
+   rectangle. The room test that looked like the feature working could not have told the difference.
+
+   So `NSLocationWhenInUseUsageDescription` is now in the plist, asked for before the scanner opens,
+   and `IosAssetsTest` holds it there with the reasoning attached. That is the fix as far as it can
+   be made from here — and because it *cannot* be checked from here, the screen now prints the
+   bearing it believes it is pointing on. That number is the one part of a scan a surveyor can check
+   without leaving the passage: point the phone along a leg whose bearing has just been booked, and
+   it either agrees or it does not. A degree or two out is the declination and expected. A quarter
+   turn out is the fallback above, and means the scan is measuring the wrong plane.
+   `DepthCamera.bearingOf` works it out from the pose ARKit already hands over, and four tests hold
+   it to a compass rather than to a mathematician's angle — clockwise from north, east at ninety —
+   because the two agree at north and nowhere else.
+
+   **Two smaller things a full-size screen brought with it.** The scanner is now presented full
+   screen rather than as the card iOS chooses by default, because a card is dismissed by dragging it
+   down from anywhere on its face and a surveyor sweeping a phone one-handed in the dark would
+   sooner or later wipe away a two-minute scan. That took away the only way off the screen that did
+   not draw, so there is a Cancel button — small, and at the other end of the row from Done, since a
+   mis-tap there costs a sweep. And the screen is laid out from its own view's bounds on every
+   layout pass rather than from `UIScreen.mainScreen` once, which is what makes both of those safe.
+
    **Still unverified.** Whether the depth map draws a passage that is actually there: the tests
    pin the arithmetic against a stated convention and cannot pin the convention itself. A wrong one
    shows as a mirrored, upside-down or quarter-turned section; a depth read as a ray length rather
    than as a distance along the lens axis — the one genuine coin-toss, where Apple's prose and
    Apple's sample code disagree, and the sample code is what this follows — shows as a passage a
    little too wide, bulging where each frame's edges fell. Comparing the drawn wall against splays
-   already on the section is what tells those apart. And nothing has been in a cave: lidar does not
-   care about darkness, which is the one thing that should be *better* underground, but it does
-   care about wet, black and far away, and a passage wall is all three at once.
+   already on the section is what tells those apart. Whether ARKit finds north at all, which the
+   bearing on the screen now answers in five seconds and nothing here can answer at all. And nothing
+   has been in a cave: lidar does not care about darkness, which is the one thing that should be
+   *better* underground, but it does care about wet, black and far away, and a passage wall is all
+   three at once.
 
 ---
 
@@ -4227,8 +4311,8 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 886
-shared tests on three targets, 16 more against `java.util.zip` on the JVM, 548 over the UI's own
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 890
+shared tests on three targets, 16 more against `java.util.zip` on the JVM, 549 over the UI's own
 logic, 20 running the iOS half in a simulator,
 134 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
@@ -4301,10 +4385,18 @@ called done without somebody holding a device, and so that "tested" is never rea
   `AndroidManifestTest` proves the permission is declared; only a phone proves the motor runs.
 - **A scan of a passage is a passage, and is the right way round.** Everything about the
   arithmetic is checked on a build server — the reduction against passages of known shape, and the
-  depth un-projection against a camera in a known place looking a known way. Three runs on a phone
-  have between them found four faults nothing here could have, all fixed; see finding 111. What no
+  depth un-projection against a camera in a known place looking a known way. Four runs on a phone
+  have between them found five faults nothing here could have, all fixed; see finding 111. What no
   test can reach is whether ARKit means by a pose, a set of optics and a depth what `DepthCamera`
-  assumes. **So the first thing to check is the shape rather than the detail: stand at a station
+  assumes, and whether ARKit knows where north is at all.
+  **The north check is first, because it is five seconds and because everything else depends on
+  it:** point the phone along a leg whose bearing you have just booked, and read the *Facing* line
+  on the scan screen. A degree or two apart is the declination and is expected — the scan's north is
+  true and the survey's is magnetic. A quarter turn apart means ARKit never found north and is
+  aligned to however the phone was held when the scan opened, in which case every section is a good
+  section of the wrong plane. That is what the location permission is for, so answer that prompt
+  before deciding.
+  **Then the shape rather than the detail: stand at a station
   with splays already on the section, scan it, and see whether the drawn wall sits on them.** A
   wall mirrored left-to-right, upside-down or turned a quarter turn is a wrong convention and is
   named in that class's own documentation; a wall consistently a little too wide, bulging in
@@ -4312,7 +4404,8 @@ called done without somebody holding a device, and so that "tested" is never rea
   is the whole thing working. Check the count on screen says `lidar` and not `tracking` while you
   do it. Then a cave, which is the real question: lidar does not care about darkness but does care
   about wet, black rock four metres off, and a chamber too big for a head torch is where it should
-  be expected to give up.
+  be expected to give up — that is what the five-metre sentence on the scan screen is warning about,
+  and a section full of gaps in a big chamber is the scanner being honest rather than failing.
 - **The camera opens, and what comes back is the right way up.** The iOS path has now met a lens,
   and taking, pinning, reopening and exporting a photograph all work — but it also locked the app
   solid afterwards, which is finding 110 and is fixed. **So the first thing to re-check on iOS is

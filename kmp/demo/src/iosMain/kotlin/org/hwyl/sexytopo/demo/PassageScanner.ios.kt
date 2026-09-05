@@ -33,6 +33,8 @@ import platform.ARKit.ARWorldAlignment
 import platform.ARKit.ARWorldTrackingConfiguration
 import platform.CoreGraphics.CGPointMake
 import platform.CoreGraphics.CGRectMake
+import platform.CoreGraphics.CGSizeMake
+import platform.CoreLocation.CLLocationManager
 import platform.CoreVideo.CVPixelBufferGetBaseAddress
 import platform.CoreVideo.CVPixelBufferGetBytesPerRow
 import platform.CoreVideo.CVPixelBufferGetHeight
@@ -49,10 +51,12 @@ import platform.UIKit.UIBezierPath
 import platform.UIKit.UIColor
 import platform.UIKit.UIControlEventTouchUpInside
 import platform.UIKit.UIControlStateNormal
+import platform.UIKit.UIFont
+import platform.UIKit.UIApplication
 import platform.UIKit.UIImpactFeedbackGenerator
 import platform.UIKit.UIImpactFeedbackStyle
 import platform.UIKit.UILabel
-import platform.UIKit.UIScreen
+import platform.UIKit.UIModalPresentationStyle
 import platform.UIKit.UIView
 import platform.UIKit.UIViewController
 import platform.UIKit.UIViewAutoresizingFlexibleHeight
@@ -157,9 +161,9 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalForeignApi::class)
 @Composable
 actual fun rememberPassageScanner(onScanned: (List<Coord3D>) -> Unit): PassageScanner {
-    // The scan comes back a long time after the tap that asked for it — half a minute of sweeping
-    // — so this keeps the delivery pointed at the current callback rather than the one that
-    // happened to be passed when the session opened. The same reasoning as the camera's.
+    // The scan comes back a long time after the tap that asked for it — as long as the surveyor
+    // sweeps for — so this keeps the delivery pointed at the current callback rather than the one
+    // that happened to be passed when the session opened. The same reasoning as the camera's.
     val deliver = rememberUpdatedState(onScanned)
 
     return remember { ArKitScanner { points -> deliver.value(points) } }
@@ -193,23 +197,44 @@ private class ArKitScanner(private val onScanned: (List<Coord3D>) -> Unit) : Pas
      */
     override val available: Boolean = ARWorldTrackingConfiguration.isSupported()
 
+    /**
+     * Location, asked for because ARKit's north depends on it and nothing else here does.
+     *
+     * The world a scan is measured in is aligned to gravity *and heading*, which is what makes a
+     * bearing mean the same thing to the scan as to the survey. Heading itself is the magnetometer
+     * and wants no permission — `DeviceHeading.ios.kt` says so and is right — but ARKit reckons
+     * its north as *true* north, and what turns magnetic into true is the local declination, which
+     * is a fact about where you are standing. Refused, or never asked for, and ARKit falls back to
+     * aligning the world with whichever way the phone happened to be pointing when the session
+     * started: every section then comes out square, plausible, and turned by an unknown angle.
+     *
+     * Asked before the screen opens rather than from inside it, so that the prompt is answered on
+     * the drawing the surveyor came from and the session that follows has its answer. Held in a
+     * field because a manager collected while its prompt is up takes the prompt down with it.
+     */
+    private val location = CLLocationManager()
+
     override fun scan(bearing: Float) {
         if (!available) return
+        location.requestWhenInUseAuthorization()
         // The same walk the camera uses, shared rather than copied: it climbs the presented chain,
         // so the scan opens over whatever is already on screen rather than under it. Presented
         // rather than pushed, so that dismissing it puts the surveyor back on the drawing they came
         // from with nothing lost.
         val host = topmostViewController() ?: return
-        host.presentViewController(
-            ScanViewController(bearing, onScanned),
-            animated = true,
-            completion = null,
-        )
+        val screen = ScanViewController(bearing, onScanned)
+        // Full screen rather than the card iOS puts up by default, and not for the looks of it: a
+        // card is dismissed by dragging it down from anywhere on its face, and a surveyor sweeping
+        // a phone one-handed in the dark would sooner or later wipe away a scan they had spent two
+        // minutes on. Cancel is a button, for the times it is meant.
+        screen.modalPresentationStyle = FULL_SCREEN
+        host.presentViewController(screen, animated = true, completion = null)
     }
 }
 
 /**
- * The screen the surveyor sees while scanning: the camera, a count, and a button to finish.
+ * The screen the surveyor sees while scanning: the camera, what has been measured, what to do,
+ * and the two ways off it.
  *
  * Hand-built rather than a storyboard, as `MainViewController.kt` is, because this project's iOS
  * half is two Swift files and everything else is Kotlin.
@@ -218,6 +243,28 @@ private class ArKitScanner(private val onScanned: (List<Coord3D>) -> Unit) : Pas
  * tracking never starts — a lens against a wall, a room too dark for ARKit to find anything to
  * track — and without a number on the screen the surveyor learns that a minute later, when the
  * cross-section comes back blank, standing somewhere they have to walk back to.
+ *
+ * Under the count is the bearing the phone believes it is pointing on, which is not decoration
+ * either: it is the one thing on this screen a surveyor can *check*. Everything a scan measures is
+ * placed relative to ARKit's idea of north, and a section measured against a north that is out by
+ * a quarter turn is a good section of the wrong plane — which looks exactly like a good section.
+ * Pointing the phone along a passage whose bearing has just been booked, and reading the number,
+ * settles it in five seconds. `DepthCamera.bearingOf` works it out.
+ *
+ * Under those, in words rather than in numbers, is what to do with all this: stand at the
+ * station, sweep slowly over everything including the roof and the floor, watch the outline in the
+ * corner fill in, and tap Done. None of that is ever learnt by repetition, because a scan is opened
+ * once a trip at most; and the manual cannot carry it either, since that file is shared with an
+ * Android app which has no scanner in it. So it is said here. It comes down to a single line once
+ * the section is filling and there has been time to read it — both, since a phone opened facing a
+ * wall measures a direction within a second or two, and an explanation that went that quickly
+ * would be one nobody had ever read.
+ *
+ * **Nothing but the button ends a scan.** It used to stop itself after half a minute, until a
+ * surveyor pointed out that a passage takes as long as it takes and that a cut-off firing mid-sweep
+ * throws the sweep away. What that costs is a forgotten scan holding the camera and the lidar until
+ * somebody notices, which is a real cost underground — so the screen says what stops it, rather
+ * than stopping itself and hoping the surveyor had finished.
  */
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class, NativeRuntimeApi::class)
 private class ScanViewController(
@@ -227,11 +274,14 @@ private class ScanViewController(
 
     private val gathered = mutableListOf<Coord3D>()
     private var arView: ARSCNView? = null
+    private var topPanel: UIView? = null
     private var counter: UILabel? = null
+    private var instructions: UILabel? = null
     private var previewPanel: UIView? = null
     private var timer: NSTimer? = null
     private var finished = false
     private var finishButton: UIButton? = null
+    private var cancelButton: UIButton? = null
 
     /**
      * Which sensor this scan is reading, decided once when the screen is built.
@@ -259,7 +309,24 @@ private class ScanViewController(
             if (usesDepth) DEPTH_VOXEL_METRES else SeenSurfaces.DEFAULT_VOXEL_METRES,
         )
 
-    /** Reads so far, which is this screen's clock — see the backstop in [sample]. */
+    /**
+     * The explanation, with the sentence belonging to whichever sensor this phone is reading.
+     *
+     * Both limits are the sort of thing that otherwise gets found out as a bug. A lidar phone does
+     * not measure the far wall of a big chamber at all, so a surveyor who has not been told about
+     * the five metres sweeps at a hole in the section over and over trying to fill it; a phone
+     * without lidar wants texture and light on the rock, which is a different technique rather
+     * than the same one done worse.
+     */
+    private val howToScan =
+        HOW_TO_SCAN + " " + (if (usesDepth) LIDAR_RANGE else TRACKING_NEEDS_LIGHT)
+
+    /**
+     * Reads so far, which is what paces the drawing of the section — see [READS_PER_PREVIEW].
+     *
+     * It was this screen's clock as well, for the half-minute cut-off that is gone: a scan takes as
+     * long as the passage takes, and one that stopped itself mid-sweep threw the sweep away.
+     */
     private var samples = 0
 
     /**
@@ -290,12 +357,32 @@ private class ScanViewController(
     private var directionsMeasured = 0
 
     /**
+     * Which way the phone is pointing, or null when it is aimed too near straight up or down.
+     *
+     * Read off the frame's own pose in [readCurrentFrame], which is the only place a frame may be
+     * touched, and put on the screen under the count.
+     */
+    private var pointingAt: Float? = null
+
+    /**
+     * How many points the section on the screen was reduced from.
+     *
+     * Reducing the cloud is a pass over every point gathered so far, and a surveyor who is holding
+     * still — reading the screen, working out where to point next, or standing in a chamber whose
+     * far wall is out of range — is gathering nothing new for it to reduce. Twice a second, over a
+     * scan with no time limit on it, that is a great deal of arithmetic and a great deal of heat
+     * for a picture that cannot have changed.
+     */
+    private var drawnFrom = -1
+
+    /**
      * When ARKit last produced a frame, and how many reads have gone by without a newer one.
      *
      * The only way this screen can tell a camera that is working and finding nothing from one that
      * has stopped, because on the face of it they are the same thing: a count that does not move.
      * Telling them apart is worth the two fields — a surveyor who knows the camera has died can
-     * stop and start again, where one watching a still number waits out the whole half minute.
+     * stop and start again, where one watching a still number sweeps a dead lens for as long as
+     * their patience lasts, there being nothing else now to end the scan.
      */
     private var lastFrameTime = 0.0
     private var stalledReads = 0
@@ -307,26 +394,53 @@ private class ScanViewController(
         // guarantees it by the time this is called, so it is taken once rather than dereferenced
         // four times.
         val root = view ?: return
-        val bounds = UIScreen.mainScreen.bounds
 
-        val camera = ARSCNView(frame = bounds)
+        // The size of what it sits in, and kept that way by its own autoresizing mask rather
+        // than by [layOut]. The screen's bounds are not the same thing: what this sits in is the
+        // presented controller's view, and the two agree only while nothing has been turned round.
+        val camera = ARSCNView(frame = root.bounds)
         camera.autoresizingMask =
             UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
         root.addSubview(camera)
         arView = camera
 
-        val label = UILabel(frame = CGRectMake(0.0, 60.0, 0.0, 40.0))
+        // The status and the instructions inside one dim panel rather than as white text laid
+        // straight over the camera. What the camera is looking at is wet rock in a headtorch beam,
+        // which is as likely to come out white as black, and a line of white text that cannot be
+        // read against it is worse than no line at all.
+        val header = UIView(frame = CGRectMake(0.0, 0.0, 0.0, 0.0))
+        header.backgroundColor = UIColor.blackColor.colorWithAlphaComponent(PANEL_DIMNESS)
+        header.layer.cornerRadius = PANEL_CORNER
+        root.addSubview(header)
+        topPanel = header
+
+        val label = UILabel(frame = CGRectMake(0.0, 0.0, 0.0, 0.0))
         label.textAlignment = NSTextAlignmentCenter
         label.textColor = UIColor.whiteColor
+        // Two lines: what the scan has measured, and which way the phone is pointing while it does
+        // it. Wrapping rather than truncating also means a long phrase on a narrow phone is read
+        // rather than cut off with a full stop nobody put there.
+        label.numberOfLines = 0
         label.text = SCANNING_NOTHING_YET
-        root.addSubview(label)
+        header.addSubview(label)
         counter = label
+
+        val how = UILabel(frame = CGRectMake(0.0, 0.0, 0.0, 0.0))
+        how.textAlignment = NSTextAlignmentCenter
+        how.textColor = UIColor.whiteColor
+        how.font = UIFont.systemFontOfSize(INSTRUCTION_FONT)
+        // A label shows one line and cuts the rest off with an ellipsis unless it is told
+        // otherwise, and the whole of this one is the point of it.
+        how.numberOfLines = 0
+        how.text = howToScan
+        header.addSubview(how)
+        instructions = how
 
         // The section, small and out of the way in a corner. Behind the Done button's row rather
         // than beside it, since a surveyor sweeping the phone about is holding it by the edges.
         val panel = UIView(frame = CGRectMake(0.0, 0.0, PREVIEW_SIZE, PREVIEW_SIZE))
-        panel.backgroundColor = UIColor.blackColor.colorWithAlphaComponent(PREVIEW_DIMNESS)
-        panel.layer.cornerRadius = PREVIEW_CORNER
+        panel.backgroundColor = UIColor.blackColor.colorWithAlphaComponent(PANEL_DIMNESS)
+        panel.layer.cornerRadius = PANEL_CORNER
         root.addSubview(panel)
         previewPanel = panel
 
@@ -347,11 +461,37 @@ private class ScanViewController(
         val done = UIButton.buttonWithType(UIButtonTypeSystem)
         done.setTitle(FINISH_TITLE, forState = UIControlStateNormal)
         done.setTitleColor(UIColor.whiteColor, forState = UIControlStateNormal)
-        done.backgroundColor = UIColor.blackColor.colorWithAlphaComponent(0.6)
+        done.backgroundColor = UIColor.blackColor.colorWithAlphaComponent(BUTTON_DIMNESS)
+        done.layer.cornerRadius = PANEL_CORNER
         done.addTarget(this, sel_registerName("finish"), UIControlEventTouchUpInside)
         root.addSubview(done)
         finishButton = done
 
+        // A way off this screen that does not draw anything, which the swipe used to be until the
+        // screen went full-size. Small, and over on the far side from Done: a mis-tap here throws
+        // away a sweep, and the two ought not to be the same size or the same shape of target.
+        val cancel = UIButton.buttonWithType(UIButtonTypeSystem)
+        cancel.setTitle(CANCEL_TITLE, forState = UIControlStateNormal)
+        cancel.setTitleColor(UIColor.whiteColor, forState = UIControlStateNormal)
+        cancel.backgroundColor = UIColor.blackColor.colorWithAlphaComponent(BUTTON_DIMNESS)
+        cancel.layer.cornerRadius = PANEL_CORNER
+        cancel.addTarget(this, sel_registerName("cancelScan"), UIControlEventTouchUpInside)
+        root.addSubview(cancel)
+        cancelButton = cancel
+    }
+
+    /**
+     * Laid out whenever the view is, which is once before it appears and again on every turn of
+     * the phone or change of what the screen is saying.
+     *
+     * The view's own bounds rather than the screen's. They are the same thing here, since this is
+     * presented full-size — but they are the same thing by a decision made in one other file, and
+     * a screen whose Done button is off the bottom because somebody presented it differently is a
+     * poor way to find that out.
+     */
+    override fun viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        val bounds = view?.bounds ?: return
         layOut(bounds.useContents { size.width }, bounds.useContents { size.height })
     }
 
@@ -359,22 +499,70 @@ private class ScanViewController(
      * Frames worked out rather than constrained.
      *
      * Auto Layout from Kotlin/Native means building `NSLayoutConstraint`s by hand, which is a lot
-     * of interop for two controls on a screen that never rotates while it is being used — a
-     * surveyor scanning a passage is turning the phone about, and a layout that reflowed underneath
-     * them would be worse than one that does not.
+     * of interop for six things on a screen whose arrangement fits in twenty lines of arithmetic.
+     * Run from viewDidLayoutSubviews, so it costs the same as a constraint would on a turn of the
+     * phone and nothing at all the rest of the time.
      */
     private fun layOut(width: Double, height: Double) {
-        counter?.setFrame(CGRectMake(0.0, 60.0, width, 40.0))
-        finishButton?.setFrame(CGRectMake(width / 2 - 90, height - 120, 180.0, 56.0))
+        // The camera is not in here: it is the size of the view it was made from and its
+        // autoresizing mask keeps it that way, and a frame set on it twice a second — which is how
+        // often this runs — is the one thing on the screen where that might be noticed.
+        //
+        // The panel is as tall as what is in it, asked of the labels themselves rather than
+        // guessed at. A guess has to be generous enough for the longest sentence on the narrowest
+        // phone, and anything less drops the end of a line without a word said — which for the
+        // explanation would mean losing the part about how a scan stops, on the phone least able
+        // to spare the room in the first place.
+        val panelWidth = width - PANEL_MARGIN * 2
+        val textWidth = panelWidth - PANEL_INSET * 2
+        val counterHeight = heightOf(counter, textWidth)
+        val instructionsHeight = heightOf(instructions, textWidth)
+        topPanel?.setFrame(
+            CGRectMake(
+                PANEL_MARGIN,
+                PANEL_TOP,
+                panelWidth,
+                PANEL_INSET * 2 + counterHeight + PANEL_GAP + instructionsHeight,
+            ),
+        )
+        counter?.setFrame(CGRectMake(PANEL_INSET, PANEL_INSET, textWidth, counterHeight))
+        instructions?.setFrame(
+            CGRectMake(
+                PANEL_INSET,
+                PANEL_INSET + counterHeight + PANEL_GAP,
+                textWidth,
+                instructionsHeight,
+            ),
+        )
+
+        // Cancel on the left and small, Done taking the rest of the row: the one that ends a scan
+        // properly is the one a cold thumb should find without looking.
+        val buttonsTop = height - BUTTONS_BOTTOM
+        cancelButton?.setFrame(CGRectMake(PANEL_MARGIN, buttonsTop, CANCEL_WIDTH, BUTTON_HEIGHT))
+        val doneLeft = PANEL_MARGIN * 2 + CANCEL_WIDTH
+        finishButton?.setFrame(
+            CGRectMake(doneLeft, buttonsTop, width - doneLeft - PANEL_MARGIN, BUTTON_HEIGHT),
+        )
+
         previewPanel?.setFrame(
             CGRectMake(
-                PREVIEW_MARGIN,
-                height - 120 - PREVIEW_SIZE - PREVIEW_MARGIN,
+                PANEL_MARGIN,
+                buttonsTop - PREVIEW_SIZE - PANEL_MARGIN,
                 PREVIEW_SIZE,
                 PREVIEW_SIZE,
             ),
         )
     }
+
+    /**
+     * How tall a label has to be to show the whole of what it is holding, at this width.
+     *
+     * The height offered is a number no text will reach rather than a limit worth thinking about:
+     * asking a label to fit itself into a bounded box gets an answer bounded by the box, which is
+     * the truncation this exists to avoid.
+     */
+    private fun heightOf(label: UILabel?, width: Double): Double =
+        label?.sizeThatFits(CGSizeMake(width, ROOM_FOR_ANY_TEXT))?.useContents { height } ?: 0.0
 
     override fun viewDidAppear(animated: Boolean) {
         super.viewDidAppear(animated)
@@ -391,9 +579,9 @@ private class ScanViewController(
 
         // Read on a timer rather than through a delegate. `ARSessionDelegate.didUpdateFrame` fires
         // sixty times a second, and a scan does not need sixty samples a second of a cloud that
-        // changes slowly — it needs a sweep's worth. Two a second over half a minute is sixty
-        // reads, which is plenty, is a great deal less heat in a cold phone, and is sixty frames to
-        // hand back rather than eighteen hundred.
+        // changes slowly — it needs a sweep's worth. Two a second is faster than a phone can be
+        // swept, is a great deal less heat in a cold phone, and is a thirtieth of the frames to
+        // borrow and hand back.
         timer = NSTimer.scheduledTimerWithTimeInterval(
             interval = SAMPLE_SECONDS,
             repeats = true,
@@ -421,13 +609,16 @@ private class ScanViewController(
      */
     private fun sample() {
         samples++
-        // The backstop this file documented and never had: a surveyor who forgets about a running
-        // scan is standing in the dark holding a camera. Counted in ticks rather than clock-read,
-        // since the tick is the only clock this screen needs.
-        if (samples * SAMPLE_SECONDS >= SCAN_SECONDS) {
-            finish()
-            return
-        }
+
+        // Every tick rather than once on the way in, and that is deliberate. The app underneath
+        // holds the idle timer off for as long as it is composed, which is what stops a phone
+        // locking itself in the middle of a survey — but this screen is presented over it full
+        // size, and how a Compose composition behaves while its view is out of the window is a
+        // detail of somebody else's library rather than a promise to this one. A scan with no
+        // length limit on it is exactly the thing that would find out the hard way: the screen
+        // sleeps, the session goes down, and a sweep that was going perfectly is gone. Setting a
+        // boolean twice a second costs nothing and does not care what the answer is.
+        UIApplication.sharedApplication.idleTimerDisabled = true
 
         val frameTime = readCurrentFrame()
 
@@ -444,19 +635,63 @@ private class ScanViewController(
             stalledReads++
         }
 
-        // Not on every read. Reducing the whole cloud is a pass over every point kept so far, and
-        // a surveyor cannot sweep a phone fast enough for twice a second to say anything twice a
-        // second does not.
-        if (samples % READS_PER_PREVIEW == 0) drawTheSectionSoFar()
+        // Not on every read, and not at all when nothing has been gathered since the last one.
+        // Reducing the whole cloud is a pass over every point kept so far, and a surveyor cannot
+        // sweep a phone fast enough for twice a second to say anything once a second does not.
+        if (samples % READS_PER_PREVIEW == 0 && gathered.size != drawnFrom) {
+            drawnFrom = gathered.size
+            drawTheSectionSoFar()
+        }
+
+        sayWhatToDo()
 
         counter?.text =
             when {
+                // No bearing with it: what the pose last said is as stale as the picture, and a
+                // stopped camera is the one thing on this screen worth a line to itself.
                 stalledReads * SAMPLE_SECONDS >= STALL_SECONDS -> CAMERA_STOPPED
-                gathered.isEmpty() -> SCANNING_NOTHING_YET
-                else -> scanningProgress(directionsMeasured, usesDepth)
+                gathered.size >= SCAN_POINT_LIMIT -> scanFull(directionsMeasured) + facing()
+                gathered.isEmpty() -> SCANNING_NOTHING_YET + facing()
+                else -> scanningProgress(directionsMeasured, usesDepth) + facing()
             }
 
-        if (gathered.size >= SCAN_POINT_LIMIT) finish()
+        // Both labels have just been written, and either may have changed how many lines it wants
+        // — the explanation coming down is several, and a count that wraps on a narrow phone is
+        // one. Asking for a layout is how the panel round them stays the size of what it holds;
+        // UIKit does at most one of them however often this is asked.
+        view?.setNeedsLayout()
+    }
+
+    /**
+     * Where the phone is pointing, on a line of its own, or nothing at all.
+     *
+     * Nothing when it is aimed within a few degrees of straight up or down, because there is no
+     * bearing there to report and a number spinning through the whole compass while the phone is
+     * held still would be read as the compass being broken.
+     */
+    private fun facing(): String = pointingAt?.let { "\n" + facingSays(it) } ?: ""
+
+    /**
+     * Say what to do next, and make room for it if the amount to say has changed.
+     *
+     * Three things in the order a surveyor needs them: the whole explanation while they are
+     * getting started, then the one line that says how a scan ends, and — for a scan that has been
+     * running long enough that it might have been forgotten about — how long it has been going.
+     * That last one is what the half-minute cut-off used to do, without the half of it that threw
+     * a sweep away: a phone left scanning in a pocket is a light and a lidar and a screen that
+     * will not sleep, which underground is the walk out.
+     */
+    private fun sayWhatToDo() {
+        val scanned = samples * SAMPLE_SECONDS
+        instructions?.text =
+            when {
+                // Both, and not just the first: a phone opened facing a wall measures a direction
+                // within a second or two, and an explanation that vanished that fast would be one
+                // nobody ever read.
+                directionsMeasured == 0 || scanned < EXPLAIN_SECONDS -> howToScan
+                scanned >= LONG_SCAN_SECONDS -> stillRunning(scanned)
+                else -> TAP_DONE_WHEN_READY
+            }
     }
 
     /**
@@ -477,7 +712,7 @@ private class ScanViewController(
             directionsMeasured = measured
             // Prepared and fired together. The generator warms the motor when it is prepared, and
             // preparing it on a tick that is about to fire it is the cheapest way to get the tap
-            // promptly without holding the hardware awake for half a minute.
+            // promptly without holding the hardware awake for the whole of a scan.
             haptics.prepare()
             haptics.impactOccurred()
         }
@@ -540,12 +775,23 @@ private class ScanViewController(
      * nothing, because the frame would still be a live local of the very function asking — it has
      * to be a stack frame that has already been popped.
      *
-     * Hands back the frame's timestamp, which is how the caller tells a stopped camera from a quiet
-     * one, or null when there is no frame yet.
+     * Two things come out of a frame besides points. Its timestamp, handed back, which is how the
+     * caller tells a stopped camera from a quiet one — null when there is no frame yet. And the
+     * bearing the camera is pointing on, which is put in a field rather than returned because it
+     * is for the surveyor to read rather than for this loop to act on.
      */
     private fun readCurrentFrame(): Double? {
         val frame = arView?.session?.currentFrame ?: return null
-        if (usesDepth) gatherFromDepth(frame) else gatherFromFeaturePoints(frame)
+        pointingAt =
+            DepthCamera.bearingOf(
+                frame.camera.transform.floatsOfStruct(DepthCamera.TRANSFORM_FLOATS),
+            )
+        // A full scan still borrows and returns its frame, because the timestamp is what tells a
+        // stopped camera from a still one and that is worth knowing either way. What it stops doing
+        // is walking fifty thousand pixels for points it is not allowed to keep.
+        if (gathered.size < SCAN_POINT_LIMIT) {
+            if (usesDepth) gatherFromDepth(frame) else gatherFromFeaturePoints(frame)
+        }
         return frame.timestamp
     }
 
@@ -722,11 +968,32 @@ private class ScanViewController(
     }
 
     /**
+     * Leave without drawing anything.
+     *
+     * The scan that went wrong — the wrong station, a phone that never found north, a sweep
+     * interrupted by the rest of the trip — and the answer to it being on the drawing at all. It
+     * exists because the screen is now presented full-size, which took away the swipe that used to
+     * serve; and that swipe was a poor way to do this anyway, since it could as easily be an
+     * accident as a decision.
+     */
+    @Suppress("unused")
+    @ObjCAction
+    fun cancelScan() {
+        if (finished) return
+        finished = true
+        timer?.invalidate()
+        timer = null
+        arView?.session?.pause()
+        dismissViewControllerAnimated(true, null)
+    }
+
+    /**
      * Hand the scan over and get off the screen.
      *
-     * Called by the button through `sel_registerName`, and by [sample] when the cap is reached, so
-     * it has to be safe to call twice — a surveyor pressing the button as the cap is hit is not a
-     * race worth losing a scan to. Stopping the timer first is what makes it safe.
+     * Called by the button through `sel_registerName`, and by nothing else: a scan ends when the
+     * surveyor ends it. Still written to be safe called twice, because a button pressed twice in
+     * the dark with cold hands is one press as far as the surveyor is concerned, and losing a
+     * sweep to that would be a poor joke. Stopping the timer first is what makes it safe.
      */
     @Suppress("unused")
     @ObjCAction
@@ -761,6 +1028,15 @@ private class ScanViewController(
  * `CoreBluetoothTransport` is the second.
  */
 private val GRAVITY_AND_HEADING = ARWorldAlignment.ARWorldAlignmentGravityAndHeading
+
+/**
+ * Presented over the whole screen, rather than as the card iOS would choose.
+ *
+ * The same kind of enum as the alignment above, and named here for the same reason. What it is for
+ * is on `ArKitScanner.scan`: a card can be wiped away by a drag, and a scan is now as long as the
+ * surveyor wants it to be.
+ */
+private val FULL_SCREEN = UIModalPresentationStyle.UIModalPresentationFullScreen
 
 /** Four, not three: see the note in `gatherFromFeaturePoints` about padding and a stride. */
 private const val FLOATS_PER_POINT = 4
@@ -847,16 +1123,54 @@ private const val FURTHEST_USEFUL_METRES = 5f
  */
 private const val PREVIEW_SIZE = 150.0
 
-private const val PREVIEW_MARGIN = 20.0
-
 /** Inside the panel, so the outermost wall cannot be mistaken for the panel's own edge. */
 private const val PREVIEW_INSET = 10.0
 
-private const val PREVIEW_DIMNESS = 0.45
-
-private const val PREVIEW_CORNER = 10.0
-
 private const val PREVIEW_STROKE = 2.0
+
+/**
+ * The two dim panels: how far in from the screen they sit, how dark, and how round.
+ *
+ * One set of numbers for the words at the top and the drawing at the bottom, because they are the
+ * same thing twice — something laid over a camera picture that has to be readable against whatever
+ * the camera happens to be looking at.
+ */
+private const val PANEL_MARGIN = 20.0
+
+private const val PANEL_DIMNESS = 0.45
+
+private const val PANEL_CORNER = 10.0
+
+/** Inside the top panel, between its edge and its text. */
+private const val PANEL_INSET = 10.0
+
+/** Below the status bar and clear of the notch, on the phones this will be held in. */
+private const val PANEL_TOP = 60.0
+
+/** Between the count and the words under it, so the two are read as two things. */
+private const val PANEL_GAP = 6.0
+
+/** Smaller than the count above it: instructions are read once, and a count is glanced at. */
+private const val INSTRUCTION_FONT = 14.0
+
+/** Taller than any label will ask for, so that fitting a label to a width bounds nothing else. */
+private const val ROOM_FOR_ANY_TEXT = 10_000.0
+
+/**
+ * The row of buttons: how far up from the bottom, how tall, and how much of it Cancel gets.
+ *
+ * Clear of the home indicator, and clear of the bottom of the screen by more than a thumb's width,
+ * because the phone is being held by its edges and swept about. Cancel takes a little over a third
+ * of the smallest screen this will run on and less of a big one, which is the way round it should
+ * be: Done grows, and the button that throws a sweep away does not.
+ */
+private const val BUTTONS_BOTTOM = 120.0
+
+private const val BUTTON_HEIGHT = 56.0
+
+private const val CANCEL_WIDTH = 110.0
+
+private const val BUTTON_DIMNESS = 0.6
 
 /** The surveyor's own mark, which is what makes a section with one wall in it readable. */
 private const val STATION_DOT = 6.0
@@ -898,6 +1212,27 @@ private const val SAMPLE_SECONDS = 0.5
 private const val STALL_SECONDS = 2.0
 
 /**
+ * How long the explanation stays up, however quickly the scan starts measuring.
+ *
+ * It comes down when the section has a direction in it *and* this much has gone by, and the second
+ * half is what makes it readable: a phone opened facing a wall measures its first direction within
+ * a second or two, so on the first condition alone the explanation would be gone before anybody
+ * had read a line of it. Fifteen seconds is a slow read of three sentences.
+ */
+private const val EXPLAIN_SECONDS = 15.0
+
+/**
+ * How long a scan runs before the screen mentions how long it has been running.
+ *
+ * The half of the old half-minute cut-off worth keeping. A forgotten scan is a camera, a lidar and
+ * a screen that will not sleep, all running in somebody's pocket on the battery they get out on —
+ * which is what that cut-off was for, and it went because it also ended scans that were going
+ * perfectly well. Saying so costs a surveyor who is deliberately taking their time nothing at all,
+ * and three minutes is far longer than any sweep that is going anywhere.
+ */
+private const val LONG_SCAN_SECONDS = 180.0
+
+/**
  * The wording, typed here rather than mirrored from `strings.xml`.
  *
  * `Strings.local` exists for exactly this case and cannot be used from `iosMain`: this screen is
@@ -905,16 +1240,80 @@ private const val STALL_SECONDS = 2.0
  * Android app has no scanner and so no resource to be held to, which is what makes typing them out
  * honest rather than lazy — see the same note on `whyNoCamera`.
  */
-private const val SCANNING_NOTHING_YET = "Stand at the station, then sweep the phone round"
+private const val SCANNING_NOTHING_YET = "Nothing measured yet"
+
+/**
+ * What the scan is and how it is worked, on the screen where it is worked.
+ *
+ * A surveyor meets this once a trip at most, so nothing about it is learnt by repetition, and the
+ * gesture it wants is not one a camera screen implies: the phone is being swept over rock like a
+ * torch rather than aimed at it like a camera, and the roof and the floor count as much as the
+ * walls. The manual is the obvious place to say so and cannot be — `manual.html` is shared with the
+ * Android app, which has no scanner — so this screen says it.
+ *
+ * Four things, in the order they are needed: where to stand, how to sweep, what the outline in the
+ * corner is for, and what ends the scan. The last is not a nicety now that nothing else does end
+ * one.
+ */
+private const val HOW_TO_SCAN =
+    "Stand at the station and sweep the phone slowly over the walls, the roof and the floor. " +
+        "The outline below fills in as you go; the gaps are what is left. Take as long as you " +
+        "need, then tap Done to draw it."
+
+/** Said to a lidar phone, because the gap a chamber leaves is otherwise a mystery to sweep at. */
+private const val LIDAR_RANGE =
+    "Rock more than five metres off is not measured, so a big chamber comes back with gaps."
+
+/** And to a phone without one, where the limit is a different thing entirely. */
+private const val TRACKING_NEEDS_LIGHT =
+    "Without lidar this phone measures only rock it can pick out detail on, so keep the light on " +
+        "the wall and sweep slowly."
+
+/** What is left of the above once the surveyor is plainly scanning. */
+private const val TAP_DONE_WHEN_READY = "Fill in the gaps, then tap Done to draw the section."
+
+/**
+ * Said to a scan that has been going for a while, in case it is going on without anybody.
+ *
+ * Minutes rather than seconds, and rounded down, because the number is not a measurement of
+ * anything — it is there to be recognised as larger than expected by somebody who has just taken
+ * their phone out of a pocket.
+ */
+private fun stillRunning(seconds: Double): String =
+    "Still scanning after ${(seconds / SECONDS_PER_MINUTE).toInt()} minutes - tap Done when you " +
+        "have finished."
+
+private const val SECONDS_PER_MINUTE = 60.0
+
+/**
+ * Which way the phone is pointing, according to the scan itself.
+ *
+ * Worth a line of a small screen because it is the only part of a scan a surveyor can check while
+ * they are still standing where it was taken. Everything measured is placed relative to ARKit's
+ * idea of north; a north that is out by a quarter turn draws a good section of the wrong plane,
+ * and nothing about the drawing says so. Point the phone along a passage whose bearing has just
+ * been booked and this either agrees or it does not.
+ *
+ * A degree or two of disagreement is the declination — the scan's north is true and the survey's
+ * is magnetic — and is expected. A quarter turn of it is not.
+ */
+private fun facingSays(bearing: Float): String =
+    "Facing ${bearing.roundToInt() % FULL_TURN_DEGREES}°"
+
+private const val FULL_TURN_DEGREES = 360
 
 private const val FINISH_TITLE = "Done"
+
+private const val CANCEL_TITLE = "Cancel"
 
 /**
  * Said when ARKit has stopped producing frames, which a stuck count on its own does not mean.
  *
  * A surveyor holding still finds no new rock and the count stops, and that is the scan working. The
- * difference is invisible from the outside, and the wrong reading of it costs a trip: half a minute
- * of sweeping a dead camera, or an abandoned scan that was only quiet.
+ * difference is invisible from the outside, and the wrong reading of it costs a trip: a whole sweep
+ * of a dead camera, or an abandoned scan that was only quiet. The first of those got worse when the
+ * half-minute cut-off went, since nothing now ends a scan of nothing except the surveyor deciding
+ * it has gone on long enough.
  */
 private const val CAMERA_STOPPED = "The camera has stopped - tap Done and scan again"
 
@@ -934,3 +1333,15 @@ private const val CAMERA_STOPPED = "The camera has stopped - tap Done and scan a
 private fun scanningProgress(directions: Int, lidar: Boolean): String =
     "$directions of ${PassageScan.DEFAULT_SECTORS} directions (" +
         (if (lidar) "lidar" else "tracking") + ")"
+
+/**
+ * Said when the scan is holding as many points as it will hold.
+ *
+ * The count stays in front of the wording rather than being replaced by it, because what to do next
+ * turns on it: full with fifty directions in it is a finished job, and full with twelve is a scan
+ * that filled itself up on a wall a hand's breadth from the lens. Either way the scan stays open —
+ * the drawing is there to be looked at, and ending it for them is the thing this screen no longer
+ * does.
+ */
+private fun scanFull(directions: Int): String =
+    "$directions of ${PassageScan.DEFAULT_SECTORS} directions - full, tap Done"

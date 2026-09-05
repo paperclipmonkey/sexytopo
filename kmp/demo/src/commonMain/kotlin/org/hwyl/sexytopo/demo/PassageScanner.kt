@@ -55,15 +55,6 @@ expect fun rememberPassageScanner(onScanned: (List<Coord3D>) -> Unit): PassageSc
 expect fun whyNoScanner(): String
 
 /**
- * How long a scan gathers for before it stops itself, in seconds.
- *
- * Long enough to sweep a phone once round a passage without hurrying, short enough that a surveyor
- * who forgets about it does not stand in the dark holding a running camera. The scan can be ended
- * sooner by hand; this is only the backstop.
- */
-const val SCAN_SECONDS = 30
-
-/**
  * How many points a scan keeps at most.
  *
  * A sweep gathers a few thousand feature points a second, and a cross-section is built from a slice
@@ -71,5 +62,10 @@ const val SCAN_SECONDS = 30
  * slab test anyway. The cap is about the phone rather than about the arithmetic: a list this long
  * crosses from Objective-C into Kotlin as one allocation, and a surveyor's phone is cold, wet and
  * short of memory.
+ *
+ * Reaching it stops a scan *gathering*; it does not end the scan. There used to be a half-minute
+ * cut-off as well, and taking that out on a surveyor's word would have quietly left this as its
+ * replacement — a scan ending itself mid-sweep, for a reason nothing on the screen had mentioned.
+ * A full scan says so and stays open, and the surveyor ends it.
  */
 const val SCAN_POINT_LIMIT = 120_000
