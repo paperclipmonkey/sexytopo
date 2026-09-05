@@ -154,17 +154,23 @@ private class ScanViewController(
     override fun viewDidLoad() {
         super.viewDidLoad()
 
+        // `UIViewController.view` is nullable across the interop boundary even though UIKit
+        // guarantees it by the time this is called, so it is taken once rather than dereferenced
+        // four times.
+        val root = view ?: return
         val bounds = UIScreen.mainScreen.bounds
-        val view = ARSCNView(frame = bounds)
-        view.autoresizingMask = UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
-        this.view.addSubview(view)
-        arView = view
+
+        val camera = ARSCNView(frame = bounds)
+        camera.autoresizingMask =
+            UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
+        root.addSubview(camera)
+        arView = camera
 
         val label = UILabel(frame = CGRectMake(0.0, 60.0, 0.0, 40.0))
         label.textAlignment = NSTextAlignmentCenter
         label.textColor = UIColor.whiteColor
         label.text = SCANNING_NOTHING_YET
-        this.view.addSubview(label)
+        root.addSubview(label)
         counter = label
 
         val done = UIButton.buttonWithType(UIButtonTypeSystem)
@@ -172,7 +178,7 @@ private class ScanViewController(
         done.setTitleColor(UIColor.whiteColor, forState = UIControlStateNormal)
         done.backgroundColor = UIColor.blackColor.colorWithAlphaComponent(0.6)
         done.addTarget(this, sel_registerName("finish"), UIControlEventTouchUpInside)
-        this.view.addSubview(done)
+        root.addSubview(done)
         finishButton = done
 
         layOut(bounds.useContents { size.width }, bounds.useContents { size.height })
@@ -227,7 +233,7 @@ private class ScanViewController(
         // vector unit needs for alignment. Striding by three would read every point after the first
         // out of the middle of its neighbours, and the wall would come out as noise. This is the
         // one line in the file most likely to be wrong and least likely to look it.
-        val floats = cloud.points.reinterpret<FloatVar>()
+        val floats = cloud.points?.reinterpret<FloatVar>() ?: return
 
         var index = 0
         while (index < count && gathered.size < SCAN_POINT_LIMIT) {
