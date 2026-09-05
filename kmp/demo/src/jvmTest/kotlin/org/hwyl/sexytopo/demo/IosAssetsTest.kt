@@ -121,12 +121,15 @@ class IosAssetsTest {
     /**
      * And the key that decides whether a scanned passage points anywhere in particular.
      *
-     * Not a crash this time, which is what makes it worth a test of its own: a scan with no
-     * location permission behind it runs perfectly, gathers its points, and draws a section that
-     * is square, plausible and turned by an unknown angle — because ARKit, unable to work out true
-     * north without knowing where it is, falls back to aligning its world with whichever way the
-     * phone happened to be pointing when the scan started. There is nothing in the drawing to say
-     * so. Take the key out and every scan is still a scan; it is simply of the wrong plane.
+     * Not a crash this time, which is what makes it worth a test of its own. A scan asks ARKit for
+     * a world aligned to gravity and heading so that the section can be sliced across the passage's
+     * own bearing, and heading alignment wants location services — ARKit reckons north as *true*
+     * north, and the declination that turns magnetic into true is a fact about where you are
+     * standing. Without this key iOS cannot be asked. What ARKit then does is undocumented and
+     * could be either of two things: align to magnetic north, which a survey would welcome, or
+     * align to however the phone was pointing when the scan opened, which draws a section that is
+     * square, plausible and turned by an unknown angle with nothing in the drawing to say so.
+     * Taking the key out risks the second silently, which is why it is held here.
      */
     @Test
     fun thePlistAsksForWhatARKitNeedsToFindNorth() {
