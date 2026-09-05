@@ -122,10 +122,23 @@ import kotlin.math.roundToInt
  *
  * ## Two things about the frame that matter to a surveyor
  *
- * The scan is centred on the *phone*, not on the station: ARKit's origin is where the session
- * started, which is chest height wherever the surveyor was standing. For a cross-section that is
- * close enough — a station is taken from about there anyway — but a section scanned from the far
- * side of a chamber is a section of the wrong place, and the app cannot tell.
+ * The scan is centred on the *phone*, not on the station. ARKit puts its world origin wherever the
+ * device was at the instant the session started — which is to say the moment this screen appeared,
+ * at chest height, wherever the surveyor happened to be standing. The drawing then treats that
+ * point as the station, because `CrossSectionEditor` hands the outline straight into a sketch whose
+ * own origin is the station.
+ *
+ * This used to say that was close enough, since a station is taken from about there anyway. A phone
+ * says otherwise: a section scanned from two metres away is a good section of the passage drawn two
+ * metres out of place, sitting beside the splays instead of among them, and nothing in the app can
+ * tell that from a passage that really is over there.
+ *
+ * Which makes standing at the station part of the method rather than a nicety, so the screen now
+ * says so before the sweep starts. The proper fix is to stop assuming: either let the surveyor
+ * shift a finished scan onto the station — there is no tool that moves a drawn stroke today, which
+ * is why the assumption has nowhere to fail gracefully — or let them point the phone at the station
+ * and tap it before sweeping, and raycast to get the offset. The second is the better answer and
+ * the more interop.
  *
  * And ARKit's north is true north, where a survey bearing off a DistoX is magnetic. The difference
  * is the local declination, a degree or two in Britain and more elsewhere; it turns the slice by
@@ -731,7 +744,7 @@ private const val STALL_SECONDS = 2.0
  * Android app has no scanner and so no resource to be held to, which is what makes typing them out
  * honest rather than lazy — see the same note on `whyNoCamera`.
  */
-private const val SCANNING_NOTHING_YET = "Sweep the phone round the passage"
+private const val SCANNING_NOTHING_YET = "Stand at the station, then sweep the phone round"
 
 private const val FINISH_TITLE = "Done"
 
