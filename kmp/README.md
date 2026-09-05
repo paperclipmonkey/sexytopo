@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 869 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 877 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and sixteen more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -191,12 +191,12 @@ missing.
   cross-section editor offers a scan: sweep the phone round the passage and ARKit's tracking gives
   a cloud of points on the rock, which is sliced at right angles to the passage and drawn as the
   wall. It is this port's own — the Android app has no scanner — and the arithmetic is shared and
-  tested against passages of known shape, so only the sensor is iOS-only. See finding 110.
+  tested against passages of known shape, so only the sensor is iOS-only. See finding 111.
 - **Photographs of the passage, pinned where they were taken.** The camera button on the sketch
   toolbar opens the phone's own camera; the picture comes back, and the next tap on the drawing
   says where the surveyor was standing while a drag says which way they were looking — the same
   gesture that aims a directional symbol. Tapping the pin afterwards opens the photograph. This is
-  the one thing here with no counterpart in the Android app at all; see finding 109.
+  the one thing here with no counterpart in the Android app at all; see finding 110.
 - **Handing a survey over as one file.** *Share survey* on the export screen writes a zip of the
   four files a survey directory holds, plus a JPEG for every photograph pinned to either sketch,
   which is what the Android app's share sheet sends and what the importer at the other end already
@@ -630,7 +630,7 @@ and the iOS file handling underneath it runs in a simulator on the macOS runner:
   phone's own camera. When the picture comes back, tap the drawing where you were standing and drag
   to say which way you were looking — the same gesture that aims a directional symbol, and a plain
   tap is north. Tapping the pin afterwards opens the photograph, and *Remove from sketch* takes the
-  pin off and can be undone. Nothing upstream corresponds; see finding 109. Not verified on a
+  pin off and can be undone. Nothing upstream corresponds; see finding 110. Not verified on a
   device, which is the point of *What needs a phone* below.
 - **Take it home.** Survex, Compass, PocketTopo, or the native format — which is the *whole*
   survey, data file and both sketches, so what comes out is what the import at the other end
@@ -765,8 +765,8 @@ Honest limits, so nothing is a surprise in a cave:
 | `control/threed/*`, `ThreeDViewActivity` | `demo/.../ThreeDView.kt` | The GL half **rewritten** as a 2D canvas: no shaders, no vertex buffers, and it runs on all four targets |
 | `GuideActivity`, `assets/guide/index.html` | `shared/manual/Manual.kt`, `demo/.../ManualView.kt`, `demo/src/commonMain/composeResources/files/manual.html` | The `WebView` **replaced** by a reader: the guide is bundled byte-for-byte and drawn as Compose, so there is no platform web view on any of the four targets. `parseManual` throws on a tag it does not draw, and the counts are checked against the file's own tags |
 | `res/layout/activity_graph.xml` | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied — widened to 10x2 by the camera, which is the one button with nothing upstream |
-| *nothing* | `shared/sketch/PassageScan.kt`, `demo/.../PassageScanner.*.kt` | **Invented.** ARKit measures the passage and the shared half slices it into a cross-section; finding 110 |
-| *nothing* | `shared/model/sketch/Sketch.kt` (`PhotoDetail`), `shared/io/store/PhotoStore.kt`, `demo/.../PhotoCapture.*.kt`, `PhotoViewer.kt` | **Invented.** The Android app has never taken a photograph; finding 109 records why a photograph is modelled as a mark on the drawing rather than as an attachment to a station |
+| *nothing* | `shared/sketch/PassageScan.kt`, `demo/.../PassageScanner.*.kt` | **Invented.** ARKit measures the passage and the shared half slices it into a cross-section; finding 111 |
+| *nothing* | `shared/model/sketch/Sketch.kt` (`PhotoDetail`), `shared/io/store/PhotoStore.kt`, `demo/.../PhotoCapture.*.kt`, `PhotoViewer.kt` | **Invented.** The Android app has never taken a photograph; finding 110 records why a photograph is modelled as a mark on the drawing rather than as an attachment to a station |
 | `res/values/colors.xml` (+ `values-night`) | `demo/.../SexyTopoTheme.kt` | The app's own palette |
 | `res/drawable-hdpi/*.png` | `demo/src/commonMain/composeResources/drawable/` | The app's own icons |
 | `res/values/strings.xml` | `demo/.../Strings.kt` | Every string this port shows, mirrored under the app's own resource name; `AndroidStringsTest` reads the real file and holds each one to it |
@@ -3789,7 +3789,7 @@ These are the things that would actually shape a real port.
    asserts exactly that — for every Therion chip and both projections, the names written are the
    same six, with none repeated.
 
-109. **A photograph is a mark on the drawing, not an attachment to a station.** The first feature
+110. **A photograph is a mark on the drawing, not an attachment to a station.** The first feature
    here with nothing upstream to port — the Android app has never taken a photograph, and the only
    camera anywhere in its source is the viewpoint `SurveyRenderer` moves round the 3D view. So this
    is the one place the port had to decide something rather than reproduce it, and the decision
@@ -3861,6 +3861,24 @@ These are the things that would actually shape a real port.
    cannot check it, so `PhotoPinUiTest` measures the ten cells from real bounds and fails naming
    the scripts, which puts the guard somewhere the scripts can be held to.
 
+   **A pin could not be opened with the tool the app starts in.** Reported as "re-opening a survey
+   with photos, clicking on the photo ends up removing it from the map", which turned out not to be
+   about re-opening at all — a survey written out and read back keeps its pins, its ids and its
+   pictures, and there is now a test through the whole cycle saying so, because every other test
+   here worked on a survey held in memory and would have stayed green through any of the ways that
+   could have gone wrong.
+
+   What was true is that opening a photograph was handled in the pencil's tap and the selector's
+   and nowhere else. `SketchTool.DEFAULT` is the pan tool, so the tool the app opens in was one of
+   the four that did nothing whatever with a tap on a pin — and the way to look at a photograph was
+   to work that out, go to the toolbar, and pick another tool. The tools next to the two that
+   worked include the rubber, which does not open a pin: it takes it off, correctly and by design.
+
+   So a tap on a pin now opens its photograph under every tool but the rubber, and a table-shaped
+   test says which tools those are. The rubber's own test sits beside it, asserting that it still
+   erases a pin rather than opening one — "every tool but the rubber" is worth nothing unless the
+   exception is held to as firmly as the rule.
+
    **What an iPhone found, which no runner could have.** The feature works: photographs are taken,
    pinned, reopened and exported. And then the app locked solid — every button dead, a restart the
    only way out — after the camera closed.
@@ -3887,7 +3905,7 @@ These are the things that would actually shape a real port.
    than across the transition, which is the part that mattered, but if it proves long enough to
    notice then it belongs on a background queue.
 
-110. **The shape of a passage is arithmetic; only the sensor is iOS.** The second thing here with
+111. **The shape of a passage is arithmetic; only the sensor is iOS.** The second thing here with
    no counterpart upstream, and the one that most looks like it ought to be a platform feature. An
    iPhone can measure the room it is in — ARKit tracks the phone through space and reports points
    it has recognised on the surfaces around it — and a cross-section is a slice through exactly
@@ -4203,10 +4221,10 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 869
-shared tests on three targets, 16 more against `java.util.zip` on the JVM, 529 over the UI's own
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 877
+shared tests on three targets, 16 more against `java.util.zip` on the JVM, 548 over the UI's own
 logic, 20 running the iOS half in a simulator,
-133 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
+134 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.
@@ -4278,7 +4296,7 @@ called done without somebody holding a device, and so that "tested" is never rea
 - **A scan of a passage is a passage, and is the right way round.** Everything about the
   arithmetic is checked on a build server — the reduction against passages of known shape, and the
   depth un-projection against a camera in a known place looking a known way. Three runs on a phone
-  have between them found four faults nothing here could have, all fixed; see finding 110. What no
+  have between them found four faults nothing here could have, all fixed; see finding 111. What no
   test can reach is whether ARKit means by a pose, a set of optics and a depth what `DepthCamera`
   assumes. **So the first thing to check is the shape rather than the detail: stand at a station
   with splays already on the section, scan it, and see whether the drawn wall sits on them.** A
@@ -4291,7 +4309,7 @@ called done without somebody holding a device, and so that "tested" is never rea
   be expected to give up.
 - **The camera opens, and what comes back is the right way up.** The iOS path has now met a lens,
   and taking, pinning, reopening and exporting a photograph all work — but it also locked the app
-  solid afterwards, which is finding 109 and is fixed. **So the first thing to re-check on iOS is
+  solid afterwards, which is finding 110 and is fixed. **So the first thing to re-check on iOS is
   that the app still answers its buttons after the camera closes**, and then how long the pause
   between shutter and pin is: that is a main-thread re-encode of a forty-eight-megapixel image, and
   if it is long enough to notice it belongs on a background queue. The browser path has met
