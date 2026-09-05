@@ -4,7 +4,13 @@ package org.hwyl.sexytopo.shared.comms
  * Whether to chase a lost instrument, and for how long. `pref_auto_reconnect` and
  * `pref_auto_reconnect_window`.
  *
- * Off by default, as the Android app ships it.
+ * **On** by default, which is where this port parts company with the Android app.
+ *
+ * Upstream ships it off, and the first field trip with this one said plainly why that is the wrong
+ * default underground: a BLE link to a BRIC drops several times an hour, and a surveyor with cold
+ * hands and a phone in a bag does not want to reopen the instrument screen at every station. The
+ * setting still exists for anybody who would rather the radio stayed quiet, and the window is what
+ * stops it chasing an instrument that has genuinely been left behind.
  */
 data class AutoReconnect(
     val enabled: Boolean = DEFAULT_ENABLED,
@@ -14,8 +20,8 @@ data class AutoReconnect(
         get() = windowMinutes.toLong() * 60_000L
 
     companion object {
-        /** `pref_auto_reconnect` defaults to false. */
-        const val DEFAULT_ENABLED = false
+        /** Upstream's `pref_auto_reconnect` defaults to false; see the note above. */
+        const val DEFAULT_ENABLED = true
 
         /** `pref_auto_reconnect_window` defaults to 15. */
         const val DEFAULT_WINDOW_MINUTES = 15
@@ -117,13 +123,32 @@ class ReconnectionPolicy(
      * Written this way rather than as a callback because the caller already has a tick — the same
      * one that ages out a connection attempt — and a policy that posts its own work is a policy
      * that cannot be tested.
+     *
+     * [linkIsBusy] puts a due retry off rather than spending it. Every transport in this port
+     * refuses to start a second attempt over the top of a running one, and refuses *silently* —
+     * so a retry fired at the wrong moment used to be a retry consumed for nothing, and since
+     * nothing then failed, nothing scheduled another. One badly timed tick ended the chase for
+     * good, which is exactly the shape of "it never came back and I could not get it back".
      */
-    fun retryIsDue(): Boolean {
+    fun retryIsDue(linkIsBusy: Boolean = false): Boolean {
         val due = retryAt ?: return false
         if (now() < due) return false
+        if (linkIsBusy) {
+            retryAt = now() + RETRY_INTERVAL_MILLIS
+            return false
+        }
         retryAt = null
         return true
     }
+
+    /**
+     * Whether a run of attempts is under way, for the surveyor's benefit rather than the radio's.
+     *
+     * "Reconnecting" and "not connected" want to look different on a screen somebody is watching
+     * in the dark to decide whether to walk back for the instrument.
+     */
+    val isChasing: Boolean
+        get() = giveUpAt != null
 
     /** Call when the link is being torn down, to drop any pending attempt. */
     fun cancel() {

@@ -132,6 +132,9 @@ fun App(
         state.loadLog()
         state.refreshLibrary()
         state.savedSurveys.lastOrNull()?.let { state.openSurvey(it) }
+        // After the survey, never before: opening one builds a fresh session, which would drop an
+        // instrument attached to the old one.
+        state.resumeLastInstrument()
     }
 
     KeepScreenAwake()
@@ -1487,6 +1490,13 @@ private fun FieldBar(state: DemoState) {
     val dark = state.darkMode
     var entering by remember { mutableStateOf(false) }
     var namingStation by remember { mutableStateOf(false) }
+    // The field bar's own copy, because the app bar's is gone in full-screen mode and the
+    // instrument is exactly what somebody in full screen is most likely to need to see to.
+    var connecting by remember { mutableStateOf(false) }
+
+    if (connecting) {
+        InstrumentDialog(state = state, onDismiss = { connecting = false })
+    }
 
     if (entering) {
         ManualReadingDialog(
@@ -1581,6 +1591,14 @@ private fun FieldBar(state: DemoState) {
             modifier = Modifier.clickable { namingStation = true },
         )
         Spacer(Modifier.weight(1f))
+
+        // Right-hand end, and on every screen: the surveyor asking "did that shot go in?" should
+        // not have to open a menu to find out.
+        val status = connectionStatusOf(session)
+        if (status != ConnectionStatus.CONNECTED && status != ConnectionStatus.NONE) {
+            ConnectionChip(status = status, dark = dark, onClick = { connecting = true })
+        }
+        ConnectionIndicator(status = status, dark = dark, onClick = { connecting = true })
     }
     }
 }

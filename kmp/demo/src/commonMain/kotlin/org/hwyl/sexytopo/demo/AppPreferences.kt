@@ -69,6 +69,14 @@ data class AppPreferences(
     val autoReconnect: Boolean = AutoReconnect.DEFAULT_ENABLED,
     /** For how long, from the first failure of a run. */
     val autoReconnectWindowMinutes: Int = AutoReconnect.DEFAULT_WINDOW_MINUTES,
+    /**
+     * The [org.hwyl.sexytopo.shared.comms.InstrumentProfile] name last connected to, or null.
+     *
+     * Kept so opening the app puts the surveyor back on the instrument they were using rather than
+     * on a chooser. There is nothing sensitive in it — it is the family of device, "BRIC4", not a
+     * serial number or an address.
+     */
+    val lastInstrument: String? = null,
     val deletePathFragments: Boolean = SketchDefaults.DELETE_PATH_FRAGMENTS_DEFAULT,
     val sketchStyle: SketchStyle = SketchStyle.DEFAULT,
     /** `pref_manual_controls`: the *Add reading* button on the field bar. */
@@ -194,6 +202,9 @@ object AppPreferencesStore {
             appendLine("symbol=${preferences.symbol.name}")
             appendLine("autoReconnect=${preferences.autoReconnect}")
             appendLine("autoReconnectWindowMinutes=${preferences.autoReconnectWindowMinutes}")
+            // Only when there is one: an empty value would read back as the empty string and
+            // match no profile, which is the same as absent but harder to explain in a file.
+            preferences.lastInstrument?.let { appendLine("lastInstrument=$it") }
             appendLine("deletePathFragments=${preferences.deletePathFragments}")
             val style = preferences.sketchStyle
             appendLine("sketchLineWidthDp=${style.sketchLineWidthDp}")
@@ -322,6 +333,7 @@ object AppPreferencesStore {
             autoReconnectWindowMinutes =
                 values["autoReconnectWindowMinutes"]?.toIntOrNull()?.coerceIn(0, MAX_WINDOW_MINUTES)
                     ?: AutoReconnect.DEFAULT_WINDOW_MINUTES,
+            lastInstrument = values["lastInstrument"]?.trim()?.takeIf { it.isNotEmpty() },
             deletePathFragments =
                 values["deletePathFragments"]?.toBooleanStrictOrNull()
                     ?: SketchDefaults.DELETE_PATH_FRAGMENTS_DEFAULT,

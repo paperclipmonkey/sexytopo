@@ -156,4 +156,57 @@ class ReconnectionPolicyTest {
             policy.onUnexpectedDisconnection(),
         )
     }
+
+    /**
+     * A retry that comes due while the link is already busy is put off, not spent.
+     *
+     * Every transport here refuses to start a second attempt over the top of a running one, and
+     * refuses silently. Spending the retry anyway meant nothing happened, nothing failed, and so
+     * nothing scheduled another: one badly timed tick ended the chase for good.
+     */
+    @Test
+    fun aRetryDueWhileTheLinkIsBusyIsKeptForLater() {
+        val policy = policy()
+        policy.onUnexpectedDisconnection()
+
+        clock += 3_000L
+        assertFalse(policy.retryIsDue(linkIsBusy = true), "connected over a running attempt")
+
+        // Still held, rather than lost: it comes back one interval later.
+        assertFalse(policy.retryIsDue(), "the held retry came due before its new time")
+        clock += 3_000L
+        assertTrue(policy.retryIsDue(), "the held retry was dropped rather than deferred")
+    }
+
+    /** And being busy does not extend the window: a link that never comes up is still given up on. */
+    @Test
+    fun holdingRetriesBackDoesNotPostponeGivingUp() {
+        val policy = policy()
+        policy.onUnexpectedDisconnection()
+
+        repeat(400) { // twenty minutes at three seconds a go, against a fifteen-minute window
+            clock += 3_000L
+            policy.retryIsDue(linkIsBusy = true)
+        }
+
+        assertEquals(ReconnectionPolicy.Decision.GaveUp, policy.onUnexpectedDisconnection())
+    }
+
+    /** What the connection indicator asks: is the app dealing with this, or is it for me to? */
+    @Test
+    fun aRunOfAttemptsIsVisibleWhileItLasts() {
+        val policy = policy()
+        assertFalse(policy.isChasing, "chasing before anything had gone")
+
+        policy.onUnexpectedDisconnection()
+        assertTrue(policy.isChasing)
+
+        policy.noteReady()
+        assertFalse(policy.isChasing, "still chasing an instrument that came back")
+
+        policy.onUnexpectedDisconnection()
+        minutes(16)
+        policy.onUnexpectedDisconnection()
+        assertFalse(policy.isChasing, "still chasing after giving up")
+    }
 }

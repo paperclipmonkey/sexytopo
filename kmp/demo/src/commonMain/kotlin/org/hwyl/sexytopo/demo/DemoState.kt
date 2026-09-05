@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import org.hwyl.sexytopo.shared.comms.InstrumentProfile
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
@@ -141,6 +142,41 @@ class DemoState(
      */
     var stationsCreated by mutableIntStateOf(0)
         private set
+
+    /**
+     * Connect to an instrument, and remember which one it was.
+     *
+     * Remembered even when the platform has no radio to try it on: what the surveyor owns is worth
+     * keeping either way, and the connection screen reads better with their own instrument already
+     * chosen.
+     */
+    fun useInstrument(profile: InstrumentProfile) {
+        session.useInstrument(profile)
+        if (preferences.lastInstrument != profile.name) {
+            updatePreferences(preferences.copy(lastInstrument = profile.name))
+        }
+    }
+
+    /** The instrument last connected to, if this app has met one and still recognises the name. */
+    val lastInstrument: InstrumentProfile?
+        get() =
+            preferences.lastInstrument?.let { name ->
+                InstrumentProfile.ALL.firstOrNull { it.name == name }
+            }
+
+    /**
+     * Pick the last instrument back up when the app opens.
+     *
+     * Gated on the auto-reconnect setting, which is the same question asked at a different moment:
+     * somebody who wants a dropped instrument chased wants it picked up again on Monday too, and
+     * somebody who has turned that off does not want their radio woken by opening the app to look
+     * at a survey at home.
+     */
+    fun resumeLastInstrument() {
+        if (!preferences.autoReconnect) return
+        val profile = lastInstrument ?: return
+        session.useInstrument(profile)
+    }
 
     fun updatePreferences(updated: AppPreferences) {
         preferences = updated
@@ -327,14 +363,22 @@ class DemoState(
     }
 
     private fun adopt(survey: Survey) {
+        // The instrument belongs to the surveyor, not to the survey. Opening another one used to
+        // drop the session on the floor with its transport still connected and still observed, so
+        // the radio stayed on, readings went into a survey nobody could see any more, and the
+        // instrument had to be connected again by hand.
+        val instrumentInUse = session.profile
+        session.disconnect()
+
         liveSurvey = survey
         session = SurveySession(survey, surveySettings)
-        // A new session starts on the class default, which is off — so opening a second survey
-        // would quietly turn auto-reconnect off.
+        // A new session starts on the class defaults rather than on what is saved, so without
+        // this, opening a second survey would quietly put the reconnection settings back to them.
         session.autoReconnect = preferences.reconnection
         session.traceFrames = preferences.developerMode
         session.inputMode = inputMode
         session.onStationCreated = ::noteStationCreated
+        instrumentInUse?.let { session.useInstrument(it) }
         mode = SurveyMode.LIVE
         storageProblem = null
         importProblem = null

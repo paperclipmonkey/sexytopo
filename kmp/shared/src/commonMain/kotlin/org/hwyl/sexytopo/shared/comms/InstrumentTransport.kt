@@ -12,6 +12,19 @@ interface InstrumentTransport {
     val isConnected: Boolean
 
     /**
+     * How far along the link is, which [isConnected] cannot express.
+     *
+     * The difference matters to whoever is chasing a lost instrument: a retry fired while an
+     * attempt is still running is a retry thrown away, since every transport here refuses to start
+     * a second attempt over the top of the first. It also matters on screen, where "connecting" and
+     * "not connected" are different things to a surveyor waiting in the dark.
+     *
+     * The default suits a transport with nothing in between — the simulator, and the test fakes.
+     */
+    val linkState: LinkState
+        get() = if (isConnected) LinkState.CONNECTED else LinkState.IDLE
+
+    /**
      * Asks the platform to open the link. Returns immediately; success or failure arrives as
      * [InstrumentTransportListener.onConnected] or [InstrumentTransportListener.onFailure].
      */
@@ -37,6 +50,26 @@ interface InstrumentTransport {
 
 fun interface TransportSubscription {
     fun cancel()
+}
+
+/**
+ * Where a link has got to, in the four states anything above the transport needs to tell apart.
+ *
+ * Deliberately coarser than [GattSession.Phase]: scanning, connecting, discovering and subscribing
+ * are all [CONNECTING] here, because nothing outside a transport should be making decisions out of
+ * which GATT step is in progress.
+ */
+enum class LinkState {
+    /** Nothing in flight: never started, or cleanly stopped. */
+    IDLE,
+
+    /** An attempt is running. Starting another would be thrown away. */
+    CONNECTING,
+
+    CONNECTED,
+
+    /** An attempt finished badly. A fresh one may be started from here. */
+    FAILED,
 }
 
 /**
