@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 890 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 909 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and sixteen more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -194,6 +194,13 @@ missing.
   fills, so the gaps show what is still to sweep at, and a scan runs until the surveyor ends it.
   It is this port's own — the Android app has no scanner — and the arithmetic is shared and
   tested against passages of known shape, so only the sensor is iOS-only. See finding 111.
+- **A station fixed to the world.** *View → Station position* takes the entrance's position off
+  the phone's satellite receiver — put it down on the station, watch the accuracy settle, and it
+  keeps the best reading rather than the last — or off a map, typed in, which in a wooded valley is
+  usually the better of the two. It goes into the Therion and Survex exports as a `fix`, with the
+  accuracy beside it, which is what turns a survey from a frame floating in space into one that can
+  be put on a map. Optional, and asked for by nothing: a survey without one works exactly as
+  before. See finding 112.
 - **Photographs of the passage, pinned where they were taken.** The camera button on the sketch
   toolbar opens the phone's own camera; the picture comes back, and the next tap on the drawing
   says where the surveyor was standing while a drag says which way they were looking — the same
@@ -319,10 +326,11 @@ compiles the Kotlin/Native framework and embeds it. `kmp/iosApp/project.yml` and
 below it describe a fully manual alternative if you would rather install nothing.
 
 The iOS-specific surface is small and every file in it is one screen long:
-`demo/src/iosMain/` holds seventeen — `MainViewController.kt` is one function, and the rest are the
+`demo/src/iosMain/` holds eighteen — `MainViewController.kt` is one function, and the rest are the
 `actual` halves of things a phone has and a browser does not: the Documents file store, the
 clipboard, the file picker, keeping the screen awake, the date and the timestamp, the haptic, the
-compass, the camera, the passage scanner, the keyboard nudge the browser needs and iOS does not,
+compass, the camera, the passage scanner, the satellite receiver, the keyboard nudge the browser
+needs and iOS does not,
 the two exports (a text file and a zip), the storage-durability answer and the instrument
 transports. `iosApp/` holds two Swift
 files. `shared/src/iosMain/` holds one more, `CoreBluetoothTransport.kt`, for when you want real
@@ -768,6 +776,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `GuideActivity`, `assets/guide/index.html` | `shared/manual/Manual.kt`, `demo/.../ManualView.kt`, `demo/src/commonMain/composeResources/files/manual.html` | The `WebView` **replaced** by a reader: the guide is bundled byte-for-byte and drawn as Compose, so there is no platform web view on any of the four targets. `parseManual` throws on a tag it does not draw, and the counts are checked against the file's own tags |
 | `res/layout/activity_graph.xml` | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied — widened to 10x2 by the camera, which is the one button with nothing upstream |
 | *nothing* | `shared/sketch/PassageScan.kt`, `demo/.../PassageScanner.*.kt` | **Invented.** ARKit measures the passage and the shared half slices it into a cross-section; finding 111 |
+| *nothing* | `shared/model/survey/StationFix.kt`, `demo/.../Position.*.kt`, `StationPosition.kt` | **Invented.** A station's position in the world, taken off a receiver or typed off a map, and written into both exports as a `fix`; finding 112 |
 | *nothing* | `shared/model/sketch/Sketch.kt` (`PhotoDetail`), `shared/io/store/PhotoStore.kt`, `demo/.../PhotoCapture.*.kt`, `PhotoViewer.kt` | **Invented.** The Android app has never taken a photograph; finding 110 records why a photograph is modelled as a mark on the drawing rather than as an attachment to a station |
 | `res/values/colors.xml` (+ `values-night`) | `demo/.../SexyTopoTheme.kt` | The app's own palette |
 | `res/drawable-hdpi/*.png` | `demo/src/commonMain/composeResources/drawable/` | The app's own icons |
@@ -4172,6 +4181,110 @@ These are the things that would actually shape a real port.
    *better* underground, but it does care about wet, black and far away, and a passage wall is all
    three at once.
 
+112. **A survey is a frame floating in space until one station is fixed to the world.** Every
+   survey this app has ever produced says that station 3 is so many metres from station 1, and
+   nothing whatever about where station 1 is. That is enough to draw a cave and not enough to put
+   it on a map, lay it over the surface, or join it to the survey of the cave next door — and the
+   two formats this port exports have both had the mechanism to close the gap for decades. Therion
+   calls it `fix`, Survex calls it `*fix`, and nothing in the repository emitted either.
+
+   So: *View → Station position*. Put the phone on the entrance station, watch the accuracy settle,
+   and save. It is optional and asked for by nothing — a survey without one behaves exactly as it
+   did — which is the right shape for something a surveyor does at the entrance, in the rain, if
+   they feel like it.
+
+   **The whole of the work is in `shared/`, and that is the point again.** Almost nothing about
+   this is a phone. A position is two numbers, a height, and how well each is known; what turns it
+   into a survey that can be mapped is a coordinate system declaration, an axis order, a number
+   format and a station name — all of which are pure arithmetic on strings, and every one of which
+   fails *silently*. So `StationFix` holds the model and the parsing, `SurvexTherionWriter`
+   emits the block, and the tests state expected strings rather than describing them. `iosMain`,
+   `androidMain` and `wasmJsMain` hold a receiver each and nothing else.
+
+   **Longitude first, which is the one that would have ended in the sea.** Both formats take a fix
+   as x, y, z, and for a geographic system x is the *longitude*. Survex names its coordinate system
+   `LONG-LAT` and the order is in the name. Swap the two and the file is accepted without complaint
+   and the cave appears four hundred miles out to sea — a whole survey in the wrong place, on a
+   line no parser will ever object to. `SurvexTherionFixTest` asserts the exact line for both
+   dialects for that reason alone.
+
+   **Three decisions that are about cavers rather than about code.**
+
+   *Typing it in is a first-class way to use the screen, not a fallback.* Cave entrances are in
+   wooded valleys, under cliffs and down shakeholes, which is a list of the places a satellite
+   receiver is worst; and most caves worth surveying already have a grid reference in a club's
+   records taken with more care than a phone can manage. A screen that only offered the receiver
+   would be a screen that insisted on the worse number. It also means the feature works on the
+   desktop build, where there is no receiver at all and where somebody has the map open.
+
+   *The best reading is kept, not the last.* A receiver does not converge; it wanders towards an
+   answer, and a bad reading arrives after a good one all the time as the satellites in view
+   change. Saving whatever happened to be on screen when the button was pressed would throw away
+   two minutes of standing still for one late outlier. The screen keeps the smallest claimed
+   accuracy it has seen, shows the current one beside it when they differ, and says when the best
+   has stopped improving — which is the only thing on the screen that tells a surveyor they can
+   stop waiting.
+
+   *The accuracy is written into the file.* Both formats take standard deviations after the
+   coordinates, and both platforms report them, so the export carries them: `fix 1 -2.345678
+   54.123456 312.0 8.0 8.0 15.0`. Somebody reading that file in five years can see whether the
+   entrance was known to five metres or fifty, which is not recoverable from the coordinates
+   themselves. A position typed off a map writes no accuracies at all rather than a zero — unknown
+   and exact are opposite claims, and a zero would be the wrong one.
+
+   **Only two of the five exports carry it,** which is a fact about the formats rather than a
+   corner cut. Therion and Survex both have a fix command and both take error bars with it.
+   Compass keeps its datum and its fixed stations in a separate `.mak` project file that this port
+   does not write at all; PocketTopo has nowhere to put a position; and an SVG is a picture. A
+   surveyor who needs the position in one of those has it in the survey's own metadata file, in
+   plain degrees, which is a better place to copy it from than the app's screen.
+
+   **Which altitude, and why it is worth a paragraph.** Metres above sea level, which is what a map
+   says and what both platforms report as their plain altitude — *not* the height above the WGS84
+   ellipsoid, which is the other altitude every receiver knows and which differs by about fifty
+   metres in Britain. That is deeper than most of the caves in it, and the two numbers are
+   indistinguishable by inspection: both are "the altitude", both are plausible, and nothing
+   downstream would ever question one. Android reports no altitude at all rather than a bad one
+   when it has none, and iOS says so with a negative vertical accuracy; both become an empty field
+   for the surveyor to fill from the map, rather than a zero that would put every entrance at sea
+   level.
+
+   **What each platform gave, and what it cost.** iOS is `CLLocationManager` asked for its best
+   accuracy — the other half of the compass that was already there, and the half that needs the
+   permission. Android is `LocationManager` and the plain GPS provider rather than the fused one,
+   deliberately: the fused provider's advantage is blending in wifi and cell positions, which is
+   exactly the infrastructure a cave entrance does not have, and it lives in Play services, which
+   this port does not depend on and a caver's phone may not have. The browser is
+   `navigator.geolocation` watched and polled, in the same shape as the compass beside it. The
+   desktop says it has no receiver and offers the fields.
+
+   The Android permission is the interesting one. `AndroidManifestTest` asserted that this app
+   declared no location permission at all — *"this app has no business knowing where the surveyor
+   is"* — and that assertion had to go, which is worth recording rather than quietly deleting. It
+   was two claims wearing one coat. The first, that Bluetooth scanning must not drag a location
+   prompt in with it, is still true and still tested: `neverForLocation` on `BLUETOOTH_SCAN` is
+   what keeps a caver from being asked for their location to connect to an instrument, and being
+   asked for the wrong reason is exactly why they would say no. The second, that the app should
+   never ask at all, was a stance rather than a fact, and it stopped being right the moment there
+   was a feature that a position is *for*. What replaces it is narrower and stronger: a test that
+   the permission is asked for by one file and one file only, so that a second use cannot arrive
+   without somebody deciding it should.
+
+   **And a menu row moved, which broke a browser check that nobody had touched.** `desktop.mjs`
+   finds *3D* by dividing the menu's height by the number of rows on the page, so a new row on the
+   View page moves the row it wanted *and* mis-measures every row above it. This is the second time
+   on this branch: the toolbar went from nine columns to ten when the camera arrived and quietly
+   sent three scripts to the wrong tool. The fix is one line and the lesson is not — index
+   arithmetic over a list somebody else can add to is a fault that reports itself hundreds of lines
+   later as something unrelated.
+
+   **Not verified.** The screen has been driven on the JVM, where there is no receiver, so the
+   typed-in half is covered end to end and the measured half is covered nowhere: no reading from a
+   real satellite has been through this code on any platform. And the exports have not been through
+   Therion or Survex themselves. `cavern` on an exported `.svx` and a `thconfig` build on the `.th`
+   are the two commands that would close both questions, and they want the real tools rather than
+   a build server.
+
 ---
 
 ## A defect worth reporting upstream
@@ -4322,8 +4435,8 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 890
-shared tests on three targets, 16 more against `java.util.zip` on the JVM, 549 over the UI's own
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 909
+shared tests on three targets, 16 more against `java.util.zip` on the JVM, 554 over the UI's own
 logic, 20 running the iOS half in a simulator,
 134 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
@@ -4417,6 +4530,16 @@ called done without somebody holding a device, and so that "tested" is never rea
   about wet, black rock four metres off, and a chamber too big for a head torch is where it should
   be expected to give up — that is what the five-metre sentence on the scan screen is warning about,
   and a section full of gaps in a big chamber is the scanner being honest rather than failing.
+- **A position, and whether the export lands where the cave is.** The position screen has been
+  driven on the JVM, which has no receiver, so the typed-in half works and no reading from a real
+  satellite has been through this code at all. On a phone: open *View → Station position* at a
+  known spot, leave it a minute, and see whether the accuracy settles somewhere believable — ten
+  metres under trees is right, one metre is a phone telling itself stories. Then the half a build
+  server cannot reach: export the survey and run `cavern` on the `.svx`, or build the `.th` with
+  Therion, and see the entrance land where it belongs. The coordinate system names and the
+  longitude-before-latitude order are stated as expected strings in `SurvexTherionFixTest` and
+  believed rather than verified; the tools themselves are the only thing that can settle them, and
+  a cave four hundred miles out to sea is what a wrong answer looks like.
 - **The camera opens, and what comes back is the right way up.** The iOS path has now met a lens,
   and taking, pinning, reopening and exporting a photograph all work — but it also locked the app
   solid afterwards, which is finding 110 and is fixed. **So the first thing to re-check on iOS is

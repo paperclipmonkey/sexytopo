@@ -3,6 +3,7 @@ package org.hwyl.sexytopo.shared.io.store
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.survey.Leg
+import org.hwyl.sexytopo.shared.model.survey.StationFix
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
 import kotlin.test.Test
@@ -293,6 +294,106 @@ class SurveyStorageTest {
         val loaded = SurveyStorage.load(store, directory())
 
         assertEquals("3", loaded.activeStation.name)
+    }
+
+    /**
+     * A position taken at the entrance is still there when the survey is opened again.
+     *
+     * The whole cycle rather than the JSON alone, because the JSON alone is what every other test
+     * of this file checked when a photograph went missing and the fault turned out to be nowhere
+     * near the serialisation. A position is worth more than most of what is in the file — it costs
+     * a walk back to the entrance and two minutes of standing still to take again — so the test
+     * that matters is the one a surveyor performs: close the app, open the survey, is it there.
+     */
+    @Test
+    fun aPositionSurvivesSavingAndLoading() {
+        val store = InMemoryFileStore()
+        val survey = survey()
+        survey.fix =
+            StationFix(
+                station = "1",
+                latitude = 51.24939,
+                longitude = -2.72519,
+                altitude = 236.0,
+                horizontalAccuracy = 6.5,
+                verticalAccuracy = 12.0,
+                source = StationFix.Source.MEASURED,
+            )
+
+        SurveyStorage.save(store, survey, directory())
+        val loaded = SurveyStorage.load(store, directory())
+
+        val fix = loaded.fix
+        assertTrue(fix != null, "the position did not survive being saved and opened again")
+        assertEquals("1", fix.station)
+        assertEquals(51.24939, fix.latitude)
+        assertEquals(-2.72519, fix.longitude)
+        assertEquals(236.0, fix.altitude)
+        assertEquals(6.5, fix.horizontalAccuracy)
+        assertEquals(12.0, fix.verticalAccuracy)
+        assertEquals(StationFix.Source.MEASURED, fix.source)
+    }
+
+    /**
+     * A position that is not one leaves the survey openable and unfixed.
+     *
+     * A metadata file can be edited by hand, written by something else, or half-written by a
+     * crash. The survey in the same directory — the legs, the drawings, the work — is not in doubt
+     * because a coordinate in another file is nonsense, so a bad position is dropped rather than
+     * thrown.
+     */
+    @Test
+    fun aPositionThatIsNotOneDoesNotStopTheSurveyOpening() {
+        val store = InMemoryFileStore()
+        SurveyStorage.save(store, survey(), directory())
+        store.writeText(
+            directory() + "Swildons.metadata.json",
+            """
+            {
+              "name": "Swildons",
+              "active-station": "3",
+              "connections": {},
+              "fix": { "station": "1", "latitude": 500, "longitude": 0, "altitude": 0 }
+            }
+            """.trimIndent(),
+        )
+
+        val loaded = SurveyStorage.load(store, directory())
+
+        assertEquals(null, loaded.fix, "a latitude of 500 was taken for a position")
+        assertEquals("3", loaded.activeStation.name, "the rest of the file stopped being read")
+        assertEquals(3, loaded.getAllStations().size, "the survey itself did not open")
+    }
+
+    /**
+     * A position outlives the working station being renamed away.
+     *
+     * The two are read from the same file and have nothing to do with each other. An earlier
+     * version returned before reaching the position whenever the named station was missing, which
+     * would have quietly dropped a hard-won entrance position because somebody renamed a station
+     * inside the cave.
+     */
+    @Test
+    fun aPositionIsKeptEvenWhenTheWorkingStationHasGone() {
+        val store = InMemoryFileStore()
+        SurveyStorage.save(store, survey(), directory())
+        store.writeText(
+            directory() + "Swildons.metadata.json",
+            """
+            {
+              "name": "Swildons",
+              "active-station": "not-a-station",
+              "connections": {},
+              "fix": {
+                "station": "1", "latitude": 51.24939, "longitude": -2.72519, "altitude": 236
+              }
+            }
+            """.trimIndent(),
+        )
+
+        val loaded = SurveyStorage.load(store, directory())
+
+        assertEquals(51.24939, loaded.fix?.latitude, "the position went with the station name")
     }
 
     /** A round trip keeps it, which is the case a surveyor actually meets. */

@@ -400,11 +400,16 @@ const menuRowAt = async (index, rows, x) => {
 const menuMiddle = () => box.width - 116
 
 // `action_bar.xml`'s own two levels: seven groups and the connection row at the top, then
-// `action_view`'s six views, `view_display` and the demo cave below a Back row - so *View* is the
-// second row of eight and *3D* the sixth of nine.
+// `action_view`'s six views, this port's own station position, `view_display` and the demo cave
+// below a Back row - so *View* is the second row of eight and *3D* the seventh of ten.
+//
+// Both numbers matter, and the second one is the one that bites: `menuRowAt` divides the menu's
+// measured height by the row count, so a page that has gained a row moves every row below it *and*
+// mis-measures the ones above. This has already been paid for once on this branch, when a toolbar
+// went from nine columns to ten and three scripts quietly started tapping the wrong tool.
 await at(...overflowButton()); await page.waitForTimeout(600)
 await at(...(await menuRowAt(1, 8, menuMiddle()))); await page.waitForTimeout(500)
-await at(...(await menuRowAt(5, 9, menuMiddle()))); await page.waitForTimeout(1400)
+await at(...(await menuRowAt(6, 10, menuMiddle()))); await page.waitForTimeout(1400)
 await page.screenshot({ path: join(shotDir, 'desktop-3d.png') })
 
 // The 3D renderer's own red, a darker shade than the 2D sketch's, so `centreline` above would not
