@@ -119,7 +119,8 @@ class IosAssetsTest {
     }
 
     /**
-     * And the key that decides whether a scanned passage points anywhere in particular.
+     * And the key two features need: whether a scanned passage points anywhere in particular, and
+     * whether a station can be given a position at all.
      *
      * Not a crash this time, which is what makes it worth a test of its own. A scan asks ARKit for
      * a world aligned to gravity and heading so that the section can be sliced across the passage's
@@ -129,7 +130,9 @@ class IosAssetsTest {
      * could be either of two things: align to magnetic north, which a survey would welcome, or
      * align to however the phone was pointing when the scan opened, which draws a section that is
      * square, plausible and turned by an unknown angle with nothing in the drawing to say so.
-     * Taking the key out risks the second silently, which is why it is held here.
+     * Taking the key out risks the second silently, which is why it is held here — and it now also
+     * takes the position screen's receiver away outright, since iOS hands no reading to an app that
+     * has not been able to ask.
      */
     @Test
     fun thePlistAsksForWhatARKitNeedsToFindNorth() {
@@ -137,7 +140,8 @@ class IosAssetsTest {
 
         assertTrue(
             plist.contains("NSLocationWhenInUseUsageDescription"),
-            "a passage scan would be aligned to nothing but the way the phone was held",
+            "a passage scan would be aligned to nothing but the way the phone was held, and the " +
+                "position screen would wait for a reading that iOS was never asked for",
         )
     }
 

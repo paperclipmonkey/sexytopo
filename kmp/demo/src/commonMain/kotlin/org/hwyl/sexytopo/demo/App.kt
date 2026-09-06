@@ -352,6 +352,7 @@ private fun SexyTopoAppBar(state: DemoState) {
     var menuOpen by remember { mutableStateOf(false) }
     var naming by remember { mutableStateOf(NamingIntent.NONE) }
     var editingTrip by remember { mutableStateOf(false) }
+    var fixingPosition by remember { mutableStateOf(false) }
     var editingSettings by remember { mutableStateOf(false) }
     var editingManualEntry by remember { mutableStateOf(false) }
     var editingSketchStyle by remember { mutableStateOf(false) }
@@ -408,6 +409,19 @@ private fun SexyTopoAppBar(state: DemoState) {
             onDismiss = { editingTrip = false },
             onSaved = {
                 editingTrip = false
+                state.noteSketchEdited()
+            },
+        )
+    }
+
+    if (fixingPosition) {
+        StationPositionDialog(
+            survey = state.liveSurvey,
+            onDismiss = { fixingPosition = false },
+            onSaved = {
+                fixingPosition = false
+                // The same nudge the trip gives: a position lives in the metadata file, and
+                // nothing else about the survey has changed to make it get written.
                 state.noteSketchEdited()
             },
         )
@@ -788,6 +802,14 @@ private fun SexyTopoAppBar(state: DemoState) {
                     MenuAction(Strings.actionTrip) {
                         state.mode = SurveyMode.LIVE
                         editingTrip = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    // This port's own, next to the trip because it is the same kind of thing:
+                    // something true of the whole survey rather than of anything drawn in it.
+                    MenuAction(Strings.actionStationPosition) {
+                        state.mode = SurveyMode.LIVE
+                        fixingPosition = true
                         menuOpen = false
                         page = MenuPage.TOP
                     }

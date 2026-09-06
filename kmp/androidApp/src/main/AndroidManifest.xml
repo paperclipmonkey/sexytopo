@@ -28,6 +28,23 @@
         of the surveyor at runtime.
     -->
     <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!--
+        Where the cave is, and nothing else.
+
+        The note on BLUETOOTH_SCAN above says a cave surveying app genuinely does not want the
+        user's location, and for finding an instrument that is still true - `neverForLocation` is
+        an assertion about scan results and stands. This is the one place the app does want it: a
+        survey is a frame floating in space until one station is fixed to the world, and the only
+        place a satellite can be seen from is the entrance. It is asked for on the position screen
+        and nowhere else, so a surveyor who never takes a position is never asked; and refusing it
+        costs them the receiver rather than the feature, since a position can be typed in from the
+        map.
+
+        Fine rather than coarse, because coarse is accurate to a few kilometres - which for putting
+        a cave entrance on a map is no answer at all.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <!-- Pre-Android-12 equivalents, capped so they are not requested on newer releases. -->
     <uses-permission
         android:name="android.permission.BLUETOOTH"
