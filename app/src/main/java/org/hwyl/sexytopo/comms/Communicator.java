@@ -9,6 +9,14 @@ public interface Communicator {
 
     boolean isConnected();
 
+    /**
+     * Whether the communicator has lost the instrument and is trying to get it back, so the device
+     * screen can say so rather than just showing a switch flipped off.
+     */
+    default boolean isReconnecting() {
+        return false;
+    }
+
     void requestConnect();
 
     void requestDisconnect();

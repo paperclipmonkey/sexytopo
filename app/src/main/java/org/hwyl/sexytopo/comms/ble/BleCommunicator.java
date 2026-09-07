@@ -39,6 +39,11 @@ public abstract class BleCommunicator implements Communicator, ConnectionObserve
     }
 
     @Override
+    public boolean isReconnecting() {
+        return !isConnected() && reconnectionPolicy.isReconnecting();
+    }
+
+    @Override
     public void requestConnect() {
         reconnectionPolicy.noteUserRequestedConnect();
         manager.connect(bluetoothDevice)
@@ -83,8 +88,9 @@ public abstract class BleCommunicator implements Communicator, ConnectionObserve
     public void onDeviceFailedToConnect(@NonNull BluetoothDevice device, int reason) {
         String name = Instrument.describe(device);
         Log.device(R.string.device_ble_failed_to_connect_to, name);
-        activity.updateConnectionStatus();
+        // tell the policy first, so the status we then show knows whether we're chasing
         reconnectionPolicy.onUnexpectedDisconnection();
+        activity.updateConnectionStatus();
     }
 
     @Override
@@ -92,6 +98,7 @@ public abstract class BleCommunicator implements Communicator, ConnectionObserve
         String name = Instrument.describe(device);
         Log.device(R.string.device_ble_device_ready, name);
         reconnectionPolicy.noteReady();
+        activity.updateConnectionStatus();
     }
 
     @Override
@@ -112,11 +119,12 @@ public abstract class BleCommunicator implements Communicator, ConnectionObserve
                         ? R.string.device_ble_device_not_connected
                         : R.string.device_ble_device_disconnected,
                 name);
-        activity.updateConnectionStatus();
 
         // anything other than REASON_SUCCESS means we didn't ask for this
         if (reason != ConnectionObserver.REASON_SUCCESS) {
             reconnectionPolicy.onUnexpectedDisconnection();
         }
+
+        activity.updateConnectionStatus();
     }
 }

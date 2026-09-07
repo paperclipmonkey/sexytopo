@@ -148,7 +148,15 @@
                         android:layout_height="wrap_content"
                         android:text="@string/device_auto_reconnect"
                         android:textAppearance="?android:attr/textAppearanceSmall"
-                        android:checked="false" />
+                        android:checked="true" />
+
+                    <TextView
+                        android:id="@+id/connectionStatusText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/device_connection_status_disconnected"
+                        android:textAppearance="?android:attr/textAppearanceSmall"
+                        android:paddingTop="4dp" />
 
                 </LinearLayout>
 
