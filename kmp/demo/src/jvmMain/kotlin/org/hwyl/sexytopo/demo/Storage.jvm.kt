@@ -31,6 +31,12 @@ internal class DirectoryFileStore(private val root: File) : FileStore {
     override fun readBytes(path: List<String>): ByteArray? =
         fileFor(path).takeIf { it.isFile }?.readBytes()
 
+    override fun writeBytes(path: List<String>, bytes: ByteArray) {
+        val file = fileFor(path)
+        file.parentFile?.mkdirs()
+        file.writeBytes(bytes)
+    }
+
     override fun createDirectory(path: List<String>) {
         fileFor(path).mkdirs()
     }

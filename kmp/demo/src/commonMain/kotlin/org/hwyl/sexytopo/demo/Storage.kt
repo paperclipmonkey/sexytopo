@@ -5,7 +5,9 @@ import org.hwyl.sexytopo.shared.io.CalibrationJson
 import org.hwyl.sexytopo.shared.io.LogJson
 import org.hwyl.sexytopo.shared.io.store.FileStore
 import org.hwyl.sexytopo.shared.io.store.InMemoryFileStore
+import org.hwyl.sexytopo.shared.io.store.PhotoStore
 import org.hwyl.sexytopo.shared.io.store.SurveyStorage
+import org.hwyl.sexytopo.shared.io.store.SurveyZip
 import org.hwyl.sexytopo.shared.log.LogMessage
 import org.hwyl.sexytopo.shared.log.LogType
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -21,6 +23,41 @@ expect fun platformFileStore(): FileStore
 
 /** Where surveys are kept. A single directory, since there is no folder picker here. */
 val SURVEYS_ROOT = listOf("surveys")
+
+/**
+ * One handle on that directory, for the parts of the app that deal in files rather than surveys.
+ *
+ * [SurveyLibrary] takes its own and deals in surveys, which is the right shape for four JSON files
+ * that share a name and the wrong one for a photograph. Photographs need a path, so they need this.
+ *
+ * Shared rather than made where it is wanted, because on a machine with nowhere writable
+ * `platformFileStore` falls back to an [InMemoryFileStore] and a second call is then a second
+ * *empty* store. Two handles would mean a photograph written through one and looked for through
+ * the other, which is a pin pointing at nothing on exactly the machines least able to explain why.
+ *
+ * Lazily, since a top-level property is initialised with the module that holds it and on the web
+ * that can be before there is a document to ask about storage.
+ */
+internal val surveyFileStore: FileStore by lazy { platformFileStore() }
+
+/**
+ * The survey as a zip, with the photographs its pins point at.
+ *
+ * [SurveyZip] deliberately does not know where a photograph is kept — its job is naming and
+ * packing — so somebody has to join the two, and this is the one place that does. Both ways out of
+ * the app, the File menu's share and the export screen's own button, come through here, so a
+ * survey shared from one is the same file as a survey shared from the other.
+ *
+ * A photograph that will not read is left out rather than allowed to take the export down with it.
+ * Losing one picture from a zip is a bad afternoon; losing the survey is a lost trip.
+ */
+internal fun surveyArchive(survey: Survey): ByteArray =
+    SurveyZip.archive(survey) { photoId ->
+        runCatching {
+            PhotoStore.load(surveyFileStore, SURVEYS_ROOT + survey.name, survey.name, photoId)
+        }
+            .getOrNull()
+    }
 
 /**
  * Saving and reopening surveys, wrapped so callers never have to think about paths.

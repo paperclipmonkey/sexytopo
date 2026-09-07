@@ -144,10 +144,10 @@ if (titleWhitePixels > 100) {
 // (antialiasing differs), so the comparison is on compressed size.
 const beforeDraw = await page.screenshot({ clip: box })
 
-// The toolbar is SexyTopo's own: nine equal columns, two rows, along the bottom. Positions are
+// The toolbar is SexyTopo's own: ten equal columns, two rows, along the bottom. Positions are
 // computed from the canvas box rather than hardcoded, so moving a button by a few pixels does not
 // break the test while moving it to another cell rightly does.
-const column = box.width / 9
+const column = box.width / 10
 const toolRowY = box.y + box.height - 20
 const cellCentre = (index) => box.x + column * (index + 0.5)
 

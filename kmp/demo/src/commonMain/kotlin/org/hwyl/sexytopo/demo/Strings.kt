@@ -125,6 +125,161 @@ object Strings {
 
     val usingTheSimulatedInstrument = local("Using the simulated instrument")
 
+    /**
+     * The camera and the photographs it pins to the sketch.
+     *
+     * Every one of these is [local] because there is nothing upstream to mirror: `strings.xml` has
+     * no camera and no photograph in it anywhere, and the only camera in the whole of the Android
+     * source is the viewpoint `SurveyRenderer` moves round the 3D view. Written as [s] calls they
+     * would fail `AndroidStringsTest` on the first run, which is the test doing its job — a name
+     * mirrored from a file that has not got it is a promise nobody upstream made. If the app ever
+     * grows a camera these become [s] calls under its own resource names and the check starts
+     * holding them to it.
+     *
+     * [placePhotoInstruction] is shaped after [sketchPositionCrossSectionInstruction], which is the
+     * app's own wording for the other tool that is armed somewhere else and then waits to be told
+     * where: same sentence, same job, so the two should not read as though different apps wrote
+     * them.
+     */
+    val toolbarPhoto = local("Camera")
+
+    val placePhotoInstruction = local("Select where to pin the photograph")
+
+    val photoTitle = local("Photograph")
+
+    /**
+     * What the viewer's delete button says. Not *Delete*, which the app has a resource for and
+     * which would be a lie here: this takes the pin off the drawing and leaves the picture in the
+     * survey's folder, because the removal is undoable and an undo has to find the image still
+     * there. See `SketchEditor.addPhoto`.
+     */
+    val photoRemove = local("Remove from sketch")
+
+    /**
+     * The two ways a pin can have nothing behind it, kept apart because the answer differs. A
+     * survey handed over as a `.data.json` and a sketch arrives with its pins and without its
+     * pictures; a file that is there and will not decode is damaged, and asking for it again from
+     * whoever sent it is the thing to do.
+     */
+    val photoMissing =
+        local(
+            "This photograph is not in the survey's folder. A survey copied without its pictures " +
+                "keeps the pins but not what they point at.",
+        )
+
+    val photoUnreadable = local("This photograph could not be read; the file is damaged.")
+
+    /** Storage is what fails here, and on the browser build it fails at about five megabytes. */
+    val photoNotSaved = local("The photograph could not be saved.")
+
+    /**
+     * Scanning the shape of a passage, which nothing upstream does either.
+     *
+     * [local] for the same reason as the camera above: `strings.xml` has no scanner in it, so an
+     * [s] call would be a promise nobody upstream made. `PassageScanner.ios.kt` types its own two
+     * words out again rather than reaching for these, because that screen is UIKit and is built
+     * before Compose has anything on it — noted there as well as here, since a duplicated string
+     * is the kind of thing somebody rightly asks about.
+     */
+    val scanPassage = local("Scan the passage")
+
+    val scanFoundNothing =
+        local(
+            "The scan found no passage. Sweep the phone slowly round the walls, and give it " +
+                "something to see: bare rock in the dark is hard for a phone to track.",
+        )
+
+    /**
+     * Fixing a station to the world, which nothing upstream does either.
+     *
+     * [local] for the same reason as the camera and the scanner: `strings.xml` has no position
+     * screen in it, so an [s] call would be a promise nobody upstream made.
+     *
+     * The wording avoids "GPS" everywhere except where a surveyor has to be told which switch to
+     * find, because the screen takes a position typed off a map just as happily as one off a
+     * satellite — and in a wooded valley the map is usually the better of the two.
+     */
+    val actionStationPosition = local("Station position")
+
+    val positionStationLabel = local("Station")
+
+    val positionNoSuchStation = local("This survey has no station of that name")
+
+    val positionWaiting = local("Waiting for a position...")
+
+    /** The headline, and deliberately not a plus-or-minus sign: this is read at arm's length. */
+    fun positionGoodTo(metres: Double): String = "Good to about ${roundedMetres(metres)} m"
+
+    val positionAccuracyUnknown = local("Accuracy unknown")
+
+    fun positionBestSoFar(metres: Double): String = "Best so far: ${roundedMetres(metres)} m"
+
+    fun positionWatchingFor(seconds: Int): String =
+        if (seconds < 60) {
+            "Watching for $seconds s"
+        } else {
+            "Watching for ${seconds / 60} min ${seconds % 60} s"
+        }
+
+    /**
+     * Said once the receiver has stopped improving, which is when a surveyor can stop waiting.
+     *
+     * The whole method is stand still and wait, and the hard part of it is knowing when to stop.
+     * A phone will happily report the same accuracy for another ten minutes.
+     */
+    val positionSettled = local("It has stopped improving - this is about as good as it gets here")
+
+    val positionTips =
+        local(
+            "Best under open sky, well away from cliffs and trees. Put the phone down on the " +
+                "station, leave it, and give it a minute or two: the first reading out of a cold " +
+                "receiver is the worst one there will be. A grid reference off the map beats all " +
+                "of this."
+        )
+
+    val positionTypeItIn = local("Type it in instead")
+
+    val positionUseTheReceiver = local("Use the receiver instead")
+
+    val positionLatitudeLabel = local("Latitude")
+
+    val positionLongitudeLabel = local("Longitude")
+
+    val positionAltitudeLabel = local("Height (m above sea level)")
+
+    val positionDegreesProblem = local("Decimal degrees, like 54.12345 or -2.34567")
+
+    val positionAltitudeProblem = local("Metres above sea level, like 312")
+
+    /**
+     * Said where the height is asked for, because it is the number a receiver is worst at.
+     *
+     * Vertical error is two or three times the horizontal, which is worth knowing when the height
+     * is the one a surveyor is going to compare against the depth of their cave.
+     */
+    val positionAltitudeHint =
+        local("A receiver is far worse at height than at position - take it off the map if you can")
+
+    val positionRemove = local("Remove this position")
+
+    /** What the export will carry, said in the surveyor's own terms rather than in the file's. */
+    val positionExportNote =
+        local("Saved with the survey, and written into Therion and Survex exports as a fix")
+
+    private fun roundedMetres(metres: Double): String =
+        if (metres >= 10) metres.toInt().toString() else ((metres * 10).toInt() / 10.0).toString()
+
+    /** How many walls were drawn, said plainly because a scan is worth confirming. */
+    fun scanDrew(strokes: Int): String =
+        if (strokes == 1) {
+            local("The scan drew one wall. Rub it out and draw over it like any other stroke.")
+        } else {
+            local(
+                "The scan drew $strokes pieces of wall, with gaps where nothing was scanned. Rub " +
+                    "them out and draw over them like any other stroke.",
+            )
+        }
+
     // -- Common ---------------------------------------------------------------------------
 
     val ok = s("ok", "OK")

@@ -111,8 +111,38 @@ class IosAssetsTest {
         val plist = File(iosApp, "iosApp/Info.plist").readText()
 
         assertTrue(plist.contains("NSBluetoothAlwaysUsageDescription"), "connect would crash")
+        // The same trap again, and the same consequence: presenting a picker with the camera
+        // source and no usage string terminates the process rather than refusing politely.
+        assertTrue(plist.contains("NSCameraUsageDescription"), "the camera would crash")
         assertTrue(plist.contains("UIFileSharingEnabled"), "surveys would be unreachable")
         assertTrue(plist.contains("LSSupportsOpeningDocumentsInPlace"))
+    }
+
+    /**
+     * And the key two features need: whether a scanned passage points anywhere in particular, and
+     * whether a station can be given a position at all.
+     *
+     * Not a crash this time, which is what makes it worth a test of its own. A scan asks ARKit for
+     * a world aligned to gravity and heading so that the section can be sliced across the passage's
+     * own bearing, and heading alignment wants location services — ARKit reckons north as *true*
+     * north, and the declination that turns magnetic into true is a fact about where you are
+     * standing. Without this key iOS cannot be asked. What ARKit then does is undocumented and
+     * could be either of two things: align to magnetic north, which a survey would welcome, or
+     * align to however the phone was pointing when the scan opened, which draws a section that is
+     * square, plausible and turned by an unknown angle with nothing in the drawing to say so.
+     * Taking the key out risks the second silently, which is why it is held here — and it now also
+     * takes the position screen's receiver away outright, since iOS hands no reading to an app that
+     * has not been able to ask.
+     */
+    @Test
+    fun thePlistAsksForWhatARKitNeedsToFindNorth() {
+        val plist = File(iosApp, "iosApp/Info.plist").readText()
+
+        assertTrue(
+            plist.contains("NSLocationWhenInUseUsageDescription"),
+            "a passage scan would be aligned to nothing but the way the phone was held, and the " +
+                "position screen would wait for a reading that iOS was never asked for",
+        )
     }
 
     /**
