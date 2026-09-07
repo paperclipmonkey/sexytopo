@@ -293,8 +293,22 @@ public class DeviceActivity extends SexyTopoActivity {
             return;
         }
 
+        Communicator comms = requestComms();
+        boolean isConnected = comms.isConnected();
+
         SwitchCompat connectionSwitch = findViewById(R.id.connectionSwitch);
-        connectionSwitch.setChecked(requestComms().isConnected());
+        connectionSwitch.setChecked(isConnected);
+
+        // While we're chasing a lost instrument the switch sits at off, which reads as an
+        // invitation to press it. Say what's actually happening instead.
+        TextView status = findViewById(R.id.connectionStatusText);
+        if (isConnected) {
+            status.setText(R.string.device_connection_status_connected);
+        } else if (comms.isReconnecting()) {
+            status.setText(R.string.device_connection_status_reconnecting);
+        } else {
+            status.setText(R.string.device_connection_status_disconnected);
+        }
     }
 
     private void unpair(BluetoothDevice device) throws SecurityException {

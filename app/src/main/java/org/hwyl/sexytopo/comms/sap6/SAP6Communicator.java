@@ -58,6 +58,11 @@ public class SAP6Communicator implements Communicator {
     }
 
     @Override
+    public boolean isReconnecting() {
+        return !isConnected() && reconnectionPolicy.isReconnecting();
+    }
+
+    @Override
     public void requestConnect() {
         reconnectionPolicy.noteUserRequestedConnect();
         caveBLE.connect();

@@ -247,7 +247,7 @@ public class GeneralPreferences {
     // ********** Connection ***********
 
     public static boolean isAutoReconnectOn() {
-        return getBoolean("pref_auto_reconnect", false);
+        return getBoolean("pref_auto_reconnect", true);
     }
 
     public static void setAutoReconnect(boolean enabled) {

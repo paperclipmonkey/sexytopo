@@ -69,6 +69,11 @@ public class FCLCommunicator implements Communicator {
     }
 
     @Override
+    public boolean isReconnecting() {
+        return !isConnected() && reconnectionPolicy.isReconnecting();
+    }
+
+    @Override
     public void requestConnect() {
         reconnectionPolicy.noteUserRequestedConnect();
         fclBLE.connect();

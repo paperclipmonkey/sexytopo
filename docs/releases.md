@@ -1,5 +1,5 @@
 # Unreleased
-- Auto-(re)connect to instrument option (thanks Brendan Hall)
+- Auto-(re)connect to instrument option (thanks Brendan Hall), now on by default, with the Instrument page showing when a reconnection is in progress
 - A copyright notice and licence can now be assigned to a survey, along with some light nudging towards free licences (thanks Andrew Atkinson)
 - Legs can be drawn using only their vertical change in the extended elevation (thanks Andrew Atkinson)
 
