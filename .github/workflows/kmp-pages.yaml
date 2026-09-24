@@ -11,7 +11,32 @@
 # this UI is usable on a phone-shaped iOS screen, with a finger, by a caver. It costs one workflow
 # and answers that in ten seconds instead of a week.
 #
-# Publishing needs two manual settings, both one-off and both requiring a repository admin.
+# ## One site, one directory per branch
+#
+# A repository has exactly one Pages site, and `deploy-pages` replaces the whole of it. So while
+# every branch published to the root, a demo lasted only until the next branch pushed - a review
+# environment that vanished the moment somebody merged anything, which is no use for a branch
+# meant to be looked at over days rather than minutes.
+#
+# The published tree is therefore assembled rather than overwritten. `main` keeps the root; every
+# other branch gets `preview/<branch>/`, and each run rewrites only its own directory. The
+# assembled tree is kept on the `pages-content` branch, because the deploy artifact expires within
+# a day and there is nowhere else to read the current site back from.
+#
+# That branch is build output, not history: each run force-pushes a single fresh commit, so the
+# repository carries one copy of the site rather than one per deploy. Nothing reads its history
+# and nothing should be based on it.
+#
+# Previews are pruned here rather than on a schedule: any `preview/<branch>/` whose branch no
+# longer exists is dropped on the next publish, whoever triggered it. A merged and deleted branch
+# therefore takes its demo with it, and a site that would otherwise grow until it met the 1GB
+# Pages limit stays the size of the work in flight.
+#
+# The app itself needed no change to move into a subdirectory: `index.html`, the manifest and the
+# service worker all reference each other relatively, and a worker registered from `./sw.js` is
+# scoped to the directory it was served from, so two demos on one origin cache separately.
+#
+# ## Publishing needs two manual settings, both one-off and both requiring a repository admin
 #
 #   1. Settings -> Pages -> Build and deployment -> Source -> "GitHub Actions"
 #
@@ -42,9 +67,11 @@ on:
       - '.github/workflows/kmp-pages.yaml'
   workflow_dispatch:
 
-# One deployment at a time, and let a newer push win rather than queue behind an older one.
+# Per branch, not per repository. A newer push to the same branch supersedes an older one and is
+# worth cancelling for; a push to some *other* branch is not, because each branch now owns a
+# directory of its own and a cancelled run leaves that directory holding the previous build.
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -52,12 +79,16 @@ permissions:
   pages: write
   id-token: write
 
+env:
+  # Where the assembled site is kept between runs. Build output; see the header.
+  CONTENT_BRANCH: pages-content
+
 jobs:
   build:
     name: Build the browser demo
     runs-on: ubuntu-latest
     outputs:
-      # Whether there is anything for the deploy job to deploy.
+      # Whether there is anything for the publish job to publish.
       published: ${{ steps.pages.outcome == 'success' }}
     steps:
       - uses: actions/checkout@v4
@@ -85,25 +116,135 @@ jobs:
                "Build and deployment -> Source -> GitHub Actions; then re-run this workflow."
 
       - if: steps.pages.outcome == 'success'
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
+          name: browser-demo
           path: kmp/demo/build/dist/wasmJs/productionExecutable
+          # Read by the next job and never again.
+          retention-days: 1
 
-  deploy:
-    name: Deploy
+  publish:
+    name: Publish
     needs: build
     if: needs.build.outputs.published == 'true'
     runs-on: ubuntu-latest
     # A branch the github-pages environment does not allow is rejected before any step runs, so
     # this has to be tolerated at the job level rather than the step level. See setting 2 above.
     continue-on-error: true
+    # Every run rewrites one shared branch, so two must not assemble it at once - and the loser of
+    # a race has to wait rather than be dropped, or its branch keeps the build before this one.
+    concurrency:
+      group: pages-publish
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Work out which directory this branch owns
+        id: where
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          branch="${GITHUB_REF#refs/heads/}"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          if [ "$branch" = "$DEFAULT_BRANCH" ]; then
+            echo "path=" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=preview/$branch/" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: browser-demo
+          path: demo
+
+      - name: Fetch the site as it stands
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          origin="https://github.com/$GITHUB_REPOSITORY"
+          if git ls-remote --exit-code --heads "$origin" "$CONTENT_BRANCH" >/dev/null 2>&1; then
+            git clone --quiet --depth 1 --branch "$CONTENT_BRANCH" \
+              "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY" site
+            rm -rf site/.git
+          else
+            echo "::notice::$CONTENT_BRANCH does not exist yet; starting the site from scratch."
+            mkdir site
+          fi
+
+      - name: Put this build in its place
+        env:
+          TARGET: ${{ steps.where.outputs.path }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TARGET" ]; then
+            # The default branch owns the root - everything at the top level except the previews,
+            # which belong to branches this run knows nothing about.
+            find site -mindepth 1 -maxdepth 1 ! -name preview -exec rm -rf {} +
+            dir=site
+          else
+            dir="site/${TARGET%/}"
+            rm -rf "$dir"
+            mkdir -p "$dir"
+          fi
+          cp -R demo/. "$dir/"
+
+      - name: Drop the demos of branches that are gone
+        env:
+          KEEP: ${{ steps.where.outputs.branch }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [ -d site/preview ] || exit 0
+          origin="https://github.com/$GITHUB_REPOSITORY"
+          # A demo's own directory names the branch it was built from, so nothing has to be
+          # recorded alongside it: the path after `preview/` is the branch to ask about.
+          while IFS= read -r index; do
+            dir="$(dirname "$index")"
+            branch="${dir#site/preview/}"
+            [ "$branch" = "$KEEP" ] && continue
+            if ! git ls-remote --exit-code --heads "$origin" "$branch" >/dev/null 2>&1; then
+              echo "::notice::Dropping the demo for $branch, whose branch no longer exists."
+              rm -rf "$dir"
+            fi
+          done < <(find site/preview -name index.html)
+          find site/preview -type d -empty -delete
+
+      - name: Record the assembled site
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.where.outputs.branch }}
+        run: |
+          set -euo pipefail
+          cd site
+          # A fresh orphan every time: this branch is a copy of the site, not a record of how it
+          # got that way, and keeping the history would keep a wasm build per deploy forever.
+          git init --quiet -b "$CONTENT_BRANCH"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit --quiet -m "Site as published for $BRANCH at $GITHUB_SHA"
+          git push --force --quiet \
+            "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY" "$CONTENT_BRANCH"
+          cd ..
+          rm -rf site/.git
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
       - id: deployment
         uses: actions/deploy-pages@v4
 
       - name: Say where it went
+        env:
+          URL: ${{ steps.deployment.outputs.page_url }}${{ steps.where.outputs.path }}
         run: |
-          echo "::notice::Demo published at ${{ steps.deployment.outputs.page_url }}"
+          echo "::notice::Demo published at $URL"
+          echo "[Browser demo for \`${{ steps.where.outputs.branch }}\`]($URL)" \
+            >> "$GITHUB_STEP_SUMMARY"
