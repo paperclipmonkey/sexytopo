@@ -56,6 +56,7 @@ class PortedTestsTest {
             "PocketTopoFileTest" to listOf("PocketTopoFileTest"),
             "PocketTopoImporterTest" to listOf("PocketTopoImportTest"),
             "PocketTopoTxtImporterTest" to listOf("PocketTopoTxtImportTest"),
+            "ReconnectionPolicyTest" to listOf("ReconnectionPolicyTest"),
             "SexyTopoVersionTest" to listOf("SurvexTherionImportTest"),
             "SketchJsonTranslaterTest" to listOf("SketchCrossSectionJsonTest"),
             "SketchTest" to listOf("SketchEditorTest"),
