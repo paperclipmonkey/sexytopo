@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    What the FileProvider in AndroidManifest.xml is allowed to hand out.
+
+    The same shape as the Android app's own app/src/main/res/xml/file_paths.xml, which covers a
+    "share" subdirectory of the cache for the survey zips SurveyZipSharer builds. This covers the
+    subdirectory PhotoCapture.android.kt writes into, and nothing else: a provider that exposed the
+    whole cache directory would let any app this one hands a uri to reach every other file in it.
+
+    Photographs live in the cache rather than in files/ because they are handed to the camera app,
+    read back, shrunk and deleted within the second. The survey's copy is the one the file store
+    keeps.
+-->
+<paths>
+    <cache-path name="photos" path="photos/" />
+</paths>

@@ -67,9 +67,16 @@ kotlin {
             implementation("org.jetbrains.kotlinx:kotlinx-browser:0.3")
         }
         androidMain.dependencies {
-            // The one Android-only dependency: ComponentActivity.setContent. Everything the app
-            // draws above that line is common code.
+            // ComponentActivity.setContent, and the activity-result launcher the camera goes
+            // through - `PhotoCapture.android.kt` registers one from the composition. Everything
+            // the app draws above that line is common code.
             implementation("androidx.activity:activity-compose:1.9.3")
+            // FileProvider, which is how the camera app is given somewhere to write the
+            // photograph. It arrives transitively through activity anyway; declared because
+            // depending on it is a compile-time fact rather than something to be discovered when
+            // a transitive version changes. Same version the host app already asks for, so
+            // nothing new is resolved.
+            implementation("androidx.core:core-ktx:1.13.1")
         }
     }
 }

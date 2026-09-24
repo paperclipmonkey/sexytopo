@@ -6,7 +6,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -36,6 +38,35 @@ private val donePath: Path by lazy { filledPath(DONE_PATH) }
 
 private val cancelPath: Path by lazy { filledPath(CANCEL_PATH) }
 
+/**
+ * Four viewfinder corners round an upright oval, in the same 24-unit box as the two above.
+ *
+ * Written as segments rather than as path data because there is no drawable it is copied from, and
+ * an oval is a thing [Path] draws better than four cubics spell.
+ */
+private val scanPath: Path by lazy {
+    Path().apply {
+        // Top left, top right, bottom left, bottom right: two strokes each, out from the corner.
+        for ((cornerX, cornerY, towardsX, towardsY) in CORNERS) {
+            moveTo(cornerX, cornerY + towardsY)
+            lineTo(cornerX, cornerY)
+            lineTo(cornerX + towardsX, cornerY)
+        }
+        addOval(Rect(9f, 7.5f, 15f, 16.5f))
+    }
+}
+
+/** Each corner as its point and the direction the two arms run in. */
+private val CORNERS =
+    listOf(
+        listOf(3f, 3f, 4f, 4f),
+        listOf(21f, 3f, -4f, 4f),
+        listOf(3f, 21f, 4f, -4f),
+        listOf(21f, 21f, -4f, -4f),
+    )
+
+private const val SCAN_STROKE = 2f
+
 private fun filledPath(data: String): Path {
     val path = Path()
     for (segment in parseSvgPath(data)) {
@@ -63,6 +94,30 @@ fun DoneIcon(colour: Color, size: Dp = 22.dp) = VectorIcon(donePath, colour, siz
 
 @Composable
 fun CancelIcon(colour: Color, size: Dp = 22.dp) = VectorIcon(cancelPath, colour, size)
+
+/**
+ * The scanner: a viewfinder's four corners with a passage outline caught inside them.
+ *
+ * Invented rather than transcribed, because the Android app has no scanner and so no drawable to
+ * be faithful to — the same position [CameraGlyph] is in. The four corners are the convention
+ * every phone uses for "point this at something", and the shape inside them is what this
+ * particular one is pointed at: the section of a passage, taller than it is wide, as most of them
+ * are.
+ *
+ * Stroked rather than filled, unlike the two beside it, and that is a deliberate difference rather
+ * than an oversight: a filled reticle at twenty-two pixels is a black square. [SCAN_PATH] is
+ * therefore drawn by [strokedPath] and not [filledPath], whose closing `close()` would join the
+ * corners into a box.
+ */
+@Composable
+fun ScanIcon(colour: Color, size: Dp = 22.dp) {
+    Canvas(Modifier.size(size)) {
+        val scale = this.size.minDimension / ICON_VIEWPORT
+        withTransform({ scale(scale, scale, pivot = Offset.Zero) }) {
+            drawPath(scanPath, colour, style = Stroke(width = SCAN_STROKE))
+        }
+    }
+}
 
 @Composable
 private fun VectorIcon(path: Path, colour: Color, size: Dp) {

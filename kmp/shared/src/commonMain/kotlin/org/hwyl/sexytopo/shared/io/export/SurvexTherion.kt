@@ -3,6 +3,7 @@ package org.hwyl.sexytopo.shared.io.export
 import org.hwyl.sexytopo.shared.model.graph.ExtendedElevationDirection
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Station
+import org.hwyl.sexytopo.shared.model.survey.StationFix
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.model.survey.SurveyDate
 import org.hwyl.sexytopo.shared.model.survey.Trip
@@ -92,6 +93,95 @@ object SurvexTherionWriter {
             }
         }
     }
+
+    /**
+     * The block that says where in the world this survey is, or the empty string when nobody has
+     * said.
+     *
+     * Two commands, and the same two in both dialects — a coordinate system, then the fix itself —
+     * which is why this sits in the shared emitter beside the team and the date rather than in
+     * either exporter.
+     *
+     * ## Longitude first
+     *
+     * The one thing here that is easy to get wrong and impossible to notice. Both formats take a
+     * fix as three coordinates in the order x, y, z, and for a geographic system x is the
+     * *longitude*. Survex names its system `LONG-LAT` and the order is in the name; Therion takes
+     * the same order. Swap them and the file is accepted without complaint and the cave appears
+     * off the coast of Somalia, or in the sea south of India — which is where a great many
+     * mis-entered surveys have ended up, since zero-zero is in the Atlantic and everything that
+     * goes wrong tends towards it. `SurvexTherionFixTest` states the order as an expected string
+     * for exactly this reason.
+     *
+     * ## Why Survex is also told what to compute in
+     *
+     * A fix in degrees gives a survey program no metres to work in, so Survex is given an output
+     * system as well: the UTM zone this cave actually falls in, worked out from the fix's own
+     * longitude. Without it a survey fixed in latitude and longitude has no projected frame to
+     * report positions on. Therion needs no equivalent here — it takes its output system from the
+     * configuration file that builds the project, which is not this file's to write.
+     *
+     * ## What is written when the station has gone
+     *
+     * A fix names a station by name, and a station can be renamed or deleted after the fix was
+     * taken. Rather than write a fix for a station the file does not contain — which stops both
+     * programs with an error, on a file that is otherwise fine — the block is commented out with
+     * a line saying why. The position is still in the file for somebody to rescue, and the export
+     * still processes.
+     */
+    fun georeference(survey: Survey, format: SurveyFormat): String {
+        val fix = survey.fix ?: return ""
+        val marker = format.commandChar
+        val comment = format.commentChar
+        // Commented out rather than dropped: see above.
+        val prefix = if (survey.getStationByName(fix.station) == null) "$comment$comment " else ""
+
+        return buildString {
+            append(comment).append("Position of ").append(fix.station).append(", ")
+            append(if (fix.source == StationFix.Source.MEASURED) "measured" else "entered by hand")
+            append(", as longitude, latitude and metres above sea level\n")
+            if (prefix.isNotEmpty()) {
+                append(comment)
+                append("NOT APPLIED: this survey has no station called ")
+                append(fix.station).append(" any more\n")
+            }
+
+            append(prefix).append(marker).append("cs ")
+            append(if (format == SurveyFormat.SURVEX) "LONG-LAT" else "long-lat").append('\n')
+            if (format == SurveyFormat.SURVEX) {
+                append(prefix).append(marker).append("cs out UTM").append(fix.utmZone).append('\n')
+            }
+
+            append(prefix).append(marker).append("fix ").append(fix.station)
+            append(' ').append(formatFixed(fix.longitude, COORDINATE_PLACES))
+            append(' ').append(formatFixed(fix.latitude, COORDINATE_PLACES))
+            append(' ').append(formatFixed(fix.altitude, HEIGHT_PLACES))
+            // Both formats take the three standard deviations together or not at all, so an
+            // unknown vertical accuracy borrows the horizontal one rather than dropping the lot:
+            // a position typed off a map has no accuracy at all and writes none.
+            val horizontal = fix.horizontalAccuracy
+            if (horizontal != null) {
+                val vertical = fix.verticalAccuracy ?: horizontal
+                append(' ').append(formatFixed(horizontal, ACCURACY_PLACES))
+                append(' ').append(formatFixed(horizontal, ACCURACY_PLACES))
+                append(' ').append(formatFixed(vertical, ACCURACY_PLACES))
+            }
+            append('\n')
+        }
+    }
+
+    /**
+     * Six decimal places of a degree, which is about a tenth of a metre.
+     *
+     * Two more than the best a phone will ever justify, and cheap: a coordinate rounded to the
+     * accuracy of the receiver that took it cannot later be improved by a better one, and the
+     * accuracy is written down beside it anyway.
+     */
+    private const val COORDINATE_PLACES = 6
+
+    private const val HEIGHT_PLACES = 1
+
+    private const val ACCURACY_PLACES = 1
 
     /**
      * The copyright and licence line, or the empty string when neither is set:
@@ -388,6 +478,7 @@ object SurvexExporter {
             // survey with no trip still gets two blank lines (harmless whitespace to the parser).
             append(SurvexTherionWriter.copyrightLine(survey, SurveyFormat.SURVEX))
             append('\n')
+            append(SurvexTherionWriter.georeference(survey, SurveyFormat.SURVEX))
             append(SurvexTherionWriter.metadata(survey, SurveyFormat.SURVEX))
             append('\n')
             append(SurvexTherionWriter.stationCommentsData(survey, SurveyFormat.SURVEX))
@@ -455,6 +546,7 @@ object TherionExporter {
             append("centreline\n")
             // Therion, unlike Survex, has no blank line after the copyright line.
             append(SurvexTherionWriter.copyrightLine(survey, SurveyFormat.THERION))
+            append(SurvexTherionWriter.georeference(survey, SurveyFormat.THERION))
             append(SurvexTherionWriter.metadata(survey, SurveyFormat.THERION))
             append('\n')
             append(SurvexTherionWriter.stationCommentsData(survey, SurveyFormat.THERION))
