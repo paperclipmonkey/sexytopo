@@ -315,6 +315,22 @@ private fun SexyTopoAppBar(state: DemoState) {
         )
     }
 
+    // A file chosen, dropped on the window, or opened with this app from the system arrives in the
+    // storage root a moment later, asynchronously. One survey's worth of files is simply opened,
+    // which is what choosing a file to open means; anything else is shown in the import list so
+    // the surveyor can say which.
+    if (canPickFiles()) {
+        LaunchedEffect(Unit) {
+            while (true) {
+                delay(500)
+                val arrived = takeArrivedFiles()
+                if (arrived.isEmpty()) continue
+                val offered = state.importCandidates().filter { it in arrived }
+                importing = offered.size != 1 || state.importSurvey(offered.single()) == null
+            }
+        }
+    }
+
     if (importing) {
         ImportDialog(
             state = state,

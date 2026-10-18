@@ -12,6 +12,7 @@ import { chromium } from 'playwright'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
+import { crc32, deflateRawSync } from 'node:zlib'
 
 const url = process.argv[2] ?? 'http://localhost:8080/index.html'
 const shotDir = process.argv[3] ?? 'field-screenshots'
@@ -21,6 +22,47 @@ mkdirSync(shotDir, { recursive: true })
 // The drawing that goes with it. A SexyTopo survey is four files, and this is the one that holds
 // the trip's actual work: `Name.data.json` is a minute a station, `Name.plan.json` is the hours.
 // Written in the app's own sketch format, one black path of four points.
+/** A deflated zip of the given files, as a desktop zip tool writes one. */
+function zipOf(files) {
+  const locals = []
+  const centrals = []
+  let offset = 0
+  for (const [name, text] of Object.entries(files)) {
+    const raw = Buffer.from(text, 'utf8')
+    const packed = deflateRawSync(raw)
+    const nameBytes = Buffer.from(name, 'utf8')
+    const local = Buffer.alloc(30)
+    local.writeUInt32LE(0x04034b50, 0)
+    local.writeUInt16LE(20, 4)
+    local.writeUInt16LE(8, 8)
+    local.writeUInt32LE(crc32(raw), 14)
+    local.writeUInt32LE(packed.length, 18)
+    local.writeUInt32LE(raw.length, 22)
+    local.writeUInt16LE(nameBytes.length, 26)
+    const central = Buffer.alloc(46)
+    central.writeUInt32LE(0x02014b50, 0)
+    central.writeUInt16LE(20, 4)
+    central.writeUInt16LE(20, 6)
+    central.writeUInt16LE(8, 10)
+    central.writeUInt32LE(crc32(raw), 16)
+    central.writeUInt32LE(packed.length, 20)
+    central.writeUInt32LE(raw.length, 24)
+    central.writeUInt16LE(nameBytes.length, 28)
+    central.writeUInt32LE(offset, 42)
+    locals.push(local, nameBytes, packed)
+    centrals.push(central, nameBytes)
+    offset += 30 + nameBytes.length + packed.length
+  }
+  const directory = Buffer.concat(centrals)
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50, 0)
+  end.writeUInt16LE(Object.keys(files).length, 8)
+  end.writeUInt16LE(Object.keys(files).length, 10)
+  end.writeUInt32LE(directory.length, 12)
+  end.writeUInt32LE(offset, 16)
+  return Buffer.concat([...locals, directory, end])
+}
+
 const EXAMPLE_PLAN_JSON = JSON.stringify({
   name: 'Eastwater',
   paths: [
@@ -106,6 +148,12 @@ const ctx = await browser.newContext({
   acceptDownloads: true,
 })
 const page = await ctx.newPage()
+// A phone has neither of desktop Chrome's save dialogs, and headless Chromium cannot answer one,
+// so they are taken away and every save here is the download a phone makes.
+await page.addInitScript(() => {
+  window.showSaveFilePicker = undefined
+  window.showDirectoryPicker = undefined
+})
 const pageErrors = []
 page.on('pageerror', (e) => pageErrors.push(e.message))
 
@@ -5092,36 +5140,39 @@ await page.screenshot({ path: join(shotDir, 'field-import-menu.png') })
 await at(...(await menuRow('import-file'))); await page.waitForTimeout(800)
 await page.screenshot({ path: join(shotDir, 'field-import-dialog.png') })
 
-// The survey's drawing, put beside it in the app's own storage, which is exactly where the four
-// files of a survey land when somebody AirDrops one or unzips it into the Files app. The chooser
-// takes one file; the importer has to notice the rest.
-await page.evaluate((plan) => {
-  localStorage.setItem('sexytopo:f:Eastwater.plan.json', plan)
-}, EXAMPLE_PLAN_JSON)
-
-chosenFile = {
-  name: 'Eastwater.data.json',
-  mimeType: 'application/json',
-  buffer: Buffer.from(EXAMPLE_SURVEY_JSON, 'utf8'),
-}
+// The whole survey, chosen at once: its data file and its drawing, which is what a surveyor
+// selects in a file manager. The chooser used to take one file, which left the drawing behind
+// unless it had already been put beside the data file some other way.
+chosenFile = [
+  {
+    name: 'Eastwater.data.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(EXAMPLE_SURVEY_JSON, 'utf8'),
+  },
+  {
+    name: 'Eastwater.plan.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(EXAMPLE_PLAN_JSON, 'utf8'),
+  },
+]
 const choosersBefore = fileChoosersOpened
 await at(...IMPORT_CHOOSE)
 await page.waitForTimeout(2000)
 if (fileChoosersOpened === choosersBefore) {
   fail('the file chooser never opened, so nothing can be imported in the browser')
 } else {
-  // The chooser is native and asynchronous; the dialog re-reads its list while it is open.
+  // The chooser is native and asynchronous. One survey's worth of files is opened as soon as it
+  // lands, with no second tap on the import list.
   await page.waitForTimeout(1600)
   await page.screenshot({ path: join(shotDir, 'field-import.png') })
-  await at(...IMPORT_FIRST_ROW); await page.waitForTimeout(1200)
 
   const imported = await page.evaluate(() =>
     Object.keys(localStorage).filter((k) => k.includes('Eastwater/')),
   )
   if (imported.length === 0) {
-    fail('the chosen file did not become a survey in the library')
+    fail('the chosen files did not become a survey in the library')
   } else {
-    pass('a survey file can be brought in from outside the app')
+    pass('a survey chosen from outside the app is opened straight away')
   }
 
   // And it brought the drawing with it. The fixture above had no sketch until now, which is why
@@ -5141,6 +5192,40 @@ if (fileChoosersOpened === choosersBefore) {
   }
 }
 
+// ---- and so can a zipped one, dropped on the window --------------------------------------------
+// A survey travels as a zip - it is what Share survey writes - and on a desktop the quickest way
+// to open a file is to drag it onto the app. Deflated, as every desktop zip tool writes it, and one
+// folder down, as zipping a survey folder leaves it, so both the browser's inflater and the
+// flattening are on the path.
+{
+  const zipped = zipOf({
+    'Wookey/Wookey.data.json': EXAMPLE_SURVEY_JSON,
+    'Wookey/Wookey.plan.json': EXAMPLE_PLAN_JSON,
+  })
+  await page.evaluate((b64) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+    const transfer = new DataTransfer()
+    transfer.items.add(new File([bytes], 'Wookey.zip', { type: 'application/zip' }))
+    // On the body: Compose keeps its canvas where querySelector cannot reach, and a drop anywhere
+    // in the window bubbles to the same listener.
+    document.body.dispatchEvent(new DragEvent('dragover', { dataTransfer: transfer, bubbles: true }))
+    document.body.dispatchEvent(new DragEvent('drop', { dataTransfer: transfer, bubbles: true }))
+  }, zipped.toString('base64'))
+  await page.waitForTimeout(2000)
+  const planPaths = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => k.endsWith('Wookey/Wookey.plan.json'))
+    return key ? (JSON.parse(localStorage.getItem(key)).paths ?? []).length : null
+  })
+  if (planPaths === null) {
+    fail('a zipped survey dropped on the window did not become a survey in the library')
+  } else if (planPaths < 1) {
+    fail('the zipped survey came in without its drawing')
+  } else {
+    pass('a zipped survey dropped on the window opens, drawing and all')
+  }
+  await page.screenshot({ path: join(shotDir, 'field-import-zip.png') })
+}
+
 // ---- and so can somebody else's Survex file ---------------------------------------------------
 // The case importing actually exists for: a club's existing survey of the cave, in the format the
 // rest of caving uses rather than this app's own. The file is put into the app's storage directly
@@ -5148,7 +5233,9 @@ if (fileChoosersOpened === choosersBefore) {
 // iOS shows in the Files app — and the JSON is taken back out so the dialog has one row again and
 // the known row position still points at the file being imported.
 await page.evaluate((svx) => {
-  localStorage.removeItem('sexytopo:f:Eastwater.data.json')
+  for (const name of ['Eastwater.data.json', 'Eastwater.plan.json', 'Wookey.data.json', 'Wookey.plan.json']) {
+    localStorage.removeItem('sexytopo:f:' + name)
+  }
   localStorage.setItem('sexytopo:f:Bar Pot.svx', svx)
 }, EXAMPLE_SURVEX)
 await at(...(await overflowButton())); await page.waitForTimeout(600)
@@ -5209,8 +5296,9 @@ if (fileChoosersOpened === choosersBeforeTop) {
   if (stored === 0) {
     fail('the chosen .top was not stored as binary')
   } else {
+    // Opened as it lands, as the survey above was.
+    await page.waitForTimeout(1600)
     await page.screenshot({ path: join(shotDir, 'field-import-top.png') })
-    await at(...IMPORT_FIRST_ROW); await page.waitForTimeout(1600)
 
     const survey = await page.evaluate(() => {
       const key = Object.keys(localStorage).find((k) => k.includes('CeiledUp/CeiledUp.data.json'))

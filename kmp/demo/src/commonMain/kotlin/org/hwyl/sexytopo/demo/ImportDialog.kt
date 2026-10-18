@@ -51,7 +51,8 @@ fun ImportDialog(
                 if (candidates.isEmpty()) {
                     Text(
                         if (canPickFiles()) {
-                            "Choose a .data.json, .svx, .th or PocketTopo .txt survey."
+                            "Choose or drop a survey: a .zip, .data.json, .svx, .th, .xvi, or " +
+                                "PocketTopo .txt or .top."
                         } else {
                             "Put a survey in this app's folder — on iOS that is Files, under " +
                                 "On My iPhone — and it will appear here."
@@ -88,7 +89,7 @@ fun ImportDialog(
         },
         confirmButton = {
             if (canPickFiles()) {
-                TextButton(onClick = { pickSurveyFile() }) { Text("Choose file…") }
+                TextButton(onClick = { pickSurveyFile() }) { Text("Choose files…") }
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },

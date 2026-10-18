@@ -12,3 +12,10 @@ expect fun canPickFiles(): Boolean
  * Fire-and-forget, since the chooser is asynchronous and browser-native.
  */
 expect fun pickSurveyFile()
+
+/**
+ * The names of the files that have reached the storage root from outside since this was last
+ * asked: chosen, dragged onto the window, or handed over by the operating system's "Open with".
+ * Asking empties it. Only the browser ever has any, for the same reason as [canPickFiles].
+ */
+expect fun takeArrivedFiles(): List<String>

@@ -153,6 +153,9 @@
     window.addEventListener('load', acquire)
   })()
 </script>
+<!-- Before the app, so a file dropped on the window or handed over by the system while the module
+     is still downloading is kept rather than lost - see files.js. -->
+<script src="files.js"></script>
 <script src="demo.js"></script>
 <script>
   // Registered after the app script so a failure here can never stop the app loading. Offline is
