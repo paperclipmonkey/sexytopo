@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 820 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 989 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and eight more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -47,6 +47,9 @@ Being precise about this matters more than the demo looking good.
 | **A survey folder imports, not only a loose file** | **Verified** | `action_file_import_directory`. A survey arrives as a zip far more often than as a file, and unzipping one leaves a *folder* named after the cave — which the import list, looking only at files, could not see. Root directories that pass `SurveyStorage.isSurveyDirectory` are offered and loaded through the same loader the library uses, so all four files come in. The app's own `surveys/` is left out, being the library already |
 | **A survey brought in keeps its drawing** | **Verified** | a SexyTopo survey is four files and this importer takes one at a time, so it read the centreline and dropped both sketches in silence. It now looks for `Name.plan.json` and `Name.ext-elevation.json` beside the file that was picked — where they land when somebody AirDrops a survey or unzips one into the Files app. Three unit tests and a browser check, and the browser fixture had to be **given a drawing**, because the one it had could not express the loss |
 | **The browser build opens and saves files on the computer or phone, not only in its own storage** | **Verified, except the two desktop-Chrome dialogs** | the chooser took one file, so a survey's drawings stayed behind unless they were put beside it some other way; it could not read the `.zip` its own *Share survey* writes; a file dragged onto the window did nothing; and every save went to Downloads. `files.js` now takes several files at once, unzips (stored, and deflated as every desktop zip tool writes it, a folder down or not), takes a drop on the window, and takes "Open with" from the system for the app installed from Chrome or Edge through the manifest's `file_handlers`. One survey's worth of files is opened as it lands rather than waiting for a second tap. Saving asks where, where the browser can — a save dialog for one file, a folder for a Therion export and its companions — and downloads everywhere else. `field.mjs` chooses a data file and its drawing in one go, then drops a deflated zip on the window, and checks both open with their drawings. The save dialogs exist only in desktop Chrome and Edge, and headless Chromium cannot answer one, so `field.mjs` takes them away and checks the download a phone makes; the dialog half has been run against stand-in pickers by hand, not in CI |
+| **Cross-sections on the extended elevation, vertical and horizontal (upstream 1.13)** | **Verified** | `CrossSectionOrientationTest`, `CrossSectionTest` and `SketchCrossSectionJsonTest` — the file goes both ways, `orientation` written only for a horizontal section and `angle` always, as `SketchJsonTranslater` writes it — the elevation cases in `SvgExportTest`, `Th2ExportTest` and `XviExportTest`, `SketchExtentTest` for each sketch's own scale, and `CrossSectionIndicatorTest` and `CrossSectionOnTheElevationTest` for the menus, the direction a section faces and a headless Skia render of the frames |
+| **Survex as upstream now writes it (1.14)** | **Verified** | repeated readings written raw for Survex to average and averaged back on the way in, ISO dates read alongside the old dotted ones, `.`, `..` and `...` as splays, and the extended elevation in a `.espec` beside the `.svx` rather than `*extend` lines that made it invalid — `EspecImportTest` and `SurvexFolderTest` with upstream's own cases, the new `SurvexExporterTest` and `SurvexImporterTest` cases in `ExportTest` and `SurvexTherionImportTest`, and the demo saving the `.espec` as a companion and finding it again on import |
+| **The release notes, in the app** | **Verified** | *Help → Release Notes*, as upstream 1.13.2 added it: `docs/releases.md` bundled byte for byte and read with the manual's reader. `ReleaseNotesFormatterTest` is upstream's four cases plus the one it cannot have, that the page reads back; `ReleaseNotesContentTest` holds the copy to the file and checks the font draws every character in it |
 | A Survex or Therion file from other software imports | **Verified** | round-trip tests through the ported exporters, plus a `.svx` written by hand — team, date, backsights, splays, station comments and leg comments — and `field.mjs` brings one into the browser build end to end |
 | The `.th2` and `.xvi` a Therion user actually needs come out of the app | **Verified** | golden tests on the scrap file and the tracing image, and `field.mjs` picks the `.th2` chip on a 420-pixel screen, saves the file and checks it has an encoding line, a named plan scrap and the `##XTHERION##` block that points it at the `.xvi` |
 | Therion can build what comes out, rather than five files and a config to write | **Verified** | golden test on the `.thconfig` and on the `input` lines; `field.mjs` saves the project file and the `.th` from a phone-sized screen and checks each names what the other saves under |
@@ -59,7 +62,7 @@ Being precise about this matters more than the demo looking good.
 | **And at the size a keyboard leaves, which is the case itself** | **Verified, for the half that is layout** | then 667x375, the same phone turned over — the sketch still takes a stroke, and a dialog with a text field in it is measured to fit that height, typed into and confirmed from its own button. Then 375x375, which is what a keyboard actually leaves an iPhone SE: narrow *and* short at once, which sideways is not. A dialog 667 pixels wide has room the same dialog has not got in portrait, so the landscape pass was a stand-in and this is the shape. What neither tests is whether iOS reports the keyboard's height as a window inset at all; that is a device question, and it is the only part still open |
 | **The table and the drawing are joined up, both ways** | **Verified** | `StationMenuTest` for each menu offering the views the other is not showing, `SurveyTableTest` for which row a station is found at and for which station a cell is about when the shot was booked backwards — and `field.mjs` taps both ends of one leg on a phone screen, checks they offer different menus, follows *show it on the plan* to a station that lands within forty pixels of the middle, then holds a station on the drawing and follows *show it in the table* back |
 | **A reading can be corrected, annotated, reversed or unmade** | **Verified** | `LegActionsTest` and `SurveyUpdaterTest` — which actions each row offers and what they do: a leg with splays hanging off its far end is not offered the downgrade `SurveyUpdater` would throw over, the first reading of a survey is not offered a promotion there is no leg above for, a leg the survey no longer holds answers "no" instead of throwing, and a comment marks the survey unsaved, which the Android app's own dialogs do not — and `field.mjs` counts what the menu offers a splay and a leg on a phone screen, writes a note against a leg, checks the table gains the app's dagger, and turns the shot end for end and back again |
-| **Any station can be reached from the sketch, not just the active one** | **Verified** | `StationMenuTest` for which actions a station offers — the origin has no incoming leg and no delete, cross-sections belong to the plan, a backsight is normalised the way the table normalises it — and `field.mjs` finds a station that is *not* the active one on the drawn plan, holds it, and checks that the menu moved the active station there without marking the paper |
+| **Any station can be reached from the sketch, not just the active one** | **Verified** | `StationMenuTest` for which actions a station offers — the origin has no incoming leg and no delete, cross-sections belong to the plan and, since upstream 1.13, the extended elevation, each sketch its own, with the elevation offering vertical and horizontal (`CrossSectionOnTheElevationTest`), a backsight is normalised the way the table normalises it — and `field.mjs` finds a station that is *not* the active one on the drawn plan, holds it, and checks that the menu moved the active station there without marking the paper |
 | **A survey can be drawn up at a desk, not only in a cave** | **Verified** | reported from a MacBook: a trackpad pinch zoomed the browser page rather than the survey, and there was no Ctrl+Z. Plain scroll now pans, ctrl or cmd and scroll zooms about the pointer, Ctrl+Z undoes and Ctrl+Shift+Z or Ctrl+Y redoes — the conventions every desktop drawing tool uses. `desktop.mjs` drives a real wheel at 1280x800 and measures the cave: it grows on a pinch, comes back to the same scale on the way out, slides exactly a hundred pixels on a plain scroll without changing size, and a stroke drawn with the mouse comes back and goes again on the keys. The page-zoom half is asked of the browser rather than of the screen, because the obvious form of that check cannot fail — finding 82 |
 | **The drawing can be moved without putting the pencil down** | **Verified** | `MultiTouchTest` for the pinch arithmetic and the corner geometry, and `field.mjs` finds the corner squares on the drawn page, drags one, and checks the plan moved, that no stroke was left behind, and that the next stroke still draws — with no toolbar round trip |
 | A station being made can be felt rather than looked at | **Verified** | the callback fires once per station and not once per reading, the preference round-trips, and `field.mjs` turns it off through the settings screen and checks it stayed off |
@@ -99,7 +102,7 @@ Being precise about this matters more than the demo looking good.
 | **Compose actually draws the survey on iOS, and is still alive afterwards** | **Verified** | CI boots a simulator, installs the app, launches it and photographs it — then **looks again twenty seconds later**, and scans the host's crash reports for this bundle. The second look and the scan are new, and they exist because a phone found a crash this job could not: an app that launches, draws, passes the photograph and *then* dies is what an uncaught throw dispatched to a background queue looks like, and a check that looks once cannot see anything that happens afterwards. See finding 54. The picture has to contain the app's own panel green — an app that crashed shows Springboard, one with no UI shows white — *and* enough distinct colours to rule out the launch screen, which is that same green on purpose. Measured on the runner: **2340 green pixels and 609 distinct colours** against thresholds of 500 and 40. The screenshot is uploaded as the `ios-simulator-screenshot` artifact on every run |
 | The iOS app runs on a device | **Not verified** | needs Xcode, an Apple developer account and a physical phone. The app *bundle* is now built by CI, so what is left is signing and installing it |
 | **The app can ask to connect to an instrument** | **Verified** | `instrument.mjs` in CI stands a stub where `navigator.bluetooth` would be and makes it behave like a DistoX-BLE: the profile's name prefix and UUIDs reach the browser API, the notification arrives as a frame, the decoder reads it, the acknowledgement goes back, and three readings make a station in a saved survey |
-| **A calibration can be taken, solved and written back** | **Verified** | `instrument.mjs` puts the fake DistoX-BLE into calibration mode, feeds it the Android app's own 56-shot dataset over Web Bluetooth, and checks the coefficients reach the device as one framed BLE packet |
+| **A calibration can be taken, solved and written back** | **Verified** | `instrument.mjs` puts the fake DistoX-BLE into calibration mode, feeds it the Android app's own 56-shot dataset over Web Bluetooth, and checks the coefficients reach the device as one framed BLE packet, that the instrument's 0x3d echo is what confirms the write, and that a replaced reading is retaken in place (`CalibrationSessionTest` for the same from the JVM) |
 | `CoreBluetoothTransport` works | **Not verified** | it compiles, it now has a caller, and it has still never talked to a radio; the simulator has no Bluetooth stack, so this needs a real instrument |
 | Web Bluetooth works against real hardware | **Not verified** | the chain is driven end to end against a fake instrument in CI; no real one has been near it |
 | The whole app runs in a browser | **Verified** | a headless-Chromium smoke test in CI loads the page, draws a stroke and undoes it |
@@ -706,6 +709,8 @@ Honest limits, so nothing is a surprise in a cave:
 
 ## How it maps to the Android app
 
+Names on the left are as the port found them. Upstream 1.13 has since renamed `GraphActivity` to `SketchActivity`, `GraphView` to `SketchView`, `control.graph` to `control.sketch`, `model.graph` to `model.geometry`, `SurveyTools` to `SurveyTraversal` and `activity_graph.xml` to `activity_sketch.xml`; the findings below keep the names they were written with.
+
 | Android app (Java) | Here (Kotlin) | Notes |
 | --- | --- | --- |
 | `model/graph/*`, `model/survey/*` | `shared/model/` | Straight translation |
@@ -720,8 +725,8 @@ Honest limits, so nothing is a surprise in a cave:
 | `control/util/SurveyStats`, `StatsActivity` | `shared/survey/SurveyStats.kt`, `demo/.../StatsDialog.kt` | Including the two pieces of arithmetic that look like mistakes |
 | `model/sketch/Colour` (150 values) | `shared/model/sketch/Colour.kt` | **Generated** from the Java enum so values cannot drift |
 | `comms/distox/*`, `distoxble/`, `bric4/`, `cavwayx1/`, `sap6/`, `fcl/` | `shared/comms/` | Protocol only, no transport |
-| `control/calibration/*`, `model/calibration/*` | `shared/calibration/` | Beat Heeb's solver; results returned rather than left in statics |
-| `DistoXCalibrationActivity` | `shared/calibration/CalibrationRun.kt`, `demo/.../CalibrationDialog.kt` | The 56 positions, the assessment, and the write-back |
+| `control/calibration/*`, `model/calibration/*` | `shared/calibration/` | Beat Heeb's solver; results returned rather than left in statics. 1.14's `ReadingDirection`, `CalibrationCoverage`, `CalibrationReadingList` and the upload's `CalibrationWrite` alongside, with the set detection and the least-consistent readings as `CalibrationSets` and `CalibrationAnalysis` |
+| `DistoXCalibrationActivity` | `shared/calibration/CalibrationRun.kt`, `demo/.../CalibrationDialog.kt` | 1.14's four cards: the readings list with replace and delete, coverage and the least-consistent readings. The positions are a suggestion and each reading is labelled by the direction it was measured in, as upstream |
 | the `*Manager` classes' device knowledge | `shared/comms/InstrumentProfile.kt` | The BLE device matrix, as data |
 | Nordic `BleManager` subclasses | `shared/iosMain/.../CoreBluetoothTransport.kt` | The whole iOS Bluetooth surface |
 | `control/io/basic/*JsonTranslater` | `shared/io/` | Same tags, same tolerant two-pass load; the calibration file is interchangeable both ways |
@@ -747,7 +752,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `control/threed/SurveyRenderer` — the camera | `shared/math/Camera3D.kt`, `Matrix4.kt` | Including `android.opengl.Matrix`, which exists nowhere else |
 | `control/threed/*`, `ThreeDViewActivity` | `demo/.../ThreeDView.kt` | The GL half **rewritten** as a 2D canvas: no shaders, no vertex buffers, and it runs on all four targets |
 | `GuideActivity`, `assets/guide/index.html` | `shared/manual/Manual.kt`, `demo/.../ManualView.kt`, `demo/src/commonMain/composeResources/files/manual.html` | The `WebView` **replaced** by a reader: the guide is bundled byte-for-byte and drawn as Compose, so there is no platform web view on any of the four targets. `parseManual` throws on a tag it does not draw, and the counts are checked against the file's own tags |
-| `res/layout/activity_graph.xml` | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied |
+| `res/layout/activity_sketch.xml` (was `activity_graph.xml`) | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied |
 | `res/values/colors.xml` (+ `values-night`) | `demo/.../SexyTopoTheme.kt` | The app's own palette |
 | `res/drawable-hdpi/*.png` | `demo/src/commonMain/composeResources/drawable/` | The app's own icons |
 | `res/values/strings.xml` | `demo/.../Strings.kt` | Every string this port shows, mirrored under the app's own resource name; `AndroidStringsTest` reads the real file and holds each one to it |
@@ -755,7 +760,7 @@ Honest limits, so nothing is a surprise in a cave:
 | `res/menu/drawing.xml` | `demo/.../SketchToolbar.kt`, `DemoState.BEHAVIOUR_TOGGLES`/`DISPLAY_TOGGLES` | Every item on it except the neighbouring-survey toggle, under its own labels and in its own groups: `drawingMenuActions` stays on the popup, the twelve toggles are a dialog. Hiding cross-sections stops them being tapped as well as drawn |
 | `activity_graph.xml`'s `symbolToolbar`, `GraphActivity.selectSymbol` | `demo/.../SketchToolbar.kt` (`SymbolStrip`), `SymbolPalette.kt` | The app's own scrolling strip on `sexyTopoDarkGreen`, opening on the first-ever tap of the symbol button and toggling thereafter; the armed symbol is drawn on the button. `Symbol.TEXT` is `SketchTool.TEXT` here, and is the strip's first entry as it is the app's |
 | `res/xml/preferences_main.xml`'s sections | `demo/.../GeneralSettingsDialog.kt`, `SketchStyleDialog.kt`, `ManualEntrySettingsDialog.kt`, `InstrumentSettingsDialog.kt` | General, Sketching, Manual Data Entry and Instruments, each holding what its own preference screen holds. Export, Team, Copyright and Developer have no counterpart yet |
-| `openSurveySettingsDialog` | `demo/.../SurveySettingsDialog.kt` | *Settings → Survey*: the plan's own cross-section scale, one field, as upstream |
+| `openSurveySettingsDialog` | `demo/.../SurveySettingsDialog.kt` | *Settings → Survey*: a cross-section scale for each sketch, plan and elevation, as upstream |
 | `GraphView.drawLegend`, `setCachedStats` | `demo/.../SurveyCanvas.kt` (`drawLegend`) | The survey's name, length and vertical range at the bottom-left, above the scale bar; the stats are cached on the scene as the Java caches them on the view |
 | `res/menu/cross_section.xml`, `ic_done`/`ic_cancel` | `demo/.../ActionIcons.kt`, `CrossSectionEditor.kt` | The two action-bar icons, drawn from the vector drawables' own path data through the shared SVG parser |
 | `SketchPreferences.Toggle` | `demo/.../AppPreferences.kt` | All twelve persisted, which five of them were not until the menu was split |
@@ -768,6 +773,12 @@ Honest limits, so nothing is a surprise in a cave:
 | `PocketTopoFile`, `PocketTopoImporter` | `shared/io/imports/PocketTopoFile.kt`, `PocketTopoImport.kt` | A cursor over a byte array rather than an `InputStream`; the calendar arithmetic `new Date()` used to do, written out |
 | `PocketTopoTxtImporter` | `shared/io/imports/PocketTopoTxtImport.kt` | The only import that brings a drawing in too; four crashes in the Java are fixed rather than reproduced |
 | `SurvexImporter`, `TherionImporter`, `SurvexTherionImporter`, `SexyTopoVersion` | `shared/io/imports/` | Round-tripped against the exporters above; fixes a station-comment bug found doing so |
+| `EspecParser`, the folder half of `SurvexImporter` | `shared/io/imports/EspecImport.kt` (`EspecParser`, `SurvexFolder`) | The folder questions returned as data rather than put to a chooser; the demo reads the `.espec` named after the `.svx` beside it |
+| `SurvexExporter.getEspecContent` | `shared/io/export/SurvexTherion.kt` (`SurvexExporter.espec`), `demo/.../ExportView.kt` (`companionFiles`) | The `.espec` is a companion file, written only when a direction is not the default |
+| `model/sketch/CrossSection` (`Orientation`) | `shared/model/sketch/CrossSection.kt` | Vertical and horizontal; `orientation` written only for a horizontal one, so files go both ways |
+| `control/util/SurveyTraversal.getOnwardExtendedElevationDirection` | `shared/survey/SurveyTraversal.kt` | The walks themselves stay on `Survey` |
+| `control/sketch/CrossSectionIndicator`, `CrossSectionLabels`, `ViewContext.canCreateHorizontalCrossSection` | `demo/.../CrossSectionIndicator.kt`, `CrossSectionLabels.kt`, `StationMenu.kt` | Which way a section faces on each sketch, and which a station may have |
+| `ReleaseNotesFormatter`, `ReleaseNotesActivity` | `shared/manual/ReleaseNotes.kt`, `demo/.../ManualView.kt` (`ReleaseNotesView`) | `docs/releases.md` bundled as it is and read with the manual's reader |
 | `NewStationNotificationService` | `demo/.../Haptics.kt`, `AppPreferences.kt` | A haptic rather than a timed buzz on iOS, which has no public API for one |
 | `control/Log`, `SystemLogActivity` | `shared/log/`, `shared/io/LogJson.kt`, `demo/.../LogDialog.kt` | Instances rather than statics, so it can be tested; the file format is the Android app's, `isError` written as a string and all |
 | `model/table/LRUD` | `shared/survey/Lrud.kt` | |
@@ -3706,7 +3717,7 @@ These are the things that would actually shape a real port.
    names exists. Building it found four that genuinely were not: `Coord2DTest` and `Coord3DTest`
    (one case each, now `CoordTest`), `PathDetailTest` (the four rectangle-intersection cases the
    eraser depends on, against a `DetailBounds.intersects` that existed with no test on it, now
-   `DetailBoundsTest`), and `SurveyToolsTest` (the eight `isInSubtree` cases that stop a moved
+   `DetailBoundsTest`), and `SurveyTraversalTest`, as upstream has since renamed it (the eight `isInSubtree` cases that stop a moved
    leg making a cycle, against a function likewise untested, now `SurveyTreeTest`). One more is
    not ported and now says so: `OldStyleLoaderTest`, for the pre-JSON tab-separated survey format
    the Android app still reads and this port does not — a real gap, listed under deliberate gaps.
@@ -3769,6 +3780,46 @@ These are the things that would actually shape a real port.
    project, and no chip, projection or option may reduce it. `aTherionExportIsTheWholeProject`
    asserts exactly that — for every Therion chip and both projections, the names written are the
    same six, with none repeated.
+
+110. **Upstream 1.13 to 1.14, brought across.** The fork point was 1.12.3; upstream has since
+   released 1.13.0 to 1.14.0, and `app/` now carries them. Ported here: cross-sections on the
+   extended elevation, vertical and horizontal, through the model, the file, the three exporters
+   and the menus; Survex's raw repeated legs, its ISO dates, the `.`, `..` and `...` splay names
+   and the `.espec`; the calibration screen's rework around the readings themselves; the 52-byte
+   coefficient write and its confirmation; and the release notes. Not ported, each for a reason
+   given beside the code: remembering a DistoX-BLE by address rather than by bond (nothing here
+   bonds - an instrument is found by scanning for its name - so the forgotten instrument that
+   commit fixes cannot happen), and putting readings on the main thread (every transport here already delivers on
+   it, which `InstrumentTransport` now says rather than assumes).
+
+111. **An `extend` line turned one station, not a passage.** This port applied each `extend` as
+   it was read, before the stations below it existed, so `extend left 2` left 3 and onward drawn
+   right. `TherionImporter` applies them after the centreline, through
+   `SurveyUpdater.setExtendedElevationDirection`, which carries the direction down the subtree;
+   the port now does the same. Found porting the `.espec`, whose `*eleft` means the same thing.
+   Upstream's 1.14 rework left `parsePassageData` as it was, so finding 12 stands; and
+   `SurvexExporter.generateEspecExtendCommandsFromStation` is one more recursive walk for finding
+   17's list, a loop here.
+
+112. **An origin set vertical crashes the `.espec`.** `SurvexExporter.getEspecContent`
+   dereferences the origin's missing `fromStation`, the same shape as the Therion `extend` bug.
+   The port leaves that line out. Worth reporting upstream.
+
+113. **The SVG left out what was drawn inside a cross-section.** Its group was `x-section-<name>`
+   and held only the frame; the Java writes `xs-<station>` with the section's own paths, labels and
+   symbols, scaled about its position. Found porting the elevation sections, which made it twice
+   as visible.
+
+114. **A DistoX-BLE calibration reading was never acknowledged.** The port acknowledged shots and
+   nothing else, and a DistoX takes an unacknowledged packet as a cue to send it again; the Java
+   acknowledges both. Finding 92 also said the BLE model sends no reply to a calibration write. It
+   does, a 0x3d echo, and upstream's own fix for an upload that never reported success uses it;
+   so does this port now. The classic write is thirteen blocks rather than twelve.
+
+115. **A Survex reading that is not a number now stops the import.** The port used to skip such a
+   line in silence, which is how a corrupted survey imports looking complete. Upstream reports it
+   against the line, and so does this, which means a third-party file with a non-numeric reading
+   in it no longer imports at all. The trade is deliberate: the error names the line to fix.
 
 ---
 
@@ -3920,8 +3971,8 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 820
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 529 over the UI's own
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 989
+shared tests on three targets, 8 more against `java.util.zip` on the JVM, 567 over the UI's own
 logic, 20 running the iOS half in a simulator,
 123 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
