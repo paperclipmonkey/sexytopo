@@ -1,5 +1,6 @@
 package org.hwyl.sexytopo.demo
 
+import org.hwyl.sexytopo.shared.model.graph.ExtendedElevationDirection
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import kotlin.test.Test
@@ -86,6 +87,22 @@ class ExportNamingTest {
                 )
             }
         }
+    }
+
+    /**
+     * A Survex survey that turns left anywhere has its directions in `Name.espec`, which is the
+     * name Survex's `extend` tool looks for beside `Name.svx`. One left at the default has none, as
+     * the Android exporter writes none — [everyOtherFormatIsStillOneFile] holds that half.
+     */
+    @Test
+    fun aSurvexSurveyThatTurnsLeftComesWithItsEspec() {
+        val turning = Survey("Swildons")
+        turning.origin.extendedElevationDirection = ExtendedElevationDirection.LEFT
+
+        val companions = companionFiles(turning, ExportFormat.SURVEX)
+
+        assertEquals(listOf("Swildons.espec"), companions.map { it.first })
+        assertEquals("*start 1\n*eleft 1\n", companions.single().second)
     }
 
     @Test

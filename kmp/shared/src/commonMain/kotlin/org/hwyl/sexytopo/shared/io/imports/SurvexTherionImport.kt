@@ -7,6 +7,8 @@ import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.model.survey.SurveyDate
 import org.hwyl.sexytopo.shared.model.survey.Trip
+import org.hwyl.sexytopo.shared.survey.SurveySettings
+import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 
 /**
  * Reading a Survex or Therion file back into a survey.
@@ -20,9 +22,10 @@ import org.hwyl.sexytopo.shared.model.survey.Trip
  * seen before *in the from position* was shot backwards — positional, not by name.
  *
  * **Where the repeated shots went.** A station promoted from three agreeing readings has those
- * precursors either inline in a `{from: d a i, d a i}` comment or on comment lines below; both
- * come back, since losing them discards the evidence a surveyor would use to check a suspicious
- * leg.
+ * precursors inline in a `{from: d a i, d a i}` comment, on comment lines below, or — as this app
+ * now writes them for Survex — as the readings themselves on consecutive lines naming the same two
+ * stations, with no average at all. All three come back, the last averaged again on the way in,
+ * since losing them discards the evidence a surveyor would use to check a suspicious leg.
  *
  * **Where a comment belongs.** Files from SexyTopo 1.11.3 and later put a trailing comment on
  * the *leg*; older ones meant it for the newer *station*. `useLegComments` chooses.
@@ -49,13 +52,24 @@ object SurvexTherionImporter {
      *
      * @param useLegComments true for files written by SexyTopo 1.11.3 or later, and for files with
      *   no version header at all, which are assumed current; false for older ones.
+     * @param settings whose amalgamation algorithm averages a run of repeated readings, as the
+     *   Java uses whichever one is active.
      */
-    fun parseCentreline(text: String, survey: Survey, useLegComments: Boolean = true) {
+    fun parseCentreline(
+        text: String,
+        survey: Survey,
+        useLegComments: Boolean = true,
+        settings: SurveySettings = SurveySettings.DEFAULT,
+    ) {
         val stations = mutableMapOf<String, Station>()
+        val extendCommands = mutableListOf<String>()
         val lines = text.split("\n")
 
-        for ((index, line) in lines.withIndex()) {
+        var index = 0
+        while (index < lines.size) {
+            val line = lines[index]
             val trimmed = line.trim()
+            index++
             if (trimmed.isEmpty()) continue
 
             // Survex marks this a command with a leading `*`; Therion writes it bare. Checked
@@ -63,7 +77,7 @@ object SurvexTherionImporter {
             // would be thrown away with every other command — which is exactly what was happening.
             val withoutMarker = trimmed.removePrefix("*")
             if (withoutMarker.startsWith("extend ")) {
-                applyExtendCommand(survey, stations, withoutMarker)
+                extendCommands.add(withoutMarker)
                 continue
             }
 
@@ -73,55 +87,184 @@ object SurvexTherionImporter {
             // picked up from the leg above them instead, in commentedPrecursors.
             if (trimmed.startsWith(";") || trimmed.startsWith("#")) continue
 
-            val tokens = trimmed.split(WHITESPACE)
-            // from to distance azimuth inclination, at least.
-            if (tokens.size < 5) continue
-
-            // The tail may or may not start with a comment character: the app writes both
-            // "1 2 3.0 45.0 0.0 # My Chamber" and "1 2 3.0 45.0 0.0 My Chamber".
-            val comment =
-                if (tokens.size > 5) tokens.drop(5).joinToString(" ").withoutCommentChar() else ""
-
-            val precursors = commentedPrecursors(lines, index, tokens[0], tokens[1], useLegComments)
-
-            // The only way this throws is `Leg`'s own range checks. Rethrown with the line, so
-            // "could not read Cave.svx" becomes a message naming which line and the numbers as written.
+            // `Leg`'s own range checks, or a reading that is not a number. Rethrown with the line,
+            // so "could not read Cave.svx" becomes a message naming which line and the numbers as
+            // written.
             try {
-                addLeg(survey, stations, tokens, comment, precursors, useLegComments)
+                val current = parseLegLine(trimmed) ?: continue
+
+                // Splays are never grouped: three shots to ".." are three walls, not one leg.
+                if (current.toName !in SPLAY_STATION_TOKENS) {
+                    val group = repeatedLines(lines, index, current)
+                    if (group.size > 1) {
+                        addAveragedGroup(survey, stations, group, useLegComments, settings)
+                        index += group.size - 1
+                        continue
+                    }
+                }
+
+                val precursors =
+                    commentedPrecursors(
+                        lines,
+                        index - 1,
+                        current.fromName,
+                        current.toName,
+                        useLegComments,
+                    )
+                addLeg(
+                    survey,
+                    stations,
+                    current,
+                    current.distance,
+                    current.azimuth,
+                    current.inclination,
+                    precursors,
+                    useLegComments,
+                )
             } catch (exception: IllegalArgumentException) {
                 throw IllegalArgumentException("Error importing this line: $line", exception)
             }
         }
+
+        // After the centreline rather than as each line comes, as `TherionImporter` does it: a
+        // direction carries down the passage, and the passage below a station is not there yet
+        // when the line naming it is read. Applied inline, `extend left 2` turned station 2 left
+        // and left everything beyond it drawn to the right.
+        for (command in extendCommands) applyExtendCommand(survey, command)
+    }
+
+    /**
+     * Every name a third-party file might give a splay's absent far end, whichever format it is.
+     *
+     * Therion's anonymous station is `-` or `.`; Survex's is `.`, `..` (a wall point) or `...` (a
+     * point with no implicit flags), from the "Anonymous stations" section of its manual. This app
+     * only ever writes [SurveyFormat.splayStationName], but somebody else's file need not. Before
+     * upstream widened this to all four the Java took only `-` and this port `-` and `..`, so a
+     * splay to `.` came in as a station called ".".
+     */
+    private val SPLAY_STATION_TOKENS = setOf("-", ".", "..", "...")
+
+    /** One data line's five fields and its comment, read but not yet added to the survey. */
+    private class LegLine(
+        val fromName: String,
+        val toName: String,
+        val distance: Float,
+        val azimuth: Float,
+        val inclination: Float,
+        val comment: String,
+    )
+
+    /**
+     * Null for a line with fewer than five fields, which is not a reading. Throws for one whose
+     * numbers are not numbers, as `Float.parseFloat` does in the Java: a reading that cannot be
+     * read is an error to report, not a line to skip quietly.
+     */
+    private fun parseLegLine(trimmed: String): LegLine? {
+        val tokens = trimmed.split(WHITESPACE)
+        if (tokens.size < 5) return null
+
+        // The tail may or may not start with a comment character: the app writes both
+        // "1 2 3.0 45.0 0.0 # My Chamber" and "1 2 3.0 45.0 0.0 My Chamber".
+        val comment =
+            if (tokens.size > 5) tokens.drop(5).joinToString(" ").withoutCommentChar() else ""
+        return LegLine(
+            tokens[0],
+            tokens[1],
+            tokens[2].toFloat(),
+            tokens[3].toFloat(),
+            tokens[4].toFloat(),
+            comment,
+        )
+    }
+
+    /**
+     * The run of consecutive data lines, starting with [first], that name the same two stations —
+     * how this app now writes a promoted leg for Survex, which averages the readings itself.
+     *
+     * The run stops at a blank, comment or command line, and at a line that will not parse: that
+     * one is left for the main loop, so the error names the bad line rather than the good one above
+     * it.
+     */
+    private fun repeatedLines(lines: List<String>, startIndex: Int, first: LegLine): List<LegLine> {
+        val group = mutableListOf(first)
+        for (index in startIndex until lines.size) {
+            val trimmed = lines[index].trim()
+            if (trimmed.isEmpty() ||
+                trimmed.startsWith("*") ||
+                trimmed.startsWith(";") ||
+                trimmed.startsWith("#")
+            ) {
+                break
+            }
+            val candidate = runCatching { parseLegLine(trimmed) }.getOrNull() ?: break
+            if (candidate.fromName != first.fromName || candidate.toName != first.toName) break
+            group.add(candidate)
+        }
+        return group
+    }
+
+    /**
+     * One leg averaged from its repeated readings, with the readings kept as what it was promoted
+     * from — the same as a leg promoted live, and averaged with the same algorithm the surveyor
+     * has chosen for that.
+     *
+     * The first line's comment is the leg's: that is where the exporter puts it. A later line's
+     * comment stays on its own reading.
+     */
+    private fun addAveragedGroup(
+        survey: Survey,
+        stations: MutableMap<String, Station>,
+        group: List<LegLine>,
+        useLegComments: Boolean,
+        settings: SurveySettings,
+    ) {
+        val readings =
+            group.mapIndexed { index, line ->
+                Leg(line.distance, line.azimuth, line.inclination).also {
+                    if (useLegComments && index > 0 && line.comment.isNotEmpty()) {
+                        it.comment = line.comment
+                    }
+                }
+            }
+        val averaged = SurveyUpdater.averageLegs(readings, settings)
+        addLeg(
+            survey,
+            stations,
+            group.first(),
+            averaged.distance,
+            averaged.azimuth,
+            averaged.inclination,
+            readings,
+            useLegComments,
+        )
     }
 
     /**
      * `extend <direction> [<fromStation>] <station>`, mirroring `TherionImporter`'s
-     * `handleElevationDirectionData` — which the Java only ever ran for Therion, though nothing
-     * about the format makes it Therion-only, so it's applied to both here.
+     * `handleElevationDirectionData` — which the Java only ever runs for Therion. A Survex file
+     * from this app now carries its directions in a `.espec` instead (see [EspecParser]), but one
+     * written before that change has `*extend` lines, and they still mean what they say, so they
+     * are read here for both formats.
      *
      * `extend start <station>` is a no-op marker and is skipped. A propagating direction
-     * (LEFT/RIGHT) names one station, since the exporter only writes one such line per run of
-     * stations sharing a direction. A non-propagating one (VERTICAL) names a from/to pair and
-     * applies only to the *destination* — the station whose incoming leg is the pitch.
+     * (LEFT/RIGHT) names one station and applies from there down, through
+     * [SurveyUpdater.setExtendedElevationDirection]. A non-propagating one (VERTICAL) names a
+     * from/to pair and applies only to the *destination* — the station whose incoming leg is the
+     * pitch.
      *
      * A station named in the file that this survey does not have is skipped rather than
      * aborting the import.
      */
-    private fun applyExtendCommand(
-        survey: Survey,
-        stations: Map<String, Station>,
-        withoutMarker: String,
-    ) {
+    private fun applyExtendCommand(survey: Survey, withoutMarker: String) {
         val tokens = withoutMarker.split(WHITESPACE)
-        if (tokens.size < 2) return
+        if (tokens.size < 3) return
         val direction =
             ExtendedElevationDirection.entries.firstOrNull {
                 it.name.equals(tokens[1], ignoreCase = true)
             } ?: return
 
-        val targetName = tokens.last()
-        val target = stations[targetName] ?: survey.getStationByName(targetName) ?: return
-        target.extendedElevationDirection = direction
+        val target = survey.getStationByName(tokens.last()) ?: return
+        SurveyUpdater.setExtendedElevationDirection(survey, target, direction)
     }
 
     /**
@@ -309,22 +452,28 @@ object SurvexTherionImporter {
         return trip
     }
 
+    /**
+     * [line] names the stations and carries the comment; the reading is passed separately, since
+     * for a run of repeated lines it is their average rather than the first line's own numbers.
+     * [rawPrecursors] are the readings found on comment lines below, or the repeated lines
+     * themselves.
+     */
     private fun addLeg(
         survey: Survey,
         stations: MutableMap<String, Station>,
-        fields: List<String>,
-        rawComment: String,
-        commentedPrecursors: List<Leg>,
+        line: LegLine,
+        distance: Float,
+        azimuth: Float,
+        inclination: Float,
+        rawPrecursors: List<Leg>,
         useLegComments: Boolean,
     ) {
-        val fromName = fields[0]
-        val toName = fields[1]
-        val distance = fields[2].toFloatOrNull() ?: return
-        val azimuth = fields[3].toFloatOrNull() ?: return
-        val inclination = fields[4].toFloatOrNull() ?: return
+        val fromName = line.fromName
+        val toName = line.toName
+        val rawComment = line.comment
 
-        // Both formats' splay names, so a Survex file read as Therion still works.
-        val isSplay = toName == ".." || toName == "-"
+        // Every format's splay names, so a Survex file read as Therion still works.
+        val isSplay = toName in SPLAY_STATION_TOKENS
         // Worked out before either station is created, because creating them destroys the evidence.
         val backwards = isBackwards(fromName, toName, stations)
 
@@ -342,8 +491,8 @@ object SurvexTherionImporter {
         val comment =
             if (instructions.isEmpty()) rawComment else rawComment.replace(instructions, "").trim()
 
-        if (promoted.isEmpty() && commentedPrecursors.isNotEmpty()) {
-            promoted = commentedPrecursors.toTypedArray()
+        if (promoted.isEmpty() && rawPrecursors.isNotEmpty()) {
+            promoted = rawPrecursors.toTypedArray()
         }
 
         val legFrom: Station
@@ -499,9 +648,15 @@ object SurvexTherionImporter {
             else -> null
         }
 
-    /** `yyyy.MM.dd`, from `SurvexTherionUtil.TRIP_DATE_PATTERN`. */
+    /**
+     * `yyyy.MM.dd`, from `SurvexTherionUtil.TRIP_DATE_PATTERN`, or the ISO `yyyy-MM-dd`.
+     *
+     * Export only ever writes the dots, which is the native Survex and Therion form. The hyphens
+     * are accepted as upstream now accepts them, for a file written or edited by another tool.
+     */
     private fun parseDate(text: String): SurveyDate? {
-        val parts = text.trim().split(".")
+        val trimmed = text.trim()
+        val parts = trimmed.split(".").takeIf { it.size == 3 } ?: trimmed.split("-")
         if (parts.size != 3) return null
         val year = parts[0].toIntOrNull() ?: return null
         val month = parts[1].toIntOrNull() ?: return null

@@ -2,6 +2,7 @@ package org.hwyl.sexytopo.shared.io.imports
 
 import org.hwyl.sexytopo.shared.io.export.SurveyFormat
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.survey.SurveySettings
 
 /**
  * A whole Survex or Therion file, read into a survey.
@@ -16,8 +17,16 @@ object SurveyImporter {
     /**
      * @param name what to call the survey; the file does not reliably say (Survex has `*begin
      *   <name>`, Therion `survey <name>`, but a hand-assembled file may have neither).
+     * @param espec the `.espec` that came with a Survex file, if one did. A lone `.svx` cannot say
+     *   which way its passages go, so without one every leg is drawn to the right.
      */
-    fun read(text: String, format: SurveyFormat, name: String): Survey {
+    fun read(
+        text: String,
+        format: SurveyFormat,
+        name: String,
+        settings: SurveySettings = SurveySettings.DEFAULT,
+        espec: String? = null,
+    ): Survey {
         val survey = Survey(name)
 
         // A file with no SexyTopo version header is third-party and read the modern way.
@@ -32,11 +41,15 @@ object SurveyImporter {
             normalDataBlock(text, format),
             survey,
             useLegComments,
+            settings,
         )
 
         SurvexTherionImporter.mergePassageComments(survey, passageComments)
 
         SurvexTherionImporter.parseMetadata(text, format)?.let { survey.trip = it }
+
+        // Last, because it names stations: a Survex survey's directions live beside it now.
+        if (espec != null) EspecParser.apply(espec, survey)
 
         return survey
     }

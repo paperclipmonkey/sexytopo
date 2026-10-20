@@ -15,6 +15,16 @@ object TestSurveys {
         return survey
     }
 
+    /**
+     * [createStraightNorth] as it would be surveyed: three agreeing readings for each leg, so
+     * each is promoted to a station and keeps the three it came from.
+     */
+    fun createStraightNorthThroughRepeats(): Survey {
+        val survey = Survey()
+        repeat(9) { SurveyUpdater.update(survey, Leg(5f, 0f, 0f)) }
+        return survey
+    }
+
     /** Origin "1" and stations "2", "3", "4" in a straight line due south, 5m apart. */
     fun createStraightSouth(): Survey {
         val survey = Survey()

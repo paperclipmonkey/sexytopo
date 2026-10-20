@@ -2,16 +2,23 @@ package org.hwyl.sexytopo.shared.io
 
 import org.hwyl.sexytopo.shared.io.export.SurveyFormat
 import org.hwyl.sexytopo.shared.io.export.SurvexExporter
+import org.hwyl.sexytopo.shared.io.export.SurvexTherionWriter
 import org.hwyl.sexytopo.shared.io.export.TherionExporter
 import org.hwyl.sexytopo.shared.io.imports.SurveyImporter
 import org.hwyl.sexytopo.shared.io.imports.SurvexTherionImporter
 import org.hwyl.sexytopo.shared.model.graph.ExtendedElevationDirection
+import org.hwyl.sexytopo.shared.model.graph.ExtendedElevationDirection.Companion.DEFAULT
+import org.hwyl.sexytopo.shared.model.graph.ExtendedElevationDirection.LEFT
 import org.hwyl.sexytopo.shared.model.survey.Leg
+import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.model.survey.SurveyDate
 import org.hwyl.sexytopo.shared.model.survey.Trip
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
+import org.hwyl.sexytopo.shared.survey.SurveySettings
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
+import org.hwyl.sexytopo.shared.survey.TestSurveys
+import org.hwyl.sexytopo.shared.survey.amalgamation.LegAmalgamationAlgorithm
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -36,14 +43,19 @@ class SurvexTherionImportTest {
         return survey
     }
 
-    private fun roundTrip(survey: Survey, format: SurveyFormat): Survey {
-        val text =
-            when (format) {
-                SurveyFormat.SURVEX -> SurvexExporter.export(survey)
-                SurveyFormat.THERION -> TherionExporter.export(survey)
-            }
-        return SurveyImporter.read(text, format, survey.name)
-    }
+    /** A Survex survey is the `.svx` and, since upstream moved the directions out, its `.espec`. */
+    private fun roundTrip(survey: Survey, format: SurveyFormat): Survey =
+        when (format) {
+            SurveyFormat.SURVEX ->
+                SurveyImporter.read(
+                    SurvexExporter.export(survey),
+                    format,
+                    survey.name,
+                    espec = SurvexExporter.espec(survey),
+                )
+            SurveyFormat.THERION ->
+                SurveyImporter.read(TherionExporter.export(survey), format, survey.name)
+        }
 
     @Test
     fun aSurveyExportedAsSurvexComesBackTheSameShape() {
@@ -103,10 +115,9 @@ class SurvexTherionImportTest {
     /**
      * Left and right carry down the passage, and both formats keep them.
      *
-     * `TherionImporter.handleElevationDirectionData` was ported and Survex had no equivalent to
-     * port at all - the Java's own `SurvexImporter` never calls it - so this exercises exactly the
-     * gap: a station sent left comes back left from *either* format, not only the one the original
-     * app happened to support.
+     * Therion through its `extend` lines, Survex through the `.espec` beside the `.svx` — which is
+     * upstream's answer to the gap this test was first written for, when the Java's `SurvexImporter`
+     * read no directions at all.
      */
     @Test
     fun anExtendedElevationDirectionSurvivesTheRoundTrip() {
@@ -149,10 +160,10 @@ class SurvexTherionImportTest {
     }
 
     /**
-     * A hand-written Survex file with no SexyTopo export behind it at all. This is the case the
-     * Java's own importer never handled — `SurvexImporter` has no counterpart to
-     * `handleElevationDirectionData` — so there is no "faithful to the original" answer here,
-     * only "does the thing Survex's own `*extend` command means actually happen."
+     * A Survex file with `*extend` lines in it: hand-written, or exported by this app before the
+     * directions moved to a `.espec`. The Java's `SurvexImporter` skips every `*` line, so there is
+     * no "faithful to the original" answer here, only "does the thing Survex's own `*extend`
+     * command means actually happen."
      */
     @Test
     fun aHandWrittenSurvexExtendLineIsRead() {
@@ -467,5 +478,274 @@ class SurvexTherionImportTest {
             exception.message?.contains("2 3 -5.00 45.00 0.00") == true,
             "expected the offending line in the message, got: ${exception.message}",
         )
+    }
+
+    /**
+     * `extend left 2` turns the passage beyond station 2 as well, as `TherionImporter` applies it.
+     * Read inline, as this port first did, it reached station 2 alone, because the stations below
+     * had not been read yet.
+     */
+    @Test
+    fun anExtendLineCarriesDownThePassage() {
+        val text =
+            """
+            centreline
+            data normal from to tape compass clino
+            1 2 10.00 0.00 0.00
+            2 3 10.00 0.00 0.00
+            3 4 10.00 0.00 0.00
+            extend start 1
+            extend left 2
+            endcentreline
+            """.trimIndent()
+
+        val survey = SurveyImporter.read(text, SurveyFormat.THERION, "T")
+
+        assertEquals(DEFAULT, survey.origin.extendedElevationDirection)
+        for (name in listOf("2", "3", "4")) {
+            assertEquals(LEFT, survey.getStationByName(name)!!.extendedElevationDirection, name)
+        }
+    }
+
+    // --- Splay names, from SurvexImporterTest and TherionImporterTest ---
+
+    /**
+     * Every anonymous-station token either format uses. A real leg follows each splay because the
+     * origin is only set from a leg with two ends.
+     */
+    @Test
+    fun everyAnonymousStationNameIsASplay() {
+        for (token in listOf("..", ".", "...", "-")) {
+            val survey = Survey()
+            val text = "1\t$token\t1.0\t0.0\t0.0\n1\t2\t5.0\t0.0\t0.0"
+            SurvexTherionImporter.parseCentreline(text, survey)
+
+            assertNull(survey.getStationByName(token), "a station called $token")
+            assertEquals(1, survey.origin.getUnconnectedOnwardLegs().size, token)
+        }
+    }
+
+    @Test
+    fun consecutiveAnonymousSplaysStaySeparate() {
+        val text =
+            "1\t..\t1.0\t0.0\t0.0\n" +
+                "1\t..\t1.2\t90.0\t0.0\n" +
+                "1\t..\t0.8\t180.0\t0.0\n" +
+                "1\t2\t5.0\t0.0\t0.0\n"
+        val survey = Survey()
+        SurvexTherionImporter.parseCentreline(text, survey)
+
+        assertEquals(2, survey.getAllStations().size)
+        assertEquals(3, survey.origin.getUnconnectedOnwardLegs().size)
+    }
+
+    // --- Repeated readings on consecutive lines, from SurvexImporterTest ---
+
+    private val threeReadings =
+        "1\t2\t5.001\t0.02\t0.01\n" + "1\t2\t4.999\t359.98\t-0.01\n" + "1\t2\t5.000\t0.00\t0.02\n"
+
+    @Test
+    fun repeatedLinesBecomeOnePromotedLeg() {
+        val survey = Survey()
+        SurvexTherionImporter.parseCentreline(threeReadings, survey, true)
+
+        assertEquals(2, survey.getAllStations().size)
+        assertEquals(3, survey.origin.getConnectedOnwardLegs().single().promotedFrom.size)
+    }
+
+    @Test
+    fun repeatedLinesAreAveragedAsALiveSurveyWouldBe() {
+        val expected =
+            SurveyUpdater.averageLegs(
+                listOf(Leg(5.001f, 0.02f, 0.01f), Leg(4.999f, 359.98f, -0.01f), Leg(5f, 0f, 0.02f)),
+            )
+
+        val survey = Survey()
+        SurvexTherionImporter.parseCentreline(threeReadings, survey, true)
+        val leg = survey.origin.getConnectedOnwardLegs().single()
+
+        assertEquals(expected.distance, leg.distance, 0.001f)
+        assertEquals(expected.azimuth, leg.azimuth, 0.001f)
+        assertEquals(expected.inclination, leg.inclination, 0.001f)
+    }
+
+    /** The surveyor's own choice of algorithm, not the default, does the averaging. */
+    @Test
+    fun repeatedLinesAreAveragedWithTheChosenAlgorithm() {
+        val settings = SurveySettings(legAmalgamationAlgorithm = LegAmalgamationAlgorithm.CARTESIAN)
+        val readings =
+            listOf(Leg(5.001f, 0.02f, 0.01f), Leg(4.999f, 359.98f, -0.01f), Leg(5f, 0f, 0.02f))
+
+        val survey = Survey()
+        SurvexTherionImporter.parseCentreline(threeReadings, survey, true, settings)
+
+        assertEquals(
+            SurveyUpdater.averageLegs(readings, settings).azimuth,
+            survey.origin.getConnectedOnwardLegs().single().azimuth,
+            0.0001f,
+        )
+    }
+
+    @Test
+    fun aSingleLineIsNotAGroup() {
+        val survey = Survey()
+        SurvexTherionImporter.parseCentreline("1\t2\t5.0\t0.0\t0.0", survey)
+
+        assertTrue(!survey.origin.getConnectedOnwardLegs().single().wasPromoted())
+    }
+
+    @Test
+    fun theFirstLinesCommentIsTheLegs() {
+        val text = "1\t2\t5.001\t0.02\t0.01\tBig Sandy Chamber\n" + "1\t2\t4.999\t359.98\t-0.01\n"
+        val survey = Survey()
+        SurvexTherionImporter.parseCentreline(text, survey, true)
+
+        assertEquals("Big Sandy Chamber", survey.origin.getConnectedOnwardLegs().single().comment)
+    }
+
+    @Test
+    fun aLaterLinesCommentStaysOnItsReading() {
+        val text = "1\t2\t5.001\t0.02\t0.01\n" + "1\t2\t4.999\t359.98\t-0.01\tcold draught\n"
+        val survey = Survey()
+        SurvexTherionImporter.parseCentreline(text, survey, true)
+        val leg = survey.origin.getConnectedOnwardLegs().single()
+
+        assertEquals("", leg.comment)
+        assertEquals("cold draught", leg.promotedFrom[1].comment)
+    }
+
+    /** A file from 1.11.2 or earlier meant the comment for the new station, grouped or not. */
+    @Test
+    fun theFirstLinesCommentGoesToTheStationInAnOlderFile() {
+        val text = "1\t2\t5.001\t0.02\t0.01\tBig Sandy Chamber\n" + "1\t2\t4.999\t359.98\t-0.01\n"
+        val survey = Survey()
+        SurvexTherionImporter.parseCentreline(text, survey, false)
+        val leg = survey.origin.getConnectedOnwardLegs().single()
+
+        assertEquals("Big Sandy Chamber", survey.getStationByName("2")!!.comment)
+        assertEquals("", leg.comment)
+        assertEquals(2, leg.promotedFrom.size)
+    }
+
+    @Test
+    fun aLaterLinesCommentIsDroppedInAnOlderFile() {
+        val text = "1\t2\t5.001\t0.02\t0.01\n" + "1\t2\t4.999\t359.98\t-0.01\tcold draught\n"
+        val survey = Survey()
+        SurvexTherionImporter.parseCentreline(text, survey, false)
+        val leg = survey.origin.getConnectedOnwardLegs().single()
+
+        assertEquals(2, leg.promotedFrom.size)
+        assertEquals("", leg.promotedFrom[1].comment)
+    }
+
+    @Test
+    fun repeatedBacksightsAreGroupedTheWayTheyWereShot() {
+        val text =
+            "1\t2\t5.0\t0.0\t0.0\n" +
+                // Backward: 3 is new and 2 is not.
+                "3\t2\t5.001\t180.02\t-0.01\n" +
+                "3\t2\t4.999\t179.98\t0.01\n"
+        val survey = Survey()
+        SurvexTherionImporter.parseCentreline(text, survey, true)
+
+        val two = survey.getStationByName("2")!!
+        assertEquals(2, two.getConnectedOnwardLegs().single().promotedFrom.size)
+    }
+
+    @Test
+    fun theLegAfterAGroupIsStillRead() {
+        val text =
+            "1\t2\t5.001\t0.02\t0.01\n" + "1\t2\t4.999\t359.98\t-0.01\n" + "2\t3\t5.0\t0.0\t0.0\n"
+        val survey = Survey()
+        SurvexTherionImporter.parseCentreline(text, survey, true)
+
+        assertEquals(3, survey.getAllStations().size)
+        assertTrue(survey.getStationByName("3") != null)
+    }
+
+    /** Not exported for Therion yet, but read for the day Therion can average them itself. */
+    @Test
+    fun therionReadsRepeatedLinesToo() {
+        val text =
+            """
+            centreline
+            data normal from to tape compass clino
+            1	2	5.001	0.02	0.01
+            1	2	4.999	359.98	-0.01
+            endcentreline
+            """.trimIndent()
+
+        val survey = SurveyImporter.read(text, SurveyFormat.THERION, "T")
+
+        assertEquals(2, survey.origin.getConnectedOnwardLegs().single().promotedFrom.size)
+    }
+
+    @Test
+    fun aSurvexPromotedLegRoundTrips() {
+        val original = TestSurveys.createStraightNorthThroughRepeats()
+        val centreline = SurvexTherionWriter.centrelineData(original, SurveyFormat.SURVEX)
+
+        val reimported = Survey()
+        SurvexTherionImporter.parseCentreline(centreline, reimported, true)
+        val leg = reimported.origin.getConnectedOnwardLegs().single()
+
+        assertEquals(3, leg.promotedFrom.size)
+        assertEquals(5f, leg.distance, 0.001f)
+    }
+
+    /**
+     * Two things change on the way round, and upstream documents both as the price of writing raw
+     * readings: the leg is averaged again with whichever algorithm is current, and the leg's comment
+     * and its first reading's share one line, so they come back merged onto the leg.
+     */
+    @Test
+    fun aSurvexPromotedLegRoundTripIsLossyInTheDocumentedWays() {
+        val first = Leg(5.1f, 1f, 2f).also { it.comment = "cold draught" }
+        val readings = arrayOf(first, Leg(4.9f, 359f, -1f), Leg(5f, 0.5f, 0f))
+        val original = Survey()
+        val promoted = Leg.upgradeSplayToConnectedLeg(Leg(5f, 0f, 0f), Station("2"), readings)
+        promoted.comment = "Big Sandy Chamber"
+        original.origin.addOnwardLeg(promoted)
+
+        val centreline = SurvexTherionWriter.centrelineData(original, SurveyFormat.SURVEX)
+        val reimported = Survey()
+        SurvexTherionImporter.parseCentreline(centreline, reimported, true)
+        val leg = reimported.origin.getConnectedOnwardLegs().single()
+
+        val expected = SurveyUpdater.averageLegs(readings.toList())
+        assertEquals(expected.distance, leg.distance, 0.001f)
+        assertEquals(expected.azimuth, leg.azimuth, 0.001f)
+        assertEquals(expected.inclination, leg.inclination, 0.001f)
+        assertEquals("Big Sandy Chamber :: cold draught", leg.comment)
+        assertTrue(!leg.promotedFrom[0].hasComment())
+    }
+
+    /**
+     * A reading that is not a number is an error, and it names its own line — not the good line
+     * above it that a run of repeated readings might have swept it up with.
+     */
+    @Test
+    fun aBadLineAfterALegIsReportedAgainstItself() {
+        val text = "1\t2\t5.0\t0.0\t0.0\n" + "1\t2\t5.0\tnorth\t0.0\n"
+
+        val exception =
+            assertFailsWith<IllegalArgumentException> {
+                SurvexTherionImporter.parseCentreline(text, Survey(), true)
+            }
+
+        assertTrue(
+            exception.message?.endsWith("1\t2\t5.0\tnorth\t0.0") == true,
+            "got: ${exception.message}",
+        )
+    }
+
+    /** Export writes dots; hyphens are read too, for a file another tool wrote or edited. */
+    @Test
+    fun aHyphenatedTripDateIsRead() {
+        val survex = SurvexTherionImporter.parseMetadata("*date 2026-01-05\n", SurveyFormat.SURVEX)
+        val therion = SurvexTherionImporter.parseMetadata("date 2026-01-05\n", SurveyFormat.THERION)
+
+        assertEquals(SurveyDate(2026, 1, 5), survex!!.surveyDate)
+        assertEquals(SurveyDate(2026, 1, 5), therion!!.surveyDate)
     }
 }

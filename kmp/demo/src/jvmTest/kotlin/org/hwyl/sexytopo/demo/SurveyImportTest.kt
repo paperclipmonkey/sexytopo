@@ -9,12 +9,14 @@ import org.hwyl.sexytopo.shared.io.store.InMemoryFileStore
 import org.hwyl.sexytopo.shared.io.store.SurveyStorage
 import org.hwyl.sexytopo.shared.model.common.Frame
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
+import org.hwyl.sexytopo.shared.model.graph.ExtendedElevationDirection
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.sketch.PathDetail
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
+import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -418,6 +420,35 @@ class SurveyImportTest {
         assertEquals(12.5f, leg.azimuth, 0.05f)
         assertEquals(-3f, leg.inclination, 0.05f)
         assertEquals("entrance", imported.origin.comment)
+    }
+
+    /**
+     * A `.svx` comes in with the `.espec` of its own name beside it, which is where a Survex
+     * export now keeps the extended elevation. Another survey's `.espec` at the root is not this
+     * one's, so it is left alone.
+     */
+    @Test
+    fun aSurvexFilePicksUpTheEspecBesideIt() {
+        val store = store()
+        val survey = aSurvey("Eastwater")
+        SurveyBuilder.updateWithNewStation(survey, Leg(3f, 90f, 0f))
+        SurveyUpdater.setExtendedElevationDirectionOfSubtree(
+            survey.getStationByName("2")!!,
+            ExtendedElevationDirection.LEFT,
+        )
+        store.writeText(listOf("Eastwater.svx"), SurvexExporter.export(survey))
+        store.writeText(listOf("Eastwater.espec"), SurvexExporter.espec(survey))
+        store.writeText(listOf("Swildons.espec"), "*start 1\n*eleft 1\n")
+
+        val imported = assertNotNull(SurveyImport.import(SurveyLibrary(store), store, "Eastwater.svx"))
+
+        assertEquals(ExtendedElevationDirection.DEFAULT, imported.origin.extendedElevationDirection)
+        assertEquals(
+            ExtendedElevationDirection.LEFT,
+            imported.getStationByName("3")!!.extendedElevationDirection,
+            "the left turn at 2 carries on to 3, from the one *eleft line",
+        )
+        assertFalse("Eastwater.espec" in SurveyImport.candidates(store), "an .espec is not a survey")
     }
 
     @Test

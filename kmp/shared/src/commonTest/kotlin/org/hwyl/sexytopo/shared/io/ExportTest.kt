@@ -1,6 +1,7 @@
 package org.hwyl.sexytopo.shared.io
 
 import org.hwyl.sexytopo.shared.io.export.SurveyFormat
+import org.hwyl.sexytopo.shared.io.export.SurvexConstants
 import org.hwyl.sexytopo.shared.io.export.SurvexExporter
 import org.hwyl.sexytopo.shared.io.export.SurvexTherionWriter
 import org.hwyl.sexytopo.shared.io.export.ThconfigExporter
@@ -9,6 +10,7 @@ import org.hwyl.sexytopo.shared.io.export.formatAzimuth
 import org.hwyl.sexytopo.shared.io.export.formatDistance
 import org.hwyl.sexytopo.shared.io.export.formatFixed
 import org.hwyl.sexytopo.shared.io.export.formatInclination
+import org.hwyl.sexytopo.shared.io.imports.EspecParser
 import org.hwyl.sexytopo.shared.model.graph.ExtendedElevationDirection
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Station
@@ -16,6 +18,8 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.model.survey.SurveyDate
 import org.hwyl.sexytopo.shared.model.survey.Trip
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
+import org.hwyl.sexytopo.shared.survey.SurveyUpdater
+import org.hwyl.sexytopo.shared.survey.TestSurveys
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -79,8 +83,7 @@ class ExportTest {
                 "1\t2\t5.000\t90.00\t10.00\t\n" +
                 "2\t..\t1.500\t180.00\t0.00\t\n" +
                 "\n" +
-                "\n" +
-                "*extend start 1\n" +
+                // No `*extend` lines any more: the directions go in a .espec beside the file.
                 "*end Test\n"
 
         assertEquals(expected, SurvexExporter.export(simpleSurvey(), createdOn = "2026-08-29"))
@@ -204,10 +207,7 @@ class ExportTest {
         )
     }
 
-    @Test
-    fun promotedReadingsAreKeptAsComments() {
-        // A promoted leg averages three readings; the originals are preserved as comment lines so
-        // the exported file still contains what was actually observed.
+    private fun promotedSurvey(): Survey {
         val survey = Survey("P")
         val destination = Station("2")
         val precursors =
@@ -215,11 +215,101 @@ class ExportTest {
         val leg = Leg(5f, 90f, 10f, destination, precursors)
         survey.origin.addOnwardLeg(leg)
         survey.addLegRecord(leg)
+        return survey
+    }
 
-        val output = SurvexExporter.export(survey, createdOn = "x")
-        assertTrue(output.contains(";1\t2\t5.000\t90.00\t10.00"), "first precursor, commented")
-        assertTrue(output.contains(";1\t2\t5.010\t90.30\t10.20"), "second precursor")
-        assertTrue(output.contains(";1\t2\t4.980\t89.60\t10.10"), "third precursor")
+    /**
+     * Therion cannot average repeated readings itself yet, so it still gets this app's average,
+     * with the readings it came from kept as comment lines so the file holds what was observed.
+     * Each of those now ends in a tab like every other data line, since upstream's tidy writes
+     * them through the same `formatDataLine`.
+     */
+    @Test
+    fun therionKeepsPromotedReadingsAsComments() {
+        val output = TherionExporter.export(promotedSurvey(), createdOn = "x")
+        assertTrue(output.contains("\n1\t2\t5.000\t90.00\t10.00\t\n"), "the average; was:\n$output")
+        assertTrue(output.contains("#1\t2\t5.000\t90.00\t10.00\t\n"), "first precursor, commented")
+        assertTrue(output.contains("#1\t2\t5.010\t90.30\t10.20\t\n"), "second precursor")
+        assertTrue(output.contains("#1\t2\t4.980\t89.60\t10.10\t\n"), "third precursor")
+    }
+
+    /**
+     * Survex averages parallel legs in its own adjustment, so it gets the readings as taken and no
+     * average at all — averaging twice would weight this app's arithmetic over Survex's.
+     */
+    @Test
+    fun survexGetsTheRawReadingsAndNoAverage() {
+        val output = SurvexExporter.export(promotedSurvey(), createdOn = "x")
+        val legLines = output.lines().filter { it.startsWith("1\t2\t") }
+        assertEquals(
+            listOf(
+                "1\t2\t5.000\t90.00\t10.00\t",
+                "1\t2\t5.010\t90.30\t10.20\t",
+                "1\t2\t4.980\t89.60\t10.10\t",
+            ),
+            legLines,
+        )
+        assertTrue(!output.contains(";1\t2"), "no commented copies; was:\n$output")
+    }
+
+    /** `testBasicExportWithPromotedLegs`: three legs of three readings each, all written out. */
+    @Test
+    fun survexWritesEveryReadingOfASurveyTakenInRepeats() {
+        val content = SurvexExporter.export(TestSurveys.createStraightNorthThroughRepeats())
+
+        assertTrue(!content.contains(";1\t2"))
+        assertEquals(3, content.lines().count { it.startsWith("1\t2\t5.000\t0.00\t0.00") })
+    }
+
+    @Test
+    fun aPromotedLegsCommentGoesOnItsFirstReading() {
+        val survey = TestSurveys.createStraightNorthThroughRepeats()
+        survey.origin.getConnectedOnwardLegs().first().comment = "Big Sandy Chamber"
+
+        val lines = SurvexExporter.export(survey).lines().filter { it.startsWith("1\t2") }
+
+        assertEquals(3, lines.size)
+        assertTrue(lines[0].endsWith("Big Sandy Chamber"))
+        assertTrue(!lines[1].contains("Big Sandy Chamber"))
+        assertTrue(!lines[2].contains("Big Sandy Chamber"))
+    }
+
+    @Test
+    fun aPromotedLegsCommentJoinsItsFirstReadingsComment() {
+        val survey = Survey()
+        val first = Leg(5f, 0f, 0f).also { it.comment = "cold draught" }
+        val promoted =
+            Leg.upgradeSplayToConnectedLeg(first, Station("2"), arrayOf(first, Leg(5f, 0f, 0f)))
+        promoted.comment = "Big Sandy Chamber"
+        survey.origin.addOnwardLeg(promoted)
+
+        assertTrue(SurvexExporter.export(survey).contains("Big Sandy Chamber :: cold draught"))
+    }
+
+    /** `ThExporterTest`'s check that the switch is Survex's alone. */
+    @Test
+    fun therionStillAveragesASurveyTakenInRepeats() {
+        val centreline =
+            SurvexTherionWriter.centrelineData(
+                TestSurveys.createStraightNorthThroughRepeats(),
+                SurveyFormat.THERION,
+            )
+
+        assertTrue(centreline.contains("1\t2\t5.000\t0.00\t0.00"))
+        assertEquals(3, centreline.lines().count { it.startsWith("#1\t2\t5.000\t0.00\t0.00") })
+    }
+
+    @Test
+    fun theTripDateIsWrittenWithDots() {
+        for (format in SurveyFormat.entries) {
+            val survey = TestSurveys.createStraightNorth()
+            survey.trip = Trip(SurveyDate(1970, 1, 1))
+
+            val metadata = SurvexTherionWriter.metadata(survey, format)
+
+            assertTrue(metadata.contains("${format.commandChar}date 1970.01.01"), "on $format")
+            assertTrue(!metadata.contains("1970-01-01"), "on $format")
+        }
     }
 
     @Test
@@ -250,8 +340,8 @@ class ExportTest {
         SurveyBuilder.updateWithNewStation(survey, Leg(5f, 90f, 0f))
         survey.getStationByName("3")!!.extendedElevationDirection = ExtendedElevationDirection.LEFT
 
-        val output = SurvexTherionWriter.extendedElevationExtensions(survey, SurveyFormat.SURVEX)
-        assertEquals("*extend start 1\n*extend left 3\n", output)
+        val output = SurvexTherionWriter.extendedElevationExtensions(survey, SurveyFormat.THERION)
+        assertEquals("extend start 1\nextend left 3\n", output)
     }
 
     @Test
@@ -262,8 +352,145 @@ class ExportTest {
         survey.getStationByName("2")!!.extendedElevationDirection =
             ExtendedElevationDirection.VERTICAL
 
-        val output = SurvexTherionWriter.extendedElevationExtensions(survey, SurveyFormat.SURVEX)
-        assertEquals("*extend start 1\n*extend vertical 1 2\n", output)
+        val output = SurvexTherionWriter.extendedElevationExtensions(survey, SurveyFormat.THERION)
+        assertEquals("extend start 1\nextend vertical 1 2\n", output)
+    }
+
+    // The .espec, from SurvexExporterTest. createStraightNorth is 1 -> 2 -> 3 -> 4, with 4 active.
+
+    @Test
+    fun theSvxHasNoExtendCommands() {
+        val survey = TestSurveys.createStraightNorth()
+        assertTrue(!SurvexExporter.export(survey).contains("*extend"))
+
+        // Not even when there is a direction to say, which is what used to make the file invalid.
+        survey.activeStation.extendedElevationDirection = ExtendedElevationDirection.LEFT
+        assertTrue(!SurvexExporter.export(survey).contains("*extend"))
+    }
+
+    @Test
+    fun theEspecStartsAtTheOrigin() {
+        val survey = TestSurveys.createStraightNorth()
+        assertTrue(SurvexExporter.espec(survey).contains("*start ${survey.origin.name}"))
+    }
+
+    @Test
+    fun theEspecTurnsAStationLeft() {
+        val survey = TestSurveys.createStraightNorth()
+        survey.activeStation.extendedElevationDirection = ExtendedElevationDirection.LEFT
+
+        assertTrue(SurvexExporter.espec(survey).contains("*eleft ${survey.activeStation.name}"))
+    }
+
+    @Test
+    fun theEspecTurnsAStationBackRight() {
+        val survey = TestSurveys.createStraightNorth()
+        survey.getStationByName("2")!!.extendedElevationDirection = ExtendedElevationDirection.LEFT
+        survey.getStationByName("3")!!.extendedElevationDirection = ExtendedElevationDirection.LEFT
+        survey.activeStation.extendedElevationDirection = ExtendedElevationDirection.RIGHT
+
+        assertTrue(SurvexExporter.espec(survey).contains("*eright ${survey.activeStation.name}"))
+    }
+
+    @Test
+    fun theEspecLeavesOutStationsThatDoNotChange() {
+        val survey = TestSurveys.createStraightNorth()
+
+        val espec = SurvexExporter.espec(survey)
+
+        assertTrue(espec.contains("*start ${survey.origin.name}"))
+        assertTrue(!espec.contains("*eleft") && !espec.contains("*eright"), "was:\n$espec")
+    }
+
+    @Test
+    fun theEspecCommentsOutAVerticalLegAndNamesBothEnds() {
+        val survey = TestSurveys.createStraightNorth()
+        survey.activeStation.extendedElevationDirection = ExtendedElevationDirection.VERTICAL
+
+        val espec = SurvexExporter.espec(survey)
+
+        assertTrue(espec.contains("; *evertical 3 4\n"), "was:\n$espec")
+        assertTrue(!espec.replace("; *evertical", "").contains("*evertical"), "was:\n$espec")
+    }
+
+    /** A pitch does not change what the passage below it inherits. */
+    @Test
+    fun aVerticalLegLeavesTheInheritedDirectionAlone() {
+        val survey = TestSurveys.createStraightNorth()
+        survey.getStationByName("2")!!.extendedElevationDirection = ExtendedElevationDirection.LEFT
+        survey.getStationByName("3")!!.extendedElevationDirection =
+            ExtendedElevationDirection.VERTICAL
+        // Station 4 stays at the default, right, which is a change from 2's left.
+
+        assertTrue(SurvexExporter.espec(survey).contains("*eright 4"))
+    }
+
+    @Test
+    fun anEspecIsOnlyNeededWhenADirectionIsNotTheDefault() {
+        assertTrue(!SurvexExporter.hasNonDefaultDirections(TestSurveys.createStraightNorth()))
+
+        val notDefault = listOf(ExtendedElevationDirection.LEFT, ExtendedElevationDirection.VERTICAL)
+        for (direction in notDefault) {
+            val survey = TestSurveys.createStraightNorth()
+            survey.activeStation.extendedElevationDirection = direction
+            assertTrue(SurvexExporter.hasNonDefaultDirections(survey), "$direction")
+        }
+
+        val leftOrigin = TestSurveys.createStraightNorth()
+        leftOrigin.origin.extendedElevationDirection = ExtendedElevationDirection.LEFT
+        assertTrue(SurvexExporter.hasNonDefaultDirections(leftOrigin))
+    }
+
+    @Test
+    fun theEspecFileIsCalledEspec() {
+        assertEquals("espec", SurvexConstants.ESPEC_EXTENSION)
+    }
+
+    /**
+     * A survey that sets off to the left says so for its origin. `*extend start` never did, which
+     * is why a left-hand survey used to come back right.
+     */
+    @Test
+    fun aLeftOriginIsMarked() {
+        val survey = TestSurveys.createStraightNorth()
+        SurveyUpdater.setExtendedElevationDirectionOfSubtree(
+            survey.origin,
+            ExtendedElevationDirection.LEFT,
+        )
+
+        assertEquals("*start 1\n*eleft 1\n", SurvexExporter.espec(survey))
+    }
+
+    @Test
+    fun anAllLeftSurveyRoundTripsThroughTheEspec() {
+        val exported = TestSurveys.createStraightNorth()
+        SurveyUpdater.setExtendedElevationDirectionOfSubtree(
+            exported.origin,
+            ExtendedElevationDirection.LEFT,
+        )
+
+        val imported = TestSurveys.createStraightNorth()
+        EspecParser.apply(SurvexExporter.espec(exported), imported)
+
+        for (station in imported.getAllStations()) {
+            assertEquals(
+                ExtendedElevationDirection.LEFT,
+                station.extendedElevationDirection,
+                "station ${station.name}",
+            )
+        }
+    }
+
+    /**
+     * The Java dereferences a missing station for an origin set vertical and throws; there is no
+     * leg into the origin to name, so this leaves it out instead.
+     */
+    @Test
+    fun aVerticalOriginDoesNotBreakTheEspec() {
+        val survey = TestSurveys.createStraightNorth()
+        survey.origin.extendedElevationDirection = ExtendedElevationDirection.VERTICAL
+
+        assertEquals("*start 1\n", SurvexExporter.espec(survey))
     }
 
     /** A fully filled-in trip, of the kind a club would actually publish from. */
@@ -311,8 +538,7 @@ class ExportTest {
                 "1\t2\t5.000\t90.00\t10.00\t\n" +
                 "2\t..\t1.500\t180.00\t0.00\t\n" +
                 "\n" +
-                "\n" +
-                "*extend start 1\n" +
+                // No `*extend` lines any more: the directions go in a .espec beside the file.
                 "*end Test\n"
 
         assertEquals(expected, SurvexExporter.export(documentedSurvey(), createdOn = "2026-08-29"))
