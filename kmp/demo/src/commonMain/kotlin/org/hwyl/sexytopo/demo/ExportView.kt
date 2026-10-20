@@ -32,6 +32,7 @@ import org.hwyl.sexytopo.shared.io.SurveyJson
 import org.hwyl.sexytopo.shared.io.store.SurveyZip
 import org.hwyl.sexytopo.shared.io.export.CompassExporter
 import org.hwyl.sexytopo.shared.io.export.PocketTopoExporter
+import org.hwyl.sexytopo.shared.io.export.SurvexConstants
 import org.hwyl.sexytopo.shared.io.export.SurvexExporter
 import org.hwyl.sexytopo.shared.io.export.SvgExporter
 import org.hwyl.sexytopo.shared.io.export.Th2Exporter
@@ -384,9 +385,12 @@ private fun therionProject(
 /**
  * The other files a format writes, besides the one shown on screen.
  *
- * Two formats have any. A SexyTopo survey is `Name.data.json` **and** its two sketches; and any
+ * Three formats have any. A SexyTopo survey is `Name.data.json` **and** its two sketches; any
  * one Therion file is only useful alongside the rest of its project, so selecting any of the
- * four Therion chips writes the lot.
+ * four Therion chips writes the lot; and a Survex survey whose passages do not all go right has
+ * its extended elevation in `Name.espec`, since an `*extend` inside the `.svx` made the file one
+ * Survex would not read. A survey left at the default has no `.espec`, as `SurvexExporter.run`
+ * writes none.
  */
 internal fun companionFiles(
     survey: Survey,
@@ -416,6 +420,11 @@ internal fun companionFiles(
                     it.format == format && (it.projection == null || it.projection == projection)
                 }
                 .map { it.name to it.content }
+        format == ExportFormat.SURVEX && SurvexExporter.hasNonDefaultDirections(survey) ->
+            listOf(
+                "${survey.name}.${SurvexConstants.ESPEC_EXTENSION}" to
+                    SurvexExporter.espec(survey),
+            )
         else -> emptyList()
     }
 

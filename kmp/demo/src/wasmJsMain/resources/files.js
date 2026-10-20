@@ -174,13 +174,14 @@
   }
 
   // Several at once, because a SexyTopo survey is four files and taking one of them left its
-  // drawings behind, and a Therion project is a .th with its .xvi tracings beside it.
+  // drawings behind, a Therion project is a .th with its .xvi tracings beside it, and a Survex
+  // survey keeps its extended elevation in a .espec beside the .svx.
   function pick() {
     var input = document.createElement('input')
     input.type = 'file'
     input.multiple = true
     input.accept =
-      '.zip,.json,.svx,.th,.xvi,.txt,.top,application/zip,application/json,text/plain'
+      '.zip,.json,.svx,.espec,.th,.xvi,.txt,.top,application/zip,application/json,text/plain'
     input.style.display = 'none'
     var done = function () {
       input.remove()

@@ -14,7 +14,7 @@
       "accept": {
         "application/zip": [".zip"],
         "application/json": [".json"],
-        "text/plain": [".svx", ".th", ".xvi", ".txt"],
+        "text/plain": [".svx", ".espec", ".th", ".xvi", ".txt"],
         "application/octet-stream": [".top"]
       }
     }

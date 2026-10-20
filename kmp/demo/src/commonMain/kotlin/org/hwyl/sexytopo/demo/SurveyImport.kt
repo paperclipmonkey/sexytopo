@@ -7,12 +7,14 @@ import org.hwyl.sexytopo.shared.io.export.SurveyFormat
 import org.hwyl.sexytopo.shared.io.imports.PocketTopoImporter
 import org.hwyl.sexytopo.shared.io.imports.PocketTopoTxtImporter
 import org.hwyl.sexytopo.shared.io.imports.SurveyImporter
+import org.hwyl.sexytopo.shared.io.imports.SurvexFolder
 import org.hwyl.sexytopo.shared.io.imports.XviImporter
 import org.hwyl.sexytopo.shared.io.store.FileStore
 import org.hwyl.sexytopo.shared.io.store.SurveyFileType
 import org.hwyl.sexytopo.shared.io.store.SurveyStorage
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.survey.SurveySettings
 
 /**
  * Bringing a survey in from outside.
@@ -129,7 +131,7 @@ object SurveyImport {
                 // The exception's own message, not the generic one `SurveyLibrary.import` falls
                 // back to below: a Survex or Therion file with an illegal reading in it gets that
                 // reading's own error rather than a generic "could not read" one.
-                runCatching { parse(store, fileName, name) }
+                runCatching { parse(store, fileName, name, library.loadSettings()) }
                     .onFailure { library.lastError = it.message }
                     .getOrNull()
             } ?: return null
@@ -161,8 +163,19 @@ object SurveyImport {
         return if (library.save(survey)) survey else null
     }
 
-    /** Whichever reader the extension calls for. `.top` is the only one that asks for raw bytes. */
-    private fun parse(store: FileStore, fileName: String, name: String): Survey? {
+    /**
+     * Whichever reader the extension calls for. `.top` is the only one that asks for raw bytes.
+     *
+     * [settings] are the surveyor's own, because a Survex file can hold a leg as the repeated
+     * readings it was promoted from, and averaging them on the way in should use the algorithm
+     * they chose, as averaging them live would.
+     */
+    private fun parse(
+        store: FileStore,
+        fileName: String,
+        name: String,
+        settings: SurveySettings,
+    ): Survey? {
         if (isPocketTopoBinary(fileName)) {
             val bytes = store.readBytes(listOf(fileName)) ?: return null
             return PocketTopoImporter.read(bytes, name)
@@ -171,10 +184,31 @@ object SurveyImport {
         val format = formatOf(fileName)
         return when {
             isTracing(fileName) -> XviImporter.read(text, name)
-            format != null -> SurveyImporter.read(text, format, name)
+            format == SurveyFormat.SURVEX ->
+                SurveyImporter.read(text, format, name, settings, especBesideIt(store, fileName))
+            format != null -> SurveyImporter.read(text, format, name, settings)
             isPocketTopo(fileName) -> PocketTopoTxtImporter.read(text, name)
             else -> SurveyJson.parse(text)
         }
+    }
+
+    /**
+     * The `.espec` named after a `.svx`, which is where a Survex export keeps its extended
+     * elevation directions.
+     *
+     * The storage root stands in for the folder `SurvexImporter` is given, so the same rule picks
+     * the file: the one with the `.svx`'s own name. Upstream asks which to use when there are
+     * others but none of that name; at the root those are other surveys' files, so they are left
+     * alone and the survey comes in drawn to the right, as a lone `.svx` always did.
+     */
+    private fun especBesideIt(store: FileStore, fileName: String): String? {
+        val especFiles =
+            runCatching { store.list(emptyList()) }
+                .getOrNull()
+                .orEmpty()
+                .filter(SurvexFolder::isEspec)
+        val espec = SurvexFolder.matchingEspec(fileName, especFiles) ?: return null
+        return runCatching { store.readText(listOf(espec)) }.getOrNull()
     }
 
     /**
