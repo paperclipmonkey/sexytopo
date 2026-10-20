@@ -276,6 +276,8 @@ private fun decodeEntities(text: String): String {
             entity == "gt" -> ">"
             entity == "quot" -> "\""
             entity == "apos" -> "'"
+            // "Help → Release Notes", since the guide started pointing at menu items by their path.
+            entity == "rarr" -> "→"
             entity.startsWith("#x") || entity.startsWith("#X") ->
                 entity.drop(2).toIntOrNull(16)?.let { charOf(it) }
             entity.startsWith("#") -> entity.drop(1).toIntOrNull()?.let { charOf(it) }

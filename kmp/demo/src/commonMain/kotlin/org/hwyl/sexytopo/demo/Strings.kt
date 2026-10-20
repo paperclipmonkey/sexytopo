@@ -171,6 +171,7 @@ object Strings {
     val titleCrossSection = s("title_activity_cross_section", "Cross-Section")
     val titleStats = s("title_activity_survey", "Stats")
     val titleSystemLog = s("title_activity_system_log", "Log")
+    val titleActivityReleaseNotes = s("title_activity_release_notes", "Release Notes")
 
     // -- Action bar -----------------------------------------------------------------------
 
@@ -189,6 +190,7 @@ object Strings {
     val action3d = s("action_3d", "3D")
     val actionHelp = s("action_help", "Help")
     val actionGuide = s("action_guide", "Manual")
+    val actionReleaseNotes = s("action_release_notes", "Release Notes")
     val actionAbout = s("action_about", "About")
     val actionView = s("action_view", "View")
     val actionFullscreen = s("action_fullscreen", "Fullscreen")

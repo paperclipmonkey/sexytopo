@@ -170,6 +170,8 @@ fun App(
                         )
                     } else if (state.viewingManual) {
                         ManualView(onClose = { state.viewingManual = false })
+                    } else if (state.viewingReleaseNotes) {
+                        ReleaseNotesView(onClose = { state.viewingReleaseNotes = false })
                     } else if (state.viewing3D) {
                         ThreeDView(
                             survey = state.survey,
@@ -851,6 +853,11 @@ private fun SexyTopoAppBar(state: DemoState) {
                 if (page == MenuPage.HELP) {
                     MenuAction(Strings.actionGuide) {
                         state.viewingManual = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    MenuAction(Strings.actionReleaseNotes) {
+                        state.viewingReleaseNotes = true
                         menuOpen = false
                         page = MenuPage.TOP
                     }

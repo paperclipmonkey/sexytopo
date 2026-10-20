@@ -81,7 +81,7 @@ class ManualContentTest {
     @Test
     fun itHasTheSectionsTheGuidesOwnContentsListWouldHave() {
         val contents = contentsOf(parseManual(shipped.readText()))
-        assertEquals(13, contents.size, contents.map { it.text }.toString())
+        assertEquals(15, contents.size, contents.map { it.text }.toString())
         assertEquals("Overview", contents.first().text)
         assertEquals("Troubleshooting", contents.last().text)
         assertTrue(contents.all { it.id != null }, "a section with no anchor cannot be jumped to")

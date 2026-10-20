@@ -26,6 +26,6 @@ class BundledManualTest {
         val bytes = Res.readBytes("files/manual.html")
         assertTrue(bytes.size > 20_000, "the bundled manual is ${bytes.size} bytes, not the guide")
         val blocks = parseManual(bytes.decodeToString())
-        assertEquals(13, contentsOf(blocks).size, "the bundled manual is not the thirteen sections")
+        assertEquals(15, contentsOf(blocks).size, "the bundled manual is not the fifteen sections")
     }
 }

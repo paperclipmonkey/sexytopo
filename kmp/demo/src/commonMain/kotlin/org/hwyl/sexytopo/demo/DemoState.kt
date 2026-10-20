@@ -207,6 +207,9 @@ class DemoState(
     /** Whether the manual has the screen. Not persisted. */
     var viewingManual by mutableStateOf(false)
 
+    /** Whether the release notes have the screen, as the manual can. Not persisted. */
+    var viewingReleaseNotes by mutableStateOf(false)
+
     /** The six sketch toggles, as views onto [preferences] rather than as state of their own. */
     var snapToLines: Boolean
         get() = preferences.snapToLines

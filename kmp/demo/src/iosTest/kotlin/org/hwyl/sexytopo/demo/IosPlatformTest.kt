@@ -307,9 +307,9 @@ class IosPlatformTest {
         // truncation, or a text file mangled by an encoding step — reads fine and parses to
         // nothing much.
         assertEquals(
-            13,
+            15,
             contentsOf(blocks).size,
-            "the manual on iOS has ${contentsOf(blocks).size} sections rather than thirteen",
+            "the manual on iOS has ${contentsOf(blocks).size} sections rather than fifteen",
         )
     }
 

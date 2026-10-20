@@ -43,6 +43,7 @@ import org.hwyl.sexytopo.shared.manual.ManualItem
 import org.hwyl.sexytopo.shared.manual.ManualSpan
 import org.hwyl.sexytopo.shared.manual.contentsOf
 import org.hwyl.sexytopo.shared.manual.parseManual
+import org.hwyl.sexytopo.shared.manual.releaseNotesToHtml
 
 /**
  * The user manual, which `GuideActivity` shows in a `WebView`.
@@ -57,12 +58,50 @@ import org.hwyl.sexytopo.shared.manual.parseManual
  */
 @Composable
 fun ManualView(onClose: () -> Unit, modifier: Modifier = Modifier) {
+    DocumentView(
+        title = Strings.actionGuide,
+        what = "the manual",
+        load = { parseManual(Res.readBytes("files/manual.html").decodeToString()) },
+        withContents = true,
+        onClose = onClose,
+        modifier = modifier,
+    )
+}
+
+/**
+ * The release notes, which `ReleaseNotesActivity` shows in the same web view as the guide.
+ *
+ * `docs/releases.md` is bundled as it is, as the Android build copies it into the app's assets,
+ * and goes through the same reader as the manual. No contents list: the notes are newest first, so
+ * what somebody opening them wants is already at the top.
+ */
+@Composable
+fun ReleaseNotesView(onClose: () -> Unit, modifier: Modifier = Modifier) {
+    DocumentView(
+        title = Strings.titleActivityReleaseNotes,
+        what = "the release notes",
+        load = { parseManual(releaseNotesToHtml(Res.readBytes("files/releases.md").decodeToString())) },
+        withContents = false,
+        onClose = onClose,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun DocumentView(
+    title: String,
+    what: String,
+    load: suspend () -> List<ManualBlock>,
+    withContents: Boolean,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     var blocks by remember { mutableStateOf<List<ManualBlock>?>(null) }
     var failure by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         blocks = try {
-            parseManual(Res.readBytes("files/manual.html").decodeToString())
+            load()
         } catch (throwable: Throwable) {
             // A manual that will not open should say so rather than showing an empty screen.
             failure = throwable.message ?: throwable.toString()
@@ -79,20 +118,20 @@ fun ManualView(onClose: () -> Unit, modifier: Modifier = Modifier) {
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(Strings.actionGuide, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             TextButton(onClick = onClose) { Text("Close") }
         }
         HorizontalDivider()
 
         when {
             failure != null -> Text(
-                "The manual could not be read: $failure",
+                "${what.replaceFirstChar { it.uppercase() }} could not be read: $failure",
                 Modifier.padding(16.dp),
                 style = MaterialTheme.typography.bodyMedium,
             )
 
             loaded == null -> Text(
-                "Opening the manual...",
+                "Opening $what...",
                 Modifier.padding(16.dp),
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -117,7 +156,9 @@ fun ManualView(onClose: () -> Unit, modifier: Modifier = Modifier) {
                 ) {
                     // The guide builds its own contents list in JavaScript; there is none here, so
                     // the app builds it off the same headings.
-                    item { Contents(contentsOf(loaded), jump) }
+                    if (withContents) {
+                        item { Contents(contentsOf(loaded), jump) }
+                    }
                     itemsIndexed(loaded) { _, block -> ManualBlockView(block, jump) }
                     item { Box(Modifier.padding(bottom = 24.dp)) {} }
                 }
@@ -126,7 +167,7 @@ fun ManualView(onClose: () -> Unit, modifier: Modifier = Modifier) {
     }
 }
 
-/** The thirteen sections, each one a tap away. */
+/** The fifteen sections, each one a tap away. */
 @Composable
 private fun Contents(headings: List<ManualBlock.Heading>, jump: (String) -> Unit) {
     Column(
