@@ -149,6 +149,115 @@ object Strings {
     val calibrationDeleteLast = s("calibration_delete_last", "Delete Reading")
     val calibrationUpdate = s("calibration_update", "Write")
 
+    // The calibration screen as 1.14.0 rebuilt it around the readings: its four cards, in order.
+    val calibrationTitleMode = s("calibration_title_mode", "Calibration Mode")
+    val calibrationTitleReadings = s("calibration_title_readings", "Readings")
+    val calibrationTitleLastReading = s("calibration_title_last_reading", "Last Reading")
+    val calibrationTitleResult = s("calibration_title_result", "Result")
+    val calibrationIndex = s("calibration_index", "Reading number")
+    val calibrationSets = s("calibration_sets", "Sets")
+    private val calibrationSetsValue = s("calibration_sets_value", "%1\$d (%2\$d complete)")
+    val calibrationCoverage = s("calibration_coverage", "Directions covered")
+    val calibrationPointingHorizontal = s("calibration_pointing_horizontal", "Horizontal")
+    val calibrationPointingCornerUp = s("calibration_pointing_corner_up", "Corner Up")
+    val calibrationPointingCornerDown = s("calibration_pointing_corner_down", "Corner Down")
+    val directionUp = s("direction_up", "Up")
+    val directionDown = s("direction_down", "Down")
+    val calibrationCoverageCornersUp = s("calibration_coverage_corners_up", "Corners Up")
+    val calibrationCoverageCornersDown = s("calibration_coverage_corners_down", "Corners Down")
+    private val calibrationCoverageValue = s("calibration_coverage_value", "%1\$d / %2\$d")
+    val calibrationNextStep = s("calibration_next_step", "Next (suggested)")
+    val calibrationDirection = s("calibration_direction", "Direction")
+    val calibrationOrientation = s("calibration_orientation", "Orientation")
+    val notApplicable = s("not_applicable", "N/A")
+    val calibrationViewReadings = s("calibration_view_readings", "View Readings")
+    val calibrationAssessment = s("calibration_assessment", "Calibration Assessment")
+    val calibrationWorstReadings =
+        s("calibration_worst_readings", "Least consistent readings (over 1° from the rest of their set)")
+    val calibrationAlgorithmLinear = s("calibration_algorithm_linear", "Linear")
+    val calibrationAlgorithmNonLinear = s("calibration_algorithm_nonlinear", "Non-linear")
+    val orientationFaceUp = s("orientation_face_up", "Face Up")
+    val orientationFaceDown = s("orientation_face_down", "Face Down")
+    val calibrationFaceSide = s("calibration_face_side", "On Its Side")
+    private val calibrationSetNumber = s("calibration_set_number", "Set %1\$d")
+
+    /**
+     * `calibration_detail_separator`. The resource is written `" · "`, quoted so Android keeps the
+     * spaces; the quotes are not part of the string, and the mirroring check compares the raw
+     * text, so what is checked is the quoted form and what is typed is the separator itself.
+     */
+    val calibrationDetailSeparator = substituted("calibration_detail_separator", "\" · \"", " · ")
+    private val calibrationReadingTitle = s("calibration_reading_title", "Reading #%1\$d")
+    val calibrationReplace = s("calibration_replace", "Replace")
+    val calibrationReadingOptionsMessage =
+        s(
+            "calibration_reading_options_message",
+            "Replace: keep its place for the next reading you take.\n" +
+                "Delete: remove it and move the later readings up one place.",
+        )
+    val calibrationGapOptionsMessage =
+        s("calibration_gap_options_message", "Delete this gap and move the later readings up one place?")
+    val calibrationRoll = s("calibration_roll", "Roll")
+    val calibrationUncalibratedEstimate = s("calibration_uncalibrated_estimate", "Uncalibrated estimate")
+    val calibrationReadingDeleted = s("calibration_reading_deleted", "Deleted: take this reading again")
+    val calibrationNoReadings = s("calibration_no_readings", "No readings yet")
+    private val calibrationReadingNumber = s("calibration_reading_number", "#%1\$d")
+    private val calibrationDegrees = s("calibration_degrees", "%1\$s°")
+    val calibrationFieldG = s("calibration_field_g", "G")
+    val calibrationFieldM = s("calibration_field_m", "M")
+    private val calibrationPosition = s("calibration_position", "%1\$s, %2\$s")
+    private val calibrationReadingLabel = s("calibration_reading_label", "#%1\$d %2\$s")
+    val calibrationWriting = s("calibration_writing", "Writing calibration data")
+    val calibrationSuccess = s("calibration_success", "Successfully wrote calibration data")
+    val calibrationErrorUpdatingDevice =
+        s("calibration_error_updating_device", "Could not write calibration")
+
+    /**
+     * Said where a classic DistoX would have answered each block and a DistoX-BLE answers the
+     * whole: an instrument that sends no confirmation, so the screen cannot claim success.
+     */
+    val calibrationSentUnconfirmed = local("Sent to the instrument, which does not confirm it")
+
+    fun calibrationSetsValue(sets: Int, complete: Int): String =
+        calibrationSetsValue.replace("%1\$d", "$sets").replace("%2\$d", "$complete")
+
+    fun calibrationCoverageValue(covered: Int, target: Int): String =
+        calibrationCoverageValue.replace("%1\$d", "$covered").replace("%2\$d", "$target")
+
+    fun calibrationSetNumber(set: Int): String = calibrationSetNumber.replace("%1\$d", "$set")
+
+    fun calibrationReadingTitle(number: Int): String =
+        calibrationReadingTitle.replace("%1\$d", "$number")
+
+    fun calibrationReadingNumber(number: Int): String =
+        calibrationReadingNumber.replace("%1\$d", "$number")
+
+    fun calibrationDegrees(value: String): String = calibrationDegrees.replace("%1\$s", value)
+
+    fun calibrationPosition(pointing: String, face: String): String =
+        calibrationPosition.replace("%1\$s", pointing).replace("%2\$s", face)
+
+    fun calibrationReadingLabel(number: Int, position: String): String =
+        calibrationReadingLabel.replace("%1\$d", "$number").replace("%2\$s", position)
+
+    // The device log's lines about a calibration upload, and about a packet nobody expected.
+    val deviceDistoxCalibrationWriting =
+        s("device_distox_calibration_writing", "Writing calibration coefficients")
+    val deviceDistoxCalibrationWriteSuccess =
+        s("device_distox_calibration_write_success", "Calibration writing successful")
+    val deviceDistoxCalibrationWriteRejected =
+        s("device_distox_calibration_write_rejected", "Disto rejected calibration data")
+    private val deviceDistoxCalibrationWriteError =
+        s("device_distox_calibration_write_error", "Error writing calibration %1\$s")
+    private val deviceDataUnknownPacket =
+        s("device_data_unknown_packet", "Unknown packet (%1\$d bytes): %2\$s")
+
+    fun calibrationWriteError(detail: String): String =
+        deviceDistoxCalibrationWriteError.replace("%1\$s", detail).trimEnd()
+
+    fun unknownPacket(size: Int, hex: String): String =
+        deviceDataUnknownPacket.replace("%1\$d", "$size").replace("%2\$s", hex)
+
     // `activity_stats.xml`, in its order. The unit is in the label, not the number.
     val statsLength = s("stats_length", "Length (m)")
     val statsVerticalRange = s("stats_vertical_range", "Vertical Range (m)")

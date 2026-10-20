@@ -7,13 +7,13 @@ import org.hwyl.sexytopo.shared.comms.uint8
 /**
  * Named regions of DistoX memory, from `DistoXBleManager.MemoryRange`.
  *
- * Only the start address is ever put on the wire; `end` is documentation. Note that
- * [DATA_STORE]'s end is `0x7FFFF` in the Java — five hex digits, and so outside the 16-bit
- * address space every other member sits in. It is almost certainly a typo for 0x7FFF, but since
- * nothing reads it the value is carried across unchanged rather than silently corrected.
+ * Only the start address is ever put on the wire; `end` is documentation. [DATA_STORE]'s end was
+ * `0x7FFFF` in the Java, outside the 16-bit address space every other member sits in, and was
+ * carried across unchanged while it looked like a typo nobody had confirmed. Upstream corrected
+ * it to 0x7FFF in 1.14.0, so it is corrected here too.
  */
 enum class DistoXMemoryRange(val start: Int, val end: Int) {
-    DATA_STORE(0x0000, 0x7FFFF),
+    DATA_STORE(0x0000, 0x7FFF),
     CALIBRATION_COEFFICIENTS(0x8010, 0x8043),
     FIRMWARE_VERSION(0xE000, 0xE003),
     HARDWARE_VERSION(0xE004, 0xE007),
@@ -80,7 +80,10 @@ object DistoXBleFraming {
      *
      * Unlike the classic DistoX, which dribbles calibration coefficients out four bytes at a time
      * and checks a reply after each (see [DistoXProtocol.createWriteCalibrationCommands]), the BLE
-     * model takes the whole 52-byte coefficient block in one frame and sends no reply at all.
+     * model takes the whole 52-byte coefficient block in one frame, and answers it once with a
+     * 0x3d memory reply echoing what it stored — see [DistoXBlePackets.decode]. This port, and the
+     * Android app until 1.14.0, took that for silence: the reply decoded as an unknown packet and
+     * an upload was never known to have worked.
      */
     fun createWriteMemoryPacket(range: DistoXMemoryRange, payload: ByteArray): ByteArray =
         createWritePacket(createWriteMemoryPayload(range, payload))
@@ -119,8 +122,9 @@ object DistoXBleFraming {
  *
  * A notification is one identifier byte followed by embedded classic-DistoX packets:
  * ```
- * measurement  0x01, then the eight-byte measurement packet at offset 1
- * calibration  0x02, then the acceleration packet at offset 1 and the magnetic packet at offset 9
+ * measurement    0x01, then the eight-byte measurement packet at offset 1
+ * calibration    0x02, then the acceleration packet at offset 1 and the magnetic packet at offset 9
+ * memory reply   0x3d, the address (low byte first), a length, then the bytes stored there
  * ```
  * The BLE model therefore delivers a whole calibration reading in a single notification, where the
  * classic DistoX needs two round trips. Unlike the classic protocol there is no duplicate
@@ -130,6 +134,15 @@ object DistoXBlePackets {
 
     const val MEASUREMENT_IDENTIFIER: Byte = 0x01
     const val CALIBRATION_IDENTIFIER: Byte = 0x02
+
+    /**
+     * The answer to a memory write. Not 0x3e, the write's own header, which is what makes it easy
+     * to miss; it is how upstream identified it, from the bytes the unknown-packet log showed.
+     */
+    const val MEMORY_REPLY_IDENTIFIER: Byte = 0x3d
+
+    /** Identifier, two address bytes and a length, before the stored bytes begin. */
+    private const val MEMORY_REPLY_HEADER = 4
 
     /** Where the embedded DistoX admin byte sits — one past the identifier. */
     const val EMBEDDED_ADMIN = 1
@@ -164,9 +177,35 @@ object DistoXBlePackets {
                 )
             }
 
+            // `handleWriteMemoryReply`: a reply too short to carry an address is not one.
+            MEMORY_REPLY_IDENTIFIER ->
+                if (frame.size < MEMORY_REPLY_HEADER) {
+                    InstrumentPacket.Unrecognised(frame)
+                } else {
+                    val length = frame.uint8(3)
+                    InstrumentPacket.MemoryReply(
+                        address = frame.uint8(1) or (frame.uint8(2) shl 8),
+                        stored =
+                            frame.copyOfRange(
+                                MEMORY_REPLY_HEADER,
+                                minOf(frame.size, MEMORY_REPLY_HEADER + length),
+                            ),
+                    )
+                }
+
             else -> InstrumentPacket.Unrecognised(frame)
         }
     }
+
+    /**
+     * Whether [frame] is one the instrument waits to have acknowledged before sending the next:
+     * a shot or a calibration reading. The Java acknowledges both; this port used to acknowledge
+     * only shots, so every calibration reading from a DistoX-BLE went unanswered, which a DistoX
+     * takes as a reading to send again. The memory reply is not acknowledged, as in the Java.
+     */
+    fun needsAcknowledgement(frame: ByteArray): Boolean =
+        frame.size > EMBEDDED_ADMIN &&
+            (frame[0] == MEASUREMENT_IDENTIFIER || frame[0] == CALIBRATION_IDENTIFIER)
 
     /**
      * The acknowledgement to write back for [frame], already `data:`-framed.

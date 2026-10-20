@@ -89,8 +89,9 @@ class DemoState(
     fun loadCalibration() {
         val saved = library.loadCalibration()
         if (saved.isEmpty()) return
-        session.calibration.clear()
-        saved.forEach(session.calibration::add)
+        // setAll rather than adding one by one, so a reading deleted for a retake comes back as
+        // the gap it was rather than closing up.
+        session.calibration.setAll(saved)
     }
 
     fun noteCalibrationChanged() {

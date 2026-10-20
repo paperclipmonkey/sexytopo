@@ -8,6 +8,7 @@ import org.hwyl.sexytopo.shared.calibration.CalibrationPositions
 import org.hwyl.sexytopo.shared.calibration.CalibrationReading
 import org.hwyl.sexytopo.shared.calibration.CalibrationResult
 import org.hwyl.sexytopo.shared.calibration.CalibrationRun
+import org.hwyl.sexytopo.shared.calibration.CalibrationWrite
 import org.hwyl.sexytopo.shared.comms.AutoReconnect
 import org.hwyl.sexytopo.shared.comms.InstrumentCommand
 import org.hwyl.sexytopo.shared.comms.FrameChannel
@@ -232,26 +233,51 @@ class SurveySession(
     }
 
     /**
+     * The last upload of coefficients, and how it went. Its own status is a plain field, so
+     * [calibrationWriteStatus] is what the screen watches.
+     */
+    var calibrationWrite: CalibrationWrite? = null
+        private set
+
+    var calibrationWriteStatus by mutableStateOf<CalibrationWrite.Status?>(null)
+        private set
+
+    /**
      * Write the fitted coefficients back to the instrument.
      *
      * This is the step that actually changes anything: until it happens the instrument is still
-     * using whatever coefficients it had. Each command is a four-byte memory write from address
-     * 0x8010, exactly as `WriteCalibrationProtocol` does.
+     * using whatever coefficients it had. A classic DistoX gets thirteen four-byte memory writes
+     * from address 0x8010, as `WriteCalibrationProtocol` does; a BLE instrument gets the whole
+     * block in one frame, and a DistoX-BLE then answers with what it stored, which settles
+     * [calibrationWrite] when it arrives.
      */
-    fun writeCalibration(result: CalibrationResult): Int {
-        val commands = calibration.writeCommands(result, decoder.family)
-        for (command in commands) transport.send(command)
-        // "coefficient blocks" undersells it on a BLE instrument, which gets the whole result in
-        // one frame and, per DistoXBleFraming's own note, sends no reply to confirm it landed -
-        // "wrote 1 coefficient block" would read as a partial write rather than the whole thing.
-        note(
-            if (commands.size == 1) {
-                "sent calibration to the instrument"
-            } else {
-                "wrote ${commands.size} coefficient blocks to the instrument"
-            },
-        )
-        return commands.size
+    fun writeCalibration(result: CalibrationResult): CalibrationWrite {
+        val write = calibration.write(result, decoder.family)
+        calibrationWrite = write
+        calibrationWriteStatus = write.status
+        for (command in write.commands) transport.send(command)
+        note(Strings.deviceDistoxCalibrationWriting)
+        return write
+    }
+
+    /** Settles a write waiting on the instrument, and says how it went. */
+    private fun settleCalibrationWrite(reply: InstrumentPacket.MemoryReply) {
+        val write = calibrationWrite ?: return
+        if (!write.replyReceived(reply)) return
+        calibrationWriteStatus = write.status
+        if (write.status == CalibrationWrite.Status.CONFIRMED) {
+            note(Strings.deviceDistoxCalibrationWriteSuccess)
+        } else {
+            note(Strings.deviceDistoxCalibrationWriteRejected, isError = true)
+        }
+    }
+
+    /** The link went while a write was waiting for its answer, which will now never come. */
+    private fun abandonCalibrationWrite(reason: String?) {
+        val write = calibrationWrite ?: return
+        if (!write.linkFailed()) return
+        calibrationWriteStatus = write.status
+        note(Strings.calibrationWriteError(reason?.let { "($it)" } ?: ""), isError = true)
     }
 
     /**
@@ -265,7 +291,9 @@ class SurveySession(
      */
     fun simulateCalibrationReading(): Boolean {
         if (transport !== simulator) return false
-        val reading = ExampleCalibration.READINGS.getOrNull(calibration.count) ?: return false
+        // The next position rather than the count, so a replaced reading is retaken with the
+        // dataset's own reading for that place and the fit still ends where it is known to.
+        val reading = ExampleCalibration.READINGS.getOrNull(calibration.nextIndex) ?: return false
         simulator.emitCalibrationReading(
             InstrumentPacket.Acceleration(reading.gx, reading.gy, reading.gz),
             InstrumentPacket.Magnetic(reading.mx, reading.my, reading.mz),
@@ -275,6 +303,18 @@ class SurveySession(
 
     fun deleteLastCalibrationReading() {
         calibration.deleteLast()
+        calibrationRevision++
+    }
+
+    /** Leave a gap at [index] for the next reading to fill. */
+    fun replaceCalibrationReading(index: Int) {
+        calibration.replace(index)
+        calibrationRevision++
+    }
+
+    /** Remove the reading or gap at [index], closing up behind it. */
+    fun deleteCalibrationReading(index: Int) {
+        calibration.delete(index)
         calibrationRevision++
     }
 
@@ -306,6 +346,7 @@ class SurveySession(
             override fun onDisconnected(reason: String?) {
                 connected = false
                 note("disconnected${reason?.let { ": $it" } ?: ""}")
+                abandonCalibrationWrite(reason)
                 considerReconnecting()
                 refreshLinkState()
             }
@@ -323,6 +364,12 @@ class SurveySession(
             override fun onFailure(reason: String) {
                 failure = reason
                 note(reason, isError = true)
+                // Upstream fails a calibration upload whose Bluetooth write fails. A transport here
+                // reports that write through this same callback, without saying which write it
+                // was, so any failure while an upload waits for its answer settles it: a write
+                // reported as failed that had in fact landed is retried, where one reported as
+                // pending that never landed is a calibration the surveyor thinks they have.
+                abandonCalibrationWrite(reason)
                 if (transport.isConnected) return
                 connected = false
                 considerReconnecting()
@@ -367,6 +414,22 @@ class SurveySession(
                 // until the last one is acknowledged, and a reply withheld because this port did
                 // not understand the frame looks, underground, exactly like a flat battery.
                 decoder.acknowledgementFor(channel, bytes)?.let { transport.send(it) }
+
+                for (packet in packets) {
+                    when (packet) {
+                        // Whatever mode the instrument is in: the upload can be made either side of
+                        // stopping calibration mode.
+                        is InstrumentPacket.MemoryReply -> settleCalibrationWrite(packet)
+                        // Its length and bytes, not just that it was unknown: that is how upstream
+                        // found the memory reply above, and the next thing a firmware sends that
+                        // nobody expected is found the same way.
+                        is InstrumentPacket.Unrecognised -> {
+                            val hex = packet.raw.toHex().removeSurrounding("[", "]")
+                            note(Strings.unknownPacket(packet.raw.size, hex))
+                        }
+                        else -> Unit
+                    }
+                }
 
                 for (packet in packets) {
                     if (packet !is InstrumentPacket.DeviceFailure) continue

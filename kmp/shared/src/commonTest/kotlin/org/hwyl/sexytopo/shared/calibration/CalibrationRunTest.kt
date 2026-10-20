@@ -1,6 +1,7 @@
 package org.hwyl.sexytopo.shared.calibration
 
 import org.hwyl.sexytopo.shared.comms.InstrumentFamily
+import org.hwyl.sexytopo.shared.comms.InstrumentPacket
 import org.hwyl.sexytopo.shared.comms.distox.DistoXBleFraming
 import org.hwyl.sexytopo.shared.comms.distox.DistoXMemoryRange
 import org.hwyl.sexytopo.shared.comms.distox.DistoXProtocol
@@ -153,13 +154,16 @@ class CalibrationRunTest {
         )
     }
 
-    /** Four bytes per command from address 0x8010, which is `WriteCalibrationProtocol.go`. */
+    /**
+     * Four bytes per command from address 0x8010, which is `WriteCalibrationProtocol.go`: thirteen
+     * of them, to 0x8043, since 1.14.0 writes the whole block whichever algorithm made it.
+     */
     @Test
     fun theCoefficientsGoBackAsFourByteMemoryWrites() {
         val run = run(56)
         val commands = run.writeCommands(run.solve())
 
-        assertEquals(12, commands.size)
+        assertEquals(13, commands.size)
         assertTrue(commands.all { it.size == 7 })
         assertEquals(
             DistoXProtocol.CALIBRATION_COEFFICIENTS_ADDRESS,
@@ -167,16 +171,27 @@ class CalibrationRunTest {
         )
         val addresses = commands.map { DistoXProtocol.addressOfWriteCommand(it) }
         assertEquals(
-            (0 until 12).map { DistoXProtocol.CALIBRATION_COEFFICIENTS_ADDRESS + it * 4 },
+            (0 until 13).map { DistoXProtocol.CALIBRATION_COEFFICIENTS_ADDRESS + it * 4 },
             addresses,
         )
     }
 
-    /** The non-linear fit writes four more bytes, and so one more command. */
+    /**
+     * A linear fit writes the last block too, as "no non-linear correction". It used to stop a
+     * block short, and the instrument went on applying the non-linear correction from whatever
+     * calibration came before.
+     */
     @Test
-    fun theNonLinearFitWritesOneMoreBlock() {
+    fun aLinearFitClearsTheNonLinearBlock() {
         val run = run(56)
+        val linear = run.writeCommands(run.solve(useNonLinearity = false))
+
         assertEquals(13, run.writeCommands(run.solve(useNonLinearity = true)).size)
+        assertEquals(13, linear.size)
+        assertEquals(
+            listOf(0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte()),
+            linear.last().drop(3),
+        )
     }
 
     /**
@@ -214,7 +229,84 @@ class CalibrationRunTest {
         val result = run.solve()
 
         for (family in listOf(InstrumentFamily.DISTOX, InstrumentFamily.BRIC4, InstrumentFamily.SAP6)) {
-            assertEquals(12, run.writeCommands(result, family).size, "$family should keep the classic shape")
+            assertEquals(13, run.writeCommands(result, family).size, "$family should keep the classic shape")
         }
+    }
+
+    /**
+     * Only a DistoX-BLE answers the write, so only its upload waits to be confirmed; the rest are
+     * sent and said to be sent, never said to have worked.
+     */
+    @Test
+    fun onlyADistoXBleUploadWaitsForConfirmation() {
+        val run = run(56)
+        val result = run.solve()
+
+        assertEquals(
+            CalibrationWrite.Status.AWAITING_CONFIRMATION,
+            run.write(result, InstrumentFamily.DISTOX_BLE).status,
+        )
+        for (family in listOf(InstrumentFamily.DISTOX, InstrumentFamily.CAVWAY_X1)) {
+            assertEquals(CalibrationWrite.Status.SENT, run.write(result, family).status, "$family")
+        }
+    }
+
+    /** `handleWriteMemoryReply`: the echo has to be what was sent, at the coefficients' address. */
+    @Test
+    fun theInstrumentsEchoSettlesTheUpload() {
+        val run = run(56)
+        val result = run.solve()
+        val reply = { address: Int, stored: ByteArray -> InstrumentPacket.MemoryReply(address, stored) }
+
+        val confirmed = run.write(result, InstrumentFamily.DISTOX_BLE)
+        assertFalse(confirmed.replyReceived(reply(0xE000, result.toBytes())), "another address")
+        assertFalse(confirmed.isFinished)
+        assertTrue(confirmed.replyReceived(reply(0x8010, result.toBytes())))
+        assertEquals(CalibrationWrite.Status.CONFIRMED, confirmed.status)
+        assertFalse(
+            confirmed.replyReceived(reply(0x8010, ByteArray(52))),
+            "a settled upload cannot be unsettled by a later reply",
+        )
+        assertEquals(CalibrationWrite.Status.CONFIRMED, confirmed.status)
+
+        val rejected = run.write(result, InstrumentFamily.DISTOX_BLE)
+        rejected.replyReceived(reply(0x8010, result.toBytes().copyOf(48)))
+        assertEquals(CalibrationWrite.Status.REJECTED, rejected.status)
+
+        val lost = run.write(result, InstrumentFamily.DISTOX_BLE)
+        assertTrue(lost.linkFailed())
+        assertEquals(CalibrationWrite.Status.FAILED, lost.status)
+    }
+
+    /**
+     * A replaced reading leaves a gap the next shot fills, and the checklist points at the gap,
+     * since that is the position being retaken. Nothing is solved across one.
+     */
+    @Test
+    fun aReplacedReadingIsRetakenInItsOwnPlace() {
+        val run = run(56)
+        run.replace(5)
+
+        assertEquals(55, run.count)
+        assertTrue(run.hasGaps)
+        assertFalse(run.isComplete)
+        assertFalse(run.canSolve)
+        assertNull(run.analyse(CalibrationAlgorithm.calibrate(ExampleCalibration.READINGS, false)))
+        assertEquals(5, run.nextIndex)
+        assertEquals(CalibrationPositions.ALL[5], run.next)
+
+        run.add(ExampleCalibration.READINGS[5])
+        assertTrue(run.isComplete)
+        assertEquals(43, run.solve().iterations, "the retake should restore the known fit")
+    }
+
+    /** Fourteen sets of four in a full run, and so every direction covered. */
+    @Test
+    fun aFullRunCoversEveryDirection() {
+        val run = run(56)
+
+        assertEquals((1..14).flatMap { set -> List(4) { set } }, run.setNumbers())
+        val coverage = run.coverage()
+        assertTrue(ReadingDirection.Pointing.entries.all(coverage::isTargetMet))
     }
 }

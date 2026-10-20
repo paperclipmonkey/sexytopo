@@ -8,7 +8,8 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
- * The Android app's own `CalibrationCalculatorTest`, ported. The iteration counts are the point:
+ * The Android app's own `CalibrationCalculatorTest`, ported as of 1.14.0. The iteration counts are
+ * the point:
  * the fit stops when coefficients move by less than 1e-6, so a single unit in the last place,
  * early on, compounds into a different count — asserting 43, 75 and 53 exactly is a far stronger
  * check than comparing coefficients would be.
@@ -82,16 +83,23 @@ class CalibrationAlgorithmTest {
      * The Java reassigns its `for` variable from two nested loops and then decrements it, which
      * Kotlin cannot express directly; regrouping the samples throws nothing, it just produces a
      * different, quietly wrong answer.
+     *
+     * Asked of the solver directly, since from 1.14.0 `calibrate` finds the sets for itself and
+     * would regroup the swapped readings.
      */
     @Test
     fun readingsAreGroupedInFours() {
         val readings = toReadings(EXAMPLE_ONE)
-        val baseline = CalibrationAlgorithm.calibrate(readings, useNonLinearity = false)
+        val fit = { taken: List<CalibrationReading> ->
+            val (g, m) = CalibrationAlgorithm.readingsToVectors(taken)
+            CalibrationAlgorithm.optimise(g, m, useNonLinearity = false)
+        }
+        val baseline = fit(readings)
 
         val acrossBoundary = readings.toMutableList()
         acrossBoundary[3] = readings[4]
         acrossBoundary[4] = readings[3]
-        val moved = CalibrationAlgorithm.calibrate(acrossBoundary, useNonLinearity = false)
+        val moved = fit(acrossBoundary)
 
         assertTrue(
             abs(moved.delta - baseline.delta) > 1e-6f || moved.iterations != baseline.iterations,
@@ -116,12 +124,78 @@ class CalibrationAlgorithmTest {
         }
     }
 
+    /**
+     * `assertCoefficientsFillMemoryRange`: always the whole 52-byte block, with a linear fit's
+     * unused non-linear slots as 0xFF. A linear fit used to write 48 bytes, which left whatever
+     * non-linear correction an earlier calibration had put in the other four still in force.
+     */
     @Test
-    fun coefficientsPackToTheExpectedLength() {
+    fun coefficientsAlwaysFillTheWholeMemoryRange() {
         val readings = toReadings(EXAMPLE_ONE)
-        assertEquals(48, CalibrationAlgorithm.calibrate(readings, false).toBytes().size)
-        assertEquals(52, CalibrationAlgorithm.calibrate(readings, true).toBytes().size)
+        val linear = CalibrationAlgorithm.calibrate(readings, false).toBytes()
+        val nonLinear = CalibrationAlgorithm.calibrate(readings, true).toBytes()
+
+        assertEquals(52, linear.size)
+        assertEquals(52, nonLinear.size)
+        assertEquals(0xFF.toByte(), linear[51])
+        assertEquals(0xFF.toByte(), nonLinear[51])
+        for (slot in 48..50) assertEquals(0xFF.toByte(), linear[slot], "slot $slot")
     }
+
+    /** `testExampleCalibrationIsAssessedCorrectly`'s 1.14.0 addition. */
+    @Test
+    fun everyReadingOfTheExampleAgreesWithItsSet() {
+        val readings = toReadings(EXAMPLE_ONE)
+        val analysis =
+            CalibrationAnalysis(readings, CalibrationAlgorithm.calibrate(readings, false))
+
+        assertEquals(56, analysis.errors.size)
+        assertTrue(analysis.errors.all { it < 1.5 }, "errors: ${analysis.errors}")
+    }
+
+    @Test
+    fun setsAreFoundFromWhichWayReadingsPoint() {
+        val sets = CalibrationSets.find(toReadings(EXAMPLE_ONE))
+
+        assertEquals(14, sets.size)
+        assertTrue(sets.all { it.size == 4 })
+    }
+
+    @Test
+    fun theOrderOfTheGroupedSetsDoesNotMatter() {
+        val readings = toReadings(EXAMPLE_ONE)
+        val swapped =
+            readings.subList(0, 4) + readings.subList(8, 12) + readings.subList(4, 8) +
+                readings.subList(12, readings.size)
+
+        assertEqualsWithin(deltaOf(readings), deltaOf(swapped), 0.01f)
+    }
+
+    @Test
+    fun anExtraReadingJoinsItsSet() {
+        val readings = toReadings(EXAMPLE_ONE)
+        val withExtra = readings.toMutableList().apply { add(6, readings[6]) }
+
+        val sets = CalibrationSets.find(withExtra)
+        assertEquals(14, sets.size)
+        assertEquals(5, sets[1].size)
+        // Every reading is used, so a repeated one shifts the result only slightly.
+        assertEqualsWithin(deltaOf(readings), deltaOf(withExtra), 0.1f)
+    }
+
+    /** A gap ends a set, so the readings either side of a retake are not run together. */
+    @Test
+    fun aGapEndsASet() {
+        val readings: List<CalibrationReading?> = toReadings(EXAMPLE_ONE).take(8)
+        val withGap = readings.toMutableList().apply { set(2, null) }
+
+        val sets = CalibrationSets.find(withGap)
+
+        assertEquals(listOf(listOf(0, 1), listOf(3), listOf(4, 5, 6, 7)), sets)
+    }
+
+    private fun deltaOf(readings: List<CalibrationReading>): Float =
+        CalibrationAlgorithm.calibrate(readings, useNonLinearity = false).delta
 
     @Test
     fun nonLinearityBytesEndWithTheTerminator() {
@@ -185,9 +259,9 @@ class CalibrationAlgorithmTest {
         assertEqualsWithin(expected.z, actual.z)
     }
 
-    private fun assertEqualsWithin(expected: Float, actual: Float) {
+    private fun assertEqualsWithin(expected: Float, actual: Float, within: Float = allowedDelta) {
         assertTrue(
-            abs(expected - actual) <= allowedDelta,
+            abs(expected - actual) <= within,
             "expected $expected but was $actual",
         )
     }

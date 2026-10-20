@@ -1,11 +1,15 @@
 package org.hwyl.sexytopo.demo
 
 import org.hwyl.sexytopo.shared.calibration.CalibrationPositions
+import org.hwyl.sexytopo.shared.calibration.CalibrationRun
+import org.hwyl.sexytopo.shared.calibration.CalibrationWrite
+import org.hwyl.sexytopo.shared.comms.FrameChannel
 import org.hwyl.sexytopo.shared.comms.InstrumentCommand
 import org.hwyl.sexytopo.shared.comms.InstrumentDecoder
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
 import org.hwyl.sexytopo.shared.comms.InstrumentTransport
 import org.hwyl.sexytopo.shared.comms.InstrumentTransportListener
+import org.hwyl.sexytopo.shared.comms.LinkState
 import org.hwyl.sexytopo.shared.comms.TransportSubscription
 import org.hwyl.sexytopo.shared.comms.distox.DistoXBleFraming
 import org.hwyl.sexytopo.shared.comms.sim.SimulatedInstrument
@@ -106,9 +110,12 @@ class CalibrationSessionTest {
         val result = session.calibration.solve()
 
         val before = session.simulator.commandsReceived.size
-        val blocks = session.writeCalibration(result)
+        val write = session.writeCalibration(result)
 
-        assertEquals(12, blocks)
+        assertEquals(13, write.commands.size)
+        // The simulator speaks the classic protocol, whose per-block replies this port cannot
+        // receive, so it is sent and never said to have worked.
+        assertEquals(CalibrationWrite.Status.SENT, session.calibrationWriteStatus)
         assertTrue(
             session.simulator.commandsReceived.size > before,
             "the coefficients never left the phone",
@@ -156,11 +163,131 @@ class CalibrationSessionTest {
      */
     private class RecordingTransport : InstrumentTransport {
         val sent = mutableListOf<ByteArray>()
+        private var listener: InstrumentTransportListener? = null
         override val isConnected = true
+        override val linkState = LinkState.CONNECTED
         override fun connect() {}
         override fun disconnect() {}
         override fun send(bytes: ByteArray) { sent += bytes }
-        override fun observe(listener: InstrumentTransportListener) = TransportSubscription {}
+        override fun observe(listener: InstrumentTransportListener): TransportSubscription {
+            this.listener = listener
+            return TransportSubscription { this.listener = null }
+        }
+
+        /** As the instrument would: a notification arriving. */
+        fun receive(bytes: ByteArray) = listener?.onFrame(FrameChannel.DEFAULT, bytes)
+
+        fun fail(reason: String) = listener?.onFailure(reason)
+    }
+
+    private fun bleSession(): Pair<SurveySession, RecordingTransport> {
+        val session = session()
+        val transport = RecordingTransport()
+        session.attachForTest(
+            transport,
+            InstrumentDecoder.forProfile(InstrumentProfile.DISTOX_BLE),
+            InstrumentProfile.DISTOX_BLE,
+        )
+        return session to transport
+    }
+
+    private fun exampleFit() =
+        CalibrationRun().apply { ExampleCalibration.READINGS.forEach(::add) }.solve()
+
+    /** The DistoX-BLE's 0x3d reply to a memory write at 0x8010. */
+    private fun memoryReply(stored: ByteArray) =
+        byteArrayOf(0x3d, 0x10, 0x80.toByte(), stored.size.toByte()) + stored
+
+    /**
+     * f8095628: a DistoX-BLE echoes what it stored, and only a matching echo is success. Until
+     * then the upload is waiting, rather than reported as done the moment it left the phone.
+     */
+    @Test
+    fun aBleUploadIsConfirmedByTheInstrumentsEcho() {
+        val (session, transport) = bleSession()
+        val result = exampleFit()
+
+        val write = session.writeCalibration(result)
+        assertEquals(CalibrationWrite.Status.AWAITING_CONFIRMATION, session.calibrationWriteStatus)
+
+        transport.receive(memoryReply(result.toBytes()))
+
+        assertEquals(CalibrationWrite.Status.CONFIRMED, write.status)
+        assertEquals(CalibrationWrite.Status.CONFIRMED, session.calibrationWriteStatus)
+        assertTrue(Strings.deviceDistoxCalibrationWriteSuccess in session.log.first())
+        assertTrue(session.log.none { it.startsWith("Unknown packet") }, "the reply was not understood")
+    }
+
+    @Test
+    fun aBleUploadEchoedWrongIsRejected() {
+        val (session, transport) = bleSession()
+        val result = exampleFit()
+        session.writeCalibration(result)
+
+        transport.receive(memoryReply(ByteArray(52)))
+
+        assertEquals(CalibrationWrite.Status.REJECTED, session.calibrationWriteStatus)
+        assertEquals(Strings.deviceDistoxCalibrationWriteRejected, session.log.first())
+    }
+
+    /** Upstream fails an upload whose Bluetooth write fails; here that arrives as a failure. */
+    @Test
+    fun aBleUploadThatFailsOnTheWayIsReported() {
+        val (session, transport) = bleSession()
+        session.writeCalibration(exampleFit())
+
+        transport.fail("write failed")
+
+        assertEquals(CalibrationWrite.Status.FAILED, session.calibrationWriteStatus)
+        assertTrue(session.log.any { it.startsWith("Error writing calibration") })
+    }
+
+    /** 9fa47c3d: a packet nobody understood goes in the log as its length and its bytes. */
+    @Test
+    fun anUnknownPacketIsLoggedWithItsBytes() {
+        val (session, transport) = bleSession()
+
+        transport.receive(byteArrayOf(0x7f, 0x01, 0xab.toByte()))
+
+        assertEquals("Unknown packet (3 bytes): 7f 01 ab", session.log.first())
+    }
+
+    /** A DistoX-BLE calibration reading is acknowledged, as the Java acknowledges it. */
+    @Test
+    fun aBleCalibrationReadingIsAcknowledged() {
+        val (session, transport) = bleSession()
+        session.startCalibration()
+        val before = transport.sent.size
+
+        transport.receive(ByteArray(17).also { it[0] = 0x02 })
+
+        assertEquals(1, session.calibration.count)
+        assertEquals(before + 1, transport.sent.size, "the reading was never acknowledged")
+    }
+
+    /**
+     * A replaced reading is retaken in its own place, and the simulator replays the dataset's own
+     * reading for that place, so the run still ends in the fit it is known to produce.
+     */
+    @Test
+    fun aReplacedReadingIsRetakenInPlace() {
+        val session = session()
+        session.startCalibration()
+        while (session.simulateCalibrationReading()) {
+            // the 56 readings of a real calibration
+        }
+
+        session.replaceCalibrationReading(10)
+        assertFalse(session.calibration.isComplete)
+        assertTrue(session.simulateCalibrationReading())
+
+        assertTrue(session.calibration.isComplete)
+        assertEquals(ExampleCalibration.READINGS, session.calibration.readings)
+        assertEquals(43, session.calibration.solve().iterations)
+
+        session.deleteCalibrationReading(0)
+        assertEquals(55, session.calibration.count)
+        assertEquals(ExampleCalibration.READINGS[1], session.calibration.readings.first())
     }
 
     /**
@@ -183,11 +310,9 @@ class CalibrationSessionTest {
         // A different transport is attached, so simulateCalibrationReading would refuse - this
         // is the "a real calibration screen already has a solved result to write" case, not the
         // "walk 56 shots through the simulator" one those other tests cover.
-        val fit = org.hwyl.sexytopo.shared.calibration.CalibrationRun()
-        ExampleCalibration.READINGS.forEach(fit::add)
-        val result = fit.solve()
+        val result = exampleFit()
 
-        val blocks = session.writeCalibration(result)
+        val blocks = session.writeCalibration(result).commands.size
 
         assertEquals(1, blocks, "a BLE instrument should get one frame, not a dribble")
         assertEquals(1, transport.sent.size)

@@ -161,9 +161,7 @@ private class DistoXBleDecoder : InstrumentDecoder() {
         listOfNotNull(DistoXBlePackets.decode(bytes))
 
     override fun acknowledgementFor(channel: FrameChannel, bytes: ByteArray): ByteArray? =
-        if (bytes.size > DistoXBlePackets.EMBEDDED_ADMIN &&
-            bytes[0] == DistoXBlePackets.MEASUREMENT_IDENTIFIER
-        ) {
+        if (DistoXBlePackets.needsAcknowledgement(bytes)) {
             DistoXBlePackets.acknowledgementFor(bytes)
         } else {
             null

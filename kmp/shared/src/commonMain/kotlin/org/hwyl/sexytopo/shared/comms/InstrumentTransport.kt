@@ -3,8 +3,14 @@ package org.hwyl.sexytopo.shared.comms
 /**
  * A link to an instrument, with no platform types in sight.
  *
- * Implementations are expected to be called from a single thread (the platform's callback thread
- * in practice) and to deliver frames on that same thread; nothing here is synchronised.
+ * Implementations are called from the main thread and must deliver every callback on it too;
+ * nothing here is synchronised. That is a requirement rather than a convenience: a reading becomes
+ * a survey edit, and deleting a station, undo and every other edit happen on the main thread
+ * without locking. The Android app delivered readings on the instrument's own thread until 1.14.0,
+ * and a reading landing mid-delete could join a station that had just been removed, after which
+ * later readings vanished into it (upstream issue #171). Here `AndroidBleTransport` posts every
+ * callback to the main looper, `CoreBluetoothTransport` gives its central manager the main queue,
+ * and a browser has only the one thread.
  */
 interface InstrumentTransport {
 

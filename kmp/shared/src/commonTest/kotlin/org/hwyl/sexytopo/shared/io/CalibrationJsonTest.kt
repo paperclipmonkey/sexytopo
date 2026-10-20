@@ -4,6 +4,7 @@ import org.hwyl.sexytopo.shared.calibration.CalibrationReading
 import org.hwyl.sexytopo.shared.demo.ExampleCalibration
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -47,6 +48,36 @@ class CalibrationJsonTest {
 
         assertEquals(2, readings.size)
         assertEquals(CalibrationReading(12545, 155, 1529, 17916, 5305, 5435), readings.first())
+    }
+
+    /**
+     * `CalibrationJsonTranslaterTest.testDeletedReadingsSurviveARoundTrip`: a reading deleted for a
+     * retake is written as JSON null, so the readings after it keep their places when it loads.
+     */
+    @Test
+    fun deletedReadingsSurviveARoundTrip() {
+        val reading = CalibrationReading(1, -2, 3, -4, 5, -6)
+
+        val text = CalibrationJson.write(listOf(reading, null, reading))
+        val loaded = CalibrationJson.read(text)
+
+        assertEquals(3, loaded.size)
+        assertNull(loaded[1])
+        assertEquals(-2, loaded[2]?.gy)
+        assertEquals(-6, loaded[2]?.mz)
+    }
+
+    /** What the Android app writes for a gap, as `JSONArray.put(JSONObject.NULL)` writes it. */
+    @Test
+    fun aGapFromTheAndroidAppLoadsAsAGap() {
+        val fromTheApp =
+            """[{"gx":1,"gy":2,"gz":3,"mx":4,"my":5,"mz":6},null,{"gx":1,"gy":2,"gz":3,"mx":4,"my":5,"mz":6}]"""
+
+        assertEquals(
+            listOf(CalibrationReading(1, 2, 3, 4, 5, 6), null, CalibrationReading(1, 2, 3, 4, 5, 6)),
+            CalibrationJson.read(fromTheApp),
+        )
+        assertTrue("null" in CalibrationJson.write(listOf(null, CalibrationReading(1, 2, 3, 4, 5, 6))))
     }
 
     @Test

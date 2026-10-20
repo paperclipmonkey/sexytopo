@@ -3,6 +3,7 @@ package org.hwyl.sexytopo.shared.io
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -16,8 +17,10 @@ import org.hwyl.sexytopo.shared.calibration.CalibrationReading
  * Calibration readings as JSON, in the Android app's own format.
  *
  * Ported from `control/io/basic/CalibrationJsonTranslater`: a flat array of objects with six
- * integer fields. Tag names match the app's, so a calibration saved by one loads correctly in
- * the other.
+ * integer fields and, from 1.14.0, a JSON null for a reading that was deleted and is waiting to be
+ * retaken, so the readings after it keep their places. Tag names match the app's, so a calibration
+ * saved by one loads correctly in the other. An Android app older than 1.14.0 cannot read a file
+ * with a gap in it, but nor can it make one.
  */
 object CalibrationJson {
 
@@ -35,25 +38,38 @@ object CalibrationJson {
 
     private val lenient = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    fun write(readings: List<CalibrationReading>): String =
+    fun write(readings: List<CalibrationReading?>): String =
         pretty.encodeToString(JsonArray.serializer(), toJson(readings))
 
     /**
-     * Reads a calibration file, or returns an empty list if it cannot be read.
+     * Reads a calibration file, or returns an empty list if it cannot be read. A null in the file
+     * is a gap, and stays one.
      *
      * Deliberately forgiving where the Java throws: a reading missing any of its six fields is
      * skipped rather than defaulted, since a zero would look like a plausible sensor value and
      * quietly spoil the fit.
      */
-    fun read(text: String): List<CalibrationReading> {
+    fun read(text: String): List<CalibrationReading?> {
         val array =
             runCatching { lenient.parseToJsonElement(text) as? JsonArray }.getOrNull()
                 ?: return emptyList()
-        return array.mapNotNull { toReading(it) }
+        val readings = mutableListOf<CalibrationReading?>()
+        for (element in array) {
+            if (element is JsonNull) {
+                readings.add(null)
+            } else {
+                toReading(element)?.let(readings::add)
+            }
+        }
+        return readings
     }
 
-    fun toJson(readings: List<CalibrationReading>): JsonArray = buildJsonArray {
+    fun toJson(readings: List<CalibrationReading?>): JsonArray = buildJsonArray {
         for (reading in readings) {
+            if (reading == null) {
+                add(JsonNull)
+                continue
+            }
             add(
                 buildJsonObject {
                     put(GX_TAG, JsonPrimitive(reading.gx))

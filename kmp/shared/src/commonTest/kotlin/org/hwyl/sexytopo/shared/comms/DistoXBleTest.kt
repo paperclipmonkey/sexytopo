@@ -136,6 +136,55 @@ class DistoXBleTest {
         assertNull(DistoXBlePackets.decode(ByteArray(0)))
     }
 
+    /**
+     * The answer to a calibration upload: 0x3d, the address low byte first, the length, then what
+     * is now stored there. It decoded as an unknown packet until 1.14.0.
+     */
+    @Test
+    fun aMemoryReplyCarriesTheAddressAndWhatIsStored() {
+        val stored = ByteArray(52) { it.toByte() }
+        val frame = byteArrayOf(0x3d, 0x10, 0x80.toByte(), 52) + stored
+
+        assertEquals(InstrumentPacket.MemoryReply(0x8010, stored), DistoXBlePackets.decode(frame))
+    }
+
+    /** A reply shorter than its length says keeps what did arrive, which then fails to match. */
+    @Test
+    fun aShortMemoryReplyKeepsWhatArrived() {
+        val frame = byteArrayOf(0x3d, 0x10, 0x80.toByte(), 52, 1, 2, 3)
+
+        assertEquals(
+            InstrumentPacket.MemoryReply(0x8010, byteArrayOf(1, 2, 3)),
+            DistoXBlePackets.decode(frame),
+        )
+        val tooShortForAnAddress = byteArrayOf(0x3d, 0x10)
+        assertEquals(
+            InstrumentPacket.Unrecognised(tooShortForAnAddress),
+            DistoXBlePackets.decode(tooShortForAnAddress),
+        )
+    }
+
+    /**
+     * Shots and calibration readings are acknowledged, as `DistoXBleManager` acknowledges both; a
+     * memory reply is not.
+     */
+    @Test
+    fun calibrationReadingsAreAcknowledgedButMemoryRepliesAreNot() {
+        val calibration = ByteArray(17).also { it[0] = DistoXBlePackets.CALIBRATION_IDENTIFIER }
+        val reply = byteArrayOf(0x3d, 0x10, 0x80.toByte(), 0)
+
+        assertTrue(DistoXBlePackets.needsAcknowledgement(measurementNotification))
+        assertTrue(DistoXBlePackets.needsAcknowledgement(calibration))
+        assertTrue(!DistoXBlePackets.needsAcknowledgement(reply))
+        assertTrue(!DistoXBlePackets.needsAcknowledgement(byteArrayOf(0x02)))
+    }
+
+    /** Corrected upstream in 1.14.0 from 0x7FFFF, outside the 16-bit address space. */
+    @Test
+    fun theDataStoreEndsInsideTheAddressSpace() {
+        assertEquals(0x7FFF, DistoXMemoryRange.DATA_STORE.end)
+    }
+
     @Test
     fun theAcknowledgementReadsTheSequenceBitFromByteOne() {
         // Byte 0 is the BLE identifier; the DistoX admin byte, and so the sequence bit, is byte 1.

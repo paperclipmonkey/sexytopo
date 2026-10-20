@@ -76,6 +76,18 @@ class InstrumentDecoderTest {
         assertTrue(reply.isNotEmpty())
     }
 
+    /**
+     * A calibration reading is acknowledged too. Only shots used to be, so a DistoX-BLE being
+     * calibrated had every reading go unanswered.
+     */
+    @Test
+    fun aDistoXBleCalibrationReadingIsAcknowledged() {
+        val decoder = InstrumentDecoder.forProfile(InstrumentProfile.DISTOX_BLE)
+        val frame = ByteArray(17).also { it[0] = 0x02 }
+
+        assertNotNull(decoder.acknowledgementFor(FrameChannel.DEFAULT, frame))
+    }
+
     /** A frame too short to hold an admin byte must not index past its end. */
     @Test
     fun aTruncatedFrameIsNotAcknowledgedAndDoesNotThrow() {

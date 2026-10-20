@@ -43,6 +43,19 @@ sealed interface InstrumentPacket {
         override fun hashCode(): Int = 31 * address + payload.contentHashCode()
     }
 
+    /**
+     * A DistoX-BLE's answer to a memory write (identifier 0x3d): the address written and the bytes
+     * now stored there, which is how a calibration upload is known to have landed.
+     */
+    class MemoryReply(val address: Int, val stored: ByteArray) : InstrumentPacket {
+        override fun toString(): String = "MemoryReply(0x${address.toString(16)}, ${stored.toHex()})"
+
+        override fun equals(other: Any?): Boolean =
+            other is MemoryReply && address == other.address && stored.contentEquals(other.stored)
+
+        override fun hashCode(): Int = 31 * address + stored.contentHashCode()
+    }
+
     /** Only BRIC4/BRIC5 report this, over the 58d3 errors characteristic. */
     data class DeviceFailure(
         val code: Int,

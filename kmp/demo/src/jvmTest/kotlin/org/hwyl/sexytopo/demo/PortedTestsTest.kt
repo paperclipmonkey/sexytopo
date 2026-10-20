@@ -34,7 +34,10 @@ class PortedTestsTest {
     private val portedTo =
         mapOf(
             "CalibrationCalculatorTest" to listOf("CalibrationAlgorithmTest", "CalibrationRunTest"),
+            "CalibrationCoverageTest" to listOf("CalibrationCoverageTest"),
+            "CalibrationJsonTranslaterTest" to listOf("CalibrationJsonTest"),
             "CalibrationProtocolTest" to listOf("DistoXProtocolTest"),
+            "CalibrationReadingListTest" to listOf("CalibrationReadingListTest"),
             "ConnectedSurveysTest" to listOf("SurveyUpdaterTest"),
             "Coord2DTest" to listOf("CoordTest"),
             "Coord3DTest" to listOf("CoordTest"),
@@ -61,6 +64,7 @@ class PortedTestsTest {
             "PocketTopoImporterTest" to listOf("PocketTopoImportTest"),
             "PocketTopoTxtImporterTest" to listOf("PocketTopoTxtImportTest"),
             "Projection2DTest" to listOf("Projection2DTest"),
+            "ReadingDirectionTest" to listOf("ReadingDirectionTest"),
             "ReconnectionPolicyTest" to listOf("ReconnectionPolicyTest"),
             "ReleaseNotesFormatterTest" to listOf("ReleaseNotesFormatterTest", "ReleaseNotesContentTest"),
             "SexyTopoVersionTest" to listOf("SurvexTherionImportTest"),
@@ -104,6 +108,7 @@ class PortedTestsTest {
             "CodeStyleTest" to "checks Java files for trailing whitespace; ktlint's job here",
             "FormTest" to "an abstract base with no cases of its own",
             "FrameTest" to "an abstract base with no cases of its own",
+            "ImportManagerTest" to "upstream's chooser for which reader a file goes to; the import here picks the reader by extension and returns the folder questions as data, covered by SurvexFolderTest",
             "GuideActivityTest" to "asserts an Android WebView is visible; the manual here is Compose, covered by ManualContentTest and BundledManualTest",
             "OldStyleLoaderTest" to "the pre-JSON tab-separated survey format, which this port does not read — a real gap, recorded in the README",
         )

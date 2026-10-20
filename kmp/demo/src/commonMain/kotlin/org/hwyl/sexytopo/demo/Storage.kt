@@ -104,12 +104,12 @@ class SurveyLibrary(private val store: FileStore = platformFileStore()) {
         }
 
     /** The calibration readings, which belong to the *instrument* and sit beside the settings. */
-    fun loadCalibration(): List<CalibrationReading> =
+    fun loadCalibration(): List<CalibrationReading?> =
         runCatching { store.readText(CALIBRATION_PATH)?.let(CalibrationJson::read) }
             .getOrNull()
             .orEmpty()
 
-    fun saveCalibration(readings: List<CalibrationReading>): Boolean =
+    fun saveCalibration(readings: List<CalibrationReading?>): Boolean =
         runCatching { store.writeText(CALIBRATION_PATH, CalibrationJson.write(readings)) }
             .isSuccess
             .also { if (!it) lastError = "could not save the calibration" }

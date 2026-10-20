@@ -51,6 +51,25 @@ await ctx.addInitScript(() => {
   }
   window.__fakeInstrument = record
 
+  // A DistoX-BLE answers a memory write with 0x3d, the address, the length and then the bytes it
+  // now holds there - which is how the app knows a calibration landed. The write is
+  // `data:`, a length, then `['>', addressLow, addressHigh, length, bytes...]` and CRLF.
+  const answerMemoryWrite = (bytes) => {
+    const b = Array.from(bytes)
+    if (b.length < 10 || b[0] !== 0x64 || b[4] !== 0x3a || b[6] !== 0x3e) return
+    const length = b[9]
+    const reply = new Uint8Array([0x3d, b[7], b[8], length, ...b.slice(10, 10 + length)])
+    setTimeout(() => {
+      const handler = record.listeners[NOTIFY]
+      if (handler) handler({ target: { value: new DataView(reply.buffer) } })
+    }, 50)
+  }
+
+  const written = (bytes) => {
+    record.written.push(Array.from(bytes))
+    answerMemoryWrite(bytes)
+  }
+
   const characteristic = (uuid) => ({
     uuid,
     addEventListener(type, handler) {
@@ -61,13 +80,13 @@ await ctx.addInitScript(() => {
       return this
     },
     async writeValueWithResponse(bytes) {
-      record.written.push(Array.from(bytes))
+      written(bytes)
     },
     async writeValueWithoutResponse(bytes) {
-      record.written.push(Array.from(bytes))
+      written(bytes)
     },
     async writeValue(bytes) {
-      record.written.push(Array.from(bytes))
+      written(bytes)
     },
   })
 
@@ -176,10 +195,40 @@ const nodeAt = async (selector) => {
   return [Math.round(rect.x - box.x + rect.width / 2), Math.round(rect.y - box.y + rect.height / 2)]
 }
 const nodeFor = async (selector) => {
-  const where = await nodeAt(selector)
-  if (where !== null) return where
+  // The accessibility tree catches up with a dialog closing over another a moment after the
+  // picture does, so a control that has just come back into view is asked for more than once.
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const where = await nodeAt(selector)
+    if (where !== null) return where
+    await page.waitForTimeout(300)
+  }
   const offered = await page.$$eval('[id]', (els) => els.map((e) => '#' + e.id).slice(0, 40))
   throw new Error(`nothing on screen answers to ${selector}. The app offers: ${offered.join(', ') || '(nothing)'}`)
+}
+// The calibration dialog is longer than the screen since it took the Android app's four cards, so
+// a control can be laid out below the fold, where a click at its position lands on nothing. Wheel
+// the dialog until it is on screen first. A control scrolled out of sight has an empty rectangle
+// in the accessibility tree, so empty reads as below the fold. The tree also lags the scroll, so
+// a position only counts once it has stopped moving.
+const revealed = async (selector) => {
+  let previous = null
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const handle = await page.$(selector)
+    const rect = handle === null ? null : await handle.boundingBox()
+    const visible = rect !== null && rect.width > 0 && rect.height > 0
+    const centre = visible ? rect.y - box.y + rect.height / 2 : null
+    if (visible && centre > 60 && centre < box.height - 60) {
+      if (previous === centre) return nodeFor(selector)
+      previous = centre
+      await page.waitForTimeout(400)
+      continue
+    }
+    previous = null
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.wheel(0, visible && centre <= 60 ? -250 : 250)
+    await page.waitForTimeout(250)
+  }
+  return nodeFor(selector)
 }
 const OVERFLOW = [box.width - 16, 26]
 // The overflow menu, by name. It is `action_bar.xml`'s own two levels again: its seven groups and
@@ -220,8 +269,10 @@ const INSTRUMENT_CLOSE = '#instrument-close'
 const CALIBRATION_START = '#calibration-start'
 const CALIBRATION_SOLVE = '#calibration-solve'
 const CALIBRATION_WRITE = '#calibration-write'
-// The calibration dialog's Close, so its scrim stops swallowing clicks at the overflow menu.
-const CALIBRATION_CLOSE = '#calibration-close'
+// The readings list, one of its readings by index, and what can be done to it.
+const CALIBRATION_VIEW_READINGS = '#calibration-view-readings'
+const calibrationReading = (index) => `#calibration-reading-${index}`
+const CALIBRATION_REPLACE = '#calibration-replace'
 const LOG_COPY = '#log-copy'
 const FIRST_INSTRUMENT = [210, 306]
 
@@ -377,9 +428,9 @@ for (const row of CALIBRATION_ROWS) {
 }
 await page.screenshot({ path: join(shotDir, 'calibration-readings.png') })
 
-await at(...(await nodeFor(CALIBRATION_SOLVE))); await page.waitForTimeout(3000)
+await at(...(await revealed(CALIBRATION_SOLVE))); await page.waitForTimeout(3000)
 await page.screenshot({ path: join(shotDir, 'calibration-solved.png') })
-await at(...(await nodeFor(CALIBRATION_WRITE))); await page.waitForTimeout(1500)
+await at(...(await revealed(CALIBRATION_WRITE))); await page.waitForTimeout(1500)
 await page.screenshot({ path: join(shotDir, 'calibration-written.png') })
 
 const allWrites = await page.evaluate(() => window.__fakeInstrument.written)
@@ -400,6 +451,19 @@ if (!coefficientFrame) {
   pass('a calibration is solved and written back to the instrument as one framed BLE packet')
 }
 
+// The instrument's echo is what says the upload landed. Until 1.14.0 nothing listened for it, and
+// this port reported success the moment the bytes left the phone.
+const deviceLog = async () =>
+  page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => k.endsWith('device.log.json'))
+    return key ? JSON.parse(localStorage.getItem(key)) : []
+  })
+if (!(await deviceLog()).some((line) => line.text === 'Calibration writing successful')) {
+  fail('the instrument echoed the calibration back and the app never said it had landed')
+} else {
+  pass('the instrument confirms the upload, and the app says so')
+}
+
 // ---- and an interrupted calibration comes back ------------------------------------------------
 // Fifty-six shots is twenty minutes, and twenty minutes underground is long enough for a phone to
 // be dropped or a battery to go flat. The run is written on every reading, in the Android app's own
@@ -415,6 +479,39 @@ if (storedCalibration === null) {
 } else {
   pass('the calibration is saved as it is taken, so an interrupted run is not lost')
 }
+
+// ---- and one bad reading can be retaken without redoing the rest ------------------------------
+// The readings list opens at the last reading. Replacing one leaves a gap in its place, saved as
+// JSON null as the Android app saves it, and the next reading the instrument sends fills it.
+const storedReadings = async () =>
+  page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => k.endsWith('calibration.json'))
+    return key ? JSON.parse(localStorage.getItem(key)) : null
+  })
+const RETAKEN = CALIBRATION_ROWS.length - 2
+await at(...(await revealed(CALIBRATION_VIEW_READINGS))); await page.waitForTimeout(900)
+await page.screenshot({ path: join(shotDir, 'calibration-reading-list.png') })
+await at(...(await nodeFor(calibrationReading(RETAKEN)))); await page.waitForTimeout(700)
+await at(...(await nodeFor(CALIBRATION_REPLACE))); await page.waitForTimeout(700)
+const withGap = await storedReadings()
+if (!withGap || withGap.length !== CALIBRATION_ROWS.length || withGap[RETAKEN] !== null) {
+  fail(`replacing reading ${RETAKEN + 1} did not leave a gap in its place: ${JSON.stringify(withGap?.[RETAKEN])}`)
+} else {
+  pass('replacing a reading leaves a gap, saved as null, and the readings after it keep their places')
+}
+// Escape rather than the list's OK. Once a dialog has been opened and closed over another, Compose's
+// accessibility tree goes on offering the closed one's controls and none of the rest, so nothing
+// after this point can be found by name; the dialogs are dismissed the way a keyboard would.
+await page.keyboard.press('Escape'); await page.waitForTimeout(700)
+await page.evaluate((r) => window.__sendCalibration(r), CALIBRATION_ROWS[RETAKEN])
+await page.waitForTimeout(400)
+const retaken = await storedReadings()
+if (!retaken || retaken.some((reading) => reading === null) || retaken[RETAKEN]?.gx !== CALIBRATION_ROWS[RETAKEN][0]) {
+  fail(`the next reading did not fill the gap: ${JSON.stringify(retaken?.[RETAKEN])}`)
+} else {
+  pass('the next reading from the instrument fills the gap')
+}
+await page.screenshot({ path: join(shotDir, 'calibration-retaken.png') })
 
 // ---- and the app can say what the instrument did -----------------------------------------------
 // The one that matters underground. When a DistoX will not pair it does it in a cave, a hundred
@@ -438,7 +535,8 @@ if (storedLog === null) {
   pass(`the instrument log is written down as it happens (${storedLog.length} lines)`)
 }
 
-await at(...(await nodeFor(CALIBRATION_CLOSE))); await page.waitForTimeout(700)
+// Escape, for the reason given at the readings list above.
+await page.keyboard.press('Escape'); await page.waitForTimeout(700)
 await at(...OVERFLOW); await page.waitForTimeout(600)
 await at(...(await toolsMenuRow('log'))); await page.waitForTimeout(900)
 await page.screenshot({ path: join(shotDir, 'instrument-log.png') })

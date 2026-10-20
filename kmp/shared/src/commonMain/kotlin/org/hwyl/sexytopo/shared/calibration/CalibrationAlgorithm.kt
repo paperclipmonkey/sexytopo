@@ -291,11 +291,21 @@ object CalibrationAlgorithm {
         return g to m
     }
 
+    /**
+     * Fits [readings], which must not include any gaps. `CalibrationCalculator.calculate`.
+     *
+     * Every reading is used, but not necessarily in the order given: the four sets [optimise]
+     * groups are the first four [CalibrationSets] of at least four readings, so a calibration shot
+     * in a different order, or with a direction repeated or an extra shot taken, still gives the
+     * algorithm four genuine sets. For readings taken in the usual order nothing moves, which is
+     * why the iteration counts the ported tests pin are unchanged.
+     */
     fun calibrate(
         readings: List<CalibrationReading>,
         useNonLinearity: Boolean,
     ): CalibrationResult {
-        val (g, m) = readingsToVectors(readings)
+        val order = CalibrationSets.algorithmOrder(CalibrationSets.find(readings), readings.size)
+        val (g, m) = readingsToVectors(order.map { readings[it] })
         return optimise(g, m, useNonLinearity)
     }
 
@@ -329,14 +339,39 @@ data class CalibrationResult(
         get() = iterations < CalibrationAlgorithm.MAX_IT
 
     /**
-     * The byte sequence to write to the instrument at address 0x8010.
+     * The calibrated gravity and magnetic vectors for one raw reading. `CalibAlgorithm.Apply`,
+     * which reads the statics the last fit left behind; here it is this fit's own coefficients.
+     */
+    fun apply(reading: CalibrationReading): Pair<Vector, Vector> {
+        val fv = CalibrationAlgorithm.FV
+        val g = Vector(reading.gx / fv, reading.gy / fv, reading.gz / fv)
+        val m = Vector(reading.mx / fv, reading.my / fv, reading.mz / fv)
+        val gl =
+            Vector(
+                g.x + (g.x * g.x - 0.5f) * nl.x,
+                g.y + (g.y * g.y - 0.5f) * nl.y,
+                g.z + (g.z * g.z - 0.5f) * nl.z,
+            )
+        return ((aG * gl) + bG) to ((aM * m) + bM)
+    }
+
+    /** Which way [reading] was pointing, corrected by this calibration. */
+    fun directionOf(reading: CalibrationReading): ReadingDirection {
+        val (g, m) = apply(reading)
+        return ReadingDirection.fromVectors(g, m)
+    }
+
+    /**
+     * The byte sequence to write to the instrument at address 0x8010 to 0x8043.
      *
-     * 48 bytes, or 52 with non-linearity. Each coefficient is a little-endian signed 16-bit value;
-     * the non-linearity bytes are single signed bytes, stored one less than their rounded value,
-     * followed by a 0xFF terminator.
+     * Always 52 bytes. Each coefficient is a little-endian signed 16-bit value; the non-linearity
+     * bytes are single signed bytes, stored one less than their rounded value, followed by a 0xFF
+     * terminator. A linear fit fills the three non-linear slots with 0xFF, which the DistoX treats
+     * as no non-linear correction. It used to stop at 48 bytes, as the Java did until 1.14.0, and
+     * that left any non-linear coefficients from an earlier calibration active on the instrument.
      */
     fun toBytes(): ByteArray {
-        val data = ByteArray(if (useNonLinearity) 52 else 48)
+        val data = ByteArray(COEFFICIENT_BYTES)
         val put = CalibrationAlgorithm::putCoefficient
         val fv = CalibrationAlgorithm.FV
         val fm = CalibrationAlgorithm.FM
@@ -371,8 +406,17 @@ data class CalibrationResult(
             data[48] = ((nl.x * fn).roundToInt() - 1).toByte()
             data[49] = ((nl.y * fn).roundToInt() - 1).toByte()
             data[50] = ((nl.z * fn).roundToInt() - 1).toByte()
-            data[51] = 0xFF.toByte()
+        } else {
+            data[48] = 0xFF.toByte()
+            data[49] = 0xFF.toByte()
+            data[50] = 0xFF.toByte()
         }
+        data[51] = 0xFF.toByte()
         return data
+    }
+
+    companion object {
+        /** The whole of `DistoXMemoryRange.CALIBRATION_COEFFICIENTS`. */
+        const val COEFFICIENT_BYTES = 52
     }
 }
