@@ -15,7 +15,7 @@ import org.hwyl.sexytopo.control.util.InputMode;
 import org.hwyl.sexytopo.control.util.SurveyStats;
 import org.hwyl.sexytopo.control.util.SurveyUpdater;
 import org.hwyl.sexytopo.control.util.TextTools;
-import org.hwyl.sexytopo.model.graph.ExtendedElevationDirection;
+import org.hwyl.sexytopo.model.geometry.ExtendedElevationDirection;
 import org.hwyl.sexytopo.model.survey.Leg;
 import org.hwyl.sexytopo.model.survey.Station;
 
@@ -99,9 +99,24 @@ public abstract class SurveyEditorActivity extends SexyTopoActivity {
         invalidateView();
     }
 
+    /** Whether the station has a cross-section in the sketch this activity shows. */
+    public boolean hasCrossSection(Station station) {
+        return false;
+    }
+
+    /** Whether the station has a cross-section whose direction can be set (a vertical one). */
+    public boolean hasRotatableCrossSection(Station station) {
+        return false;
+    }
+
     public void onNewCrossSection(Station station) {
         // Default: not applicable in some views
         // Override in activities that support adding cross-sections
+    }
+
+    public void onNewHorizontalCrossSection(Station station) {
+        // Default: not applicable in some views
+        // Override in activities that support adding horizontal cross-sections
     }
 
     public void onDeleteCrossSection(Station station) {

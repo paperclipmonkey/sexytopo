@@ -13,10 +13,10 @@ import org.hwyl.sexytopo.control.Log;
 import org.hwyl.sexytopo.control.util.CrossSectioner;
 import org.hwyl.sexytopo.control.util.Space3DUtils;
 import org.hwyl.sexytopo.control.util.SurveyUpdater;
-import org.hwyl.sexytopo.model.graph.Coord2D;
-import org.hwyl.sexytopo.model.graph.Coord3D;
-import org.hwyl.sexytopo.model.graph.Line;
-import org.hwyl.sexytopo.model.graph.Projection2D;
+import org.hwyl.sexytopo.model.geometry.Coord2D;
+import org.hwyl.sexytopo.model.geometry.Coord3D;
+import org.hwyl.sexytopo.model.geometry.Line;
+import org.hwyl.sexytopo.model.geometry.Projection2D;
 import org.hwyl.sexytopo.model.sketch.CrossSection;
 import org.hwyl.sexytopo.model.sketch.CrossSectionDetail;
 import org.hwyl.sexytopo.model.sketch.PathDetail;
@@ -173,6 +173,36 @@ public class ExampleSurveyCreator {
             float offset = (radius > 0 ? radius : 3) * 2.5f;
             Coord2D position = stationPositions.get(station).add(0, offset);
             plan.addCrossSection(xs, position);
+        }
+    }
+
+    /**
+     * Adds cross-sections to the elevation, alternately vertical and horizontal, each with a wall
+     * outline drawn through the ends of its splays. This is separate from create() so that the
+     * example survey the app offers is unchanged; it is for the export fixtures, so that exports of
+     * the elevation have cross-sections of both kinds to look at.
+     */
+    public static void addElevationCrossSections(Survey survey) {
+        Sketch elevation = survey.getSketch(Projection2D.EXTENDED_ELEVATION);
+        Map<Station, Coord2D> stationPositions =
+                Projection2D.EXTENDED_ELEVATION.project(survey).getStationMap();
+        List<Station> candidates = survey.getAllStations();
+        candidates.remove(survey.getOrigin());
+        int count = Math.max(2, Math.round(candidates.size() * X_SECTION_FRACTION));
+        for (int i = 0; i < count && !candidates.isEmpty(); i++) {
+            Station station = candidates.remove(random.nextInt(candidates.size()));
+            CrossSection.Orientation orientation =
+                    (i % 2 == 0)
+                            ? CrossSection.Orientation.VERTICAL
+                            : CrossSection.Orientation.HORIZONTAL;
+            CrossSection xs = CrossSectioner.section(survey, station, orientation);
+            float radius = CrossSectioner.getHorizontalRadius(station);
+            float offset = (radius > 0 ? radius : 3) * 2.5f;
+            Coord2D position = stationPositions.get(station).add(0, offset);
+            elevation.addCrossSection(xs, position);
+        }
+        for (CrossSectionDetail xsDetail : elevation.getCrossSectionDetails()) {
+            drawCrossSectionWalls(xsDetail);
         }
     }
 

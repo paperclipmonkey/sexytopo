@@ -12,7 +12,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.hwyl.sexytopo.control.io.IoUtils;
 import org.hwyl.sexytopo.control.io.translation.Importer;
-import org.hwyl.sexytopo.model.graph.Coord2D;
+import org.hwyl.sexytopo.model.geometry.Coord2D;
 import org.hwyl.sexytopo.model.sketch.Colour;
 import org.hwyl.sexytopo.model.sketch.PathDetail;
 import org.hwyl.sexytopo.model.sketch.Sketch;
@@ -46,7 +46,9 @@ public class XviImporter extends Importer {
     }
 
     public boolean canHandleFile(DocumentFile file) {
-        return file.isFile() && !file.isDirectory() && file.getName().endsWith("xvi");
+        return file.isFile()
+                && !file.isDirectory()
+                && file.getName().endsWith("." + XviConstants.XVI_EXTENSION);
     }
 
     public Grid parseGrid(String contents) throws Exception {

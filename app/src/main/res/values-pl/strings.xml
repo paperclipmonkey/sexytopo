@@ -34,12 +34,15 @@
     <string name="title_activity_plan">Plan</string>
     <string name="title_activity_elevation">Przekrój</string>
     <string name="title_activity_cross_section">Przekrój</string>
+    <string name="title_activity_cross_section_horizontal">Przekrój poziomy</string>
+    <string name="title_activity_cross_section_vertical">Przekrój pionowy</string>
     <string name="title_activity_calibration">Kalibracja</string>
     <string name="title_activity_survey">Statystyki</string>
     <string name="title_activity_settings">Ustawienia</string>
     <string name="title_activity_system_log">Dziennik</string>
     <string name="title_activity_help">Pomoc</string>
-    <string name="title_activity_guide">Instrukcja</string>
+    <string name="title_activity_guide">Podręcznik</string>
+    <string name="title_activity_release_notes">Informacje o wersji</string>
     <string name="title_activity_3d">3D</string>
 
     <!-- Action bar menu -->
@@ -59,6 +62,7 @@
     <string name="action_3d">3D</string>
     <string name="action_help">Pomoc</string>
     <string name="action_guide">Podręcznik</string>
+    <string name="action_release_notes">Informacje o wersji</string>
     <string name="action_about">O programie</string>
     <string name="action_file_new">Nowy pomiar</string>
     <string name="action_file_open">Otwórz pomiar…</string>
@@ -146,9 +150,15 @@
     <!-- Import / Export -->
     <string name="import_successful">"Import zakończony (jeszcze nie zapisano)"</string>
     <string name="import_failed">Import nie powiódł się</string>
+    <string name="import_choose_format">Znaleziono wiele formatów — wybierz format do importu</string>
+    <string name="import_choose_svx_file">Znaleziono wiele plików .svx — wybierz plik do importu</string>
+    <string name="import_choose_th_file">Znaleziono wiele plików .th — wybierz plik do importu</string>
+    <string name="import_choose_espec">Nie znaleziono pasującego pliku .espec — wybierz jeden lub pomiń</string>
+    <string name="import_espec_none">Żaden — rozciągnij wszystko w prawo</string>
     <string name="export_select_type">Wybierz format eksportu</string>
     <string name="export_successful">Eksport zakończony</string>
     <string name="export_failed">Eksport nie powiódł się</string>
+    <string name="export_survey_needs_saving">Pomiar musi zostać zapisany przed eksportem</string>
     <string name="created_with">Utworzono za pomocą %1$s w dniu %2$s</string>
     <string name="share_type_survey_zip">Udostępnij pliki inwentaryzacji (ZIP)</string>
     <string name="share_chooser_title">Udostępnij inwentaryzację przez</string>
@@ -258,6 +268,7 @@
     <string name="device_pairing_attempt">Parowanie z %1$s…</string>
     <string name="device_pairing_error">Błąd parowania: %1$s</string>
     <string name="device_pairing_incompatible">Wykryto niekompatybilne urządzenie "%1$s"</string>
+    <string name="device_unnamed">bez nazwy</string>
     <string name="device_pairing_unpairing_device">Rozłączanie %1$s</string>
     <string name="device_pairing_unpairing_success">Rozłączanie pomyślne</string>
     <string name="device_pairing_unpairing_error">Błąd rozłączania: %1$s</string>
@@ -273,9 +284,12 @@
     <string name="device_connection_error">Błąd połączenia: %1$s</string>
     <string name="device_connection_closing_error">Błąd zamykania połączenia: %1$s</string>
     <string name="device_data_received">Odebrano pomiar</string>
+    <string name="device_calibration_reading_received">Odebrano odczyt kalibracyjny</string>
+    <string name="device_data_duplicated">Zduplikowany pakiet #%1$d</string>
     <string name="device_data_received_null">Odebrano dane puste</string>
     <string name="device_data_received_empty">Odebrano puste dane</string>
     <string name="device_data_unknown_identifier">Nieznany identyfikator pakietu</string>
+    <string name="device_data_unknown_packet">Nieznany pakiet (%1$d bajtów): %2$s</string>
     <string name="device_data_acknowledged_packet">Potwierdzono pakiet</string>
     <string name="device_no_device">brak urządzenia</string>
     <string name="action_set_test_instrument">Ustaw instrument testowy</string>
@@ -306,7 +320,7 @@
     <string name="device_distox_command_calibration_start">Rozpocznij tryb kalibracji</string>
     <string name="device_distox_command_calibration_stop">Zatrzymaj tryb kalibracji</string>
     <string name="device_distox_force_disconnect_for_calibration">Disto zajęty; wymuszanie rozłączenia w celu zapisu kalibracji</string>
-    <string name="device_distox_calibration_result">Ocena kalibracji (powinno być poniżej %1$f): %2$s\n\nAlgorytm kalibracji: %3$s</string>
+    <string name="device_distox_calibration_result">Ocena kalibracji (powinno być poniżej %1$s): %2$s\n\nAlgorytm kalibracji: %3$s</string>
     <string name="device_distox_calibration_writing">Zapisywanie współczynników kalibracji</string>
     <string name="device_distox_calibration_write_success">Pomyślnie zapisano kalibrację</string>
     <string name="device_distox_calibration_write_error">Błąd zapisu kalibracji %1$s</string>
@@ -329,6 +343,10 @@
     <string name="device_fcl_command_device_off">Urządzenie wyłączone</string>
 
     <!-- Calibration -->
+    <string name="calibration_title_mode">Tryb kalibracji</string>
+    <string name="calibration_title_readings">Odczyty</string>
+    <string name="calibration_title_last_reading">Ostatni odczyt</string>
+    <string name="calibration_title_result">Wynik</string>
     <string name="calibration_index">Numer odczytu</string>
     <string name="calibration_start">Tryb kalibracji Disto włączony</string>
     <string name="calibration_stop">Tryb kalibracji Disto wyłączony</string>
@@ -349,6 +367,28 @@
     <string name="calibration_loaded_file">Wczytano dane kalibracji</string>
     <string name="calibration_load_error">Błąd odczytu pliku kalibracji</string>
     <string name="calibration_save_error">Błąd zapisu pliku kalibracji</string>
+    <string name="calibration_worst_readings">Najmniej spójne odczyty (ponad 1° od reszty serii)</string>
+    <string name="calibration_algorithm_linear">Liniowy</string>
+    <string name="calibration_algorithm_nonlinear">Nieliniowy</string>
+    <string name="calibration_view_readings">Pokaż odczyty</string>
+    <string name="calibration_pointing_horizontal">Poziomo</string>
+    <string name="calibration_pointing_corner_up">Narożnik w górę</string>
+    <string name="calibration_pointing_corner_down">Narożnik w dół</string>
+    <string name="calibration_face_side">Na boku</string>
+    <string name="calibration_set_number">Seria %1$d</string>
+    <string name="calibration_sets">Serie</string>
+    <string name="calibration_sets_value">%1$d (%2$d pełnych)</string>
+    <string name="calibration_coverage">Pokryte kierunki</string>
+    <string name="calibration_coverage_corners_up">Narożniki w górę</string>
+    <string name="calibration_coverage_corners_down">Narożniki w dół</string>
+    <string name="calibration_reading_title">Odczyt #%1$d</string>
+    <string name="calibration_replace">Zastąp</string>
+    <string name="calibration_reading_options_message">Zastąp: jego miejsce zajmie następny wykonany odczyt.\nUsuń: odczyt zostanie usunięty, a późniejsze przesuną się o jedno miejsce w górę.</string>
+    <string name="calibration_gap_options_message">Usunąć tę lukę i przesunąć późniejsze odczyty o jedno miejsce w górę?</string>
+    <string name="calibration_roll">Obrót</string>
+    <string name="calibration_uncalibrated_estimate">Szacunek bez kalibracji</string>
+    <string name="calibration_reading_deleted">Usunięty: wykonaj ten odczyt ponownie</string>
+    <string name="calibration_no_readings">Brak odczytów</string>
     <string name="direction_forward">Do przodu</string>
     <string name="direction_right">W prawo</string>
     <string name="direction_back">Do tyłu</string>
@@ -398,6 +438,7 @@
     <string name="trip_licence_hint_body">Wolna licencja pozwala innym grotołazom korzystać z twojej pracy i ją rozwijać, tak jak ty możesz korzystać z ich pracy - dane, które można zweryfikować i wykorzystać ponownie, są cenniejsze i z czasem stają się lepsze, z korzyścią dla wszystkich. SexyTopo jest wolny i otwartoźródłowy z tego samego powodu.</string>
     <string name="trip_licence_hint_dismiss">Zamknij</string>
     <string name="licence_summary_gpl_3_plus">Każdy może korzystać z twojego pomiaru i go zmieniać, pod warunkiem że wszystko, co na jego podstawie opublikuje, udostępni równie swobodnie.</string>
+    <string name="licence_summary_polyform_noncommercial">Każdy może korzystać z twojego pomiaru i go zmieniać do celów niekomercyjnych, o ile zachowa dołączoną do niego twoją informację o prawach autorskich.</string>
     <string name="licence_summary_cc0">Całkowicie zrzekasz się swoich praw: każdy może wykorzystać twój pomiar do czegokolwiek, bez pytania i bez podawania autorstwa.</string>
     <string name="licence_summary_cc_by">Każdy może korzystać z twojego pomiaru i go zmieniać w dowolnym celu, o ile poda twoje autorstwo.</string>
     <string name="licence_summary_cc_by_sa">Każdy może korzystać z twojego pomiaru i go zmieniać, jeśli poda twoje autorstwo i udostępni swoją wersję na tych samych warunkach.</string>
@@ -422,7 +463,8 @@
     <string name="stats_longest_leg">Najdłuższy ciąg (m)</string>
     <string name="stats_shortest_leg">Najkrótszy ciąg (m)</string>
     <string name="settings_survey_title">Ustawienia pomiaru</string>
-    <string name="settings_survey_cross_section_scale">Skala przekrojów</string>
+    <string name="settings_survey_plan_cross_section_scale">Skala przekrojów (Plan)</string>
+    <string name="settings_survey_elevation_cross_section_scale">Skala przekrojów (Przekrój)</string>
 
     <!-- Settings -->
     <string name="settings_general_title">Ogólne</string>
@@ -684,10 +726,13 @@
     <string name="menu_jump_to_station_in_elevation">&#10132; Przekrój</string>
     <string name="menu_xsection">Przekrój</string>
     <string name="menu_xsection_create">Nowy przekrój</string>
+    <string name="menu_xsection_create_horizontal">Nowy przekrój poziomy</string>
+    <string name="menu_xsection_create_vertical">Nowy przekrój pionowy</string>
+    <string name="menu_xsection_hint_vertical">korytarz</string>
+    <string name="menu_xsection_hint_horizontal">studnia</string>
     <string name="menu_xsection_delete">Usuń przekrój</string>
     <string name="menu_xsection_edit">Edytuj szkic</string>
     <string name="menu_xsection_set_direction">Ustaw kierunek</string>
-    <string name="menu_new_cross_section">Nowy przekrój poprzeczny</string>
     <string name="menu_jump_to_station_in_table">&#10132; Tabela danych</string>
     <string name="menu_delete_station">Usuń</string>
     <string name="menu_reverse">Odwróć</string>
@@ -734,5 +779,6 @@
     <string name="request_code_error">Kod błędu %1$d z kodu żądania %2$d</string>
     <string name="killing_comms_process">Zabijanie procesu komunikacji</string>
     <string name="setup_error_load_symbol_svg">Błąd wczytywania symbolu SVG %1$s</string>
+    <string name="release_notes_unavailable">Informacje o wersji są niedostępne.</string>
 
 </resources>

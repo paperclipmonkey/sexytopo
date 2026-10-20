@@ -34,12 +34,15 @@
     <string name="title_activity_plan">Pianta</string>
     <string name="title_activity_elevation">Elevazione</string>
     <string name="title_activity_cross_section">Sezione</string>
+    <string name="title_activity_cross_section_horizontal">Sezione orizzontale</string>
+    <string name="title_activity_cross_section_vertical">Sezione verticale</string>
     <string name="title_activity_calibration">Calibrazione</string>
     <string name="title_activity_survey">Statistiche</string>
     <string name="title_activity_settings">Impostazioni</string>
     <string name="title_activity_system_log">Registro</string>
     <string name="title_activity_help">Aiuto</string>
-    <string name="title_activity_guide">Guida</string>
+    <string name="title_activity_guide">Manuale</string>
+    <string name="title_activity_release_notes">Note di rilascio</string>
     <string name="title_activity_3d">3D</string>
 
     <!-- Action bar menu -->
@@ -59,6 +62,7 @@
     <string name="action_3d">3D</string>
     <string name="action_help">Aiuto</string>
     <string name="action_guide">Manuale</string>
+    <string name="action_release_notes">Note di rilascio</string>
     <string name="action_about">Informazioni</string>
     <string name="action_file_new">Nuovo Rilievo</string>
     <string name="action_file_open">Apri Rilievo…</string>
@@ -146,9 +150,15 @@
     <!-- Import / Export -->
     <string name="import_successful">"Importazione completata (non ancora salvata)"</string>
     <string name="import_failed">Importazione fallita</string>
+    <string name="import_choose_format">Trovati più formati — scegliere il formato da importare</string>
+    <string name="import_choose_svx_file">Trovati più file .svx — scegliere il file da importare</string>
+    <string name="import_choose_th_file">Trovati più file .th — scegliere il file da importare</string>
+    <string name="import_choose_espec">Nessun .espec corrispondente trovato — sceglierne uno o ignorare</string>
+    <string name="import_espec_none">Nessuno — estendi tutto a destra</string>
     <string name="export_select_type">Seleziona il formato di esportazione</string>
     <string name="export_successful">Esportazione completata</string>
     <string name="export_failed">Esportazione fallita</string>
+    <string name="export_survey_needs_saving">Il rilievo deve essere salvato prima di poterlo esportare</string>
     <string name="created_with">Creato con %1$s il %2$s</string>
     <string name="share_type_survey_zip">Condividi file del rilievo (ZIP)</string>
     <string name="share_chooser_title">Condividi il rilievo tramite</string>
@@ -258,6 +268,7 @@
     <string name="device_pairing_attempt">Accoppiamento con %1$s…</string>
     <string name="device_pairing_error">Errore nell\'accoppiamento: %1$s</string>
     <string name="device_pairing_incompatible">Dispositivo incompatibile "%1$s" rilevato</string>
+    <string name="device_unnamed">senza nome</string>
     <string name="device_pairing_unpairing_device">Disaccoppiamento %1$s</string>
     <string name="device_pairing_unpairing_success">Disaccoppiamento riuscito</string>
     <string name="device_pairing_unpairing_error">Errore nel disaccoppiamento: %1$s</string>
@@ -273,9 +284,12 @@
     <string name="device_connection_error">Errore di connessione: %1$s</string>
     <string name="device_connection_closing_error">Errore nella chiusura della connessione: %1$s</string>
     <string name="device_data_received">Misurazione ricevuta</string>
+    <string name="device_calibration_reading_received">Lettura di calibrazione ricevuta</string>
+    <string name="device_data_duplicated">Pacchetto duplicato #%1$d</string>
     <string name="device_data_received_null">Dati null ricevuti</string>
     <string name="device_data_received_empty">Dati vuoti ricevuti</string>
     <string name="device_data_unknown_identifier">Identificatore pacchetto sconosciuto</string>
+    <string name="device_data_unknown_packet">Pacchetto sconosciuto (%1$d byte): %2$s</string>
     <string name="device_data_acknowledged_packet">Pacchetto confermato</string>
     <string name="device_no_device">nessun dispositivo</string>
     <string name="action_set_test_instrument">Imposta strumento di test</string>
@@ -306,7 +320,7 @@
     <string name="device_distox_command_calibration_start">Avvia modalità calibrazione</string>
     <string name="device_distox_command_calibration_stop">Ferma modalità calibrazione</string>
     <string name="device_distox_force_disconnect_for_calibration">Disto occupato; forzatura disconnessione per scrivere la calibrazione</string>
-    <string name="device_distox_calibration_result">Valutazione calibrazione (dovrebbe essere inferiore a %1$f): %2$s\n\nAlgoritmo di calibrazione: %3$s</string>
+    <string name="device_distox_calibration_result">Valutazione calibrazione (dovrebbe essere inferiore a %1$s): %2$s\n\nAlgoritmo di calibrazione: %3$s</string>
     <string name="device_distox_calibration_writing">Scrittura coefficienti di calibrazione</string>
     <string name="device_distox_calibration_write_success">Scrittura calibrazione riuscita</string>
     <string name="device_distox_calibration_write_error">Errore nella scrittura della calibrazione %1$s</string>
@@ -329,6 +343,10 @@
     <string name="device_fcl_command_device_off">Dispositivo Spento</string>
 
     <!-- Calibration -->
+    <string name="calibration_title_mode">Modalità calibrazione</string>
+    <string name="calibration_title_readings">Letture</string>
+    <string name="calibration_title_last_reading">Ultima lettura</string>
+    <string name="calibration_title_result">Risultato</string>
     <string name="calibration_index">Numero lettura</string>
     <string name="calibration_start">Modalità Cal Disto Accesa</string>
     <string name="calibration_stop">Modalità Cal Disto Spenta</string>
@@ -349,6 +367,28 @@
     <string name="calibration_loaded_file">Dati di calibrazione caricati</string>
     <string name="calibration_load_error">Errore nella lettura del file di calibrazione</string>
     <string name="calibration_save_error">Errore nel salvataggio del file di calibrazione</string>
+    <string name="calibration_worst_readings">Letture meno coerenti (oltre 1° rispetto al resto della serie)</string>
+    <string name="calibration_algorithm_linear">Lineare</string>
+    <string name="calibration_algorithm_nonlinear">Non lineare</string>
+    <string name="calibration_view_readings">Mostra letture</string>
+    <string name="calibration_pointing_horizontal">Orizzontale</string>
+    <string name="calibration_pointing_corner_up">Angolo in alto</string>
+    <string name="calibration_pointing_corner_down">Angolo in basso</string>
+    <string name="calibration_face_side">Di lato</string>
+    <string name="calibration_set_number">Serie %1$d</string>
+    <string name="calibration_sets">Serie</string>
+    <string name="calibration_sets_value">%1$d (%2$d complete)</string>
+    <string name="calibration_coverage">Direzioni coperte</string>
+    <string name="calibration_coverage_corners_up">Angoli in alto</string>
+    <string name="calibration_coverage_corners_down">Angoli in basso</string>
+    <string name="calibration_reading_title">Lettura #%1$d</string>
+    <string name="calibration_replace">Sostituisci</string>
+    <string name="calibration_reading_options_message">Sostituisci: il suo posto resta per la prossima lettura.\nElimina: viene rimossa e le letture successive salgono di un posto.</string>
+    <string name="calibration_gap_options_message">Rimuovere questo spazio vuoto e far salire di un posto le letture successive?</string>
+    <string name="calibration_roll">Rollio</string>
+    <string name="calibration_uncalibrated_estimate">Stima non calibrata</string>
+    <string name="calibration_reading_deleted">Eliminata: ripeti questa lettura</string>
+    <string name="calibration_no_readings">Ancora nessuna lettura</string>
     <string name="direction_forward">Avanti</string>
     <string name="direction_right">Destra</string>
     <string name="direction_back">Indietro</string>
@@ -398,6 +438,7 @@
     <string name="trip_licence_hint_body">Una licenza libera permette ad altri speleologi di usare il tuo lavoro e di ampliarlo, come tu puoi fare con il loro: i dati che possono essere verificati e riutilizzati valgono di più e migliorano nel tempo, a vantaggio di tutti. SexyTopo è libero e open source per la stessa ragione.</string>
     <string name="trip_licence_hint_dismiss">Chiudi</string>
     <string name="licence_summary_gpl_3_plus">Chiunque può usare e adattare il tuo rilievo, purché tutto ciò che viene pubblicato sulla sua base sia condiviso con la stessa libertà.</string>
+    <string name="licence_summary_polyform_noncommercial">Chiunque può usare e adattare il tuo rilievo per scopi non commerciali, purché mantenga la tua nota di copyright.</string>
     <string name="licence_summary_cc0">Rinunci del tutto ai tuoi diritti: chiunque può usare il tuo rilievo per qualsiasi scopo, senza chiedere né citarti.</string>
     <string name="licence_summary_cc_by">Chiunque può usare e adattare il tuo rilievo per qualsiasi scopo, purché ti citi.</string>
     <string name="licence_summary_cc_by_sa">Chiunque può usare e adattare il tuo rilievo se ti cita e condivide la propria versione alle stesse condizioni.</string>
@@ -422,7 +463,8 @@
     <string name="stats_longest_leg">Tratto Più Lungo (m)</string>
     <string name="stats_shortest_leg">Tratto Più Corto (m)</string>
     <string name="settings_survey_title">Impostazioni rilievo</string>
-    <string name="settings_survey_cross_section_scale">Scala delle sezioni</string>
+    <string name="settings_survey_plan_cross_section_scale">Scala delle sezioni (Pianta)</string>
+    <string name="settings_survey_elevation_cross_section_scale">Scala delle sezioni (Elevazione)</string>
 
     <!-- Settings -->
     <string name="settings_general_title">Generale</string>
@@ -684,10 +726,13 @@
     <string name="menu_jump_to_station_in_elevation">&#10132; Elevazione</string>
     <string name="menu_xsection">Sezione</string>
     <string name="menu_xsection_create">Nuova sezione</string>
+    <string name="menu_xsection_create_horizontal">Nuova sezione orizzontale</string>
+    <string name="menu_xsection_create_vertical">Nuova sezione verticale</string>
+    <string name="menu_xsection_hint_vertical">galleria</string>
+    <string name="menu_xsection_hint_horizontal">pozzo</string>
     <string name="menu_xsection_delete">Elimina sezione</string>
     <string name="menu_xsection_edit">Modifica schizzo</string>
     <string name="menu_xsection_set_direction">Imposta direzione</string>
-    <string name="menu_new_cross_section">Nuova Sezione Trasversale</string>
     <string name="menu_jump_to_station_in_table">&#10132; Tabella Dati</string>
     <string name="menu_delete_station">Elimina</string>
     <string name="menu_reverse">Inverti</string>
@@ -734,5 +779,6 @@
     <string name="request_code_error">Codice errore %1$d dalla richiesta %2$d</string>
     <string name="killing_comms_process">Terminazione del processo di comunicazione</string>
     <string name="setup_error_load_symbol_svg">Errore nel caricamento del simbolo SVG %1$s</string>
+    <string name="release_notes_unavailable">Le note di rilascio non sono disponibili.</string>
 
 </resources>

@@ -2,9 +2,9 @@ package org.hwyl.sexytopo.model.sketch;
 
 import org.hwyl.sexytopo.control.SexyTopo;
 import org.hwyl.sexytopo.control.util.Space2DUtils;
-import org.hwyl.sexytopo.model.graph.Coord2D;
-import org.hwyl.sexytopo.model.graph.Line;
-import org.hwyl.sexytopo.model.graph.Space;
+import org.hwyl.sexytopo.model.geometry.Coord2D;
+import org.hwyl.sexytopo.model.geometry.Line;
+import org.hwyl.sexytopo.model.geometry.Space;
 
 public class CrossSectionDetail extends SinglePositionDetail {
 
@@ -51,6 +51,20 @@ public class CrossSectionDetail extends SinglePositionDetail {
         updateBoundingBox(sketch.getBottomRight().plus(position));
     }
 
+    /** The top-left corner as drawn, with the cross-section scaled about its position. */
+    public Coord2D getTopLeftAtScale(float scale) {
+        return scaleAboutPosition(getTopLeft(), scale);
+    }
+
+    /** The bottom-right corner as drawn, with the cross-section scaled about its position. */
+    public Coord2D getBottomRightAtScale(float scale) {
+        return scaleAboutPosition(getBottomRight(), scale);
+    }
+
+    private Coord2D scaleAboutPosition(Coord2D point, float scale) {
+        return position.plus(point.minus(position).scale(scale));
+    }
+
     public CrossSection getCrossSection() {
         return crossSection;
     }
@@ -80,9 +94,13 @@ public class CrossSectionDetail extends SinglePositionDetail {
 
     /**
      * Return a new detail at the same position and with the same sub-sketch, but a new
-     * cross-section angle (compass azimuth in degrees).
+     * cross-section angle (compass azimuth in degrees). A cross-section that can't be rotated (a
+     * horizontal one) is left as it is.
      */
     public CrossSectionDetail withAngle(float newAngle) {
+        if (!crossSection.isRotatable()) {
+            return this;
+        }
         CrossSection rotated = new CrossSection(crossSection.getStation(), newAngle);
         return new CrossSectionDetail(rotated, getPosition(), sketch);
     }

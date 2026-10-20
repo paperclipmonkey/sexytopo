@@ -34,12 +34,15 @@
     <string name="title_activity_plan">Grundriss</string>
     <string name="title_activity_elevation">Seitenriss</string>
     <string name="title_activity_cross_section">Querschnitt</string>
+    <string name="title_activity_cross_section_horizontal">Horizontaler Querschnitt</string>
+    <string name="title_activity_cross_section_vertical">Vertikaler Querschnitt</string>
     <string name="title_activity_calibration">Kalibrierung</string>
     <string name="title_activity_survey">Statistik</string>
     <string name="title_activity_settings">Einstellungen</string>
     <string name="title_activity_system_log">Protokoll-Datei (Log)</string>
     <string name="title_activity_help">Hilfe</string>
-    <string name="title_activity_guide">Anleitung</string>
+    <string name="title_activity_guide">Handbuch</string>
+    <string name="title_activity_release_notes">Versionshinweise</string>
     <string name="title_activity_3d">3D</string>
 
     <!--  Action bar menu  -->
@@ -59,6 +62,7 @@
     <string name="action_3d">3D</string>
     <string name="action_help">Hilfe</string>
     <string name="action_guide">Handbuch</string>
+    <string name="action_release_notes">Versionshinweise</string>
     <string name="action_about">Über</string>
     <string name="action_file_new">Neue Vermessung</string>
     <string name="action_file_open">Vermessungsdatei öffnen…</string>
@@ -146,9 +150,15 @@
     <!--  Import / Export  -->
     <string name="import_successful">"Import abgeschlossen (noch nicht gespeichert)"</string>
     <string name="import_failed">Import fehlgeschlagen</string>
+    <string name="import_choose_format">Mehrere Formate gefunden — Format zum Importieren wählen</string>
+    <string name="import_choose_svx_file">Mehrere .svx-Dateien gefunden — Datei zum Importieren wählen</string>
+    <string name="import_choose_th_file">Mehrere .th-Dateien gefunden — Datei zum Importieren wählen</string>
+    <string name="import_choose_espec">Keine passende .espec gefunden — eine auswählen oder überspringen</string>
+    <string name="import_espec_none">Keine — alles nach rechts erweitern</string>
     <string name="export_select_type">Exportformat auswählen</string>
     <string name="export_successful">Export abgeschlossen</string>
     <string name="export_failed">Export fehlgeschlagen</string>
+    <string name="export_survey_needs_saving">Die Vermessung muss vor dem Export gespeichert werden</string>
     <string name="created_with">Erzeugt mit %1$s auf %2$s</string>
     <string name="share_type_survey_zip">Vermessungsdateien teilen (ZIP)</string>
     <string name="share_chooser_title">Vermessung teilen über</string>
@@ -258,6 +268,7 @@
     <string name="device_pairing_attempt">Gekoppelt mit %1$s…</string>
     <string name="device_pairing_error">Fehler beim Koppeln: %1$s</string>
     <string name="device_pairing_incompatible">Nicht kompatibles Gerät "%1$s" entdeckt</string>
+    <string name="device_unnamed">unbenannt</string>
     <string name="device_pairing_unpairing_device">%1$s entkoppeln</string>
     <string name="device_pairing_unpairing_success">Entkoppeln erfolgreich abgeschlossen</string>
     <string name="device_pairing_unpairing_error">Fehler beim Entkoppeln: %1$s</string>
@@ -273,9 +284,12 @@
     <string name="device_connection_error">Verbindungsfehler: %1$s</string>
     <string name="device_connection_closing_error">Fehler beim Beenden einer Verbindung: %1$s</string>
     <string name="device_data_received">Messung eingegangen</string>
+    <string name="device_calibration_reading_received">Kalibrierungsmessung empfangen</string>
+    <string name="device_data_duplicated">Doppeltes Paket #%1$d</string>
     <string name="device_data_received_null">Keine Daten erhalten</string>
     <string name="device_data_received_empty">Unvollständige Daten erhalten</string>
     <string name="device_data_unknown_identifier">Unbekannte Datenpaket-Kennung</string>
+    <string name="device_data_unknown_packet">Unbekanntes Paket (%1$d Bytes): %2$s</string>
     <string name="device_data_acknowledged_packet">Anerkanntes datenpaket</string>
     <string name="device_no_device">Kein Gerät</string>
     <string name="action_set_test_instrument">Testinstrument festlegen</string>
@@ -306,7 +320,7 @@
     <string name="device_distox_command_calibration_start">Kalibrier-Modus starten</string>
     <string name="device_distox_command_calibration_stop">Kalibrier-Modus beenden </string>
     <string name="device_distox_force_disconnect_for_calibration">DistoX beschäftigt; Trennen der Verbindung zum Schreiben der Kalibrierung erforderlich</string>
-    <string name="device_distox_calibration_result">Beurteilung der Kalibrierung (Wert sollte unter %1$f liegen): %2$s\n\nKalibrierungs-Algorithmus: %3$s</string>
+    <string name="device_distox_calibration_result">Beurteilung der Kalibrierung (Wert sollte unter %1$s liegen): %2$s\n\nKalibrierungs-Algorithmus: %3$s</string>
     <string name="device_distox_calibration_writing">Schreiben der Kalibrierungskoeffizienten</string>
     <string name="device_distox_calibration_write_success">Schreiben der Kalibrierung erfolgreich</string>
     <string name="device_distox_calibration_write_error">Fehler %1$s beim Übertragen der Kalibrierung</string>
@@ -329,6 +343,10 @@
     <string name="device_fcl_command_device_off">Gerät ausschalten</string>
 
     <!--  Calibration  -->
+    <string name="calibration_title_mode">Kalibriermodus</string>
+    <string name="calibration_title_readings">Messungen</string>
+    <string name="calibration_title_last_reading">Letzte Messung</string>
+    <string name="calibration_title_result">Ergebnis</string>
     <string name="calibration_index">Anzahl bereits erfolgter Messungen</string>
     <string name="calibration_start">Disto Cal Modus Ein</string>
     <string name="calibration_stop">Disto Cal Modus Aus</string>
@@ -349,6 +367,28 @@
     <string name="calibration_loaded_file">Kalibrierungsdaten geladen</string>
     <string name="calibration_load_error">Fehler beim Lesen der Kalibrierungsdatei</string>
     <string name="calibration_save_error">Fehler beim Speichern der Kalibrierungsdatei</string>
+    <string name="calibration_worst_readings">Am wenigsten übereinstimmende Messungen (über 1° Abweichung vom Rest ihres Satzes)</string>
+    <string name="calibration_algorithm_linear">Linear</string>
+    <string name="calibration_algorithm_nonlinear">Nichtlinear</string>
+    <string name="calibration_view_readings">Messungen anzeigen</string>
+    <string name="calibration_pointing_horizontal">Waagerecht</string>
+    <string name="calibration_pointing_corner_up">Ecke oben</string>
+    <string name="calibration_pointing_corner_down">Ecke unten</string>
+    <string name="calibration_face_side">Auf der Seite</string>
+    <string name="calibration_set_number">Satz %1$d</string>
+    <string name="calibration_sets">Sätze</string>
+    <string name="calibration_sets_value">%1$d (%2$d vollständig)</string>
+    <string name="calibration_coverage">Abgedeckte Richtungen</string>
+    <string name="calibration_coverage_corners_up">Ecken oben</string>
+    <string name="calibration_coverage_corners_down">Ecken unten</string>
+    <string name="calibration_reading_title">Messung #%1$d</string>
+    <string name="calibration_replace">Ersetzen</string>
+    <string name="calibration_reading_options_message">Ersetzen: Der Platz bleibt für die nächste Messung frei.\nLöschen: Die Messung entfernen und die späteren Messungen um eine Stelle nach vorne rücken.</string>
+    <string name="calibration_gap_options_message">Diese Lücke entfernen und die späteren Messungen um eine Stelle nach vorne rücken?</string>
+    <string name="calibration_roll">Roll</string>
+    <string name="calibration_uncalibrated_estimate">Unkalibrierte Schätzung</string>
+    <string name="calibration_reading_deleted">Gelöscht: diese Messung wiederholen</string>
+    <string name="calibration_no_readings">Noch keine Messungen</string>
     <string name="direction_forward">Vorwärts</string>
     <string name="direction_right">Rechts</string>
     <string name="direction_back">Rückwärts</string>
@@ -398,6 +438,7 @@
     <string name="trip_licence_hint_body">Eine freie Lizenz erlaubt es anderen Höhlenforschern, deine Arbeit zu nutzen und darauf aufzubauen, so wie du es mit ihrer kannst - Daten, die überprüft und weiterverwendet werden können, sind wertvoller und werden mit der Zeit besser, zum gegenseitigen Nutzen. SexyTopo ist aus demselben Grund frei und quelloffen.</string>
     <string name="trip_licence_hint_dismiss">Ausblenden</string>
     <string name="licence_summary_gpl_3_plus">Jeder darf deine Vermessung nutzen und bearbeiten, sofern alles, was darauf aufbaut und veröffentlicht wird, ebenso frei weitergegeben wird.</string>
+    <string name="licence_summary_polyform_noncommercial">Jeder darf deine Vermessung für nicht-kommerzielle Zwecke nutzen und bearbeiten, solange dein Urheberrechtsvermerk daran erhalten bleibt.</string>
     <string name="licence_summary_cc0">Du gibst deine Rechte vollständig auf: Jeder darf deine Vermessung für alles nutzen, ohne zu fragen und ohne dich zu nennen.</string>
     <string name="licence_summary_cc_by">Jeder darf deine Vermessung für jeden Zweck nutzen und bearbeiten, solange er dich als Urheber nennt.</string>
     <string name="licence_summary_cc_by_sa">Jeder darf deine Vermessung nutzen und bearbeiten, wenn er dich nennt und seine Fassung zu denselben Bedingungen weitergibt.</string>
@@ -422,7 +463,8 @@
     <string name="stats_longest_leg">Längste Messstrecke (m)</string>
     <string name="stats_shortest_leg">Kürzeste Messstrecke (m)</string>
     <string name="settings_survey_title">Vermessungseinstellungen</string>
-    <string name="settings_survey_cross_section_scale">Querschnittsmaßstab</string>
+    <string name="settings_survey_plan_cross_section_scale">Querschnittsmaßstab (Grundriss)</string>
+    <string name="settings_survey_elevation_cross_section_scale">Querschnittsmaßstab (Seitenriss)</string>
 
     <!--  Settings  -->
     <string name="settings_general_title">Allgemeines</string>
@@ -684,10 +726,14 @@
     <string name="menu_jump_to_station_in_elevation">&#10132; Seitenriss</string>
     <string name="menu_xsection">Querschnitt</string>
     <string name="menu_xsection_create">Neuer Querschnitt</string>
+    <string name="menu_xsection_create_horizontal">Neuer horizontaler Querschnitt</string>
+    <string name="menu_xsection_create_vertical">Neuer vertikaler Querschnitt</string>
+    <string name="menu_xsection_hint_vertical">Gang</string>
+    <string name="menu_xsection_hint_horizontal">Schacht</string>
     <string name="menu_xsection_delete">Querschnitt löschen</string>
     <string name="menu_xsection_edit">Skizze bearbeiten</string>
     <string name="menu_xsection_set_direction">Richtung festlegen</string>
-    <string name="menu_new_cross_section">Neuer Querschnitt</string>
+
     <string name="menu_jump_to_station_in_table">&#10132; Daten-Tabelle</string>
     <string name="menu_delete_station">Löschen</string>
     <string name="menu_reverse">Rückblick</string>
@@ -734,5 +780,6 @@
     <string name="request_code_error">Fehlermeldung %1$d aus Anfragecode %2$d</string>
     <string name="killing_comms_process">Lösch-Kommandoabfolge</string>
     <string name="setup_error_load_symbol_svg">Fehler beim Laden von SVG-Symbol %1$s</string>
+    <string name="release_notes_unavailable">Versionshinweise sind nicht verfügbar.</string>
 
 </resources>

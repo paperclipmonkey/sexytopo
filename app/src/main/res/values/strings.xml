@@ -35,12 +35,15 @@
     <string name="title_activity_plan">Plan</string>
     <string name="title_activity_elevation">Elevation</string>
     <string name="title_activity_cross_section">Cross-Section</string>
+    <string name="title_activity_cross_section_horizontal">Horizontal Section</string>
+    <string name="title_activity_cross_section_vertical">Vertical Section</string>
     <string name="title_activity_calibration">Calibration</string>
     <string name="title_activity_survey">Stats</string>
     <string name="title_activity_settings">Settings</string>
     <string name="title_activity_system_log">Log</string>
     <string name="title_activity_help">Help</string>
-    <string name="title_activity_guide">Guide</string>
+    <string name="title_activity_guide">Manual</string>
+    <string name="title_activity_release_notes">Release Notes</string>
     <string name="title_activity_3d">3D</string>
 
     <!-- Action bar menu -->
@@ -60,6 +63,7 @@
     <string name="action_3d">3D</string>
     <string name="action_help">Help</string>
     <string name="action_guide">Manual</string>
+    <string name="action_release_notes">Release Notes</string>
     <string name="action_about">About</string>
     <string name="action_file_new">New Survey</string>
     <string name="action_file_open">Open Survey…</string>
@@ -72,6 +76,11 @@
     <string name="action_file_exit">Exit SexyTopo</string>
     <string name="action_file_import_file">Import File…</string>
     <string name="action_file_import_directory">Import Folder…</string>
+    <string name="import_choose_format">Multiple formats found — choose format to import</string>
+    <string name="import_choose_svx_file">Multiple .svx files found — choose file to import</string>
+    <string name="import_choose_th_file">Multiple .th files found — choose file to import</string>
+    <string name="import_choose_espec">No matching .espec found — choose one or skip</string>
+    <string name="import_espec_none">None — extend everything right</string>
     <string name="action_file_share">Share…</string>
     <string name="action_input">Input Mode</string>
     <string name="action_input_mode_forward">Forward</string>
@@ -154,6 +163,7 @@
     <string name="export_select_type">Select export format</string>
     <string name="export_successful">Export completed</string>
     <string name="export_failed">Export failed</string>
+    <string name="export_survey_needs_saving">This survey needs to be saved before it can be exported</string>
     <string name="third_party_therion" translatable="false">Therion</string>
     <string name="third_party_pocket_topo" translatable="false">PocketTopo (.top)</string>
     <string name="third_party_pocket_topo_txt" translatable="false">PocketTopo .txt</string>
@@ -274,6 +284,7 @@
     <string name="device_pairing_attempt">Pairing with %1$s…</string>
     <string name="device_pairing_error">Error pairing: %1$s</string>
     <string name="device_pairing_incompatible">Incompatible device "%1$s" detected</string>
+    <string name="device_unnamed">unnamed</string>
     <string name="device_pairing_unpairing_device">Unpairing %1$s</string>
     <string name="device_pairing_unpairing_success">Unpairing successful</string>
     <string name="device_pairing_unpairing_error">Unpairing error: %1$s</string>
@@ -289,9 +300,12 @@
     <string name="device_connection_error">Connection error: %1$s</string>
     <string name="device_connection_closing_error">Error closing connection: %1$s</string>
     <string name="device_data_received">Received measurement</string>
+    <string name="device_calibration_reading_received">Received calibration reading</string>
+    <string name="device_data_duplicated">Duplicated packet #%1$d</string>
     <string name="device_data_received_null">Null data received</string>
     <string name="device_data_received_empty">Empty data received</string>
     <string name="device_data_unknown_identifier">Unknown packet identifier</string>
+    <string name="device_data_unknown_packet">Unknown packet (%1$d bytes): %2$s</string>
     <string name="device_data_acknowledged_packet">Acknowledged packet</string>
     <string name="device_no_device">no device</string>
     <string name="device_test_name" translatable="false">[Test Device]</string>
@@ -330,7 +344,7 @@
     <string name="device_distox_command_calibration_start">Start calibration mode</string>
     <string name="device_distox_command_calibration_stop">Stop calibration mode</string>
     <string name="device_distox_force_disconnect_for_calibration">Disto busy; forcing disconnect to write calibration</string>
-    <string name="device_distox_calibration_result">Calibration assessment (should be under %1$f): %2$s\n\nCalibration algorithm: %3$s</string>
+    <string name="device_distox_calibration_result">Calibration assessment (should be under %1$s): %2$s\n\nCalibration algorithm: %3$s</string>
     <string name="device_distox_calibration_writing">Writing calibration coefficients</string>
     <string name="device_distox_calibration_write_success">Calibration writing successful</string>
     <string name="device_distox_calibration_write_error">Error writing calibration %1$s</string>
@@ -365,6 +379,10 @@
     <string name="device_fcl_command_device_off">Device Off</string>
 
     <!-- Calibration -->
+    <string name="calibration_title_mode">Calibration Mode</string>
+    <string name="calibration_title_readings">Readings</string>
+    <string name="calibration_title_last_reading">Last Reading</string>
+    <string name="calibration_title_result">Result</string>
     <string name="calibration_index">Reading number</string>
     <string name="calibration_start">Disto Cal Mode On</string>
     <string name="calibration_stop">Disto Cal Mode Off</string>
@@ -385,12 +403,36 @@
     <string name="calibration_loaded_file">Calibration data loaded</string>
     <string name="calibration_load_error">Error reading calibration file</string>
     <string name="calibration_save_error">Error saving calibration file</string>
-    <string name="calibration_field_gx" translatable="false">Gx</string>
-    <string name="calibration_field_gy" translatable="false">Gy</string>
-    <string name="calibration_field_gz" translatable="false">Gz</string>
-    <string name="calibration_field_mx" translatable="false">Mx</string>
-    <string name="calibration_field_my" translatable="false">My</string>
-    <string name="calibration_field_mz" translatable="false">Mz</string>
+    <string name="calibration_worst_readings">Least consistent readings (over 1° from the rest of their set)</string>
+    <string name="calibration_algorithm_linear">Linear</string>
+    <string name="calibration_algorithm_nonlinear">Non-linear</string>
+    <string name="calibration_view_readings">View Readings</string>
+    <string name="calibration_pointing_horizontal">Horizontal</string>
+    <string name="calibration_pointing_corner_up">Corner Up</string>
+    <string name="calibration_pointing_corner_down">Corner Down</string>
+    <string name="calibration_face_side">On Its Side</string>
+    <string name="calibration_set_number">Set %1$d</string>
+    <string name="calibration_sets">Sets</string>
+    <string name="calibration_sets_value">%1$d (%2$d complete)</string>
+    <string name="calibration_coverage">Directions covered</string>
+    <string name="calibration_coverage_corners_up">Corners Up</string>
+    <string name="calibration_coverage_corners_down">Corners Down</string>
+    <string name="calibration_coverage_value" translatable="false">%1$d / %2$d</string>
+    <string name="calibration_detail_separator" translatable="false">" · "</string>
+    <string name="calibration_reading_title">Reading #%1$d</string>
+    <string name="calibration_replace">Replace</string>
+    <string name="calibration_reading_options_message">Replace: keep its place for the next reading you take.\nDelete: remove it and move the later readings up one place.</string>
+    <string name="calibration_gap_options_message">Delete this gap and move the later readings up one place?</string>
+    <string name="calibration_roll">Roll</string>
+    <string name="calibration_uncalibrated_estimate">Uncalibrated estimate</string>
+    <string name="calibration_reading_deleted">Deleted: take this reading again</string>
+    <string name="calibration_no_readings">No readings yet</string>
+    <string name="calibration_reading_number" translatable="false">#%1$d</string>
+    <string name="calibration_degrees" translatable="false">%1$s°</string>
+    <string name="calibration_field_g" translatable="false">G</string>
+    <string name="calibration_field_m" translatable="false">M</string>
+    <string name="calibration_position" translatable="false">%1$s, %2$s</string>
+    <string name="calibration_reading_label" translatable="false">#%1$d %2$s</string>
     <string name="direction_forward">Forward</string>
     <string name="direction_right">Right</string>
     <string name="direction_back">Back</string>
@@ -440,6 +482,7 @@
     <string name="trip_licence_hint_body">A free licence lets other cavers use and build on your work, as you can with theirs - data that can be verified and reused is more valuable and gets better over time, for mutual benefit. SexyTopo is free and open source for the same reason.</string>
     <string name="trip_licence_hint_dismiss">Dismiss</string>
     <string name="licence_summary_gpl_3_plus">Anyone may use and adapt your survey, provided anything they publish based on it is shared just as freely.</string>
+    <string name="licence_summary_polyform_noncommercial">Anyone may use and adapt your survey for non-commercial purposes, as long as your copyright notice stays attached to it.</string>
     <string name="licence_summary_cc0">You give up your rights entirely: anyone may use your survey for anything, without asking or crediting you.</string>
     <string name="licence_summary_cc_by">Anyone may use and adapt your survey for any purpose, as long as they credit you.</string>
     <string name="licence_summary_cc_by_sa">Anyone may use and adapt your survey if they credit you and share their version on the same terms.</string>
@@ -466,7 +509,8 @@
 
     <!-- Settings -->
     <string name="settings_survey_title">Survey Settings</string>
-    <string name="settings_survey_cross_section_scale">Cross-section scale</string>
+    <string name="settings_survey_plan_cross_section_scale">Cross-section scale (Plan)</string>
+    <string name="settings_survey_elevation_cross_section_scale">Cross-section scale (Elevation)</string>
     <string name="settings_general_title">General</string>
     <string name="settings_general_summary">Theme, orientation, vibration</string>
     <string name="settings_sketching_summary">Drawing tools, display options</string>
@@ -720,6 +764,10 @@
     <string name="menu_jump_to_station_in_elevation">&#10132; Elevation</string>
     <string name="menu_xsection">Cross-Section</string>
     <string name="menu_xsection_create">New Cross-Section</string>
+    <string name="menu_xsection_create_horizontal">New Horizontal Section</string>
+    <string name="menu_xsection_create_vertical">New Vertical Section</string>
+    <string name="menu_xsection_hint_vertical">passage</string>
+    <string name="menu_xsection_hint_horizontal">shaft</string>
     <string name="menu_xsection_delete">Delete Cross-Section</string>
     <string name="menu_xsection_edit">Edit Sketch</string>
     <string name="menu_xsection_set_direction">Set Direction</string>
@@ -769,5 +817,6 @@
     <string name="request_code_error">Error code %1$d from request code %2$d</string>
     <string name="killing_comms_process">Killing comms process</string>
     <string name="setup_error_load_symbol_svg">Error loading symbol SVG %1$s</string>
+    <string name="release_notes_unavailable">Release notes are not available.</string>
 
 </resources>

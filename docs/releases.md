@@ -1,7 +1,29 @@
 # Unreleased
-- Auto-(re)connect to instrument option (thanks Brendan Hall), now on by default, with the Instrument page showing when a reconnection is in progress
-- A copyright notice and licence can now be assigned to a survey, along with some light nudging towards free licences (thanks Andrew Atkinson)
+- Auto-(re)connect to instrument is now on by default, with the Instrument page showing when a reconnection is in progress
+
+# 2026-09-30 1.14.0
+- Calibration screen reworked: readings are labelled and grouped by the direction they were actually taken in, so the order of shots no longer matters and every reading is used
+- Calibration readings can be viewed with their direction, roll and consistency with the rest of their set, and any reading can be replaced or deleted
+- Calibration summary of the sets and directions covered, with the least consistent readings analysis shown
+- Fix readings sometimes going missing after deleting a station while connected to an instrument (Issue #171)
+
+# 2026-09-25 1.13.2
+- Fix DistoXBLE calibration upload never reporting success
+- Fix the DistoXBLE being forgotten after connecting to it
+- Release notes can now be viewed in-app
+
+# 2026-09-25 1.13.1
+- Auto-(re)connect to instrument option, now for all supported instruments and with a time limit (thanks Brendan Hall)
+- Fix a disconnected instrument being reported as ready, and a dropped connection being treated as a request to disconnect
+- A copyright notice and licence can now be assigned to a survey, along with some light nudging towards free licences (with Andrew Atkinson)
 - Legs can be drawn using only their vertical change in the extended elevation (thanks Andrew Atkinson)
+- Survex export writes repeated leg readings as separate lines for Survex to average, rather than a pre-averaged leg; Survex and Therion import averages repeated readings back into one leg (thanks Andrew Atkinson)
+- Survex export writes extended elevation directions to a separate .espec file instead of *extend commands, which made the .svx invalid; importing a folder picks up the .espec along with the .svx (thanks Andrew Atkinson)
+- Survex export writes dates in ISO format (thanks Andrew Atkinson)
+- Survex and Therion import recognise ".", ".." and "..." as splay stations as well as "-" (thanks Andrew Atkinson)
+- Cross-sections can be added to the extended elevation, including horizontal and vertical sections (thanks Andrew Atkinson)
+- Fix Therion export crashing when trip text contains a $ or backslash
+- Fix SVG export writing an invalid file when text such as the copyright holder contains < or >
 
 # 2026-07-08 1.12.3
 - Fix Survex and Therion backwards leg bug (thanks Andrew Atkinson)
