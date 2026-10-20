@@ -5479,7 +5479,7 @@ if (profileChange(manualOpen, scrolled) < 0.3) {
  *
  * Material draws every link on this screen in the primary colour and nothing else on it is that
  * colour — the body text is black on a pale surface — so the same blue-over-green signature that
- * finds a dialog's buttons finds the Close button and the thirteen contents rows here. Returned
+ * finds a dialog's buttons finds the Close button and the fifteen contents rows here. Returned
  * as bands so a row's centre is its own midpoint, which survives the manual being restyled.
  */
 const manualLinkRows = async () => {
@@ -5539,12 +5539,12 @@ await page.mouse.wheel(0, -4000)
 await page.waitForTimeout(900)
 const atTop = await inkProfile()
 const links = await manualLinkRows()
-// Close, then the thirteen sections. Asserting the count rather than trusting it: a contents list
+// Close, then the fifteen sections. Asserting the count rather than trusting it: a contents list
 // that lost a section would otherwise pass every check below by jumping somewhere else.
-if (links.length !== 14) {
-  fail(`the manual has ${links.length} links where it should have Close and thirteen sections`)
+if (links.length !== 16) {
+  fail(`the manual has ${links.length} links where it should have Close and fifteen sections`)
 } else {
-  pass('the manual lists all thirteen of the guide\'s sections')
+  pass('the manual lists all fifteen of the guide\'s sections')
 }
 // The last one, Troubleshooting, which is the far end of the guide: landing there cannot be
 // mistaken for having stayed where you were.
