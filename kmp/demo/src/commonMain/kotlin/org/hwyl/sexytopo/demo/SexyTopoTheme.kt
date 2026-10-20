@@ -122,6 +122,13 @@ object SexyTopoColours {
     val crossSectionFrame = Color(0xFF7FAF7F)
     val onCrossSectionFrame = Color(0xFFFFFFFF)
     val crossSectionIndicator = Color(0xFF8B0000)
+
+    /**
+     * `crossSectionHorizontalBox`: a horizontal section's frame is purple rather than the green
+     * of a vertical one's, so the two can be told apart at a glance.
+     */
+    val crossSectionHorizontalFrame = Color(0xFFAF7FAF)
+    val crossSectionHorizontalFrameNight = Color(0xFF383A57)
     val crossSectionIndicatorNight = Color(0xFFFF0000)
 
     // -- Text ------------------------------------------------------------------------------

@@ -44,6 +44,7 @@ import org.hwyl.sexytopo.demo.resources.zoom_in
 import org.hwyl.sexytopo.demo.resources.zoom_out
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
+import org.hwyl.sexytopo.shared.model.sketch.CrossSection
 import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
@@ -73,6 +74,8 @@ internal fun crossSectionDisplayOptions(darkMode: Boolean, preferences: AppPrefe
         showStationLabels = false,
         showGrid = true,
         darkMode = darkMode,
+        // Only ever drawn for a horizontal section; see the canvas's northUp.
+        showCompass = preferences.showCompass,
         hotCorners = preferences.hotCorners,
         twoFingerMove = preferences.twoFingerMove,
         pinchToZoom = preferences.pinchToZoom,
@@ -133,8 +136,9 @@ fun CrossSectionEditor(
             // `title_activity_cross_section`, which is what the activity's own label is, plus
             // the two `showAsAction="always"` icons of `res/menu/cross_section.xml` on the right
             // where the app bar puts them — not a Cancel text button on the far left.
+            // `CrossSectionLabels.getTitleResource`: the title says which kind is being drawn.
             Text(
-                Strings.titleCrossSection,
+                CrossSectionLabels.title(detail.crossSection.orientation),
                 Modifier.weight(1f),
                 style = MaterialTheme.typography.titleMedium,
                 color = SexyTopoColours.onPanel,
@@ -176,6 +180,8 @@ fun CrossSectionEditor(
             revision = revision,
             onSketchEdit = { revision++ },
             sceneOverride = scene,
+            // A horizontal section is drawn like the plan, north up, so it has the live compass
+            northUp = detail.crossSection.orientation == CrossSection.Orientation.HORIZONTAL,
         )
 
         // `activity_cross_section.xml` is `activity_graph.xml`'s toolbar, button for button: the
