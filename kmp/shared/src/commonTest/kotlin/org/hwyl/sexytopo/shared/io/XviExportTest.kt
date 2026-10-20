@@ -1,10 +1,14 @@
 package org.hwyl.sexytopo.shared.io
 
+import org.hwyl.sexytopo.shared.io.export.SvgExporter
 import org.hwyl.sexytopo.shared.io.export.XviExporter
+import org.hwyl.sexytopo.shared.io.export.formatFixed
 import org.hwyl.sexytopo.shared.model.common.Frame
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
+import org.hwyl.sexytopo.shared.model.sketch.CrossSection
+import org.hwyl.sexytopo.shared.model.sketch.PathDetail
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.sketch.SymbolDetail
 import org.hwyl.sexytopo.shared.model.sketch.TextDetail
@@ -12,6 +16,9 @@ import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.survey.CrossSectioner
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
+import org.hwyl.sexytopo.shared.survey.TestSurveys
+import kotlin.math.abs
+import kotlin.math.floor
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -220,6 +227,159 @@ class XviExportTest {
     fun theSameSurveyExportsIdenticallyEveryTime() {
         val survey = cave()
         assertEquals(exportOf(survey), exportOf(survey))
+    }
+
+    // Cross-sections on the elevation, from `XviExporterTest` in upstream 1.13.0
+
+    // What `TestSurveys.createWithCrossSectionsInPlanAndElevation` gives every section: splays 2m
+    // east, 1.5m west, 1m north, 1m up and 1m down. Each is listed as how far it goes across the
+    // XVI's page and up it, in metres, so the up splay is (0, 1) and the north one, which a
+    // vertical section facing north sees head on, is (0, 0).
+    private val verticalSplays =
+        listOf("2.00,0.00", "-1.50,0.00", "0.00,0.00", "0.00,1.00", "0.00,-1.00").sorted()
+    private val horizontalSplays =
+        listOf("2.00,0.00", "-1.50,0.00", "0.00,1.00", "0.00,0.00", "0.00,0.00").sorted()
+
+    /** As `XviExporterTest.export`: a metre to a unit, framed as the export frames it. */
+    private fun export(survey: Survey, projection: Projection2D): String =
+        XviExporter.export(
+            sketch = survey.getSketch(projection),
+            space = projection.project(survey),
+            scale = 1f,
+            gridFrame = SvgExporter.exportFrame(survey, projection),
+        )
+
+    /** The entries of one of the XVI's lists, such as XVIshots, without their braces. */
+    private fun entries(xvi: String, list: String): List<String> =
+        block(xvi, "set $list").lines()
+            .map { it.trim() }
+            .filter { it.startsWith("{") && it.endsWith("}") }
+            .map { it.substring(1, it.length - 1) }
+
+    /** The connectors from each station to its section, as "x1 y1 x2 y2". */
+    private fun connectors(xvi: String): List<String> =
+        entries(xvi, "XVIsketchlines")
+            .filter { it.startsWith("connect ") }
+            .map { it.removePrefix("connect ") }
+
+    /** The shots leaving a point, as how far across and up each goes, in metres, sorted. */
+    private fun shotsFrom(xvi: String, x: Float, y: Float): List<String> =
+        entries(xvi, "XVIshots")
+            .map { entry -> entry.split(" ").map { it.toFloat() } }
+            .filter { abs(it[0] - x) < 0.005f && abs(it[1] - y) < 0.005f }
+            .map { "${tidy(it[2] - it[0])},${tidy(it[3] - it[1])}" }
+            .sorted()
+
+    // Rounded to hundredths, with negative zero made an ordinary one
+    private fun tidy(value: Float): String =
+        formatFixed(floor(value * 100.0 + 0.5) / 100.0 + 0.0, 2)
+
+    @Test
+    fun theElevationJoinsEachStationToItsSection() {
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+
+        val joined = connectors(export(survey, Projection2D.EXTENDED_ELEVATION)).sorted()
+
+        // Station 1 is at the origin and 3 is 10m along, and the sections at (2, 4) and (12, 4)
+        // are drawn 4m up, which is 4 the other way on the XVI's page
+        assertEquals(listOf("0.00 0.00 2.00 -4.00", "10.00 0.00 12.00 -4.00").sorted(), joined)
+    }
+
+    @Test
+    fun theElevationsSectionsHaveTheirStationsNameAtTheirPosition() {
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+
+        val stations = entries(export(survey, Projection2D.EXTENDED_ELEVATION), "XVIstations")
+
+        assertContains(stations, "2.00 -4.00 1")
+        assertContains(stations, "12.00 -4.00 3")
+    }
+
+    @Test
+    fun aVerticalSectionOnTheElevationHasItsSplaysAcrossThePassage() {
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+
+        val xvi = export(survey, Projection2D.EXTENDED_ELEVATION)
+
+        assertEquals(verticalSplays, shotsFrom(xvi, 2f, -4f))
+    }
+
+    @Test
+    fun aHorizontalSectionHasItsSplaysLyingFlatWithNorthUp() {
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+
+        val xvi = export(survey, Projection2D.EXTENDED_ELEVATION)
+
+        // The north splay goes up the page, and the up and down splays have nothing to show
+        assertEquals(horizontalSplays, shotsFrom(xvi, 12f, -4f))
+    }
+
+    @Test
+    fun theSameStationHasADifferentSectionOnThePlanAndTheElevation() {
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+
+        // Station 3 has a vertical section on the plan, drawn at (2, 10)...
+        assertEquals(verticalSplays, shotsFrom(export(survey, Projection2D.PLAN), 2f, -10f))
+        // ...and a horizontal one on the elevation, drawn at (12, 4)
+        assertEquals(
+            horizontalSplays,
+            shotsFrom(export(survey, Projection2D.EXTENDED_ELEVATION), 12f, -4f),
+        )
+    }
+
+    @Test
+    fun theElevationsSectionsAreDrawnAtItsCrossSectionScale() {
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+        survey.elevationSketch.crossSectionScale = 2f
+
+        val xvi = export(survey, Projection2D.EXTENDED_ELEVATION)
+
+        assertEquals(
+            listOf("4.00,0.00", "-3.00,0.00", "0.00,0.00", "0.00,2.00", "0.00,-2.00").sorted(),
+            shotsFrom(xvi, 2f, -4f),
+        )
+        assertEquals(
+            listOf("4.00,0.00", "-3.00,0.00", "0.00,2.00", "0.00,0.00", "0.00,0.00").sorted(),
+            shotsFrom(xvi, 12f, -4f),
+        )
+    }
+
+    @Test
+    fun eachExportHasOnlyItsOwnSketchsSections() {
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+        survey.elevationSketch.addCrossSection(
+            CrossSection.horizontal(survey.getStationByName("2")!!),
+            Coord2D(7f, 4f),
+        )
+
+        assertEquals(2, connectors(export(survey, Projection2D.PLAN)).size)
+        assertEquals(3, connectors(export(survey, Projection2D.EXTENDED_ELEVATION)).size)
+    }
+
+    @Test
+    fun whatIsDrawnInAnElevationSectionIsPlacedAndScaledWithIt() {
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+        val elevation = survey.elevationSketch
+        // Each gets a line from (5, 0) to (10, 0) in the section's own drawing
+        for (name in listOf("1", "3")) {
+            val station = survey.getStationByName(name)!!
+            elevation.crossSectionDetails.single { it.station === station }.sketch.pathDetails.add(
+                PathDetail(listOf(Coord2D(5f, 0f), Coord2D(10f, 0f)), Colour.BLACK),
+            )
+        }
+
+        val xvi = export(survey, Projection2D.EXTENDED_ELEVATION)
+
+        // The sections are at (2, 4) and (12, 4), which the XVI has 4 the other way up
+        assertContains(xvi, "{BLACK 7.00 -4.00 12.00 -4.00}")
+        assertContains(xvi, "{BLACK 17.00 -4.00 22.00 -4.00}")
+
+        elevation.crossSectionScale = 2f
+        val enlarged = export(survey, Projection2D.EXTENDED_ELEVATION)
+
+        // At twice the size the drawing stretches away from where the section is
+        assertContains(enlarged, "{BLACK 12.00 -4.00 22.00 -4.00}")
+        assertContains(enlarged, "{BLACK 22.00 -4.00 32.00 -4.00}")
     }
 }
 

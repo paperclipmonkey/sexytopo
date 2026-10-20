@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.ExtendedElevationDirection
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
+import org.hwyl.sexytopo.shared.model.sketch.CrossSection
 import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.survey.Station
@@ -57,13 +59,25 @@ enum class StationAction(val label: String) {
      */
     PASSAGE_SIZE(Strings.settingsLrudFieldsTitle),
 
-    /** `action_xsection_create`, plan only. */
+    /** `action_xsection_create`, on the plan, where there is only one kind of section to make. */
     CROSS_SECTION_CREATE(Strings.menuCrossSectionCreate),
 
-    /** `action_xsection_edit`, plan only, and only where there is one. */
+    /**
+     * `action_xsection_create` again, on the extended elevation, where it has to say which of the
+     * two kinds it makes: a slice across the passage.
+     */
+    CROSS_SECTION_CREATE_VERTICAL(Strings.menuCrossSectionCreateVertical),
+
+    /** `action_xsection_create_horizontal`, elevation only: a level slice, for a shaft. */
+    CROSS_SECTION_CREATE_HORIZONTAL(Strings.menuCrossSectionCreateHorizontal),
+
+    /** `action_xsection_edit`, only where there is one. */
     CROSS_SECTION_EDIT(Strings.menuCrossSectionEdit),
 
-    /** `action_xsection_set_direction`: swings an existing section round its station. */
+    /**
+     * `action_xsection_set_direction`: swings an existing vertical section round its station, or
+     * on the elevation turns it to face left or right.
+     */
     CROSS_SECTION_SET_DIRECTION(Strings.menuCrossSectionSetDirection),
 
     /** `action_xsection_delete`, likewise. */
@@ -124,15 +138,24 @@ fun stationActionsFor(
     actions += StationAction.RENAME
     actions += StationAction.PASSAGE_SIZE
 
-    // `menu_xsection`, which `ViewContext.PLAN` is the only context to show.
-    if (!fromTable && projection == Projection2D.PLAN) {
-        if (crossSectionAt(sketch, station) == null) {
-            actions += StationAction.CROSS_SECTION_CREATE
+    // `menu_xsection`, which `ViewContext` shows on the plan and the extended elevation.
+    if (!fromTable && hasCrossSections(projection)) {
+        val existing = crossSectionAt(sketch, station)
+        if (existing == null) {
+            if (canCreateHorizontalCrossSection(projection)) {
+                actions += StationAction.CROSS_SECTION_CREATE_VERTICAL
+                actions += StationAction.CROSS_SECTION_CREATE_HORIZONTAL
+            } else {
+                actions += StationAction.CROSS_SECTION_CREATE
+            }
         } else {
             // `configureMenuVisibility` greys these out rather than hiding them; here an action
-            // that cannot work is left out, as everywhere else in this port.
+            // that cannot work is left out, as everywhere else in this port. A horizontal section
+            // lies flat whatever happens, so it has no direction to set.
             if (!legacyCrossSections) actions += StationAction.CROSS_SECTION_EDIT
-            actions += StationAction.CROSS_SECTION_SET_DIRECTION
+            if (existing.crossSection.isRotatable) {
+                actions += StationAction.CROSS_SECTION_SET_DIRECTION
+            }
             actions += StationAction.CROSS_SECTION_DELETE
         }
     }
@@ -157,6 +180,22 @@ fun stationActionsFor(
 
     return actions
 }
+
+/**
+ * Whether stations on [projection] offer cross-sections at all: `ViewContext`'s
+ * `setCrossSectionVisible(menu, true)`, which the plan and the extended elevation call. Each keeps
+ * its own, so a station can have one on each, of different kinds.
+ */
+fun hasCrossSections(projection: Projection2D): Boolean =
+    projection == Projection2D.PLAN || projection == Projection2D.EXTENDED_ELEVATION
+
+/**
+ * Whether a horizontal section can be made on [projection]: `ViewContext
+ * .canCreateHorizontalCrossSection`. On the plan a level slice would only repeat what the plan
+ * already shows, so it is the elevation's alone.
+ */
+fun canCreateHorizontalCrossSection(projection: Projection2D): Boolean =
+    projection == Projection2D.EXTENDED_ELEVATION
 
 /**
  * The cross-section drawn at [station], if there is one.
@@ -184,7 +223,8 @@ fun StationMenuDialog(
     onEdited: () -> Unit,
     onMakeActive: (Station) -> Unit,
     onOpenCrossSection: (CrossSectionDetail) -> Unit,
-    onCreateCrossSection: (Station) -> Unit,
+    /** `handleNewCrossSection`, with the kind of section asked for. */
+    onCreateCrossSection: (Station, CrossSection.Orientation) -> Unit,
     onDeleteCrossSection: (CrossSectionDetail) -> Unit,
     /** See the parameter of the same name on [stationActionsFor]. */
     fromTable: Boolean = false,
@@ -287,8 +327,19 @@ fun StationMenuDialog(
                                         StationAction.RENAME -> editing = StationFields.NAME
                                         StationAction.PASSAGE_SIZE ->
                                             editing = StationFields.PASSAGE
-                                        StationAction.CROSS_SECTION_CREATE -> {
-                                            onCreateCrossSection(station)
+                                        StationAction.CROSS_SECTION_CREATE,
+                                        StationAction.CROSS_SECTION_CREATE_VERTICAL -> {
+                                            onCreateCrossSection(
+                                                station,
+                                                CrossSection.Orientation.VERTICAL,
+                                            )
+                                            onDismiss()
+                                        }
+                                        StationAction.CROSS_SECTION_CREATE_HORIZONTAL -> {
+                                            onCreateCrossSection(
+                                                station,
+                                                CrossSection.Orientation.HORIZONTAL,
+                                            )
                                             onDismiss()
                                         }
                                         StationAction.CROSS_SECTION_EDIT ->
@@ -357,11 +408,33 @@ fun StationMenuDialog(
                                         CheckDot(directionOf(action) == station.extendedElevationDirection)
                                         Spacer(Modifier.width(8.dp))
                                     }
-                                    Text(
-                                        action.label,
-                                        modifier = Modifier.weight(1f),
-                                        textAlign = TextAlign.Start,
-                                    )
+                                    val hint = crossSectionCreateHint(action)
+                                    if (hint == null) {
+                                        Text(
+                                            action.label,
+                                            modifier = Modifier.weight(1f),
+                                            textAlign = TextAlign.Start,
+                                        )
+                                    } else {
+                                        // `setCrossSectionCreateTitle`: the name, its glyph, and
+                                        // a smaller, fainter hint at where that kind is used. The
+                                        // glyph goes after the name so the two names line up.
+                                        Text(
+                                            "${action.label} ${hint.glyph}",
+                                            textAlign = TextAlign.Start,
+                                        )
+                                        Text(
+                                            hint.text,
+                                            modifier =
+                                                Modifier.weight(1f).padding(start = 12.dp),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color =
+                                                LocalContentColor.current.copy(
+                                                    alpha = CROSS_SECTION_HINT_ALPHA,
+                                                ),
+                                            textAlign = TextAlign.Start,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -372,6 +445,31 @@ fun StationMenuDialog(
             )
     }
 }
+
+/** The glyph and the faint word after an elevation's *New ... Section* row. */
+internal class CrossSectionCreateHint(val glyph: String, val text: String)
+
+/**
+ * What follows each of the elevation's two *New ... Section* rows, or null for any other row:
+ * "New Vertical Section ↕ passage" and "New Horizontal Section ↔ shaft".
+ */
+internal fun crossSectionCreateHint(action: StationAction): CrossSectionCreateHint? =
+    when (action) {
+        StationAction.CROSS_SECTION_CREATE_VERTICAL ->
+            CrossSectionCreateHint(
+                CrossSectionLabels.glyph(CrossSection.Orientation.VERTICAL),
+                Strings.menuCrossSectionHintVertical,
+            )
+        StationAction.CROSS_SECTION_CREATE_HORIZONTAL ->
+            CrossSectionCreateHint(
+                CrossSectionLabels.glyph(CrossSection.Orientation.HORIZONTAL),
+                Strings.menuCrossSectionHintHorizontal,
+            )
+        else -> null
+    }
+
+/** `ContextMenuManager.HINT_ALPHA`. */
+private const val CROSS_SECTION_HINT_ALPHA = 0.6f
 
 /** The three rows of `group_direction`, which are the only checkable ones on this menu. */
 private val DIRECTION_ACTIONS =
@@ -410,5 +508,9 @@ private fun setDirection(
 }
 
 /** The bearing a cross-section gets, which is a guess `CROSS_SECTION_SET_DIRECTION` overrules. */
-fun sectionFor(survey: Survey, station: Station) = CrossSectioner.section(survey, station)
+fun sectionFor(
+    survey: Survey,
+    station: Station,
+    orientation: CrossSection.Orientation = CrossSection.Orientation.VERTICAL,
+) = CrossSectioner.section(survey, station, orientation)
 

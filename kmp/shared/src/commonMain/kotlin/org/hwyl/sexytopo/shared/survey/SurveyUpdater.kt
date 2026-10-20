@@ -214,7 +214,7 @@ object SurveyUpdater {
 
         val newStation = Station(getNextStationName(survey))
         newStation.extendedElevationDirection =
-            resolveInheritedExtendedElevationDirection(survey, activeStation)
+            SurveyTraversal.getOnwardExtendedElevationDirection(survey, activeStation)
 
         var newLeg =
             Leg.upgradeSplayToConnectedLeg(
@@ -268,7 +268,7 @@ object SurveyUpdater {
 
         val newStation = Station(getNextStationName(survey))
         newStation.extendedElevationDirection =
-            resolveInheritedExtendedElevationDirection(survey, activeStation)
+            SurveyTraversal.getOnwardExtendedElevationDirection(survey, activeStation)
 
         val newLeg =
             Leg.upgradeSplayToConnectedLeg(averageBacksights(fore, back, settings), newStation)
@@ -468,28 +468,5 @@ object SurveyUpdater {
                 pending.addLast(leg.destination)
             }
         }
-    }
-
-    /**
-     * A direction that doesn't propagate (VERTICAL) applies to the leg into the parent alone, so
-     * this walks up to the nearest ancestor whose direction does propagate.
-     *
-     * NOTE: potentially O(n^2), but it only runs when creating a new station.
-     */
-    private tailrec fun resolveInheritedExtendedElevationDirection(
-        survey: Survey,
-        activeStation: Station,
-    ): ExtendedElevationDirection {
-        val activeDirection = activeStation.extendedElevationDirection
-        if (activeDirection.propagates) {
-            return activeDirection
-        }
-        // origin station — nothing above it to inherit from
-        val referringLeg =
-            survey.getReferringLeg(activeStation) ?: return ExtendedElevationDirection.DEFAULT
-        val parent =
-            survey.getOriginatingStation(referringLeg)
-                ?: return ExtendedElevationDirection.DEFAULT
-        return resolveInheritedExtendedElevationDirection(survey, parent)
     }
 }

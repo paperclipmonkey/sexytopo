@@ -72,12 +72,32 @@ fun boundsOf(detail: CrossSectionDetail): DetailBounds {
     return bounds
 }
 
+/**
+ * A cross-section's extent as it is drawn: [boundsOf] it, enlarged (or shrunk) by [scale] about
+ * the section's position, which stays where it is. `CrossSectionDetail.getTopLeftAtScale` and
+ * `getBottomRightAtScale`.
+ */
+fun boundsOf(detail: CrossSectionDetail, scale: Float): DetailBounds {
+    val natural = boundsOf(detail)
+    val position = detail.position
+    return DetailBounds.EMPTY +
+        (position + (natural.topLeft - position).scale(scale)) +
+        (position + (natural.bottomRight - position).scale(scale))
+}
+
+/**
+ * Everything in the sketch. Its cross-sections are drawn at the sketch's cross-section scale, so
+ * they count at that size rather than their natural one, as `Sketch.updateBoundingBox` counts
+ * them: otherwise an export framed to the sketch cuts off a section enlarged past its edge.
+ */
 fun boundsOf(sketch: Sketch): DetailBounds {
     var bounds = DetailBounds.EMPTY
     for (path in sketch.pathDetails) bounds += boundsOf(path)
     for (symbol in sketch.symbolDetails) bounds += boundsOf(symbol)
     for (text in sketch.textDetails) bounds += boundsOf(text)
-    for (section in sketch.crossSectionDetails) bounds += boundsOf(section)
+    for (section in sketch.crossSectionDetails) {
+        bounds += boundsOf(section, sketch.crossSectionScale)
+    }
     return bounds
 }
 

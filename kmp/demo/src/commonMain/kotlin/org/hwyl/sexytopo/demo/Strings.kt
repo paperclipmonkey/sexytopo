@@ -169,6 +169,12 @@ object Strings {
     val titlePlan = s("title_activity_plan", "Plan")
     val titleElevation = s("title_activity_elevation", "Elevation")
     val titleCrossSection = s("title_activity_cross_section", "Cross-Section")
+
+    /** The cross-section editor's title, which says which kind of section is being drawn. */
+    val titleCrossSectionVertical =
+        s("title_activity_cross_section_vertical", "Vertical Section")
+    val titleCrossSectionHorizontal =
+        s("title_activity_cross_section_horizontal", "Horizontal Section")
     val titleStats = s("title_activity_survey", "Stats")
     val titleSystemLog = s("title_activity_system_log", "Log")
     val titleActivityReleaseNotes = s("title_activity_release_notes", "Release Notes")
@@ -287,6 +293,18 @@ object Strings {
 
     val menuCrossSection = s("menu_xsection", "Cross-Section")
     val menuCrossSectionCreate = s("menu_xsection_create", "New Cross-Section")
+
+    /**
+     * On the extended elevation, where there are two kinds of section to make, the plain *New
+     * Cross-Section* is replaced by these two, each followed by its glyph and a fainter hint at
+     * the kind of passage it is for.
+     */
+    val menuCrossSectionCreateVertical =
+        s("menu_xsection_create_vertical", "New Vertical Section")
+    val menuCrossSectionCreateHorizontal =
+        s("menu_xsection_create_horizontal", "New Horizontal Section")
+    val menuCrossSectionHintVertical = s("menu_xsection_hint_vertical", "passage")
+    val menuCrossSectionHintHorizontal = s("menu_xsection_hint_horizontal", "shaft")
     val menuCrossSectionEdit = s("menu_xsection_edit", "Edit Sketch")
     val menuCrossSectionSetDirection = s("menu_xsection_set_direction", "Set Direction")
     val menuCrossSectionDelete = s("menu_xsection_delete", "Delete Cross-Section")
@@ -350,8 +368,14 @@ object Strings {
     val settingsManualDataEntryTitle = s("settings_manual_data_entry_title", "Manual Data Entry")
     val settingsInstrumentsTitle = s("settings_instruments_title", "Instruments")
     val settingsSurveyTitle = s("settings_survey_title", "Survey Settings")
-    val settingsSurveyCrossSectionScale =
-        s("settings_survey_cross_section_scale", "Cross-section scale")
+    /**
+     * Upstream 1.13.0 replaced the one survey-wide `settings_survey_cross_section_scale` with a
+     * field for each sketch, since plan and elevation sections can need drawing at different sizes.
+     */
+    val settingsSurveyPlanCrossSectionScale =
+        s("settings_survey_plan_cross_section_scale", "Cross-section scale (Plan)")
+    val settingsSurveyElevationCrossSectionScale =
+        s("settings_survey_elevation_cross_section_scale", "Cross-section scale (Elevation)")
 
     val settingsThemeTitle = s("settings_theme_title", "Theme")
     val themeAutomatic = item("settings_theme_entries", 0, "System default")

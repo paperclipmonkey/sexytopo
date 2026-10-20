@@ -1,7 +1,9 @@
 package org.hwyl.sexytopo.shared
 
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
+import org.hwyl.sexytopo.shared.model.graph.ExtendedElevationDirection
 import org.hwyl.sexytopo.shared.model.sketch.Colour
+import org.hwyl.sexytopo.shared.model.sketch.CrossSection
 import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.PathDetail
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
@@ -10,16 +12,18 @@ import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.survey.CrossSectioner
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
+import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 import org.hwyl.sexytopo.shared.survey.TestSurveys
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Ported from `CrossSectionerTest` (the first three cases, expectations unchanged) and extended to
- * cover the projection and the sub-sketch, which the Java has no unit tests for.
+ * Ported from `CrossSectionerTest` (expectations unchanged) and extended to cover the projection
+ * and the sub-sketch, which the Java has no unit tests for.
  */
 class CrossSectionTest {
 
@@ -233,6 +237,111 @@ class CrossSectionTest {
         assertClose(180f, rotated.crossSection.angle)
         assertTrue(rotated.station === station)
         assertTrue(rotated.sketch === subSketch)
+    }
+
+    // The rest of `CrossSectionerTest`, from upstream 1.13.0: the kind of section, and which way a
+    // vertical one faces on the extended elevation.
+
+    @Test
+    fun theBearingDoesNotDependOnTheElevationDirection() {
+        val survey = TestSurveys.createRightRight()
+        val s2 = survey.getStationByName("2")!!
+
+        for (direction in ExtendedElevationDirection.entries) {
+            s2.extendedElevationDirection = direction
+            assertClose(45f, CrossSectioner.angleOfSection(survey, s2))
+        }
+    }
+
+    @Test
+    fun aSectionFacesTheBearingWorkedOut() {
+        val survey = TestSurveys.createRightRight()
+        val s2 = survey.getStationByName("2")!!
+
+        val crossSection = CrossSectioner.section(survey, s2)
+
+        assertTrue(crossSection.station === s2)
+        assertClose(45f, crossSection.angle)
+    }
+
+    @Test
+    fun aHorizontalSectionIgnoresTheLegsAndLiesFlat() {
+        val survey = TestSurveys.createRightRight()
+        val s2 = survey.getStationByName("2")!!
+
+        val crossSection =
+            CrossSectioner.section(survey, s2, CrossSection.Orientation.HORIZONTAL)
+
+        assertEquals(CrossSection.Orientation.HORIZONTAL, crossSection.orientation)
+        assertTrue(crossSection.station === s2)
+        assertClose(0f, crossSection.angle)
+    }
+
+    @Test
+    fun aVerticalSectionAskedForByKindFacesTheBearingWorkedOut() {
+        val survey = TestSurveys.createRightRight()
+        val s2 = survey.getStationByName("2")!!
+
+        val crossSection = CrossSectioner.section(survey, s2, CrossSection.Orientation.VERTICAL)
+
+        assertEquals(CrossSection.Orientation.VERTICAL, crossSection.orientation)
+        assertClose(45f, crossSection.angle)
+    }
+
+    @Test
+    fun facingRightOnTheElevationFollowsTheSurveyWhereItIsDrawnRight() {
+        // The survey heads north and is drawn to the right
+        val survey = TestSurveys.createStraightNorth()
+        val station = survey.getStationByName("2")!!
+
+        assertClose(0f, CrossSectioner.angleFacingOnElevation(survey, station, true))
+        assertClose(180f, CrossSectioner.angleFacingOnElevation(survey, station, false))
+    }
+
+    @Test
+    fun facingRightOnTheElevationLooksBackWhereTheSurveyIsDrawnLeft() {
+        val survey = TestSurveys.createStraightNorth()
+        val station = survey.getStationByName("2")!!
+        SurveyUpdater.setExtendedElevationDirection(
+            survey,
+            survey.getStationByName("1")!!,
+            ExtendedElevationDirection.LEFT,
+        )
+
+        assertClose(180f, CrossSectioner.angleFacingOnElevation(survey, station, true))
+        assertClose(0f, CrossSectioner.angleFacingOnElevation(survey, station, false))
+    }
+
+    @Test
+    fun aSectionSetOnTheElevationIsSeenFacingThatWay() {
+        for (direction in listOf(ExtendedElevationDirection.LEFT, ExtendedElevationDirection.RIGHT)) {
+            val survey = TestSurveys.createStraightNorth()
+            val station = survey.getStationByName("2")!!
+            SurveyUpdater.setExtendedElevationDirection(
+                survey,
+                survey.getStationByName("1")!!,
+                direction,
+            )
+
+            for (facingRight in listOf(true, false)) {
+                val angle = CrossSectioner.angleFacingOnElevation(survey, station, facingRight)
+                assertEquals(
+                    facingRight,
+                    CrossSectioner.isFacingRightOnElevation(survey, station, angle),
+                    "$direction $facingRight",
+                )
+            }
+        }
+    }
+
+    @Test
+    fun aSectionAtAnAngleFacesWhicheverWayIsNearer() {
+        // Heading north, drawn right: a section facing east of north still faces along the survey
+        val survey = TestSurveys.createStraightNorth()
+        val station = survey.getStationByName("2")!!
+
+        assertTrue(CrossSectioner.isFacingRightOnElevation(survey, station, 60f))
+        assertFalse(CrossSectioner.isFacingRightOnElevation(survey, station, 120f))
     }
 
     @Test

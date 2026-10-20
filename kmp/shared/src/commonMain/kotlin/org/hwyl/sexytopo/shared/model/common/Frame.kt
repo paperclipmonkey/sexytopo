@@ -3,6 +3,7 @@ package org.hwyl.sexytopo.shared.model.common
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Space
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
+import org.hwyl.sexytopo.shared.sketch.boundsOf
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
@@ -61,13 +62,22 @@ data class Frame(val left: Float, val right: Float, val top: Float, val bottom: 
             return Frame(left, right, top, bottom)
         }
 
+        /**
+         * A cross-section counts at the size it is drawn, splays, sub-sketch and all, scaled by
+         * the sketch's cross-section scale: the Java's sketch keeps its bounding box that way, and
+         * a frame holding only each section's position cut off one enlarged past the drawing.
+         */
         fun from(sketch: Sketch): Frame =
             of(
                 buildList {
                     for (detail in sketch.pathDetails) addAll(detail.path)
                     for (detail in sketch.textDetails) add(detail.position)
                     for (detail in sketch.symbolDetails) add(detail.position)
-                    for (detail in sketch.crossSectionDetails) add(detail.position)
+                    for (detail in sketch.crossSectionDetails) {
+                        val drawn = boundsOf(detail, sketch.crossSectionScale)
+                        add(drawn.topLeft)
+                        add(drawn.bottomRight)
+                    }
                 },
             )
 

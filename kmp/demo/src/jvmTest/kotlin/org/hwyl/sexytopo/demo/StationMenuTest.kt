@@ -25,8 +25,8 @@ import kotlin.test.assertTrue
  * reached through the chip on the field bar — useless the moment somebody wants to go back and
  * write "sump" on a junction they passed. What is tested here is which actions a station offers,
  * because every wrong answer is invisible until somebody taps it underground: a delete that
- * silently does nothing on the origin, a cross-section offered on the extended elevation where it
- * means nothing, a "make active" on the station that already is one.
+ * silently does nothing on the origin, a second cross-section offered where there is one already,
+ * a "make active" on the station that already is one.
  */
 class StationMenuTest {
 
@@ -224,17 +224,20 @@ class StationMenuTest {
         )
     }
 
+    /**
+     * Until upstream 1.13.0 a cross-section was a plan object and the elevation offered none. Now
+     * each sketch has its own, and the elevation asks which kind: see
+     * `CrossSectionOnTheElevationTest`.
+     */
     @Test
-    fun crossSectionsAreOfferedInThePlanOnly() {
+    fun crossSectionsAreOfferedOnThePlanAndTheElevation() {
         val survey = passage()
         val onThePlan = actions(survey, "2", Projection2D.PLAN)
         val onTheElevation = actions(survey, "2", Projection2D.EXTENDED_ELEVATION)
 
         assertTrue(StationAction.CROSS_SECTION_CREATE in onThePlan)
-        assertTrue(
-            onTheElevation.none { it.name.startsWith("CROSS_SECTION") },
-            "a cross-section is a plan object; the elevation has nothing to anchor one to",
-        )
+        assertTrue(StationAction.CROSS_SECTION_CREATE_VERTICAL in onTheElevation)
+        assertTrue(StationAction.CROSS_SECTION_CREATE_HORIZONTAL in onTheElevation)
     }
 
     @Test

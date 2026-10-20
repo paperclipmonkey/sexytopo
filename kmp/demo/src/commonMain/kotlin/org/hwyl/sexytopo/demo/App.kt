@@ -382,7 +382,7 @@ private fun SexyTopoAppBar(state: DemoState) {
 
     if (editingSettings) {
         SurveySettingsDialog(
-            sketch = state.survey.getSketch(state.projection),
+            survey = state.survey,
             onDismiss = { editingSettings = false },
             onSaved = {
                 state.noteSketchEdited()
@@ -1241,6 +1241,7 @@ private fun SketchScreen(
         onOpenCrossSection = { state.editingCrossSection = it },
         onLongPressStation = onLongPressStation,
         crossSectioning = state.crossSectioning,
+        crossSectioningOrientation = state.crossSectioningOrientation,
         onCrossSectionPositioned = { state.finishCrossSection() },
     )
 }
@@ -1278,8 +1279,8 @@ private fun StationMenuFor(
         // `handleNewCrossSection`: the section is not drawn yet. The tool is armed for this
         // station and the next tap on the paper says where it goes, which is the one thing about
         // a cross-section only the surveyor can decide.
-        onCreateCrossSection = { at ->
-            state.beginCrossSection(at)
+        onCreateCrossSection = { at, orientation ->
+            state.beginCrossSection(at, orientation)
             onClose()
         },
         onDeleteCrossSection = { editor.delete(it) },

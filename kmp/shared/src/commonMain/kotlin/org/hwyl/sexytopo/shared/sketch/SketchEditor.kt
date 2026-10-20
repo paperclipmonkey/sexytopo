@@ -206,13 +206,14 @@ class SketchEditor(val sketch: Sketch = Sketch()) {
         return moved
     }
 
+    /**
+     * Turn a vertical section to face [azimuth]. A horizontal one has no direction to set, so it
+     * is left alone and no undo step is recorded: building a new section here, as this once did,
+     * quietly turned a horizontal section into a vertical one.
+     */
     fun rotateCrossSection(detail: CrossSectionDetail, azimuth: Float): CrossSectionDetail {
-        val rotated =
-            CrossSectionDetail(
-                detail.position,
-                CrossSection(detail.crossSection.station, azimuth),
-                detail.sketch,
-            )
+        if (!detail.crossSection.isRotatable) return detail
+        val rotated = detail.withAngle(azimuth)
         replaceCrossSection(detail, rotated)
         return rotated
     }

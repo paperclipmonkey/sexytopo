@@ -97,5 +97,13 @@ enum class Projection2D(val displayName: String, val abbreviation: String) {
     companion object {
         private val transformer = Space3DTransformer()
         private val elevationTransformer = Space3DTransformerForElevation()
+
+        /**
+         * Looks a projection up by its abbreviation. Anything unrecognised, including null, gives
+         * the plan, as the Android app does for a cross-section editor opened without saying
+         * which sketch the section is in.
+         */
+        fun fromAbbreviation(abbreviation: String?): Projection2D =
+            entries.firstOrNull { it.abbreviation == abbreviation } ?: PLAN
     }
 }

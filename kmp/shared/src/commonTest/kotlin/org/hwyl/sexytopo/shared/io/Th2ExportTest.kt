@@ -5,6 +5,7 @@ import org.hwyl.sexytopo.shared.io.export.Th2Exporter
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
+import org.hwyl.sexytopo.shared.model.sketch.CrossSection
 import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
@@ -12,6 +13,8 @@ import org.hwyl.sexytopo.shared.model.survey.SurveyDate
 import org.hwyl.sexytopo.shared.model.survey.Trip
 import org.hwyl.sexytopo.shared.survey.CrossSectioner
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
+import org.hwyl.sexytopo.shared.survey.TestSurveys
+import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -342,5 +345,168 @@ class Th2ExportTest {
     fun theSameSurveyExportsIdenticallyEveryTime() {
         val survey = withCrossSection()
         assertEquals(exportOf(survey), exportOf(survey))
+    }
+
+    // Cross-sections on the elevation, from `Th2ExporterTest` in upstream 1.13.0, and how the
+    // options bear on them, from `Th2ExporterPreferencesTest`. The preferences are the
+    // `Th2Exporter.Options` they are read into, so there is nothing here to stand in for them.
+
+    // point <x> <y> section -scrap <name>
+    private val sectionPoint = Regex("""^point (\S+) (\S+) section -scrap (\S+)""")
+
+    // scrap <name> -projection none -scale [0 0 <x> <y> 0 0 10.00 10.00 m]
+    private val sectionScrap = Regex("""^scrap (\S+) -projection none -scale \[0 0 (\S+) (\S+) """)
+
+    /** The regular expression's groups for every line of the th2 it matches. */
+    private fun match(th2: String, pattern: Regex): List<List<String>> =
+        th2.lines().mapNotNull { pattern.find(it.trimStart())?.groupValues?.drop(1) }
+
+    /** The names of the section scraps the main scrap points at, sorted. */
+    private fun sectionPointNames(th2: String): List<String> =
+        match(th2, sectionPoint).map { it[2] }.sorted()
+
+    /** The names of the scraps drawn with no projection, as sections are, sorted. */
+    private fun sectionScrapNames(th2: String): List<String> =
+        match(th2, sectionScrap).map { it[0] }.sorted()
+
+    private fun List<String>.anyEndsWith(ending: String) = any { it.endsWith(ending) }
+
+    private val scale = SvgExporter.SCALE.toFloat()
+
+    @Test
+    fun theElevationHasAnExtendedScrapAndAScrapForEachSection() {
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+
+        val th2 = exportOf(survey, Projection2D.EXTENDED_ELEVATION)
+
+        assertEquals(1, th2.split("-projection extended").size - 1)
+        assertEquals(2, sectionScrapNames(th2).size)
+    }
+
+    @Test
+    fun theElevationsSectionsArePointedAtByTheMainScrap() {
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+
+        val th2 = exportOf(survey, Projection2D.EXTENDED_ELEVATION)
+
+        val pointedAt = sectionPointNames(th2)
+        assertEquals(2, pointedAt.size)
+        assertTrue(pointedAt.anyEndsWith("EEX1"))
+        assertTrue(pointedAt.anyEndsWith("EEX3"))
+        // ...and every one of them has the scrap it points at
+        assertEquals(pointedAt, sectionScrapNames(th2))
+    }
+
+    @Test
+    fun theElevationsSectionPointsAreWhereTheSectionsAre() {
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+
+        val th2 = exportOf(survey, Projection2D.EXTENDED_ELEVATION)
+
+        for ((x, y, name) in match(th2, sectionPoint)) {
+            // The sections are at (2, 4) and (12, 4), and Therion's y runs the other way
+            val expectedX = if (name.endsWith("EEX1")) 2 * scale else 12 * scale
+            assertTrue(abs(expectedX - x.toFloat()) < 0.01f, "$name at $x")
+            assertTrue(abs(-4 * scale - y.toFloat()) < 0.01f, "$name at $y")
+        }
+    }
+
+    @Test
+    fun aHorizontalSectionHasANoProjectionScrapLikeAVerticalOne() {
+        // Therion has one kind of section scrap, and anything with no projection is one. Station
+        // 1 has a vertical section on the elevation and station 3 a horizontal one.
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+
+        val scraps = sectionScrapNames(exportOf(survey, Projection2D.EXTENDED_ELEVATION))
+
+        assertTrue(scraps.anyEndsWith("EEX1"))
+        assertTrue(scraps.anyEndsWith("EEX3"))
+    }
+
+    @Test
+    fun planAndElevationSectionScrapsHaveDifferentNames() {
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+
+        val plan = sectionScrapNames(exportOf(survey, Projection2D.PLAN))
+        val elevation = sectionScrapNames(exportOf(survey, Projection2D.EXTENDED_ELEVATION))
+
+        // Stations 1 and 3 have sections on both, and Therion needs every scrap named differently
+        assertEquals(2, plan.size)
+        assertEquals(2, elevation.size)
+        for (name in plan) assertFalse(name in elevation, name)
+    }
+
+    @Test
+    fun eachExportHasOnlyItsOwnSketchsSections() {
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+        survey.elevationSketch.addCrossSection(
+            CrossSection.horizontal(survey.getStationByName("2")!!),
+            Coord2D(7f, 4f),
+        )
+
+        val plan = sectionPointNames(exportOf(survey, Projection2D.PLAN))
+        val elevation = sectionPointNames(exportOf(survey, Projection2D.EXTENDED_ELEVATION))
+
+        assertTrue(elevation.anyEndsWith("EEX2"))
+        assertEquals(3, elevation.size)
+        assertEquals(2, plan.size)
+        assertFalse(plan.anyEndsWith("2"))
+    }
+
+    @Test
+    fun sectionScrapsAreScaledByTheCrossSectionScale() {
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+
+        for (crossSectionScale in listOf(1f, 2f, 3f)) {
+            survey.elevationSketch.crossSectionScale = crossSectionScale
+
+            val th2 = exportOf(survey, Projection2D.EXTENDED_ELEVATION)
+
+            for ((_, x, y) in match(th2, sectionScrap)) {
+                // The scrap is 10m across at the cross-section scale
+                val expected = 10 * scale * crossSectionScale
+                assertTrue(abs(expected - x.toFloat()) < 0.01f, "$x at $crossSectionScale")
+                assertTrue(abs(expected - y.toFloat()) < 0.01f, "$y at $crossSectionScale")
+            }
+        }
+    }
+
+    @Test
+    fun theElevationsSectionNamesFollowTheElevationSuffix() {
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+        val options = Th2Exporter.Options(elevationCrossSectionSuffix = "SEC-#")
+
+        val elevation = sectionPointNames(exportOf(survey, Projection2D.EXTENDED_ELEVATION, options))
+        val plan = sectionPointNames(exportOf(survey, Projection2D.PLAN, options))
+
+        assertTrue(elevation.anyEndsWith("SEC-1"))
+        assertTrue(elevation.anyEndsWith("SEC-3"))
+        // The plan has its own suffix, which hasn't been changed
+        assertTrue(plan.anyEndsWith("PX1"))
+    }
+
+    @Test
+    fun thePlansSectionNamesFollowThePlanSuffix() {
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+        val options = Th2Exporter.Options(planCrossSectionSuffix = "S#")
+
+        val plan = sectionPointNames(exportOf(survey, Projection2D.PLAN, options))
+        val elevation = sectionPointNames(exportOf(survey, Projection2D.EXTENDED_ELEVATION, options))
+
+        assertTrue(plan.anyEndsWith("S1"))
+        assertTrue(elevation.anyEndsWith("EEX1"))
+    }
+
+    @Test
+    fun noSectionsAreExportedWhenTheOptionIsOff() {
+        val survey = TestSurveys.createWithCrossSectionsInPlanAndElevation()
+        val options = Th2Exporter.Options(crossSections = false)
+
+        for (projection in listOf(Projection2D.PLAN, Projection2D.EXTENDED_ELEVATION)) {
+            val th2 = exportOf(survey, projection, options)
+
+            assertTrue(sectionPointNames(th2).isEmpty(), projection.name)
+            assertTrue(sectionScrapNames(th2).isEmpty(), projection.name)
+        }
     }
 }

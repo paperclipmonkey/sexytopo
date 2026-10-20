@@ -27,8 +27,8 @@ class DimensionParityTest {
 
     @Test
     fun theToolbarHasAsManyColumnsAsTheLayoutDeclares() {
-        val layout = File("../../app/src/main/res/layout/activity_graph.xml").readText()
+        val layout = File("../../app/src/main/res/layout/activity_sketch.xml").readText()
         val columns = Regex("""android:columnCount="(\d+)"""").find(layout)?.groupValues?.get(1)?.toInt()
-        assertEquals(columns, SexyTopoDimens.TOOLBAR_COLUMNS, "activity_graph.xml's GridLayout column count")
+        assertEquals(columns, SexyTopoDimens.TOOLBAR_COLUMNS, "activity_sketch.xml's GridLayout column count")
     }
 }

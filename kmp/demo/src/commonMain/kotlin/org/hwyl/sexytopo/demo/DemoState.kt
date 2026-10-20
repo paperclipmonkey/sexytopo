@@ -11,6 +11,7 @@ import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.log.LogType
+import org.hwyl.sexytopo.shared.model.sketch.CrossSection
 import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
 import org.hwyl.sexytopo.shared.model.survey.Station
@@ -461,6 +462,14 @@ class DemoState(
     var crossSectioning: Station? by mutableStateOf(null)
         private set
 
+    /**
+     * Which kind of section is waiting to be put down: `crossSectionOrientationBeingCreated`.
+     * Vertical unless the elevation's *New Horizontal Section* asked otherwise.
+     */
+    var crossSectioningOrientation: CrossSection.Orientation by
+        mutableStateOf(CrossSection.Orientation.VERTICAL)
+        private set
+
     /** What was in the surveyor's hand before, since positioning a section is a one-shot tool. */
     private var toolBeforeCrossSection: SketchTool? = null
 
@@ -471,8 +480,12 @@ class DemoState(
      * is wherever there is white paper next to the passage, which the app has no way of knowing
      * and the surveyor can see. So *Create Cross Section* asks, and this is the asking.
      */
-    fun beginCrossSection(station: Station) {
+    fun beginCrossSection(
+        station: Station,
+        orientation: CrossSection.Orientation = CrossSection.Orientation.VERTICAL,
+    ) {
         crossSectioning = station
+        crossSectioningOrientation = orientation
         toolBeforeCrossSection = tool
         chooseTool(SketchTool.POSITION_CROSS_SECTION)
         note(Strings.sketchPositionCrossSectionInstruction)
@@ -481,6 +494,7 @@ class DemoState(
     /** The tail of `handlePositionCrossSection`: one tap, then the previous tool comes back. */
     fun finishCrossSection() {
         crossSectioning = null
+        crossSectioningOrientation = CrossSection.Orientation.VERTICAL
         chooseTool(toolBeforeCrossSection ?: AppPreferences.DEFAULT_TOOL)
         toolBeforeCrossSection = null
     }

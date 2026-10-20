@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import org.hwyl.sexytopo.shared.math.getDistance
 import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
+import org.hwyl.sexytopo.shared.model.sketch.CrossSection
 import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
@@ -151,6 +152,8 @@ fun SurveyCanvas(
      * hit test — the station was chosen from its own menu before the tool was.
      */
     crossSectioning: Station? = null,
+    /** Which kind of section [crossSectioning] is waiting for. */
+    crossSectioningOrientation: CrossSection.Orientation = CrossSection.Orientation.VERTICAL,
     /** The one-shot has fired, so the tool that was in hand before it comes back. */
     onCrossSectionPositioned: () -> Unit = {},
     /**
@@ -162,6 +165,12 @@ fun SurveyCanvas(
      * [rememberDeviceHeading].
      */
     headingDegrees: Float? = null,
+    /**
+     * Whether this view is drawn with north at the top, and so has a compass to show:
+     * `SketchView.isCompassShown`. The plan is, and so is the editor of a horizontal section,
+     * which `CrossSectionView` draws like the plan; the elevation and a vertical section are not.
+     */
+    northUp: Boolean = sceneOverride == null && projection == Projection2D.PLAN,
 ) {
     val textMeasurer = rememberTextMeasurer()
     val fontFamily = LocalAppFontFamily.current
@@ -183,9 +192,10 @@ fun SurveyCanvas(
     val scene = sceneOverride ?: projected!!
 
     // North is meaningless anywhere else: the extended elevation is unrolled onto a line and a
-    // cross-section is drawn across the passage. `GraphView.drawCompass` returns immediately
-    // unless the projection is the plan, and so does this.
-    val isPlan = sceneOverride == null && projection == Projection2D.PLAN
+    // vertical cross-section is drawn across the passage. `SketchView.drawCompass` returns
+    // immediately unless `isCompassShown`, which is the plan and a horizontal section's editor,
+    // and so does this.
+    val isPlan = northUp
     // Asked for only while the arrow is on screen, so the magnetometer stops with it. Read in the
     // draw block below rather than here, so a heading arriving ten times a second redraws the
     // canvas without recomposing it.
@@ -208,6 +218,7 @@ fun SurveyCanvas(
     val currentOnOpenCrossSection by rememberUpdatedState(onOpenCrossSection)
     val currentOnLongPressStation by rememberUpdatedState(onLongPressStation)
     val currentCrossSectioning by rememberUpdatedState(crossSectioning)
+    val currentCrossSectioningOrientation by rememberUpdatedState(crossSectioningOrientation)
     val currentOnCrossSectionPositioned by rememberUpdatedState(onCrossSectionPositioned)
 
     val viewport = canvas.viewport
@@ -233,6 +244,8 @@ fun SurveyCanvas(
             detail = detail,
             from = at,
             pivot = currentScene.positionOf(detail.station.name),
+            // The elevation has no bearings, so there a section is turned to face left or right
+            elevation = if (projection == Projection2D.EXTENDED_ELEVATION) survey else null,
         )
 
     /** Grab whatever cross-section is under the finger, for a [mode] drag. */
@@ -370,12 +383,22 @@ fun SurveyCanvas(
                     // passage is not, usually - which is exactly why the app asks.
                     detectTapGestures { offset ->
                         val station = currentCrossSectioning ?: return@detectTapGestures
-                        // The bearing comes from CrossSectioner's own heuristic: bisect the
-                        // corner mid-passage, follow the single leg at a dead end, give up and
-                        // use north where there is nothing to go on. It is a guess, and
-                        // SketchTool.ROTATE_CROSS_SECTION is how a surveyor overrules it.
+                        // A vertical section's bearing comes from CrossSectioner's own heuristic:
+                        // bisect the corner mid-passage, follow the single leg at a dead end, give
+                        // up and use north where there is nothing to go on. It is a guess, and
+                        // SketchTool.ROTATE_CROSS_SECTION is how a surveyor overrules it. A
+                        // horizontal one lies flat and has no bearing to guess.
+                        //
+                        // A tap, so this acts when the finger lifts - which is what upstream had
+                        // to change to (`handlePositionCrossSection` placed on DOWN, and handing
+                        // back the previous tool mid-gesture made the move tool pan from a stale
+                        // anchor). Here the previous tool comes back only once the tap is over.
                         editor.addCrossSection(
-                            CrossSectioner.section(survey, station),
+                            CrossSectioner.section(
+                                survey,
+                                station,
+                                currentCrossSectioningOrientation,
+                            ),
                             viewport.toSurvey(offset),
                         )
                         currentOnSketchEdit()
@@ -892,6 +915,7 @@ fun SurveyCanvas(
                 isPlan = isPlan,
                 projection = projection,
                 handleRects = handleRects,
+                survey = survey,
                 // A missing heading means no compass on this device, so the arrow is drawn as a
                 // label: north is up, because that is where the plan puts it.
                 headingDegrees = headingDegrees ?: deviceHeading.value ?: 0f,
@@ -1054,9 +1078,19 @@ class SurveyScene private constructor(
             // Every splay in a cross-section radiates from the station this view is centred on,
             // so all of them are "attached to the active station" in the sense the fade asks
             // about — which is why turning the fade on cannot empty this screen.
+            //
+            // Which of them lie in the section's plane, and so are drawn solid, is the section's
+            // own projection's question - how square to the passage for a vertical one, how level
+            // for a horizontal one - as `CrossSectionView.isLegInPlane` asks it.
+            val inPlane = detail.crossSection.projectionType
             val splays =
-                projection.legMap.values.map { line ->
-                    SceneSegment(line.start, line.end, attachedToActive = true)
+                projection.legMap.map { (leg, line) ->
+                    SceneSegment(
+                        line.start,
+                        line.end,
+                        attachedToActive = true,
+                        inPlane = inPlane.isLegInPlane(leg),
+                    )
                 }
 
             val points = buildList {
@@ -1236,6 +1270,8 @@ private object CanvasSizes {
     // The frame round a cross-section on the plan, sized to match `GraphView`'s own constants.
     const val CROSS_SECTION_CONNECTOR_WIDTH_DP = 2f
     const val CROSS_SECTION_INDICATOR_WIDTH_DP = 2f
+    const val CROSS_SECTION_GLYPH_SIZE_DP = 13f
+    const val CROSS_SECTION_GLYPH_BOX_SIZE_DP = 18f
     const val CROSS_SECTION_BORDER_WIDTH_DP = 2f
     const val CROSS_SECTION_BORDER_PADDING_MIN_DP = 4f
     const val CROSS_SECTION_BORDER_PADDING_MAX_DP = 16f
@@ -1331,46 +1367,29 @@ private fun DrawScope.drawActiveStationHighlight(
 /**
  * The mark on a station that says a cross-section was taken there, and which way it faces.
  *
- * `GraphView.drawCrossSectionIndicator`, which this port did not have. It matters more here than
- * it looks, because a section is drawn wherever it was dragged to - possibly right across the
- * chamber - and this is the only thing left at the station itself to say one exists. Without it a
- * plan gives you no way to tell which stations have been sectioned without tapping each in turn.
- *
- * It is a line one metre long lying *in* the section's plane, with a small arrowhead at one end
- * pointing along the bearing, so it reads as "cut here, looking that way". The Java gets the plane
- * for free with a trick worth spelling out: a compass bearing of `a` degrees is the screen
- * direction `(sin a, -cos a)`, and the section's plane is that turned a right angle, which is
- * `(cos a, sin a)` - so taking the cosine and sine of the bearing directly gives the plane rather
- * than the bearing. The arrow then uses `a - 90`, which turns it back.
+ * `SketchView.drawCrossSectionIndicator`, which this port did not have at first. It matters more
+ * here than it looks, because a section is drawn wherever it was dragged to - possibly right across
+ * the chamber - and this is the only thing left at the station itself to say one exists. Without it
+ * a sketch gives you no way to tell which stations have been sectioned without tapping each in
+ * turn. Where the line and arrowhead go is [CrossSectionIndicator]'s business.
  *
  * Drawn at half strength, as the Java's `alpha / 2` does: it is an annotation on the station, not
  * a shot, and at full strength on a busy junction it reads as another splay.
  */
-private fun DrawScope.drawCrossSectionIndicator(
-    stationOnScreen: Offset,
-    angleDegrees: Float,
-    pixelsPerMetre: Float,
-    palette: Palette,
-) {
-    val radians = angleDegrees * PI.toFloat() / 180f
-    val alongPlane = Offset(cos(radians), sin(radians))
-    val half = pixelsPerMetre / 2f
-    val start = stationOnScreen - alongPlane * half
-    val end = stationOnScreen + alongPlane * half
+private fun DrawScope.drawCrossSectionIndicator(indicator: CrossSectionIndicator, palette: Palette) {
     val ink = palette.symbol.copy(alpha = FADED_INDICATOR_ALPHA)
 
-    drawLine(ink, start, end, CanvasSizes.CROSS_SECTION_INDICATOR_WIDTH_DP.dp.toPx())
-
-    // The arrowhead: a thin triangle off the near end of the plane line, pointing along the
-    // bearing. Its length is 0.4 of the line and its base 0.05 of it, both from the Java.
-    val alongBearing = Offset(cos(radians - PI.toFloat() / 2f), sin(radians - PI.toFloat() / 2f))
-    val tip = start + alongBearing * (pixelsPerMetre * ARROW_LENGTH_FRACTION)
-    val innerCorner = start + alongPlane * (pixelsPerMetre * ARROW_BASE_FRACTION)
+    drawLine(
+        ink,
+        indicator.start.toOffset(),
+        indicator.end.toOffset(),
+        CanvasSizes.CROSS_SECTION_INDICATOR_WIDTH_DP.dp.toPx(),
+    )
     drawPath(
         Path().apply {
-            moveTo(innerCorner.x, innerCorner.y)
-            lineTo(start.x, start.y)
-            lineTo(tip.x, tip.y)
+            moveTo(indicator.arrowInner.x, indicator.arrowInner.y)
+            lineTo(indicator.arrowOuter.x, indicator.arrowOuter.y)
+            lineTo(indicator.arrowTip.x, indicator.arrowTip.y)
             close()
         },
         ink,
@@ -1379,10 +1398,6 @@ private fun DrawScope.drawCrossSectionIndicator(
 
 /** `GraphView`'s `alpha / 2` for the cross-section indicator. */
 private const val FADED_INDICATOR_ALPHA = 0.5f
-
-/** The arrowhead's length and base, as fractions of the indicator line. */
-private const val ARROW_LENGTH_FRACTION = 0.4f
-private const val ARROW_BASE_FRACTION = 0.05f
 
 /**
  * The mark beside a station's name that says somebody wrote a note there.
@@ -1420,7 +1435,7 @@ private const val COMMENT_MARK_INSET_FRACTION = 0.2f
 private fun DrawScope.drawCrossSectionBorder(
     topLeftOnScreen: Offset,
     bottomRightOnScreen: Offset,
-    palette: Palette,
+    frameColour: Color,
 ): Rect {
     val contentWidth = bottomRightOnScreen.x - topLeftOnScreen.x
     val contentHeight = bottomRightOnScreen.y - topLeftOnScreen.y
@@ -1441,7 +1456,7 @@ private fun DrawScope.drawCrossSectionBorder(
         )
     val corner = CanvasSizes.CROSS_SECTION_BORDER_CORNER_RADIUS_DP.dp.toPx()
     drawRoundRect(
-        palette.crossSectionFrame,
+        frameColour,
         topLeft = rect.topLeft,
         size = rect.size,
         cornerRadius = CornerRadius(corner, corner),
@@ -1458,7 +1473,11 @@ private fun DrawScope.drawCrossSectionBorder(
  * a hit test that recomputed this rectangle from the sketch instead would be a second copy of the
  * padding, the scale and the projection, free to drift from the one that drew the bar.
  */
-private fun DrawScope.drawCrossSectionHandle(borderRect: Rect, palette: Palette): Rect {
+private fun DrawScope.drawCrossSectionHandle(
+    borderRect: Rect,
+    frameColour: Color,
+    palette: Palette,
+): Rect {
     val handleHeight = CanvasSizes.CROSS_SECTION_HANDLE_WIDTH_DP.dp.toPx()
     val corner = CanvasSizes.CROSS_SECTION_BORDER_CORNER_RADIUS_DP.dp.toPx()
     val handleRect =
@@ -1476,7 +1495,7 @@ private fun DrawScope.drawCrossSectionHandle(borderRect: Rect, palette: Palette)
                 )
             )
         },
-        palette.crossSectionFrame,
+        frameColour,
     )
 
     val centreX = handleRect.center.x
@@ -1494,6 +1513,60 @@ private fun DrawScope.drawCrossSectionHandle(borderRect: Rect, palette: Palette)
     }
 
     return handleRect
+}
+
+/**
+ * The kind of section, marked by its glyph in a tab filling the bottom-right corner of its frame,
+ * styled like the drag bar. `SketchView.drawCrossSectionGlyph`; only drawn where both kinds can be
+ * made, which is the elevation.
+ */
+@OptIn(ExperimentalTextApi::class)
+private fun DrawScope.drawCrossSectionGlyph(
+    borderRect: Rect,
+    orientation: CrossSection.Orientation,
+    frameColour: Color,
+    palette: Palette,
+    textMeasurer: TextMeasurer,
+    fontFamily: FontFamily,
+) {
+    val size = CanvasSizes.CROSS_SECTION_GLYPH_BOX_SIZE_DP.dp.toPx()
+    val corner = CanvasSizes.CROSS_SECTION_BORDER_CORNER_RADIUS_DP.dp.toPx()
+    val box =
+        Rect(borderRect.right - size, borderRect.bottom - size, borderRect.right, borderRect.bottom)
+
+    // Only the bottom-right corner is rounded, to follow the frame
+    drawPath(
+        Path().apply {
+            addRoundRect(
+                RoundRect(
+                    box,
+                    topLeft = CornerRadius.Zero,
+                    topRight = CornerRadius.Zero,
+                    bottomRight = CornerRadius(corner, corner),
+                    bottomLeft = CornerRadius.Zero,
+                )
+            )
+        },
+        frameColour,
+    )
+
+    val layout =
+        textMeasurer.measure(
+            CrossSectionLabels.glyph(orientation),
+            TextStyle(
+                color = palette.onCrossSectionFrame,
+                fontSize = CanvasSizes.CROSS_SECTION_GLYPH_SIZE_DP.dp.toSp(),
+                fontFamily = fontFamily,
+            ),
+        )
+    drawText(
+        layout,
+        topLeft =
+            Offset(
+                box.center.x - layout.size.width / 2f,
+                box.center.y - layout.size.height / 2f,
+            ),
+    )
 }
 
 /**
@@ -1664,6 +1737,11 @@ private fun DrawScope.drawSurvey(
     handleRects: MutableMap<CrossSectionDetail, Rect>? = null,
     /** Which way the top of the screen is pointing, or zero where nothing can say. */
     headingDegrees: Float = 0f,
+    /**
+     * The survey drawn, which the elevation's cross-section marks need: there are no bearings on
+     * the elevation, so which way a section faces there is worked out from where the survey goes.
+     */
+    survey: Survey,
 ) {
     val palette = if (options.darkMode) DarkPalette else LightPalette
 
@@ -1752,16 +1830,16 @@ private fun DrawScope.drawSurvey(
     }
 
     val stationMargin = STATION_CULL_MARGIN_DP.dp.toPx()
-    // Which stations carry a cross-section, and at what bearing - with the rotate gesture's live
-    // angle in place of the stored one, so the mark on the station swings with the section it
-    // belongs to rather than snapping to it when the finger lifts.
+    // Which stations carry a cross-section, and the section to draw each mark for - the rotate
+    // gesture's preview for the one being turned, so its mark swings with it rather than snapping
+    // round when the finger lifts, and the section as it is for every other.
     //
     // Drawn whatever the sketch and cross-section toggles say, which is what `GraphView` does:
     // `drawStations` reads the sketch directly and the two toggles gate `drawSketch` and
     // `drawCrossSections`. It looks like an oversight and works out well - with sections hidden to
     // clear the page you can still see which stations have one - so it is reproduced rather than
     // tidied.
-    val sectionAngles =
+    val sectionsByStation =
         if (scene.sketch.crossSectionDetails.isEmpty()) {
             emptyMap()
         } else {
@@ -1773,7 +1851,7 @@ private fun DrawScope.drawSurvey(
                         } else {
                             detail
                         }
-                    put(shown.station.name, shown.crossSection.angle)
+                    put(shown.station.name, shown)
                 }
             }
         }
@@ -1852,8 +1930,17 @@ private fun DrawScope.drawSurvey(
             nextX += markSize + markSize / 2f
         }
 
-        sectionAngles[name]?.let { angle ->
-            drawCrossSectionIndicator(centre, angle, viewport.pixelsPerMetre, palette)
+        sectionsByStation[name]?.let { shown ->
+            // One metre long, as the Java's `1 * surveyToViewScale`
+            val indicator =
+                CrossSectionIndicator.of(
+                    shown,
+                    centre.toCoord2D(),
+                    viewport.pixelsPerMetre,
+                    projection,
+                    survey,
+                )
+            drawCrossSectionIndicator(indicator, palette)
         }
     }
 
@@ -1951,7 +2038,9 @@ private fun DrawScope.drawSurvey(
                             centre.y + end.y * viewport.pixelsPerMetre,
                         )
                     val width = options.style.splayWidthDp.dp.toPx()
-                    if (projection.isLegInPlane(leg)) {
+                    // Judged the way the section editor judges them: a horizontal section's splays
+                    // by how level they are, a vertical one's by how square to the passage.
+                    if (shown.crossSection.projectionType.isLegInPlane(leg)) {
                         drawLine(starColour, centre, to, width, StrokeCap.Round)
                     } else {
                         val dashLength = DASH_INTERVAL_DP.dp.toPx()
@@ -2015,17 +2104,18 @@ private fun DrawScope.drawSurvey(
                     drawDashes(stationOnScreen, centre, palette.crossSection)
                 }
             } else {
-                val bounds = boundsOf(shown)
+                val bounds = boundsOf(shown, sectionScale)
+                // A horizontal section gets a differently coloured frame, so the two kinds can be
+                // told apart at a glance.
+                val isHorizontal =
+                    shown.crossSection.orientation == CrossSection.Orientation.HORIZONTAL
+                val frameColour =
+                    if (isHorizontal) palette.crossSectionHorizontalFrame else palette.crossSectionFrame
                 val border =
                     drawCrossSectionBorder(
-                        project(
-                            shown.position + (bounds.topLeft - shown.position).scale(sectionScale)
-                        ),
-                        project(
-                            shown.position +
-                                (bounds.bottomRight - shown.position).scale(sectionScale)
-                        ),
-                        palette,
+                        project(bounds.topLeft),
+                        project(bounds.bottomRight),
+                        frameColour,
                     )
                 if (stationOnScreen != null) {
                     clipSegmentToRectBoundary(stationOnScreen, centre, border)?.let { end ->
@@ -2035,7 +2125,18 @@ private fun DrawScope.drawSurvey(
                 // Keyed on the detail in the sketch, not on `shown`: mid-drag `shown` is the
                 // preview, a different object every frame, and the map would fill up with dead
                 // sections.
-                handleRects?.put(detail, drawCrossSectionHandle(border, palette))
+                handleRects?.put(detail, drawCrossSectionHandle(border, frameColour, palette))
+                // Where both kinds can be made, each is marked with the glyph from its menu row
+                if (canCreateHorizontalCrossSection(projection)) {
+                    drawCrossSectionGlyph(
+                        border,
+                        shown.crossSection.orientation,
+                        frameColour,
+                        palette,
+                        textMeasurer,
+                        fontFamily,
+                    )
+                }
             }
         }
 
@@ -2262,6 +2363,8 @@ class Palette(
     val crossSectionFrame: Color,
     /** `colorOnPrimary`: the grip marks on the drag bar. */
     val onCrossSectionFrame: Color,
+    /** `R.color.crossSectionHorizontalBox`: the frame and drag bar of a horizontal section. */
+    val crossSectionHorizontalFrame: Color,
     val scaleBar: Color,
     val grid: Color,
     val activeStation: Color,
@@ -2284,6 +2387,7 @@ private val LightPalette =
         crossSection = SexyTopoColours.crossSectionConnection,
         crossSectionFrame = SexyTopoColours.crossSectionFrame,
         onCrossSectionFrame = SexyTopoColours.onCrossSectionFrame,
+        crossSectionHorizontalFrame = SexyTopoColours.crossSectionHorizontalFrame,
         scaleBar = SexyTopoColours.legend,
         grid = SexyTopoColours.grid,
         activeStation = SexyTopoColours.activeStation,
@@ -2302,6 +2406,7 @@ private val DarkPalette =
         crossSection = SexyTopoColours.crossSectionConnection,
         crossSectionFrame = SexyTopoColours.crossSectionFrame,
         onCrossSectionFrame = SexyTopoColours.onCrossSectionFrame,
+        crossSectionHorizontalFrame = SexyTopoColours.crossSectionHorizontalFrameNight,
         scaleBar = SexyTopoColours.legendNight,
         grid = SexyTopoColours.gridNight,
         activeStation = SexyTopoColours.activeStationNight,
