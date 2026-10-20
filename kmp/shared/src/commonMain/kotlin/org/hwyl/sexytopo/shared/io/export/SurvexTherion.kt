@@ -28,10 +28,22 @@ enum class SurveyFormat(
     /** Survex says "passage", Therion says "dimensions". */
     val dataPassagePrefix: String
         get() = if (this == SURVEX) "${commandChar}data passage" else "${commandChar}data dimensions"
+
+    /**
+     * Whether the format averages repeated readings of one leg itself, so a promoted leg can go out
+     * as the readings that were taken rather than as this app's average of them.
+     *
+     * Survex does — its least-squares adjustment treats parallel legs between the same two stations
+     * as exactly that. Therion cannot yet (therion/therion#729), so it still gets the averaged line,
+     * with the readings behind it as comments. Upstream made this a switch rather than a special
+     * case so that the day Therion learns, one line changes.
+     */
+    val canAverageRepeatedLegs: Boolean
+        get() = this == SURVEX
 }
 
 /**
- * The shared Survex/Therion emitter: the trip metadata block, the centreline itself, the
+ * The shared Survex/Therion emitter: the trip metadata block, the centreline itself, Therion's
  * extended-elevation `extend` commands, and the station-comment block.
  */
 object SurvexTherionWriter {
@@ -224,32 +236,73 @@ object SurvexTherionWriter {
             reading = leg
         }
 
+        if (leg.wasPromoted() && format.canAverageRepeatedLegs) {
+            appendRepeatedReadings(builder, fromName, toName, reading)
+            return
+        }
+
+        appendDataLine(builder, fromName, toName, reading, reading.comment)
+
+        // A format that cannot average gets this app's average, and the readings behind it follow
+        // as comments so what was actually observed is still in the file.
+        if (leg.wasPromoted()) {
+            for (precursor in leg.promotedFrom) {
+                builder.append('\n')
+                builder.append(format.commentChar)
+                appendDataLine(builder, fromName, toName, precursor, precursor.comment)
+            }
+        }
+    }
+
+    /**
+     * A promoted leg as the readings it was promoted from, one data line each and no average,
+     * for Survex to average itself.
+     *
+     * There is nowhere else to put the leg's own comment, so it goes on the first line, joined to
+     * that reading's comment if it has one. On the way back in the two cannot be told apart, which
+     * is why a round trip merges them — upstream documents that as a known loss rather than a bug.
+     */
+    private fun appendRepeatedReadings(
+        builder: StringBuilder,
+        fromName: String,
+        toName: String,
+        leg: Leg,
+    ) {
+        for ((index, precursor) in leg.promotedFrom.withIndex()) {
+            if (index > 0) builder.append('\n')
+            val comment =
+                if (index == 0) combineComments(leg.comment, precursor.comment) else precursor.comment
+            appendDataLine(builder, fromName, toName, precursor, comment)
+        }
+    }
+
+    /**
+     * One from/to/tape/compass/clino line. Every field is followed by a tab, the last one included,
+     * which is the Java's `formatField`; since upstream's tidy that is true of a commented-out
+     * reading too, which used to stop short of the trailing tab.
+     */
+    private fun appendDataLine(
+        builder: StringBuilder,
+        fromName: String,
+        toName: String,
+        reading: Leg,
+        comment: String,
+    ) {
         builder.append(fromName).append('\t')
         builder.append(toName).append('\t')
         builder.append(formatDistance(reading.distance)).append('\t')
         builder.append(formatAzimuth(reading.azimuth)).append('\t')
         builder.append(formatInclination(reading.inclination)).append('\t')
-
-        if (reading.hasComment()) {
-            builder.append(flattenComment(reading.comment))
-        }
-
-        // A promoted leg's averaged-from readings follow as comments, so the raw observations survive.
-        if (leg.wasPromoted()) {
-            for (precursor in leg.promotedFrom) {
-                builder.append('\n')
-                builder.append(format.commentChar)
-                builder.append(fromName).append('\t')
-                builder.append(toName).append('\t')
-                builder.append(formatDistance(precursor.distance)).append('\t')
-                builder.append(formatAzimuth(precursor.azimuth)).append('\t')
-                builder.append(formatInclination(precursor.inclination))
-                if (precursor.hasComment()) {
-                    builder.append('\t').append(flattenComment(precursor.comment))
-                }
-            }
-        }
+        if (comment.isNotEmpty()) builder.append(flattenComment(comment))
     }
+
+    /** Both, joined with " :: " as station comments are on import, or whichever one there is. */
+    private fun combineComments(primary: String, secondary: String): String =
+        when {
+            primary.isNotEmpty() && secondary.isNotEmpty() -> "$primary :: $secondary"
+            primary.isNotEmpty() -> primary
+            else -> secondary
+        }
 
     /** Newlines inside a comment would break the line-oriented format, so they become literal \n. */
     private fun flattenComment(comment: String): String =
@@ -289,9 +342,12 @@ object SurvexTherionWriter {
     }
 
     /**
-     * The `extend` commands that tell Survex/Therion how to unroll the cave. A non-propagating
-     * (vertical) direction applies to one leg only, so it names both stations rather than
-     * changing what the rest of the subtree inherits.
+     * The `extend` commands that tell Therion how to unroll the cave. A non-propagating (vertical)
+     * direction applies to one leg only, so it names both stations rather than changing what the
+     * rest of the subtree inherits.
+     *
+     * Survex no longer gets these: an `*extend` in a `.svx` made the file invalid, so its
+     * directions go in a `.espec` beside it instead, written by [SurvexExporter.espec].
      */
     fun extendedElevationExtensions(survey: Survey, format: SurveyFormat): String = buildString {
         appendExtendCommands(this, survey.origin, format.commandChar)
@@ -376,7 +432,27 @@ object SurvexTherionWriter {
         th2Files.joinToString("") { "input \"$it\"\n" }
 }
 
-/** Emits a Survex `.svx` file. Ported from `SurvexExporter`. */
+/**
+ * The `.espec` file's extension and commands, from `SurvexConstants`. The `.svx` extension is
+ * [SurveyFormat.fileExtension].
+ */
+object SurvexConstants {
+    /** Survex's extended elevation specification, read by its `extend` tool beside the `.svx`. */
+    const val ESPEC_EXTENSION = "espec"
+
+    const val ESPEC_START = "*start"
+    const val ESPEC_LEFT = "*eleft"
+    const val ESPEC_RIGHT = "*eright"
+
+    /**
+     * Survex's `extend` tool does not take a two-station `*evertical` yet, so it is written
+     * commented out — the file stays valid, and this app's importer still reads it back.
+     */
+    const val ESPEC_VERTICAL = "*evertical"
+    const val ESPEC_COMMENT_PREFIX = "; "
+}
+
+/** Emits a Survex `.svx` file and the `.espec` that goes beside it. Ported from `SurvexExporter`. */
 object SurvexExporter {
 
     fun export(survey: Survey, versionInfo: String = "SexyTopo", createdOn: String = ""): String =
@@ -392,10 +468,73 @@ object SurvexExporter {
             append('\n')
             append(SurvexTherionWriter.stationCommentsData(survey, SurveyFormat.SURVEX))
             append(SurvexTherionWriter.centrelineData(survey, SurveyFormat.SURVEX))
-            append('\n')
-            append(SurvexTherionWriter.extendedElevationExtensions(survey, SurveyFormat.SURVEX))
             append("*end ").append(survey.name).append('\n')
         }
+
+    /**
+     * Whether the survey needs a `.espec` at all. Survex draws everything to the right unless told
+     * otherwise, so a survey left at the default goes out as the `.svx` alone, as it always did.
+     */
+    fun hasNonDefaultDirections(survey: Survey): Boolean =
+        survey.getAllStations().any {
+            it.extendedElevationDirection != ExtendedElevationDirection.DEFAULT
+        }
+
+    /**
+     * The extended elevation directions, as the `.espec` Survex's `extend` tool reads.
+     *
+     * `*start` says only where to begin. The origin's own direction is then compared with the
+     * default like any other station's, so a survey that sets off to the left gets an `*eleft` for
+     * its origin too — which is what lets one round-trip, where the `*extend start` it replaced
+     * left the origin's direction unsaid.
+     */
+    fun espec(survey: Survey): String = buildString {
+        val origin = survey.origin
+        append(SurvexConstants.ESPEC_START).append(' ').append(origin.name).append('\n')
+
+        // Depth first, children pushed reversed so they come off in recorded order: the same walk
+        // as Therion's extend commands, and a loop for the same reason.
+        val pending = ArrayDeque<Triple<Station, Station?, ExtendedElevationDirection>>()
+        pending.addLast(Triple(origin, null, ExtendedElevationDirection.DEFAULT))
+        while (pending.isNotEmpty()) {
+            val (station, fromStation, lastDirection) = pending.removeLast()
+            val current = station.extendedElevationDirection
+
+            // A pitch applies to its own leg and leaves the passage below inheriting what it did
+            // before, so it names both stations and changes nothing else.
+            val inherited: ExtendedElevationDirection
+            if (!current.propagates) {
+                // The origin has no leg into it to name. The Java dereferences the missing station
+                // here and throws, so an origin set vertical is left out rather than crashing the
+                // export — with no leg of its own, there is nothing to draw vertically anyway.
+                if (fromStation != null) {
+                    append(SurvexConstants.ESPEC_COMMENT_PREFIX)
+                        .append(SurvexConstants.ESPEC_VERTICAL)
+                        .append(' ')
+                        .append(fromStation.name)
+                        .append(' ')
+                        .append(station.name)
+                        .append('\n')
+                }
+                inherited = lastDirection
+            } else {
+                if (current != lastDirection) {
+                    val command =
+                        if (current == ExtendedElevationDirection.LEFT) {
+                            SurvexConstants.ESPEC_LEFT
+                        } else {
+                            SurvexConstants.ESPEC_RIGHT
+                        }
+                    append(command).append(' ').append(station.name).append('\n')
+                }
+                inherited = current
+            }
+
+            for (leg in station.getConnectedOnwardLegs().asReversed()) {
+                pending.addLast(Triple(leg.destination, station, inherited))
+            }
+        }
+    }
 }
 
 /**

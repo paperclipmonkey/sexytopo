@@ -96,17 +96,21 @@ class BigSurveyTest {
         assertTrue(SurveyStats.numberOfLegsUnder(survey.origin) > 0)
     }
 
-    /** The `extend` commands used to overflow part-way through writing the file, not before starting it. */
+    /**
+     * The `extend` commands used to overflow part-way through writing the file, not before starting
+     * it. Survex's now go in the `.espec`, which walks the passage the same way.
+     */
     @Test
     fun aLongPassageExportsToSurvexAndTherion() {
         val survey = aLongPassage()
 
         val svx = SurvexExporter.export(survey)
         assertTrue(svx.contains("*begin Long"))
-        assertEquals(1, svx.lines().count { it.startsWith("*extend ") })
+        assertEquals("*start 1\n", SurvexExporter.espec(survey))
 
         val th = TherionExporter.export(survey)
         assertTrue(th.contains("survey Long"))
+        assertEquals(1, th.lines().count { it.startsWith("extend ") })
     }
 
     /**
