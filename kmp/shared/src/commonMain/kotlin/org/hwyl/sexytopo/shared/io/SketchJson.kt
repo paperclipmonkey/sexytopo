@@ -46,6 +46,8 @@ object SketchJson {
     const val STATION_ID_TAG = "station-id"
     const val POSITION_TAG = "location"
     const val ANGLE_TAG = "angle"
+    const val ORIENTATION_TAG = "orientation"
+    const val ORIENTATION_HORIZONTAL = "horizontal"
     const val SETTINGS_TAG = "settings"
     const val CROSS_SECTION_SCALE_TAG = "cross-section-scale"
     const val X_TAG = "x"
@@ -109,11 +111,18 @@ object SketchJson {
     /**
      * One `x-sections` entry: station, position, bearing, and the nested sub-sketch if anything
      * was drawn in it (paths, symbols and labels only — matching the original's empty check).
+     *
+     * `orientation` is written only for a horizontal section, so a file with only vertical ones
+     * is exactly what it was before horizontal sections existed. The angle is still written for a
+     * horizontal one, as 0, because older versions of both apps refuse an entry without it.
      */
     fun toJson(detail: CrossSectionDetail): JsonObject = buildJsonObject {
         put(STATION_ID_TAG, detail.station.name)
         put(POSITION_TAG, toJson(detail.position))
         put(ANGLE_TAG, detail.crossSection.angle)
+        if (detail.crossSection.orientation == CrossSection.Orientation.HORIZONTAL) {
+            put(ORIENTATION_TAG, ORIENTATION_HORIZONTAL)
+        }
         val subSketch = detail.sketch
         if (subSketch.hasDrawnDetails()) {
             put(SKETCH_TAG, toSubSketchJson(subSketch))
@@ -144,7 +153,16 @@ object SketchJson {
             readDrawnDetails(it, subSketch)
         }
 
-        return CrossSectionDetail(position, CrossSection(station, angle), subSketch)
+        // Anything but horizontal, including no orientation at all as in files from before
+        // horizontal sections existed, is a vertical section, as `SketchJsonTranslater` reads it.
+        val crossSection =
+            if (entry.stringOrNull(ORIENTATION_TAG) == ORIENTATION_HORIZONTAL) {
+                CrossSection.horizontal(station)
+            } else {
+                CrossSection(station, angle)
+            }
+
+        return CrossSectionDetail(position, crossSection, subSketch)
     }
 
     private fun toSubSketchJson(sketch: Sketch): JsonObject = buildJsonObject {

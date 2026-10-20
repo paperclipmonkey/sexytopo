@@ -16,6 +16,7 @@ import org.hwyl.sexytopo.shared.model.survey.Survey
 import org.hwyl.sexytopo.shared.model.survey.SurveyDate
 import org.hwyl.sexytopo.shared.model.survey.Trip
 import org.hwyl.sexytopo.shared.survey.SurveyBuilder
+import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -413,5 +414,33 @@ class ExportTest {
         val entries = SurvexTherionWriter.chronologicalEntries(survey)
         val distances = entries.map { it.second.distance }
         assertEquals(listOf(5f, 1f, 6f), distances, "chronological, not tree order")
+    }
+
+    // The cases `ThExporterTest` gained in upstream 1.13.0
+
+    @Test
+    fun promotedLegsStillExportToTherionAsTheAveragedLinePlusTheCommentedReadings() {
+        // Therion can't average repeated legs yet, so it still gets the averaged line. Three
+        // readings at each of three stations, as `createStraightNorthThroughRepeats` takes them.
+        val survey = Survey("Repeats")
+        repeat(3) { repeat(3) { SurveyUpdater.update(survey, Leg(5f, 0f, 0f)) } }
+
+        val centreline = SurvexTherionWriter.centrelineData(survey, SurveyFormat.THERION)
+
+        assertTrue(centreline.contains("1\t2\t5.000\t0.00\t0.00"), "was:\n$centreline")
+        val commentedReadings =
+            centreline.lines().count { it.startsWith("#1\t2\t5.000\t0.00\t0.00") }
+        assertEquals(3, commentedReadings, "was:\n$centreline")
+    }
+
+    @Test
+    fun theTherionSurveyDateIsWrittenWithDots() {
+        val survey = Survey("Dated")
+        survey.trip = Trip(SurveyDate(1970, 1, 1))
+
+        val metadata = SurvexTherionWriter.metadata(survey, SurveyFormat.THERION)
+
+        assertTrue(metadata.contains("date 1970.01.01"), "was:\n$metadata")
+        assertTrue(!metadata.contains("1970-01-01"), "was:\n$metadata")
     }
 }

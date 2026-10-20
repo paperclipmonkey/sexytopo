@@ -412,7 +412,10 @@ object SvgExporter {
 
     /** One `<symbol>` per kind actually used, in enum order (the Java's `HashSet` order varies). */
     private fun writeSymbolDefinitions(out: StringBuilder, sketch: Sketch) {
-        val used = sketch.symbolDetails.mapNotNull { Symbol.byTherionName(it.symbolName) }.toSet()
+        // Those stamped inside a cross-section are drawn from these definitions too.
+        val stamps =
+            sketch.symbolDetails + sketch.crossSectionDetails.flatMap { it.sketch.symbolDetails }
+        val used = stamps.mapNotNull { Symbol.byTherionName(it.symbolName) }.toSet()
         if (used.isEmpty()) return
         out.append("    <defs>\n")
         for (symbol in Symbol.entries) {
@@ -470,14 +473,19 @@ object SvgExporter {
     }
 
     /**
-     * The passage profile at each station: the station's splays rotated onto the section's
-     * bearing, plus whatever was drawn inside the section afterwards.
+     * The passage profile at each station: the station's splays as the section sees them (rotated
+     * onto a vertical section's bearing, or looked down on for a horizontal one), plus whatever
+     * was drawn inside the section afterwards, both scaled by the sketch's cross-section scale
+     * about where the section sits. Each is a group named `xs-` and the station, as the Java's is.
+     *
+     * The drawing inside used to be left out, along with the Java's group names, so a wall
+     * outline traced in the section editor was in the saved file and nowhere in the export.
      */
     private fun writeCrossSections(out: StringBuilder, sketch: Sketch, options: Options) {
         val sectionScale = sketch.crossSectionScale
         for (detail in sketch.crossSectionDetails) {
             val centre = detail.position
-            out.append("    <g id=\"x-section-")
+            out.append("    <g id=\"xs-")
                 .append(escape(detail.crossSection.station.name)).append("\">\n")
             for (line in detail.crossSection.getProjection().legMap.values) {
                 val end = line.end.scale(sectionScale)
@@ -490,6 +498,7 @@ object SvgExporter {
                     options.splayStrokeWidth,
                 )
             }
+            writeSketch(out, detail.sketch.scale(sectionScale).translate(centre), options)
             out.append("    </g>\n")
         }
     }

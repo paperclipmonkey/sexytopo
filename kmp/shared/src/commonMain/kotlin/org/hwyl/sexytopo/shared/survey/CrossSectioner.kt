@@ -1,10 +1,13 @@
 package org.hwyl.sexytopo.shared.survey
 
 import org.hwyl.sexytopo.shared.math.PI_OVER_180
+import org.hwyl.sexytopo.shared.math.adjustAngle
 import org.hwyl.sexytopo.shared.math.averageAzimuths
+import org.hwyl.sexytopo.shared.model.graph.ExtendedElevationDirection
 import org.hwyl.sexytopo.shared.model.sketch.CrossSection
 import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import kotlin.math.abs
 import kotlin.math.cos
 
 /**
@@ -20,6 +23,59 @@ object CrossSectioner {
 
     fun section(survey: Survey, station: Station): CrossSection =
         CrossSection(station, angleOfSection(survey, station))
+
+    /**
+     * A section of the given kind. A vertical one faces the bearing worked out from the survey; a
+     * horizontal one has no bearing to work out, as it always lies flat.
+     */
+    fun section(
+        survey: Survey,
+        station: Station,
+        orientation: CrossSection.Orientation,
+    ): CrossSection =
+        if (orientation == CrossSection.Orientation.HORIZONTAL) {
+            CrossSection.horizontal(station)
+        } else {
+            section(survey, station)
+        }
+
+    /**
+     * Whether a vertical section at [angle] faces right on the extended elevation.
+     *
+     * The elevation has no bearings, so this compares the section's bearing with the way the
+     * survey heads on from the station: within 90 degrees of it the section faces along the
+     * survey, whichever way the survey is drawn there, and otherwise back against it.
+     */
+    fun isFacingRightOnElevation(survey: Survey, station: Station, angle: Float): Boolean {
+        val forward = angleOfSection(survey, station)
+        val facesForward = angleDifference(angle, forward) <= 90f
+        return facesForward == isSurveyDrawnRight(survey, station)
+    }
+
+    /**
+     * The bearing for a vertical section that faces right, or left, on the extended elevation:
+     * the way the survey heads on from the station, turned round if the survey is drawn the other
+     * way there. Setting a section's direction on the elevation stores one of these two, so
+     * nothing new needs saving and the file reads the same in the Android app.
+     */
+    fun angleFacingOnElevation(survey: Survey, station: Station, facingRight: Boolean): Float {
+        val forward = angleOfSection(survey, station)
+        return if (facingRight == isSurveyDrawnRight(survey, station)) {
+            forward
+        } else {
+            adjustAngle(forward, 180f)
+        }
+    }
+
+    private fun isSurveyDrawnRight(survey: Survey, station: Station): Boolean =
+        SurveyTraversal.getOnwardExtendedElevationDirection(survey, station) !=
+            ExtendedElevationDirection.LEFT
+
+    /** How far apart two bearings are, the short way round: 0 to 180. */
+    private fun angleDifference(a: Float, b: Float): Float {
+        val difference = abs(a - b) % 360f
+        return if (difference > 180f) 360f - difference else difference
+    }
 
     /**
      * The section bearing in degrees, always in `[0, 360)`.
