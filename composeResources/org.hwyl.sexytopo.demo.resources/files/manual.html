@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>SexyTopo Manual</title>
+	<style>
+		body {
+			font-family: sans-serif;
+			line-height: 1.6;
+			margin: 0 auto;
+			padding: 1rem;
+			max-width: min(70ch, 90%);
+			background-color: #ffffff;
+			color: #000000;
+		}
+		#toc {
+			background: #f5f5f5;
+			border: 1px solid #ccc;
+			padding: 1rem;
+			margin: 1.5rem 0;
+			max-width: min(50ch, 100%);
+			border-radius: 0.3rem;
+		}
+		#toc h2 {
+			margin-top: 0;
+		}
+		#toc ul {
+			list-style-type: none;
+			padding-left: 0;
+			margin: 10px 0;
+		}
+		#toc li {
+			margin: 8px 0;
+		}
+		#toc a {
+			text-decoration: none;
+			color: #0066cc;
+		}
+		#toc a:hover {
+			text-decoration: underline;
+		}
+
+		@media (prefers-color-scheme: dark) {
+			body {
+				background-color: #1e1e1e;
+				color: #e0e0e0;
+			}
+			#toc {
+				background: #2a2a2a;
+				border: 1px solid #444;
+			}
+			#toc a {
+				color: #66b3ff;
+			}
+		}
+	</style>
+</head>
+<body>
+<h1>SexyTopo Manual</h1>
+
+<div id="toc"></div>
+
+<script>
+	document.addEventListener('DOMContentLoaded', function() {
+		var toc = document.getElementById('toc');
+		var headings = document.querySelectorAll('h2');
+
+		if (headings.length > 0) {
+			var title = document.createElement('h2');
+			title.textContent = 'Contents';
+			toc.appendChild(title);
+
+			var ul = document.createElement('ul');
+
+			headings.forEach(function(heading, index) {
+				if (!heading.id) {
+					heading.id = 'section-' + index;
+				}
+
+				var li = document.createElement('li');
+				var a = document.createElement('a');
+				a.href = '#' + heading.id;
+				a.textContent = heading.textContent;
+				li.appendChild(a);
+				ul.appendChild(li);
+			});
+
+			toc.appendChild(ul);
+		}
+	});
+</script>
+
+<h2 id="overview">Overview</h2>
+<p>SexyTopo is an app for surveying caves and underground spaces. It is designed to work with an electronic measuring device which the surveyor uses to measure out survey legs. It is also possible (though significantly less convenient) to use SexyTopo as a tool for manual entry of survey data.</p>
+
+<p>SexyTopo runs on Android devices (the newer/more powerful the better). For obvious reasons a water- and dust-proof device is recommended. Both phones and tablets are supported. It is possible to control SexyTopo with finger movements but it is designed for use with a stylus.</p>
+
+<h2 id="surveying">Surveying with SexyTopo</h2>
+<p>A full description of surveying is beyond the scope of this document but this is a brief overview of how to survey with SexyTopo.</p>
+<p>Surveying consists of moving through the cave along a series of locations known as <strong>stations</strong>. These points are connected together through measurements known as <strong>legs</strong> (or <strong>shots</strong> in some countries). This collection of stations and legs make up the skeleton of the survey, or <strong>centreline</strong>. The survey may also contain legs that do not connect to a station but help measure out the shape of the cave (known as <strong>splays</strong>).
+<p>Typically, a surveyor will start at a station and take several splays (ideally the job will be split between at least one caver taking the measurements and another piloting SexyTopo). A common method is to use the LRUD mnemonic and do Left, Right, Up and Down splays from the station, but additional splays are often useful, especially in complex parts of the cave. Then the surveyor will look for the next station. You can instruct SexyTopo to create a new station (rather than a splay) by repeating a measurement three times. If the readings are sufficiently close, a new station is added. The surveyor then updates the sketches of the plan and profile on the graph screens, before moving to the new station and repeating the process.</p>
+<p>Legs are added to the survey at the <strong>active station</strong>. By default the active station is the newest station added to the survey. In the standard order of things (as described above) the active station should automatically be the one you want, but you will want to change it in case of a mistake or to make a branch in the cave. For example, you may have created a new station but forgotten to take splays at the station before. Here you can select the previous station as the active station, take any required splays, then set the new station as the active station.</p>
+<p>Branches are just as easy to add. Select the station you wish to branch off as the active station, and then create a new station as before.</p>
+
+
+<h2 id="instruments">Instruments</h2>
+<p>SexyTopo supports a wide range of cave surveying instruments including DistoX, DistoX BLE, CavwayX1, Bric4, Bric5, SAP5, SAP6, FCL, and DiscoX.</p>
+<p>To connect an instrument, open the Device menu and select Connect. The instrument connection page guides you through the pairing and connection process. A console at the bottom displays status messages from the device.</p>
+
+<h3>Connection Steps</h3>
+<ol>
+	<li><strong>Enable Bluetooth</strong> - Turn on Bluetooth on your Android device if not already enabled</li>
+	<li><strong>Pair Instrument</strong> - Turn on your instrument and tap "Pair" in SexyTopo. Enter "0000" if prompted. Note: only one instrument can be paired at a time. To switch devices, tap "Unpair" then "Pair" again</li>
+	<li><strong>Connect</strong> - Activate the "Connect" switch to begin communication. Measurements from the instrument should now appear in SexyTopo's data views</li>
+	<li><strong>Calibrate</strong> - Perform any required calibration procedures for your device before surveying. Some instruments self-calibrate; others (such as the DistoX2) can be calibrated with the help of SexyTopo (see <a href="#calibration">Calibration</a> below).</li>
+</ol>
+
+<h3>Staying Connected</h3>
+<p>Bluetooth links to cave instruments drop out constantly: you walk round a corner, the instrument goes to sleep to save its battery (a Bric4 does this after 90 seconds), or the survey just gets a bit further apart than the radio likes. SexyTopo therefore keeps trying to reconnect on its own, so you shouldn't need to come back to this page every time the link goes. The status line under the Connect switch says whether it is connected, reconnecting, or has stopped trying, and the console records each attempt.</p>
+<p>The "Reconnect automatically" checkbox on this page turns that behaviour off if you would rather the radio stayed quiet. It is the same setting as "Auto-reconnect" in Settings, where you can also set a time limit: SexyTopo stops chasing an instrument that has been unreachable for that long continuously (fifteen minutes by default), so that a device left behind at the last station doesn't keep the phone's Bluetooth busy all day. Every successful reconnection resets that limit, so an instrument that keeps nodding off while you use it is chased for as long as the trip lasts. If SexyTopo has given up, flick the Connect switch to start again.</p>
+
+
+<h2 id="calibration">Calibration</h2>
+<p>The compass and clinometer in a surveying instrument need calibrating to give accurate readings.</p>
+
+<h3>DistoX Calibration</h3>
+<p>SexyTopo can calibrate the DistoX (A3), DistoX2 (X310) and DistoX BLE. Connect to the instrument, then choose <strong>Calibration…</strong> from the Instrument menu to open the Calibration view.</p>
+<p>Take at least 56 readings: 4 rolls in each of 14 directions, pointing from the centre of a cube to its 6 faces and 8 corners. Keep the laser on the same point while rolling. The directions can be taken in any order, as long as each direction's rolls are taken together. Extra readings are fine: every reading is used.</p>
+<ol>
+	<li><strong>Enter calibration mode</strong> - Tap <strong>Disto Cal Mode On</strong>. The instrument will now send raw sensor readings to SexyTopo instead of survey measurements</li>
+	<li><strong>Take readings</strong> - Take a shot for each position. <strong>Next (suggested)</strong> shows the direction and orientation for the next reading if you want to follow the usual order. The Readings card shows how many readings and sets there are (a set is <em>complete</em> once it has 4 readings), and under <strong>Directions covered</strong> how many of the horizontal, up, down and corner directions have been done, shown in green once there are enough. The <strong>Last Reading</strong> card shows the most recent reading: which way it was pointing, its inclination, azimuth and roll (an uncalibrated estimate until the calibration has been calculated) and its raw sensor values</li>
+	<li><strong>Fix mistakes</strong> - <strong>Delete Reading</strong> on the Last Reading card deletes the reading it shows. <strong>View Readings</strong> lists every reading; tap one to <strong>Replace</strong> it, which keeps its place so the next reading you take fills it, or <strong>Delete</strong> it, which removes it and moves the later readings up. The list stays open so you can deal with several readings, such as a whole set. <strong>Clear</strong> removes all readings so you can start again</li>
+	<li><strong>Check the result</strong> - Once there are at least 56 readings and none waiting to be retaken, SexyTopo calculates the calibration and shows the <strong>Calibration Assessment</strong>. This should be under 0.5; it is shown in green if so and red if not. Any readings pointing more than 1° away from the rest of their set are listed under <strong>Least consistent readings</strong>; tap one to find it in the list of readings, where it can be replaced. If most readings are out, the problem is more likely magnetic interference - including anything metal you are carrying, such as a belt buckle or head torch, since it moves with you rather than with the instrument - or the instrument itself. Try again somewhere else</li>
+	<li><strong>Upload</strong> - Tap <strong>Upload Calibration</strong> and then <strong>Write</strong> to send the new calibration coefficients to the instrument</li>
+	<li><strong>Leave calibration mode</strong> - Tap <strong>Disto Cal Mode Off</strong> so the instrument goes back to taking normal survey measurements</li>
+</ol>
+<p>After calibrating, it is worth checking the instrument by taking a few shots between two fixed points in both directions: the forward and back readings should agree closely.</p>
+<p><strong>Save</strong> and <strong>Load</strong> store the set of calibration readings in a file. This lets you keep a record of a calibration, or come back to it later.</p>
+<p>SexyTopo uses a linear calibration algorithm for the original DistoX and a non-linear one for the DistoX2 and DistoX BLE. This can be overridden in Settings → Instruments → Disto-X calibration algorithm.</p>
+
+<h3>Other Instruments</h3>
+<p>Some instruments (such as the SAP6 and CavwayX1) calibrate themselves on the device. For these, SexyTopo provides commands in the Instrument menu to put the device into and out of calibration mode; follow the instrument's own documentation for the calibration procedure.</p>
+
+
+<h2 id="table-view">Table View</h2>
+<p>This is a tabular view of the collected data. It can be accessed through the first icon on the Action Bar. SexyTopo is designed with the intention that most interaction should be through the sketch screens but it is occasionally useful to check the raw data.</p>
+<p>There are onscreen buttons for manually inputting data: there are two buttons for adding new stations and splays.</p>
+<p>Tapping on a table row opens the view/edit dialog for that row, where the data can be seen in detail and updated if necessary.</p>
+<p>Long-pressing on a table row or selecting a station in the graph views activates a unified context menu.</p>
+
+
+<h2 id="sketch-views">Sketch Views</h2>
+<p>The sketch views (plan and extended elevation) can be accessed through buttons on the Action Bar at the top of the screen. These show a projection of the calculated survey on a canvas so that a sketch of the cave can be drawn on top. The plan view is an intuitive map of the cave whilst the extended elevation is an "unrolled" view of the vertical layout of the cave.</p>
+<p>A selection of sketching tools are provided via a toolbar at the bottom of the screen:</p>
+<ul>
+	<li><strong>Colours</strong> set the current sketching colour</li>
+	<li><strong>Move</strong> enters view mode</li>
+	<li><strong>Draw</strong> enters sketch mode</li>
+	<li><strong>Symbol</strong> enters symbol mode (tap again to open symbol/text selection option)</li>
+	<li><strong>Erase</strong> deletes sketch features</li>
+	<li><strong>Select</strong> (dashed square) marks a station as the active station (select twice to open context menu)</li>
+	<li><strong>Quick Settings</strong> opens settings for adjusting sketch view on the fly</li>
+	<li><strong>Undo</strong> undoes the last sketching command</li>
+	<li><strong>Redo</strong> cancels the last undo</li>
+	<li><strong>Zoom In/Out</strong> scales the survey (alternative to pinch-to-zoom)</li>
+</ul>
+
+<p>A legend at the bottom right of the view provides a scale bar, basic stats, and a reminder of the survey name.</p>
+
+<p>The plan view can optionally display a <strong>compass</strong> in the corner of the screen, showing the direction of North based on your device's orientation sensor. This can be toggled on or off via the quick settings menu (the display menu icon on the toolbar).</p>
+
+<h2 id="cross-sections">Cross-Sections</h2>
+<p>A cross-section shows the shape of the passage at a station, drawn from that station's splays. It appears on the sketch as a small framed view, joined to its station by a dashed line, and a marker across the station shows which way the section faces. Each station can have one cross-section in the plan and one in the elevation, and the two are independent of each other.</p>
+
+<h3>Adding a Cross-Section</h3>
+<p>Select a station to open the context menu, choose <strong>Cross-Section</strong>, then the kind of section you want, and tap where on the sketch it should go.</p>
+<ul>
+	<li>In the <strong>plan</strong>, <strong>New Cross-Section</strong> adds a vertical section across the passage, facing along it.</li>
+	<li>In the <strong>elevation</strong> there are two kinds. <strong>New Vertical Section</strong> (&#8597;) is a slice across a passage, facing along the survey. <strong>New Horizontal Section</strong> (&#8596;) is a level slice through the station, drawn like the plan with north at the top, which suits shafts and pitches. Each section's frame shows its symbol in the bottom-right corner, and horizontal sections have a purple frame.</li>
+</ul>
+
+<h3>Working with Cross-Sections</h3>
+<ul>
+	<li><strong>Move</strong> a section by dragging the bar along the top of its frame.</li>
+	<li><strong>Sketch</strong> the passage walls by tapping inside the frame (or choosing <strong>Edit Sketch</strong> from the menu) to open the section in its own view. Splays pointing into or out of the section are dashed. A horizontal section shows the compass here, as the plan does. Choose Done to keep your changes or Cancel to discard them.</li>
+	<li><strong>Set Direction</strong> changes which way a vertical section faces: drag from the station towards the direction you want. In the plan it can face any direction; in the elevation it snaps to face onward or back down the passage.</li>
+	<li><strong>Delete Cross-Section</strong> removes it, as does the Erase tool.</li>
+</ul>
+<p>How large cross-sections are drawn relative to the survey can be set separately for the plan and the elevation under Settings &rarr; Survey.</p>
+
+<h2 id="3d-view">3D View</h2>
+<p>The 3D view provides an interactive three-dimensional view of the survey skeleton. It can be accessed from the View menu.</p>
+
+<p>The view shows survey legs, and stations rendered in 3D space. Controls:</p>
+<ul>
+	<li><strong>One finger drag</strong> pans the view</li>
+	<li><strong>Two finger drag</strong> rotates the view (orbits the camera around the survey)</li>
+	<li><strong>Pinch</strong> zooms in and out</li>
+</ul>
+
+<h2 id="menus">Menus</h2>
+<p>SexyTopo provides several menus accessible from the Action Bar ("hamburger" button for extended menus) for managing surveys, configuring behaviour, and accessing various views and tools.</p>
+
+  <h3>Action Bar</h3>
+  <ul>
+    <li><strong>Save</strong> to save the current survey (pinned to the action bar as a reminder to do it often)</li>
+    <li><strong>Table View</strong> to open a tabular view of the data</li>
+    <li><strong>Plan View</strong> to open a top-down view of the data and sketch</li>
+    <li><strong>Extended Elevation View</strong> to open an extended vertical profile view of the data and sketch</li>
+  </ul>
+  <p>Additionally, the View menu provides access to the <strong>3D</strong> view (see below).</p>
+
+  <h3>File Menu</h3>
+<ul>
+	<li><strong>New</strong> creates a new unsaved survey</li>
+	<li><strong>Open</strong> opens the file handler to select a survey folder to open</li>
+	<li><strong>Save</strong> saves the current survey</li>
+	<li><strong>Save As</strong> opens the file handler to create or select a survey folder to save the current survey</li>
+	<li><strong>Delete</strong> opens the file handler to select a survey folder for deletion</li>
+	<li><strong>Restore Autosave</strong> recovers automatically saved data from the last session</li>
+	<li><strong>Import</strong> imports survey data from other survey formats
+		<ul>
+			<li><strong>Import File</strong> imports a single survey file</li>
+			<li><strong>Import Directory</strong> imports a survey directory</li>
+		</ul>
+	</li>
+	<li><strong>Export</strong> exports the current survey to various formats including Therion and SVG</li>
+	<li><strong>Share</strong> packages the survey (data and sketches) into a ZIP file and opens the Android share dialog, allowing you to send the survey via email, messaging apps, cloud storage, or any other sharing method available on your device</li>
+	<li><strong>Exit</strong> closes the application</li>
+</ul>
+
+<h3>View Menu</h3>
+<ul>
+	<li><strong>Table</strong> displays the tabular data view</li>
+	<li><strong>Plan</strong> shows the plan (top-down) sketch view</li>
+	<li><strong>Elevation</strong> shows the extended elevation sketch view</li>
+	<li><strong>3D</strong> shows a 3D view of the survey skeleton (see <a href="#3d-view">3D View</a> section below)</li>
+	<li><strong>Trip</strong> displays trip information and metadata (see <a href="#trip">Trip</a> section below)</li>
+	<li><strong>Stats</strong> shows survey statistics (length, depth, etc.)</li>
+	<li><strong>Fullscreen</strong> toggles fullscreen mode</li>
+</ul>
+
+<h3>Instrument Menu</h3>
+<ul>
+  <li><strong>Connect</strong> opens the instrument connection page for pairing and connecting to instruments</li>
+  <li>[Various other commands may be available depending on what instrument is connected]
+</ul>
+
+<h3>Input Menu</h3>
+<p>Controls how measurements from the instrument are interpreted:</p>
+<ul>
+	<li><strong>Forward</strong> standard forward readings</li>
+	<li><strong>Backward</strong> inverts readings as if taken from target back to origin</li>
+	<li><strong>Fore-/Backsight</strong> combines forward and backward readings</li>
+	<li><strong>Splays only</strong> does not promote shots to a leg</li>
+</ul>
+
+<h3>Tools Menu</h3>
+<ul>
+	<li><strong>Undo Last Leg</strong> removes the most recent measurement</li>
+	<li><strong>Link to Existing Survey</strong> connects the current survey to another survey at a common station</li>
+	<li><strong>Add Leg</strong> opens a dialog for entering a measurement to a new station from the active station</li>
+	<li><strong>Add Splay</strong> opens a dialog for entering a splay measurement from the active station</li>
+	<li><strong>Generate Test Survey</strong> creates sample data for practice and testing</li>
+	<li><strong>System Log</strong> displays system messages and debug information</li>
+</ul>
+
+<h3>Settings</h3>
+<p>Opens the settings screen for configuring app preferences, display options, and behaviour. Notable settings include:</p>
+<ul>
+	<li><strong>LRUD Direction</strong> (under Table settings) controls how Left/Right splays are oriented when entering LRUD data. In <em>Survey</em> mode (default), splays are perpendicular to the bisected angle between the incoming and outgoing legs. In <em>Shot</em> mode, splays are perpendicular to the most recent leg direction. The shot mode is a common alternative convention for measuring LRUDs</li>
+	<li><strong>Manual Data Entry</strong> Show or hide various tools for manual data entry. Included entry using Degrees, Minutes,Seconds</li>
+	<li><strong>Leg agreement method</strong> (under Instruments settings) controls how SexyTopo decides whether three repeated readings are close enough to form a new leg. <em>Angular deltas</em> (default) compares distance, azimuth and inclination separately; this is the original behaviour but can wrongly reject genuinely-repeated steep legs, where a small change in position causes a large change in compass bearing. <em>Endpoint distance</em> instead checks that the readings' endpoints all fall within a set distance of each other (the default of 0.1&nbsp;m keeps all readings within BCRA grade&nbsp;5), and <em>Pairwise vectors</em> (the method used by TopoDroid) measures the gap between the readings' endpoints relative to their length, so the permitted difference scales with leg length. The endpoint and pairwise methods cope correctly with steep legs. Each method has its own tolerance setting.</li>
+	<li><strong>Legacy cross-sections</strong> (under Sketching settings) draws cross-sections as a simple projection of the passage walls at the station, without the editable frame introduced in newer versions. With this on, tapping a cross-section no longer opens it for editing; you can still create, delete and set the direction of cross-sections from the station context menu.</li>
+</ul>
+
+<h3>Help Menu</h3>
+<ul>
+	<li><strong>Manual</strong> opens this help document</li>
+	<li><strong>About</strong> displays app version, credits, and licence information</li>
+</ul>
+
+<h2 id="context-menu">Context Menu</h2>
+<p>A unified context menu is available from the table view and graph views. Long-press a table row or select a station in the sketch views to access it. The menu is organized into submenus with options depending on what's selected.</p>
+
+<h3>Station Actions</h3>
+<ul>
+	<li><strong>Set Active Station</strong> makes this station the current active one for new measurements</li>
+	<li><strong>Rename Station</strong> changes the station's name</li>
+	<li><strong>New Cross-Section</strong> creates a cross-section at this station; in the elevation this can be vertical or horizontal (see <a href="#cross-sections">Cross-Sections</a>)</li>
+	<li><strong>Comment</strong> adds or edits a comment for this station</li>
+	<li><strong>Delete Station</strong> removes the station and all dependent legs and stations</li>
+</ul>
+
+<h3>Leg Actions</h3>
+<ul>
+	<li><strong>Edit Leg</strong> modifies the distance, azimuth, and inclination</li>
+	<li><strong>Reverse</strong> inverts the measurement as if taken from target back to origin</li>
+	<li><strong>Upgrade Splay</strong> (splays only) converts a splay to a full leg, creating a new station</li>
+	<li><strong>Add to Leg Above</strong> (splays only) merges the splay's measurements into the most recent full leg, averaging them together. This is useful when you have taken an additional shot along an existing leg and want to incorporate it for better accuracy</li>
+	<li><strong>Downgrade Leg</strong> (legs only) converts a leg to a splay</li>
+	<li><strong>Delete Leg</strong> removes the selected leg or splay</li>
+</ul>
+
+<h3>Elevation Direction</h3>
+<p>In elevation view, controls which direction to draw the leg:</p>
+<ul>
+	<li><strong>Draw Left</strong> draws leg extending to the left and continues in that direction</li>
+	<li><strong>Draw Right</strong> (the default) draws leg extending to the right and continues in that direction</li>
+	<li><strong>Draw Vertical Only</strong> draws the leg's vertical component only (does not propagate)</li>
+</ul>
+
+<h3>Navigate</h3>
+<p>Jump to the selected station in different views:</p>
+<ul>
+	<li><strong>Jump to Table</strong> opens table view at this station</li>
+	<li><strong>Jump to Plan</strong> opens plan view centered on this station</li>
+	<li><strong>Jump to Elevation</strong> opens elevation view centered on this station</li>
+</ul>
+
+<h3>Survey Actions</h3>
+<ul>
+	<li><strong>Start New Survey</strong> begins a new branch survey from this station</li>
+	<li><strong>Unlink Survey</strong> removes the link to a connected survey</li>
+</ul>
+
+<h2 id="trip">Trip</h2>
+<p>The Trip view (accessible from View → Trip) records metadata about the current surveying trip. This information is saved with the survey and can be useful for record-keeping and for export to other survey formats.</p>
+
+<h3>Dates</h3>
+<p>Each trip has a <strong>survey date</strong> (when the survey data was collected) and an optional <strong>exploration date</strong> (when the passage was first explored, if different). Tap the date fields or calendar icons to select dates using a date picker. By default the exploration date is linked to the survey date; uncheck the "Linked" checkbox to set a separate exploration date, or use the Clear button to remove it.</p>
+
+<h3>Instrument</h3>
+<p>Records which instrument was used for the trip. If an instrument is currently connected, SexyTopo can auto-fill this field using the "Get Instrument" button.</p>
+
+<h3>Team</h3>
+<p>You can record the members of the survey team and their roles. Tap "Add" to add a team member with a name and one or more roles.</p>
+<p>SexyTopo remembers caver names you have entered previously and offers them as suggestions when adding new team members, so you don't have to type the same names each trip. Tap a team member to edit their details, or use the delete button to remove them.</p>
+
+<h3>Comments</h3>
+<p>A free-text field for any notes about the trip.</p>
+
+<h2 id="file-handling">File Handling</h2>
+  <p>SexyTopo stores survey data on your device and provides various options for managing survey files through the File menu.</p>
+
+  <p>Surveys are saved in their own folder (directory) on your device. A survey may contain several files, including survey data files (measurements, stations, legs), sketch data (plan and elevation drawings), and metadata (trip information, comments).</p>
+
+  <p>After creating a survey (File -> New Survey), it is recommended to save it. Previous versions of SexyTopo handled this for you, but Android now requires the user to manage the file handling. When saving a file for the first time, SexyTopo opens a file selector for you to choose a folder to save it in. Important: you almost certainly want to create a new folder to save the survey in rather than selecting an existing one (otherwise both you and SexyTopo will get confused, and it might overwrite data you want to keep).</p>
+
+  <p>SexyTopo attempts to default the save location to a folder in <code>Documents/SexyTopo/Surveys</code>, but this doesn't work on all devices, and you are free to choose your own folder structure. At the time of writing, SexyTopo doesn't care about where linked surveys are saved, but this may change in the future.</p>
+
+<h2 id="linked-surveys">Working with Linked Surveys</h2>
+  <p>To manage the complexity of anything other than very small caves, you will likely need to break the overall survey of a cave into smaller individual surveys. This provides several advantages, including managing the cognitive load of understanding how the survey fits together, improving rendering performance in SexyTopo, and aligning with the standard workflow of cave drawing packages such as Therion.</p>
+  <p>SexyTopo provides UI controls such as fading out or hiding the parts of the survey not currently being worked on. This is particularly helpful for dealing with extended overlapping sections of cave passage, and starting a new linked survey is the recommended way of handling this kind of continuation.</p>
+  <p>To start a new linked survey, select a station from the context menu and select Survey → Start New Survey Here. There is also an option to link to an existing survey and to unlink a survey.</p>
+
+<h2 id="import-export">Import and Export</h2>
+  <p>SexyTopo can exchange data with other cave surveying software through import and export functions.</p>
+
+  <h3>Importing Surveys</h3>
+    <p>To import survey data from other software, select an action from File → Import in the menu.</p>
+    <ul>
+      <li><strong>Import File</strong> - Imports a single survey file (e.g. a Survex file or a PocketTopo .top file)</li>
+      <li><strong>Import Directory</strong> - Imports a survey from a folder, probably containing multiple files (e.g. a Therion survey)</li>
+    </ul>
+
+  <h3>Exporting Surveys</h3>
+    <p>Export allows you to save your survey in various formats for use with other software, sharing, or publishing. Select File → Export and choose your desired format.</p>
+    <p>The exported file or folder will be produced in an <code>Exported</code> folder inside your survey folder with a name of the export selected (e.g. <code>Exported/therion</code>), unless otherwise specificied in Settings.</p>
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+  <p>In typical caver fashion, you've probably cajoled someone into lending you their shiny measuring device, completely failed to have a practice with it and assumed you'd just wing it. Now you've found yourself in the sharp end of some crappy hole somewhere realising that you have no idea why your surveying kit doesn't work. Luckily you've found SexyTopo has a help file and you're desperately trying to scan through it looking for some hope. First of all, don't panic...</p>
+  <h3>Problems Connecting to Your Instrument</h3>
+    <p>Check the following are true: Bluetooth is turned on on the device, the device is paired with your instrument and the Connect switch is on. Check the on-screen console on the Instrument page: it may show an error message or give some clue as to what is wrong.</p>
+    <p>If the link keeps dropping while you survey, check that "Reconnect automatically" is ticked on the Instrument page. Instruments that store their measurements (such as the Bric4) send the ones you took while disconnected once the link is back, so a dropout costs you time rather than data.</p>
+    <p>If that fails, try turning your instrument off and back on. Try unpairing and re-pairing, or even turning Bluetooth off and on again. It shouldn't make a difference but you could kill SexyTopo and reopen it. Check you haven't paired with the wrong device (the Unpair dialog shows which devices are paired).</p>
+    <p>For DistoX devices: if all else fails a factory reset may be necessary. Press CLEAR, FUNC and MEM (the latter has a floppy disk or save icon) for five seconds. Note that this is an option of last resort and requires recalibrating the device.</p>
+  <h3>Strange Measurements</h3>
+    <p>Your instrument may need calibrating. Consult your instrument's documentation for calibration procedures. Some devices (such as DistoX) can be calibrated within SexyTopo; see <a href="#calibration">Calibration</a>.</p>
+
+</body>
+</html>
