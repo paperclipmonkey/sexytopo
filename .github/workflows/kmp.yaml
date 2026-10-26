@@ -205,7 +205,7 @@ jobs:
           xcrun simctl boot "$device" || true
           xcrun simctl bootstatus "$device" -b
           xcrun simctl install "$device" "build/Build/Products/Debug-iphonesimulator/SexyTopo KMP.app"
-          xcrun simctl launch "$device" org.hwyl.sexytopo.kmpdemo
+          xcrun simctl launch "$device" org.hwyl.sexytopo
           # Compose's first frame on a cold simulator is not instant, and this is the one place
           # where waiting too long costs nothing and waiting too little reports a working app as
           # broken.

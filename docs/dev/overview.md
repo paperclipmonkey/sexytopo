@@ -156,6 +156,8 @@ Pushing a tag matching `N.N.N` triggers `.github/workflows/release.yml`, which:
 - creates a GitHub Release with the APK attached,
 - **publishes the signed APK to the Play Store production track** (live to all users).
 
+The iOS app in `kmp/iosApp` is released separately, by hand, from `.github/workflows/ios-release.yml` (Actions → iOS App Store release → Run workflow). It builds and signs the app, uploads it to App Store Connect and, unless told not to, submits it for App Review. Setup and secrets are described under "Releasing to the App Store" in `kmp/README.md`.
+
 ## Dependencies & External Tools
 
 - **Gradle**

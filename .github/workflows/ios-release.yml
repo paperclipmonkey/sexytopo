@@ -1,0 +1,265 @@
+# Builds the iOS app in kmp/iosApp, signs it for distribution, uploads it to App Store Connect and,
+# unless told otherwise, submits it for App Review.
+#
+# Manual only (Actions → iOS App Store release → Run workflow). Unlike the Android release this is
+# not driven by tags: the iOS app is a separate product with its own version line, and a
+# submission to Apple is not something to set off by pushing a tag for a different app.
+#
+# Setup, once: see "Releasing to the App Store" in kmp/README.md for the secrets this reads and
+# where each one comes from.
+name: iOS App Store release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version shown on the App Store (CFBundleShortVersionString), e.g. 1.0.0'
+        required: true
+        type: string
+      submit_for_review:
+        description: 'Submit for App Review once uploaded (unticked: upload to TestFlight only)'
+        required: true
+        type: boolean
+        default: true
+      release_when_approved:
+        description: 'Release to the App Store automatically as soon as Apple approves it'
+        required: true
+        type: boolean
+        default: false
+
+# Two submissions racing each other would fight over the same App Store version.
+concurrency:
+  group: ios-app-store-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build, upload and submit
+    # Pinned rather than macos-latest: since April 2026 App Store Connect only accepts builds made
+    # with the iOS 26 SDK, which means Xcode 26, and an image change should not be what decides
+    # whether a submission is accepted.
+    runs-on: macos-26
+    # The secrets live on this environment rather than on the repository, so required reviewers
+    # can be added to it in Settings → Environments if a second pair of eyes is wanted before
+    # anything reaches Apple.
+    environment: app-store
+    timeout-minutes: 90
+
+    env:
+      VERSION: ${{ inputs.version }}
+      # Apple only requires the build number to increase within a version, and the run number
+      # only ever goes up, so it needs no bookkeeping in the repository.
+      BUILD_NUMBER: ${{ github.run_number }}
+      BUNDLE_ID: org.hwyl.sexytopo
+
+    steps:
+      - name: Check the version
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+            echo "::error::'$VERSION' is not a version App Store Connect accepts (one to three dot-separated integers)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('kmp/**/*.gradle.kts', 'kmp/gradle.properties') }}
+          restore-keys: konan-${{ runner.os }}-
+
+      # The certificate goes into a keychain of its own, created for this run and deleted at the
+      # end, so it never touches the runner's login keychain.
+      - name: Install the signing certificate and provisioning profile
+        env:
+          DISTRIBUTION_CERT: ${{ secrets.IOS_DISTRIBUTION_CERT }}
+          DISTRIBUTION_CERT_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERT_PASSWORD }}
+          PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(openssl rand -base64 24)"
+
+          echo "$DISTRIBUTION_CERT" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -P "$DISTRIBUTION_CERT_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+
+          # The team and the profile's name are read out of the profile itself, so neither has to
+          # be kept in step as a separate secret.
+          echo "$PROVISIONING_PROFILE" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
+          security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" > "$RUNNER_TEMP/profile.plist"
+          uuid=$(plutil -extract UUID raw "$RUNNER_TEMP/profile.plist")
+          name=$(plutil -extract Name raw "$RUNNER_TEMP/profile.plist")
+          team=$(plutil -extract TeamIdentifier.0 raw "$RUNNER_TEMP/profile.plist")
+          # Xcode 16 and later look here; older versions look in the second place.
+          for dir in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" \
+                     "$HOME/Library/MobileDevice/Provisioning Profiles"; do
+            mkdir -p "$dir"
+            cp "$RUNNER_TEMP/profile.mobileprovision" "$dir/$uuid.mobileprovision"
+          done
+
+          echo "Signing as team $team with profile '$name' ($uuid)"
+          {
+            echo "TEAM_ID=$team"
+            echo "PROFILE_NAME=$name"
+            echo "KEYCHAIN=$keychain"
+          } >> "$GITHUB_ENV"
+
+      - name: Install the App Store Connect API key
+        env:
+          API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          # altool finds the key by its ID in this directory.
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          printf '%s\n' "$API_KEY" > "$HOME/.appstoreconnect/private_keys/AuthKey_$API_KEY_ID.p8"
+          # fastlane wants the same key as JSON.
+          python3 - "$RUNNER_TEMP/api_key.json" <<'EOF'
+          import json, os, sys
+          json.dump({
+              "key_id": os.environ["API_KEY_ID"],
+              "issuer_id": os.environ["API_ISSUER_ID"],
+              "key": os.environ["API_KEY"],
+              "in_house": False,
+          }, open(sys.argv[1], "w"))
+          EOF
+
+      # Release configuration, so the project's "Compile Kotlin Framework" phase links the
+      # optimised iosArm64 framework rather than the debug one CI builds on every push.
+      - name: Archive the app
+        working-directory: kmp/iosApp
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild \
+            -project iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/iosApp.xcarchive" \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN" \
+            archive
+
+      - name: Export the signed .ipa
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>destination</key>
+            <string>export</string>
+            <key>teamID</key>
+            <string>$TEAM_ID</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>$BUNDLE_ID</key>
+              <string>$PROFILE_NAME</string>
+            </dict>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/iosApp.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export"
+          ipa=$(ls "$RUNNER_TEMP"/export/*.ipa)
+          echo "IPA=$ipa" >> "$GITHUB_ENV"
+
+      # Kept on the run whatever happens next, so a build Apple turns away can still be looked at
+      # without rebuilding it.
+      - name: Keep the .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: sexytopo-ios-${{ inputs.version }}-${{ github.run_number }}
+          path: ${{ env.IPA }}
+
+      # After this the build is in App Store Connect, and in TestFlight once Apple has processed it.
+      - name: Upload to App Store Connect
+        env:
+          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+        run: |
+          xcrun altool --upload-app --type ios --file "$IPA" \
+            --apiKey "$API_KEY_ID" --apiIssuer "$API_ISSUER_ID"
+
+      # "What's New" comes from the same docs/releases.md entry the Android release uses. A first
+      # version has no "What's New" (App Store Connect will not take one), so a missing entry is a
+      # warning rather than a failure.
+      - name: Prepare release notes
+        if: inputs.submit_for_review
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/metadata/en-US"
+          if python3 scripts/extract_release_notes.py "$VERSION" > notes.md; then
+            # App Store Connect caps "What's New" at 4000 characters.
+            head -c 4000 notes.md > "$RUNNER_TEMP/metadata/en-US/release_notes.txt"
+          else
+            echo "::warning::No entry for $VERSION in docs/releases.md, so no \"What's New\" text was set."
+          fi
+
+      # fastlane's deliver does the part Apple has no command-line tool for: it waits for the
+      # upload to finish processing, creates the App Store version if it does not exist yet,
+      # attaches this build to it and submits it. Store listing text and screenshots are left as
+      # they are in App Store Connect; only "What's New" is touched.
+      - name: Submit for App Review
+        if: inputs.submit_for_review
+        env:
+          RELEASE_WHEN_APPROVED: ${{ inputs.release_when_approved }}
+        run: |
+          set -euo pipefail
+          gem install fastlane --no-document -v '~> 2.228'
+          fastlane deliver \
+            --api_key_path "$RUNNER_TEMP/api_key.json" \
+            --app_identifier "$BUNDLE_ID" \
+            --platform ios \
+            --app_version "$VERSION" \
+            --build_number "$BUILD_NUMBER" \
+            --skip_binary_upload \
+            --skip_screenshots \
+            --metadata_path "$RUNNER_TEMP/metadata" \
+            --submit_for_review \
+            --automatic_release "$RELEASE_WHEN_APPROVED" \
+            --run_precheck_before_submit false \
+            --force
+
+      - name: Remove the signing keychain
+        if: always()
+        run: |
+          [ -n "${KEYCHAIN:-}" ] && security delete-keychain "$KEYCHAIN" || true
+          rm -f "$RUNNER_TEMP/api_key.json"
+          rm -rf "$HOME/.appstoreconnect"
