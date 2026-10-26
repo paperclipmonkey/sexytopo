@@ -15,9 +15,17 @@
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!--
+	    The app does no encryption and makes no network requests (the instrument link is plain
+	    Bluetooth, and survey zips are written unencrypted), so it is exempt from US export rules.
+	    Declaring that here answers App Store Connect's export compliance question up front; without it every upload sits in "Missing Compliance" and
+	    cannot be submitted for review until someone answers it by hand.
+	-->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<!--

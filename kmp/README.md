@@ -348,8 +348,8 @@ it — so it is written out in full, including the three places it is known to g
 3. **Set a signing team.** Select the `iosApp` target → *Signing & Capabilities* → tick *Automatically
    manage signing* and choose your team. A free Apple ID works: add it under *Xcode → Settings →
    Accounts*, and it appears as *(Personal Team)*.
-4. **Change the bundle identifier** to something nobody else has used — `org.hwyl.sexytopo.kmpdemo`
-   is in this repository, so somebody may already have registered it. `uk.co.yourname.sexytopo` will
+4. **Change the bundle identifier** to something nobody else has used — `org.hwyl.sexytopo` is
+   the identifier the project releases to the App Store under, so it is already taken. `uk.co.yourname.sexytopo` will
    do. Xcode will tell you, in red, if the one you picked is taken.
 5. **Turn on Developer Mode on the phone.** iOS 16 and later hide it until you ask: *Settings →
    Privacy & Security → Developer Mode → on*, then restart the phone and confirm after it comes
@@ -704,6 +704,61 @@ Honest limits, so nothing is a surprise in a cave:
   which iOS has no public API for and no browser implements. That is permanent, and not a gap this
   project can close.
 - **This is a port, not the app.** Use it beside a notebook, not instead of one.
+
+---
+
+## Releasing to the App Store
+
+`.github/workflows/ios-release.yml` builds the app, signs it, uploads it to App Store Connect
+and submits it for App Review. It runs only when started by hand: **Actions → iOS App Store
+release → Run workflow**. It asks for three things:
+
+- **version**: the version shown on the App Store, e.g. `1.0.0`. The build number is the
+  workflow's run number, so it always goes up without anything being committed.
+- **submit_for_review**: untick it to stop after the upload. The build then goes to TestFlight
+  only.
+- **release_when_approved**: tick it to let Apple put the version live as soon as it passes
+  review. Left unticked, you release it yourself from App Store Connect.
+
+"What's New" is taken from the `docs/releases.md` entry for that version, if there is one. Store
+listing text, screenshots and privacy answers are not touched. They stay whatever App Store
+Connect has.
+
+### One-time setup
+
+1. **Register the app.** In the developer portal, register an explicit App ID for
+   `org.hwyl.sexytopo`, the bundle ID set in `iosApp/project.yml` and as `BUNDLE_ID` in the
+   workflow (the two must match). Then create the
+   app in App Store Connect with that bundle ID. Fill in the listing, screenshots, privacy
+   details and review contact once by hand. Apple will not take a first submission without
+   them, and the workflow does not provide them.
+2. **Distribution certificate.** Create an *Apple Distribution* certificate, export it from
+   Keychain Access as a `.p12` with a password, then run
+   `base64 -i cert.p12 | pbcopy`.
+3. **Provisioning profile.** Create an *App Store Connect* distribution profile for the App ID
+   and that certificate, download it, then run
+   `base64 -i profile.mobileprovision | pbcopy`. The team ID and profile name are read from
+   the profile, so they need no secrets of their own.
+4. **API key.** In App Store Connect, go to Users and Access → Integrations → App Store Connect
+   API. Create a team key with the *App Manager* role and download the `.p8` file (Apple lets
+   you download it once only).
+5. **Secrets.** Add these to a GitHub environment named `app-store` (Settings → Environments).
+   If you want a second approval before anything reaches Apple, add required reviewers there.
+
+   | Secret | Value |
+   |---|---|
+   | `IOS_DISTRIBUTION_CERT` | base64 of the `.p12` |
+   | `IOS_DISTRIBUTION_CERT_PASSWORD` | the `.p12`'s password |
+   | `IOS_PROVISIONING_PROFILE` | base64 of the `.mobileprovision` |
+   | `APP_STORE_CONNECT_API_KEY` | the full text of the `.p8`, including the BEGIN/END lines |
+   | `APP_STORE_CONNECT_API_KEY_ID` | the key's ID |
+   | `APP_STORE_CONNECT_API_ISSUER_ID` | the issuer ID shown above the key list |
+
+The certificate and profile expire after a year. When they do, replace the two secrets.
+
+`Info.plist` declares `ITSAppUsesNonExemptEncryption` false, because the app makes no network
+requests and does no encryption. That stops every upload stalling on the export-compliance
+question. If the app ever gains either, revisit that declaration.
 
 ---
 
