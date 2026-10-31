@@ -73,6 +73,7 @@ data class Frame(val left: Float, val right: Float, val top: Float, val bottom: 
                     for (detail in sketch.pathDetails) addAll(detail.path)
                     for (detail in sketch.textDetails) add(detail.position)
                     for (detail in sketch.symbolDetails) add(detail.position)
+                    for (detail in sketch.photoDetails) add(detail.position)
                     for (detail in sketch.crossSectionDetails) {
                         val drawn = boundsOf(detail, sketch.crossSectionScale)
                         add(drawn.topLeft)

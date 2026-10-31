@@ -128,11 +128,42 @@ class TextDetail(
         TextDetail(position, text, size * scale, colour)
 }
 
+/**
+ * A photograph pinned to the sketch.
+ *
+ * Only the id of the picture is held here: the image itself lives beside the survey's other files
+ * as `<surveyName>.photo-<photoId>.jpg` (see PhotoStore), so a sketch stays small and wholly
+ * text-serialisable however many photographs hang off it, and a pin can be undone without touching
+ * the file on disc.
+ *
+ * Otherwise this is a stamp with a picture on it, and behaves exactly like [SymbolDetail].
+ */
+class PhotoDetail(
+    val position: Coord2D,
+    val photoId: String,
+    val size: Float,
+    val angle: Float,
+    val caption: String,
+    colour: Colour,
+) : SketchDetail(colour) {
+
+    override fun getDistanceFrom(point: Coord2D): Float =
+        org.hwyl.sexytopo.shared.math.getDistance(position, point)
+
+    override fun translate(translation: Coord2D): PhotoDetail =
+        PhotoDetail(position + translation, photoId, size, angle, caption, colour)
+
+    /** Grows the pin in place; see [SymbolDetail.scale] for why the position is untouched. */
+    override fun scale(scale: Float): PhotoDetail =
+        PhotoDetail(position, photoId, size * scale, angle, caption, colour)
+}
+
 class Sketch {
 
     var pathDetails: MutableList<PathDetail> = mutableListOf()
     var symbolDetails: MutableList<SymbolDetail> = mutableListOf()
     var textDetails: MutableList<TextDetail> = mutableListOf()
+    var photoDetails: MutableList<PhotoDetail> = mutableListOf()
     var crossSectionDetails: MutableList<CrossSectionDetail> = mutableListOf()
 
     /** How much bigger than life a cross-section is drawn. */
@@ -153,6 +184,7 @@ class Sketch {
         copy.pathDetails = pathDetails.toMutableList()
         copy.symbolDetails = symbolDetails.toMutableList()
         copy.textDetails = textDetails.toMutableList()
+        copy.photoDetails = photoDetails.toMutableList()
         copy.crossSectionDetails = crossSectionDetails.toMutableList()
         copy.crossSectionScale = crossSectionScale
         copy.activeColour = activeColour
@@ -169,6 +201,7 @@ class Sketch {
         scaled.pathDetails = pathDetails.map { it.scale(factor) }.toMutableList()
         scaled.symbolDetails = symbolDetails.map { it.scale(factor) }.toMutableList()
         scaled.textDetails = textDetails.map { it.scale(factor) }.toMutableList()
+        scaled.photoDetails = photoDetails.map { it.scale(factor) }.toMutableList()
         scaled.crossSectionDetails = crossSectionDetails.toMutableList()
         scaled.crossSectionScale = crossSectionScale
         scaled.activeColour = activeColour
@@ -180,6 +213,7 @@ class Sketch {
         moved.pathDetails = pathDetails.map { it.translate(translation) }.toMutableList()
         moved.symbolDetails = symbolDetails.map { it.translate(translation) }.toMutableList()
         moved.textDetails = textDetails.map { it.translate(translation) }.toMutableList()
+        moved.photoDetails = photoDetails.map { it.translate(translation) }.toMutableList()
         moved.crossSectionDetails =
             crossSectionDetails.map { it.translate(translation) }.toMutableList()
         moved.crossSectionScale = crossSectionScale
@@ -216,6 +250,19 @@ class Sketch {
         return detail
     }
 
+    fun addPhotoDetail(
+        position: Coord2D,
+        photoId: String,
+        size: Float,
+        angle: Float,
+        caption: String = "",
+        colour: Colour = activeColour,
+    ): PhotoDetail {
+        val detail = PhotoDetail(position, photoId, size, angle, caption, colour)
+        photoDetails.add(detail)
+        return detail
+    }
+
     fun addCrossSection(crossSection: CrossSection, position: Coord2D): CrossSectionDetail {
         val detail = CrossSectionDetail(position, crossSection)
         crossSectionDetails.add(detail)
@@ -226,5 +273,6 @@ class Sketch {
         pathDetails.isEmpty() &&
             symbolDetails.isEmpty() &&
             textDetails.isEmpty() &&
+            photoDetails.isEmpty() &&
             crossSectionDetails.isEmpty()
 }

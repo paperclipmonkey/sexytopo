@@ -34,6 +34,20 @@ class Survey(name: String = DEFAULT_NAME) {
 
     var trip: Trip? = null
 
+    /**
+     * Where one of this survey's stations is in the world, if anybody has said.
+     *
+     * Optional, and expected to stay so: a survey is perfectly usable as a floating frame, and
+     * pausing at the entrance to take a position is a thing a surveyor chooses to do rather than
+     * something the app should insist on. What it buys, when they do, is a survey that can be put
+     * on a map — see [StationFix] and the `fix` lines the Survex and Therion exporters write.
+     *
+     * One rather than a list, which is the ordinary case: a trip's survey has one entrance in it.
+     * `StationFix` names its own station rather than assuming, so making this a list later would
+     * change this line and nothing about what is written to a file.
+     */
+    var fix: StationFix? = null
+
     private val legsInChronoOrder: MutableList<Leg> = mutableListOf()
 
     var planSketch: Sketch = Sketch()

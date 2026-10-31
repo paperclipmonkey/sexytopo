@@ -37,11 +37,21 @@ interface FileStore {
     /**
      * Reads a file as bytes, or null if it is absent.
      *
-     * Here for exactly one caller: PocketTopo's `.top` file is binary, and reading it as text
-     * mangles it in a way that is silent — a lost byte in a length prefix moves everything after
-     * it. There is no `writeBytes` to go with it because nothing writes one.
+     * Bytes rather than text because reading a binary file as text mangles it in a way that is
+     * silent: PocketTopo's `.top` loses a byte from a length prefix and everything after it moves.
      */
     fun readBytes(path: List<String>): ByteArray?
+
+    /**
+     * Writes a file as bytes, replacing whatever was there, creating the parent directory as
+     * [writeText] does.
+     *
+     * There was nothing here until a survey could carry photographs: they are kept as `.jpg` files
+     * beside its JSON (see [PhotoStore]), and a JPEG put through [writeText] comes back destroyed
+     * for exactly the reason [readBytes] exists. The Android app has no equivalent — its
+     * `IoUtils.saveToFile` takes a String, because nothing it saves is binary.
+     */
+    fun writeBytes(path: List<String>, bytes: ByteArray)
 
     fun createDirectory(path: List<String>)
 
@@ -99,11 +109,12 @@ class InMemoryFileStore : FileStore {
     override fun readBytes(path: List<String>): ByteArray? =
         binaries[key(path)] ?: files[key(path)]?.encodeToByteArray()
 
-    /** Not on the interface: only tests need to put binary content into a store. */
-    fun writeBytes(path: List<String>, content: ByteArray) {
+    override fun writeBytes(path: List<String>, bytes: ByteArray) {
         createDirectory(path.dropLast(1))
+        // The two maps are one namespace: a path holds text or bytes, never both, so whichever
+        // kind was written last is the only one a reader can find.
         files.remove(key(path))
-        binaries[key(path)] = content
+        binaries[key(path)] = bytes
     }
 
     override fun createDirectory(path: List<String>) {

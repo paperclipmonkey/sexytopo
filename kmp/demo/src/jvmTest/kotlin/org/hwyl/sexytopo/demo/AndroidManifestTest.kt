@@ -2,6 +2,7 @@ package org.hwyl.sexytopo.demo
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
@@ -38,6 +39,11 @@ class AndroidManifestTest {
             Triple("VIBRATE", Regex("""\.vibrate\("""), "buzz to say a station was made"),
             Triple("BLUETOOTH_SCAN", Regex("""\.startScan\("""), "look for an instrument"),
             Triple("BLUETOOTH_CONNECT", Regex("""\.connectGatt\("""), "connect to an instrument"),
+            Triple(
+                "ACCESS_FINE_LOCATION",
+                Regex("""\.requestLocationUpdates\("""),
+                "take a position at the entrance",
+            ),
         )
 
     @Test
@@ -63,6 +69,13 @@ class AndroidManifestTest {
      * dropping it is invisible: everything still works, and Android 12 and later quietly start
      * demanding a location permission as well. A caver asked for their location by a cave survey
      * app is a caver who says no, and then cannot connect to their instrument.
+     *
+     * This used to assert that the app declared no location permission at all, on the grounds that
+     * it had no business knowing where the surveyor was. It has business now — one station of a
+     * survey has to be fixed to the world for the survey to be worth anything on a map — and the
+     * two claims were never the same claim. `neverForLocation` is about what *scanning* implies,
+     * and it holds whether or not something else in the app asks for a location for its own
+     * reasons. The half that had to go is asserted the other way round below.
      */
     @Test
     fun scanningDoesNotDragInALocationPermission() {
@@ -71,8 +84,36 @@ class AndroidManifestTest {
             "BLUETOOTH_SCAN without neverForLocation makes Android ask for the surveyor's location",
         )
         assertTrue(
-            "ACCESS_FINE_LOCATION" !in manifest && "ACCESS_COARSE_LOCATION" !in manifest,
-            "this app has no business knowing where the surveyor is",
+            "ACCESS_COARSE_LOCATION" !in manifest,
+            "coarse location is accurate to a few kilometres, which is no use for an entrance " +
+                "and is one more thing to refuse",
+        )
+    }
+
+    /**
+     * The location permission belongs to one screen, and nothing else may quietly start using it.
+     *
+     * A permission that exists gets used, and each new use is a place a surveyor's location can go
+     * somewhere they did not expect. There is exactly one reason for this app to know where the
+     * phone is — the position of the station a surveyor is deliberately standing on — and this
+     * says so in a way that a second use would break.
+     *
+     * By file rather than by call, because the ways to ask are many and the files that should be
+     * asking are one.
+     */
+    @Test
+    fun onlyThePositionScreenAsksWhereThePhoneIs() {
+        val asking =
+            listOf(File("src/androidMain"), File("../shared/src/androidMain"))
+                .filter { it.isDirectory }
+                .flatMap { it.walkTopDown().filter { file -> file.extension == "kt" }.toList() }
+                .filter { "ACCESS_FINE_LOCATION" in it.readText() }
+                .map { it.name }
+
+        assertEquals(
+            listOf("Position.android.kt"),
+            asking,
+            "something other than the position screen has started asking where the phone is",
         )
     }
 }

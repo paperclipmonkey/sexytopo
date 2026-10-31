@@ -156,6 +156,7 @@ class MenuStructureUiTest {
         )
         val VIEW = listOf(
             Strings.actionTrip,
+            Strings.actionStationPosition,
             Strings.actionTable,
             Strings.actionPlan,
             Strings.actionElevation,

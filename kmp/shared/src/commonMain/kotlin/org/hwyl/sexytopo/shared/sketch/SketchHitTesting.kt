@@ -59,7 +59,8 @@ fun findNearestVisibleItemWithin(
         }
     }
 
-    for (detail in sketch.pathDetails + sketch.symbolDetails + sketch.textDetails) {
+    val drawn = sketch.pathDetails + sketch.symbolDetails + sketch.textDetails + sketch.photoDetails
+    for (detail in drawn) {
         if (!couldBeVisibleAtScale(detail, pixelsPerMetre)) continue
         consider(detail.asItem(), distanceFrom(detail, point))
     }
