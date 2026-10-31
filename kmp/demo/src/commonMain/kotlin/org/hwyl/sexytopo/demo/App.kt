@@ -66,6 +66,9 @@ import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.PhotoDetail
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.scan.DerivedContent
+import org.hwyl.sexytopo.shared.scan.ScanSketchWriter
+import org.hwyl.sexytopo.shared.scan.WallScanApplier
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.survey.InputMode
@@ -372,6 +375,18 @@ private fun SexyTopoAppBar(state: DemoState) {
     var undoingLastLeg by remember { mutableStateOf(false) }
     var editingGeneral by remember { mutableStateOf(false) }
     var editingInstruments by remember { mutableStateOf(false) }
+
+    // What the last wall scan drew, so it can be taken out again or replaced. Held for the
+    // session only: the drawing itself is saved with the survey, this record of it is not.
+    var lastWallScan by remember { mutableStateOf<DerivedContent?>(null) }
+    // Always against `liveSurvey`, as the dialogs below are: the demo cave is read-only.
+    val wallScanner = rememberWallScanner { scan ->
+        val report = WallScanApplier.apply(state.liveSurvey, scan)
+        if (report.mode != null) lastWallScan = report.content
+        state.noteSketchEdited()
+        state.saveLiveSurvey()
+        state.note(report.message)
+    }
 
     // Always against `liveSurvey`, never `state.survey`: the demo cave is read-only.
     if (addingLeg || addingSplay) {
@@ -961,6 +976,35 @@ private fun SexyTopoAppBar(state: DemoState) {
                     HorizontalDivider()
                     MenuAction(Strings.actionSystemLog) {
                         showingLog = true
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    // Last, so the rows above keep the places the browser checks find them at.
+                    HorizontalDivider()
+                    MenuAction(Strings.scanWalls) {
+                        if (wallScanner.available) {
+                            val survey = state.liveSurvey
+                            wallScanner.scan(
+                                survey.getAllStationsInChronoOrder().map { it.name },
+                                survey.activeStation.name,
+                            )
+                        } else {
+                            state.note(whyNoScanner())
+                        }
+                        menuOpen = false
+                        page = MenuPage.TOP
+                    }
+                    MenuAction(Strings.removeLastWallScan) {
+                        val content = lastWallScan
+                        if (content == null) {
+                            state.note(Strings.noWallScanToRemove)
+                        } else {
+                            ScanSketchWriter.remove(state.liveSurvey, content)
+                            lastWallScan = null
+                            state.noteSketchEdited()
+                            state.saveLiveSurvey()
+                            state.note(Strings.wallScanRemoved)
+                        }
                         menuOpen = false
                         page = MenuPage.TOP
                     }

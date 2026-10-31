@@ -183,6 +183,19 @@ object Strings {
      */
     val scanPassage = local("Scan the passage")
 
+    /**
+     * The wall scan: walls, symbols and LRUDs captured with the phone straight into the survey's
+     * drawings. [local] for the scanner's reason above; `WallScanner.ios.kt` types its own screen.
+     */
+    val scanWalls = local("Scan walls (lidar)")
+
+    val removeLastWallScan = local("Remove last wall scan")
+
+    val noWallScanToRemove = local("There is no wall scan from this session to remove.")
+
+    val wallScanRemoved =
+        local("Removed the last wall scan's drawing. Any LRUD splays it added are still there.")
+
     val scanFoundNothing =
         local(
             "The scan found no passage. Sweep the phone slowly round the walls, and give it " +

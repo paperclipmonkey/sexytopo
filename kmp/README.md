@@ -8,8 +8,8 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 989 shared tests,
-each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and eight more that are JVM-only on
+Survex and Therion exporters and the native file format are ported and covered by 1128 shared tests,
+each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and sixteen more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
 is written once in Compose Multiplatform and renders through Skia, which is what Compose uses on
@@ -330,10 +330,10 @@ compiles the Kotlin/Native framework and embeds it. `kmp/iosApp/project.yml` and
 below it describe a fully manual alternative if you would rather install nothing.
 
 The iOS-specific surface is small and every file in it is one screen long:
-`demo/src/iosMain/` holds eighteen — `MainViewController.kt` is one function, and the rest are the
+`demo/src/iosMain/` holds nineteen — `MainViewController.kt` is one function, and the rest are the
 `actual` halves of things a phone has and a browser does not: the Documents file store, the
 clipboard, the file picker, keeping the screen awake, the date and the timestamp, the haptic, the
-compass, the camera, the passage scanner, the satellite receiver, the keyboard nudge the browser
+compass, the camera, the passage scanner, the wall scanner, the satellite receiver, the keyboard nudge the browser
 needs and iOS does not,
 the two exports (a text file and a zip), the storage-durability answer and the instrument
 transports. `iosApp/` holds two Swift
@@ -837,6 +837,7 @@ Names on the left are as the port found them. Upstream 1.13 has since renamed `G
 | `GuideActivity`, `assets/guide/index.html` | `shared/manual/Manual.kt`, `demo/.../ManualView.kt`, `demo/src/commonMain/composeResources/files/manual.html` | The `WebView` **replaced** by a reader: the guide is bundled byte-for-byte and drawn as Compose, so there is no platform web view on any of the four targets. `parseManual` throws on a tag it does not draw, and the counts are checked against the file's own tags |
 | `res/layout/activity_sketch.xml` (was `activity_graph.xml`) | `demo/.../App.kt`, `SketchToolbar.kt` | The 9x2 toolbar, copied — widened to 10x2 by the camera, which is the one button with nothing upstream |
 | *nothing* | `shared/sketch/PassageScan.kt`, `demo/.../PassageScanner.*.kt` | **Invented.** ARKit measures the passage and the shared half slices it into a cross-section; finding 117 |
+| *nothing* | `shared/scan/`, `demo/.../WallScanner.*.kt` | **Invented.** Stations, pen lines and symbols captured on the rock with the lidar and drawn into the plan and elevation; finding 119 |
 | *nothing* | `shared/model/survey/StationFix.kt`, `demo/.../Position.*.kt`, `StationPosition.kt` | **Invented.** A station's position in the world, taken off a receiver or typed off a map, and written into both exports as a `fix`; finding 118 |
 | *nothing* | `shared/model/sketch/Sketch.kt` (`PhotoDetail`), `shared/io/store/PhotoStore.kt`, `demo/.../PhotoCapture.*.kt`, `PhotoViewer.kt` | **Invented.** The Android app has never taken a photograph; finding 116 records why a photograph is modelled as a mark on the drawing rather than as an attachment to a station |
 | `res/values/colors.xml` (+ `values-night`) | `demo/.../SexyTopoTheme.kt` | The app's own palette |
@@ -4394,6 +4395,30 @@ These are the things that would actually shape a real port.
 
 ---
 
+119. **Walls, symbols and LRUDs from the lidar, straight into the drawings.** *Tools → Scan walls
+   (lidar)* opens a camera with a crosshair. On it the surveyor marks stations (aiming the
+   crosshair at the mark, or touching the lens to it), draws along walls and water lines with an
+   AR pen whose last five metres a slider smooths, and stamps the UIS symbols onto the rock, while
+   the lidar records the passage round them. On *Done* the scan is placed in the survey: by the
+   stations marked if there are two, otherwise fitted to the centerline by shape from the station
+   the scan was started beside, for old surveys whose marks are long gone. Pen lines and symbols
+   go onto the plan and the extended elevation; a fitted scan also gets walls generated along
+   every leg and LRUD splays on stations that had none. *Remove last wall scan* takes the drawing
+   out again and leaves hand drawing alone.
+
+   Nearly all of it is arithmetic in `shared/scan/`, tested on the JVM against caves of known
+   shape: `StationAnchoring` (heading and position from marked stations, in closed form),
+   `PenSmoothing` (fliers dropped against a running median, then a Gaussian along the line, and a
+   stroke that freezes what is five metres behind the pen so the slider cannot move it),
+   `SurfaceTiles` (the rock in five-centimetre boxes, tiled so only the tiles near the surveyor stay
+   in memory however long the walk), `SurveyFrame` (a point onto the plan, and onto the extended
+   elevation by unrolling it with its nearest leg), `ScanProfiles` (LRUDs and walls from slices),
+   `FittedPlacement` (the phone's own path must run near the centerline, and no leg may run through
+   scanned rock) and `ScanSketchWriter`. `WallScanner.ios.kt` is the screen, and it is the part
+   **not yet compiled or run**: it was written on Linux, reusing `PassageScanner.ios.kt`'s own
+   interop calls wherever it could, and the first Xcode build is its first check.
+
+
 ## A defect worth reporting upstream
 
 The Android app's **PocketTopo export is not reproducible**. `Space` keys its station and leg maps
@@ -4542,10 +4567,10 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 989
-shared tests on three targets, 8 more against `java.util.zip` on the JVM, 567 over the UI's own
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 1128
+shared tests on three targets, 16 more against `java.util.zip` on the JVM, 592 over the UI's own
 logic, 20 running the iOS half in a simulator,
-123 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
+135 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The
 Android app is untouched. Nothing here is half-finished in a way that would embarrass a demo — the
 things that are missing are missing on purpose and are listed below.
