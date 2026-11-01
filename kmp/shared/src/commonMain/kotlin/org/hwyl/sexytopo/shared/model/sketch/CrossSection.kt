@@ -111,8 +111,20 @@ class CrossSectionDetail(
     sketch: Sketch = Sketch(),
 ) {
 
+    /**
+     * The wall scan that drew this section, by id, or null for one placed by hand; see
+     * SketchDetail.scanId. Like a stroke, a section edited by hand is the surveyor's from then on:
+     * committing an edit replaces [sketch], which clears this, and a moved or turned section is a
+     * new detail that never had it.
+     */
+    var scanId: String? = null
+
     /** Replaced wholesale when an edit is committed from the cross-section editor. */
     var sketch: Sketch = sketch
+        set(value) {
+            field = value
+            scanId = null
+        }
 
     val station: Station
         get() = crossSection.station

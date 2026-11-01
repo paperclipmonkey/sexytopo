@@ -11,6 +11,10 @@ import org.hwyl.sexytopo.shared.io.store.SurveyZip
 import org.hwyl.sexytopo.shared.log.LogMessage
 import org.hwyl.sexytopo.shared.log.LogType
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.scan.ScanRecovery
+import org.hwyl.sexytopo.shared.scan.WallScan
+import org.hwyl.sexytopo.shared.scan.WallScanRecord
+import org.hwyl.sexytopo.shared.scan.WallScanStore
 import org.hwyl.sexytopo.shared.survey.SurveySettings
 
 /**
@@ -52,12 +56,20 @@ internal val surveyFileStore: FileStore by lazy { platformFileStore() }
  * Losing one picture from a zip is a bad afternoon; losing the survey is a lost trip.
  */
 internal fun surveyArchive(survey: Survey): ByteArray =
-    SurveyZip.archive(survey) { photoId ->
-        runCatching {
-            PhotoStore.load(surveyFileStore, SURVEYS_ROOT + survey.name, survey.name, photoId)
-        }
-            .getOrNull()
-    }
+    SurveyZip.archive(
+        survey,
+        readPhoto = { photoId ->
+            runCatching {
+                PhotoStore.load(surveyFileStore, SURVEYS_ROOT + survey.name, survey.name, photoId)
+            }
+                .getOrNull()
+        },
+        // The wall scans' own files, so the surveyor at the other end can review and re-place
+        // them rather than only see what they drew.
+        extraFiles =
+            runCatching { WallScanStore.zipEntries(surveyFileStore, SURVEYS_ROOT + survey.name, survey.name) }
+                .getOrDefault(emptyList()),
+    )
 
 /**
  * Saving and reopening surveys, wrapped so callers never have to think about paths.
@@ -98,6 +110,54 @@ class SurveyLibrary(private val store: FileStore = platformFileStore()) {
             SurveyStorage.load(store, SURVEYS_ROOT + name) { lastWarning = it }
         }.onFailure { lastError = it.message }.getOrNull()
     }
+
+    /**
+     * The wall scans saved with survey [name]. A scan that will not read is left out and said so
+     * through [lastWarning], as an unreadable stroke is, rather than keeping the survey shut.
+     */
+    fun loadScans(name: String): List<WallScanRecord> =
+        runCatching {
+            WallScanStore.loadAll(store, SURVEYS_ROOT + name, name) { lastWarning = it }
+        }.onFailure { lastError = it.message }.getOrDefault(emptyList())
+
+    /** Saves a scan, its points as well, which is only needed once: when it is first captured. */
+    fun saveScan(surveyName: String, record: WallScanRecord): Boolean =
+        runCatching { WallScanStore.save(store, SURVEYS_ROOT + surveyName, surveyName, record) }
+            .onFailure { lastError = it.message ?: "could not save the scan" }
+            .isSuccess
+
+    /** Saves what review has changed about a scan, without rewriting its points. */
+    fun saveScanReview(surveyName: String, record: WallScanRecord): Boolean =
+        runCatching { WallScanStore.saveReview(store, SURVEYS_ROOT + surveyName, surveyName, record) }
+            .onFailure { lastError = it.message ?: "could not save the scan" }
+            .isSuccess
+
+    /**
+     * A scan the scanner was part way through when the app stopped, or null. See [ScanRecovery];
+     * it is left on disk until [clearUnfinishedScan], once it has been saved with a survey.
+     */
+    fun unfinishedScan(): WallScan? = runCatching { ScanRecovery.recover(store) }.getOrNull()
+
+    /** Which survey the unfinished scan, if any, was taken in. */
+    fun unfinishedScanSurvey(): String? = runCatching { ScanRecovery.surveyOf(store) }.getOrNull()
+
+    /**
+     * Copies survey [from]'s scan files to survey [to], byte for byte and renamed, rather than
+     * reading and writing the scans again: a scan whose points would not read is copied as it is
+     * rather than saved back with none. Returns false if any file could not be copied.
+     */
+    fun copyScans(from: String, to: String): Boolean =
+        runCatching { WallScanStore.copy(store, SURVEYS_ROOT + from, from, SURVEYS_ROOT + to, to) }
+            .onFailure { lastError = it.message ?: "could not copy the scans" }.isSuccess
+
+    fun clearUnfinishedScan() {
+        runCatching { ScanRecovery.clear(store) }
+    }
+
+    fun deleteScan(surveyName: String, scanId: String): Boolean =
+        runCatching { WallScanStore.delete(store, SURVEYS_ROOT + surveyName, surveyName, scanId) }
+            .onFailure { lastError = it.message }
+            .isSuccess
 
     fun delete(name: String): Boolean =
         runCatching { store.delete(SURVEYS_ROOT + name) }

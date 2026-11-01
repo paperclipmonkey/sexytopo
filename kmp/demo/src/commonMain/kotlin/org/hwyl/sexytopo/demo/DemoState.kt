@@ -7,15 +7,20 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import org.hwyl.sexytopo.shared.comms.InstrumentProfile
+import org.hwyl.sexytopo.shared.log.LogType
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
-import org.hwyl.sexytopo.shared.model.sketch.Sketch
-import org.hwyl.sexytopo.shared.log.LogType
 import org.hwyl.sexytopo.shared.model.sketch.CrossSection
 import org.hwyl.sexytopo.shared.model.sketch.CrossSectionDetail
+import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
 import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.scan.WallScan
+import org.hwyl.sexytopo.shared.scan.WallScanApplier
+import org.hwyl.sexytopo.shared.scan.WallScanRecord
+import org.hwyl.sexytopo.shared.scan.WallScanReport
+import org.hwyl.sexytopo.shared.scan.WallScanStore
 import org.hwyl.sexytopo.shared.sketch.BrushColour
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
@@ -336,13 +341,135 @@ class DemoState(
      */
     var importProblem: String? by mutableStateOf(null)
 
+    // -------------------------------------------------------------------------------------
+    // Wall scans
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * The wall scans kept with the live survey, read when it is opened. Replaced rather than
+     * mutated, so a scan added or deleted is something Compose sees; a scan changed in review is
+     * announced through [scanRevision] instead, since the record itself is changed in place.
+     */
+    var wallScans by mutableStateOf<List<WallScanRecord>>(emptyList())
+        private set
+
+    var scanRevision by mutableIntStateOf(0)
+        private set
+
+    /** Whether the review panel is open under the drawing. Not persisted. */
+    var reviewingScans by mutableStateOf(false)
+
+    /**
+     * A scan just captured: placed, drawn, and saved beside the survey, points and all. Kept even
+     * when it cannot be placed yet, since the rock is the one part that cannot be gathered again
+     * and review can place it by hand.
+     */
+    fun addWallScan(scan: WallScan): WallScanReport? = keepWallScan(scan)?.first
+
+    /**
+     * What the scanner hands its scan to: whether the scan is now safe on disk, which is what lets
+     * the scanner drop its own checkpoint. An empty scan is safe in the sense that matters: there
+     * is nothing in it to lose.
+     */
+    fun acceptScannedWallScan(scan: WallScan): Boolean {
+        val kept = keepWallScan(scan) ?: return true
+        return kept.second
+    }
+
+    /** The scan placed, drawn and kept, and whether saving it worked; null for an empty scan. */
+    private fun keepWallScan(scan: WallScan): Pair<WallScanReport, Boolean>? {
+        // Done tapped before anything was seen or marked: nothing worth a file, and a record of
+        // it would only be a scan in the list that can never be placed.
+        if (scan.points.isEmpty() && scan.touches.isEmpty() && scan.penLines.isEmpty() && scan.stamps.isEmpty()) {
+            note(Strings.wallScanEmpty)
+            return null
+        }
+        val record = WallScanRecord(WallScanStore.nextScanId(wallScans, liveSurvey), scan)
+        val report = WallScanApplier.rebuild(liveSurvey, record, refit = true)
+        wallScans = wallScans + record
+        saveLiveSurvey()
+        val saved = library.saveScan(liveSurvey.name, record)
+        if (!saved) storageProblem = library.lastError ?: "could not save the scan"
+        noteSketchEdited()
+        scanRevision++
+        note(report.message)
+        return report to saved
+    }
+
+    /**
+     * Whether a new scan may start in the live survey. A scan the app stopped in the middle of is
+     * given to this survey first if it was taken here; if it was taken in another survey, a new
+     * scan would clear it, so the surveyor is told where it is and nothing starts.
+     */
+    fun readyToScan(): Boolean {
+        val elsewhere = library.unfinishedScanSurvey()?.takeIf { it != liveSurvey.name }
+        if (elsewhere != null) {
+            note(Strings.unfinishedScanElsewhere(elsewhere))
+            return false
+        }
+        recoverUnfinishedScan()
+        return true
+    }
+
+    /**
+     * Gives the live survey a scan the app stopped in the middle of, if there is one: the scanner
+     * writes its work down every few seconds, and this is where that pays off. Saved with the
+     * survey first and only then cleared, so a second failure cannot lose it either.
+     */
+    fun recoverUnfinishedScan(): Boolean {
+        // Only into the survey it was taken in. One with no survey written down is from before
+        // that was recorded, and the open survey is the best guess there is.
+        val belongsTo = library.unfinishedScanSurvey()
+        if (belongsTo != null && belongsTo != liveSurvey.name) return false
+        val scan = library.unfinishedScan() ?: return false
+        val kept = keepWallScan(scan)
+        if (kept != null && !kept.second) {
+            note(Strings.unfinishedScanNotSaved)
+            return false
+        }
+        library.clearUnfinishedScan()
+        if (kept != null) note(Strings.recoveredWallScan)
+        return kept != null
+    }
+
+    /** Draws [record] again as its review now says, and saves what review changed. */
+    fun rebuildWallScan(record: WallScanRecord, refit: Boolean = false) {
+        WallScanApplier.rebuild(liveSurvey, record, refit = refit)
+        saveLiveSurvey()
+        if (!library.saveScanReview(liveSurvey.name, record)) {
+            storageProblem = library.lastError ?: "could not save the scan"
+        }
+        noteSketchEdited()
+        scanRevision++
+    }
+
+    /** Takes out everything [record] drew and the scan itself, files and all. */
+    fun deleteWallScan(record: WallScanRecord) {
+        WallScanApplier.remove(liveSurvey, record)
+        wallScans = wallScans - record
+        saveLiveSurvey()
+        library.deleteScan(liveSurvey.name, record.id)
+        noteSketchEdited()
+        scanRevision++
+        note(Strings.wallScanDeleted)
+    }
+
+    /** Copies the scans' files from [previous] to the survey's current name: a rename, or a save as. */
+    private fun copyScansFrom(previous: String): Boolean = library.copyScans(previous, liveSurvey.name)
+
     fun renameLiveSurvey(name: String) {
         val trimmed = name.trim()
         if (trimmed.isEmpty() || trimmed == liveSurvey.name) return
         val previous = liveSurvey.name
         liveSurvey.name = library.uniqueName(trimmed)
         if (library.save(liveSurvey)) {
-            library.delete(previous)
+            // The old folder holds the only copy of the scans until they are copied, so it stays
+            // if they could not be: a survey in two folders is untidy, a lost scan is gone.
+            if (copyScansFrom(previous)) {
+                library.delete(previous)
+            } else {
+                storageProblem = library.lastError ?: "could not copy the scans; $previous was kept"
+            }
             refreshLibrary()
         }
         sketchRevision++
@@ -358,8 +485,10 @@ class DemoState(
     fun saveLiveSurveyAs(name: String) {
         val trimmed = name.trim()
         if (trimmed.isEmpty() || trimmed == liveSurvey.name) return
+        val previous = liveSurvey.name
         liveSurvey.name = library.uniqueName(trimmed)
         if (library.save(liveSurvey)) {
+            if (!copyScansFrom(previous)) storageProblem = library.lastError ?: "could not copy the scans"
             refreshLibrary()
         } else {
             storageProblem = library.lastError ?: "could not save"
@@ -376,6 +505,8 @@ class DemoState(
         session.disconnect()
 
         liveSurvey = survey
+        wallScans = if (library.exists(survey.name)) library.loadScans(survey.name) else emptyList()
+        reviewingScans = false
         session = SurveySession(survey, surveySettings)
         // A new session starts on the class defaults rather than on what is saved, so without
         // this, opening a second survey would quietly put the reconnection settings back to them.

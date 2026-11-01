@@ -8,7 +8,7 @@ yet. It exists to answer one question with running code rather than argument:
 
 So far the answer is **yes for everything except the parts that need a Mac to check**. The survey
 engine, the instrument protocols, the projection maths, the sketch model, the sketch *editor*, the
-Survex and Therion exporters and the native file format are ported and covered by 1128 shared tests,
+Survex and Therion exporters and the native file format are ported and covered by 1171 shared tests,
 each run on the JVM, on Kotlin/Wasm and on Kotlin/Native, and sixteen more that are JVM-only on
 purpose: they check the hand-written ZIP writer against `java.util.zip`, which is an oracle that
 exists on exactly one of the three targets. The UI
@@ -4403,8 +4403,10 @@ These are the things that would actually shape a real port.
    stations marked if there are two, otherwise fitted to the centerline by shape from the station
    the scan was started beside, for old surveys whose marks are long gone. Pen lines and symbols
    go onto the plan and the extended elevation; a fitted scan also gets walls generated along
-   every leg and LRUD splays on stations that had none. *Remove last wall scan* takes the drawing
-   out again and leaves hand drawing alone.
+   every leg and LRUD splays on stations that had none. The scan is kept with the survey, and
+   *Tools → Wall scans* reviews it under the drawing: turn and shift it by hand, fit it again from
+   there, rename or drop a station mark, re-smooth a pen line, drop a stamp, switch walls, LRUDs and
+   splay fans on and off, or delete it with everything it drew. Hand drawing is never touched.
 
    Nearly all of it is arithmetic in `shared/scan/`, tested on the JVM against caves of known
    shape: `StationAnchoring` (heading and position from marked stations, in closed form),
@@ -4414,9 +4416,52 @@ These are the things that would actually shape a real port.
    in memory however long the walk), `SurveyFrame` (a point onto the plan, and onto the extended
    elevation by unrolling it with its nearest leg), `ScanProfiles` (LRUDs and walls from slices),
    `FittedPlacement` (the phone's own path must run near the centerline, and no leg may run through
-   scanned rock) and `ScanSketchWriter`. `WallScanner.ios.kt` is the screen, and it is the part
-   **not yet compiled or run**: it was written on Linux, reusing `PassageScanner.ios.kt`'s own
-   interop calls wherever it could, and the first Xcode build is its first check.
+   scanned rock) and `ScanSketchWriter`. `WallScanner.ios.kt` is the screen. It was written on
+   Linux, and its first Mac build found one fault: a `*/` inside its own doc comment
+   (`*Wall*/*Water*`), which ended the comment early. With that fixed it compiles, links and runs
+   in the Simulator. **It has not run on a lidar phone.**
+
+   Kept with the survey, rather than drawn and forgotten. Each scan is `Survey.scan-N.json` (the
+   track, the marks, every raw pen hit, the stamps, the review's edits and the last placement)
+   and `Survey.scan-N.points` (the rock, three floats a point), saved beside the survey and put in
+   its zip (`WallScanStore`). What review changes is kept beside the capture, never in it
+   (`ScanReview`), and a rebuild draws from the two (`WallScanApplier.rebuild`). Drawing is found
+   again by a `scan` key on each stroke and symbol (`SketchDetail.scanId`), which survives a save
+   where the identity-based `DerivedContent` could not; the Android app ignores the key, and a
+   re-save there just turns the drawing into hand drawing. Splays a scan adds carry the comment
+   *wall scan N*, and only splays with that comment and that reading are removed. The scanner
+   keeps the rock behind the surveyor in files and checkpoints the rest every five seconds
+   (`FileTileSink`, `ScanRecovery`), so a crash costs seconds; the next scan or review hands the
+   unfinished one to the open survey. On the elevation, generated walls are the roof and the floor
+   (`ScanProfiles.roofAndFloorAlongLegs`), because left and right walls unroll onto the centreline.
+   Walls are clipped where one leg's slice runs into the next stretch of passage at a bend, and
+   joined over the stations where two legs' walls nearly meet. A scan can also draw a
+   cross-section beside each station it passed, through `PassageScan`'s own slice; a section
+   edited by hand stops belonging to the scan. The 3D view draws the placed rock as a point cloud.
+
+   `SimulatedWallScan` makes up a scan round a survey's own legs with a known placement. It is
+   what the tests check placement against, and it is on the review panel for any device without
+   lidar, so the whole of review runs in the Simulator, on the desktop and in a browser
+   (`WallScanPanelUiTest`, `WallScanRecordTest`, `ScanRecoveryTest`).
+
+   Fitting no longer assumes the phone was carried at the legs' height. It did, and a phone at
+   chest height over stations low on the walls dropped the whole scan by a metre, ran the legs
+   through the roof and pulled the heading off to escape it; it now looks for the height that
+   keeps the legs in open passage, lowest first, since stations usually are low. The track
+   walked while ARKit reported poor tracking is recorded and left out of the fit. Both were found
+   by `SimulatedWallScan`, the first by a scan whose stations were half a metre up.
+
+   An independent review of the night's work found eight faults, all fixed with a test each:
+   nudging a fitted scan turned its walls and LRUDs off; a scan line rubbed out by hand came back
+   doubled on the next rebuild; recovery could be cleared when saving the recovered scan failed,
+   and could put it into the wrong survey; a rename re-saved scans rather than copying them and
+   then deleted the originals; splays were found by station name, so a renamed station orphaned
+   them; every review tap fitted an unmarked scan again; and a deleted scan's id could be reused
+   while its strokes or splays survived.
+
+   Not done: chaining a long scan into separately fitted pieces, new segments on tracking loss,
+   trimming a scan or erasing stray points in review, and the per-device touch offset.
+   `docs/wall-scanning.md` says how to test it and what to look for underground.
 
 
 ## A defect worth reporting upstream
@@ -4567,8 +4612,8 @@ JVM — just a static file host.
 Written down here rather than left in a commit log, because the useful thing to know on picking
 this up again is which of the remaining items are *blocked* and which are merely *not done*.
 
-**The state of it.** Everything in the evidence table above is on this branch and green in CI: 1128
-shared tests on three targets, 16 more against `java.util.zip` on the JVM, 592 over the UI's own
+**The state of it.** Everything in the evidence table above is on this branch and green in CI: 1171
+shared tests on three targets, 16 more against `java.util.zip` on the JVM, 602 over the UI's own
 logic, 20 running the iOS half in a simulator,
 135 browser checks driving the real page on a 420-pixel screen and finishing at 375x667, then
 667x375, then 375x375, and 12 more at a desk, on a wheel, a trackpad and a keyboard. The

@@ -6,14 +6,16 @@ import org.hwyl.sexytopo.shared.io.SurveyJson
 import org.hwyl.sexytopo.shared.io.export.SurveyFormat
 import org.hwyl.sexytopo.shared.io.imports.PocketTopoImporter
 import org.hwyl.sexytopo.shared.io.imports.PocketTopoTxtImporter
-import org.hwyl.sexytopo.shared.io.imports.SurveyImporter
 import org.hwyl.sexytopo.shared.io.imports.SurvexFolder
+import org.hwyl.sexytopo.shared.io.imports.SurveyImporter
 import org.hwyl.sexytopo.shared.io.imports.XviImporter
 import org.hwyl.sexytopo.shared.io.store.FileStore
+import org.hwyl.sexytopo.shared.io.store.PhotoStore
 import org.hwyl.sexytopo.shared.io.store.SurveyFileType
 import org.hwyl.sexytopo.shared.io.store.SurveyStorage
 import org.hwyl.sexytopo.shared.model.sketch.Sketch
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.scan.WallScanStore
 import org.hwyl.sexytopo.shared.survey.SurveySettings
 
 /**
@@ -159,8 +161,38 @@ object SurveyImport {
         ) {
             return null
         }
+        val folderName = survey.name
         survey.name = library.uniqueName(name)
-        return if (library.save(survey)) survey else null
+        if (!library.save(survey)) return null
+        if (isSurveyFolder(store, fileName)) {
+            withFilesBesideIt(library, store, listOf(fileName), folderName, survey)
+        }
+        return survey
+    }
+
+    /**
+     * A survey folder carries more than its four files: a JPEG for every photograph pinned to it
+     * and two files for every wall scan. The loader reads only the four, so these are copied across
+     * here, renamed for the survey's name in the library, or the pins would point at nothing and
+     * the scans' drawing could never be reviewed again.
+     */
+    private fun withFilesBesideIt(
+        library: SurveyLibrary,
+        store: FileStore,
+        folder: List<String>,
+        folderName: String,
+        survey: Survey,
+    ) {
+        val target = SURVEYS_ROOT + survey.name
+        runCatching {
+            for (photoId in PhotoStore.photoIdsIn(survey)) {
+                val bytes = PhotoStore.load(store, folder, folderName, photoId) ?: continue
+                PhotoStore.save(store, target, survey.name, photoId, bytes)
+            }
+            // Byte for byte rather than read and written again, so a scan whose points will not
+            // read arrives as it was rather than with none.
+            WallScanStore.copy(store, folder, folderName, target, survey.name)
+        }.onFailure { library.lastWarning = "Photographs or wall scans could not be copied: ${it.message}" }
     }
 
     /**

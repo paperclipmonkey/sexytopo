@@ -171,7 +171,7 @@ class MenuStructureUiTest {
             Strings.actionAddSplay,
             Strings.actionSystemLog,
             Strings.scanWalls,
-            Strings.removeLastWallScan,
+            Strings.reviewWallScans,
         )
         val SYSTEM_SETTINGS = listOf(
             Strings.settingsGeneralTitle,

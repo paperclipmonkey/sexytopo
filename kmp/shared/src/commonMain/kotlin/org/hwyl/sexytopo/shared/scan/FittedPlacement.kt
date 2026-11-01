@@ -2,6 +2,7 @@ package org.hwyl.sexytopo.shared.scan
 
 import org.hwyl.sexytopo.shared.model.graph.Coord3D
 import org.hwyl.sexytopo.shared.model.graph.Line
+import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.sqrt
 
@@ -72,6 +73,11 @@ object FittedPlacement {
      *
      * [path] is the phone's track and [points] the rock it saw, both in the scan's own frame;
      * [pin] is roughly where in the survey the first point of [path] was.
+     *
+     * [headingRangeDegrees] and [searchRadiusMetres] say how far from that start to look. The
+     * defaults suit a pin and a compass; a surveyor who has dragged a scan nearly into place by hand
+     * and asks for it to be fitted from there wants a narrower search, which cannot wander off to
+     * a similar-looking passage nearby.
      */
     fun fit(
         path: List<Coord3D>,
@@ -79,9 +85,11 @@ object FittedPlacement {
         frame: SurveyFrame,
         pin: Coord3D,
         priorHeadingDegrees: Float,
+        headingRangeDegrees: Float = HEADING_RANGE_DEGREES,
+        searchRadiusMetres: Float = SEARCH_RADIUS_METRES,
     ): FittedResult? {
         if (path.isEmpty()) return null
-        val reach = SEARCH_RADIUS_METRES + extent(path) + PATH_DISTANCE_CAP_METRES
+        val reach = searchRadiusMetres + extent(path) + PATH_DISTANCE_CAP_METRES
         val legs = frame.legLines.filter { SurveyFrame.distanceToSegment(pin, it) <= reach }
         if (legs.isEmpty()) return null
 
@@ -90,13 +98,20 @@ object FittedPlacement {
         val rock = Occupancy(points)
         val start = path.first()
 
+        // How far above the legs the phone was carried. The legs' stations are on the floor and
+        // the walls and the phone is at chest height, so the path is not at the legs' height; this
+        // is found from the rock below, between the passes.
+        var carriedAbove = 0f
+
         fun placementFor(heading: Float, east: Float, north: Float): ScanPlacement {
             // Turn about the start of the path, then put that start at the candidate position:
             // so the translation search is a search for where the path began, as the pin is.
             val turned = ScanPlacement(heading, Coord3D.ORIGIN).place(start)
             val provisional =
                 ScanPlacement(heading, Coord3D(east - turned.x, north - turned.y, 0f))
-            return ScanPlacement(heading, provisional.translation.withZ(heightOffset(provisional, pathSamples, legs)))
+            // heightOffset puts the track at the legs' height; the phone was carriedAbove higher.
+            val height = heightOffset(provisional, pathSamples, legs) + carriedAbove
+            return ScanPlacement(heading, provisional.translation.withZ(height))
         }
 
         fun cost(placement: ScanPlacement): Pair<Float, Float> {
@@ -105,12 +120,41 @@ object FittedPlacement {
             return (pathCost + ROCK_WEIGHT * throughRock) to throughRock
         }
 
+        /**
+         * The height of the phone above the legs, for the best candidate so far.
+         *
+         * Of the heights that put the fewest legs through rock or out of the passage altogether
+         * (under its floor, over its roof), the one that puts the legs lowest
+         * in the passage. In a passage taller than a leg's clearance, rock alone allows a whole
+         * band of heights; stations are mostly on the floor or low on the walls, so the bottom of
+         * that band is where the legs most likely were.
+         */
+        fun findCarriedHeight(best: Candidate) {
+            val heights = mutableListOf<Pair<Float, Float>>()
+            var above = -CARRIED_RANGE_METRES
+            while (above <= CARRIED_RANGE_METRES + 1e-4f) {
+                carriedAbove = above
+                heights += above to notInPassage(placementFor(best.heading, best.east, best.north), legSamples, rock)
+                above += CARRIED_STEP_METRES
+            }
+            val fewest = heights.minOf { it.second }
+            carriedAbove = heights.filter { it.second <= fewest + CARRIED_ROCK_TOLERANCE }.maxOf { it.first }
+        }
+
         var best = Candidate(priorHeadingDegrees, pin.x, pin.y, Float.MAX_VALUE)
-        for ((headingStep, positionStep, headingRange, radius) in listOf(
-            Pass(5f, 1f, HEADING_RANGE_DEGREES, SEARCH_RADIUS_METRES),
+        for ((index, pass) in listOf(
+            Pass(5f, 1f, headingRangeDegrees, searchRadiusMetres),
             Pass(1f, 0.25f, 5f, 1f),
             Pass(0.25f, 0.05f, 1f, 0.25f),
-        )) {
+        ).withIndex()) {
+            val (headingStep, positionStep, headingRange, radius) = pass
+            // After the coarse pass, which only needs the passage roughly right, settle the height,
+            // and price the candidate found so far again at it, since the costs it beat were at
+            // another height.
+            if (index > 0) {
+                findCarriedHeight(best)
+                best = Candidate(best.heading, best.east, best.north, cost(placementFor(best.heading, best.east, best.north)).first)
+            }
             val centre = best
             var heading = centre.heading - headingRange
             while (heading <= centre.heading + headingRange) {
@@ -169,6 +213,24 @@ object FittedPlacement {
     }
 
     /**
+     * The share of leg samples within reach that are not in open passage: touching rock, as
+     * [throughRock] counts, or with no rock above or below them, which is a leg under the floor or
+     * over the roof. Only the height search asks this; the horizontal search never moves a leg out
+     * of the passage vertically, so it does not pay for the column walk.
+     */
+    private fun notInPassage(placement: ScanPlacement, samples: List<Coord3D>, rock: Occupancy): Float {
+        var covered = 0
+        var wrong = 0
+        for (sample in samples) {
+            val inScan = placement.unplace(sample)
+            if (!rock.reaches(inScan)) continue
+            covered++
+            if (rock.touches(inScan) || !rock.enclosed(inScan)) wrong++
+        }
+        return if (covered == 0) 0f else wrong.toFloat() / covered
+    }
+
+    /**
      * Where the scan saw rock, as two sets of occupied boxes: fine ones in three dimensions for
      * whether a leg passes through rock, coarse columns in plan for whether the scan reached a
      * place at all.
@@ -199,6 +261,21 @@ object FittedPlacement {
             return false
         }
 
+        /** Rock somewhere above the point and somewhere below it, within a few metres. */
+        fun enclosed(point: Coord3D): Boolean {
+            val x = box(point.x, ROCK_CLEARANCE_METRES)
+            val y = box(point.y, ROCK_CLEARANCE_METRES)
+            val z = box(point.z, ROCK_CLEARANCE_METRES)
+            val reach = (ENCLOSING_METRES / ROCK_CLEARANCE_METRES).toInt()
+            fun anyAt(dz: Int): Boolean {
+                for (dx in -1..1) for (dy in -1..1) {
+                    if (key(x + dx, y + dy, z + dz) in fine) return true
+                }
+                return false
+            }
+            return (1..reach).any { anyAt(it) } && (1..reach).any { anyAt(-it) }
+        }
+
         /** Any rock seen within a few metres, in plan. */
         fun reaches(point: Coord3D): Boolean {
             val x = box(point.x, 1f)
@@ -217,6 +294,17 @@ object FittedPlacement {
     }
 
     private const val COVERAGE_METRES = 3f
+
+    /** How far above and below a leg to look for the roof and the floor. */
+    private const val ENCLOSING_METRES = 4f
+
+    /** How far above or below the legs the phone may have been carried. */
+    private const val CARRIED_RANGE_METRES = 2f
+
+    private const val CARRIED_STEP_METRES = 0.1f
+
+    /** Heights this close to the fewest legs through rock count as just as good. */
+    private const val CARRIED_ROCK_TOLERANCE = 0.02f
 
     /**
      * The height that puts the phone's path, as near as can be, at the height of the legs beside

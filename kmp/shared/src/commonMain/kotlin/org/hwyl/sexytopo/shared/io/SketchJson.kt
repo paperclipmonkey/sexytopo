@@ -64,6 +64,14 @@ object SketchJson {
     const val PHOTO_ID_TAG = "photo-id"
     const val CAPTION_TAG = "caption"
 
+    /**
+     * The wall scan a path, symbol or cross-section was drawn by; see SketchDetail.scanId. Absent on anything
+     * drawn by hand, so a file with no scans in it is byte for byte what it was. The Android app
+     * reads paths and symbols by the keys it names and so ignores this one; re-saving there drops
+     * it, which turns the scan's drawing into ordinary drawing rather than losing any of it.
+     */
+    const val SCAN_ID_TAG = "scan"
+
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val pretty = Json { prettyPrint = true; prettyPrintIndent = "  " }
 
@@ -135,6 +143,7 @@ object SketchJson {
         if (detail.crossSection.orientation == CrossSection.Orientation.HORIZONTAL) {
             put(ORIENTATION_TAG, ORIENTATION_HORIZONTAL)
         }
+        detail.scanId?.let { put(SCAN_ID_TAG, it) }
         val subSketch = detail.sketch
         if (subSketch.hasDrawnDetails()) {
             put(SKETCH_TAG, toSubSketchJson(subSketch))
@@ -174,7 +183,9 @@ object SketchJson {
                 CrossSection(station, angle)
             }
 
-        return CrossSectionDetail(position, crossSection, subSketch)
+        return CrossSectionDetail(position, crossSection, subSketch).also {
+            it.scanId = entry.stringOrNull(SCAN_ID_TAG)
+        }
     }
 
     /**
@@ -228,7 +239,7 @@ object SketchJson {
                     size = entry.floatOrNull(SIZE_TAG) ?: 1f,
                     angle = entry.floatOrNull(ANGLE_TAG) ?: 0f,
                     colour = colourOf(entry),
-                )
+                ).scanId = entry.stringOrNull(SCAN_ID_TAG)
                 true
             }.getOrDefault(false)
             if (!added) dropped++
@@ -273,6 +284,7 @@ object SketchJson {
                 buildJsonObject {
                     put(COLOUR_TAG, path.colour.name)
                     put(POINTS_TAG, buildJsonArray { for (p in path.path) add(toJson(p)) })
+                    path.scanId?.let { put(SCAN_ID_TAG, it) }
                 },
             )
         }
@@ -300,6 +312,7 @@ object SketchJson {
                     put(SYMBOL_ID_TAG, symbol.symbolName)
                     put(SIZE_TAG, symbol.size)
                     put(ANGLE_TAG, symbol.angle)
+                    symbol.scanId?.let { put(SCAN_ID_TAG, it) }
                 },
             )
         }
@@ -350,7 +363,9 @@ object SketchJson {
     private fun toPathDetail(entry: JsonObject): PathDetail {
         val colour = colourOf(entry)
         val points = entry[POINTS_TAG]!!.jsonArray.map { toCoord2D(it.jsonObject) }
-        return PathDetail(simplify(points, simplificationEpsilon(points)), colour)
+        val path = PathDetail(simplify(points, simplificationEpsilon(points)), colour)
+        path.scanId = entry.stringOrNull(SCAN_ID_TAG)
+        return path
     }
 
     private fun colourOf(entry: JsonObject): Colour =

@@ -19,24 +19,29 @@ interface WallScanner {
     /**
      * Open the scanner.
      *
-     * [stations] are the survey's station names, in the order the surveyor will meet them, for
-     * the scanner's station picker. [startStation] is the one the surveyor is beside now, which
-     * the picker starts on and which places a scan that touches no stations.
+     * [surveyName] is the survey the scan is for, written down with its checkpoints so an
+     * unfinished scan is recovered into that survey and no other. [stations] are the survey's
+     * station names, in the order the surveyor will meet them, for the scanner's station picker.
+     * [startStation] is the one the surveyor is beside now, which the picker starts on and which
+     * places a scan that touches no stations.
      */
-    fun scan(stations: List<String>, startStation: String?)
+    fun scan(surveyName: String, stations: List<String>, startStation: String?)
 }
 
 /**
  * Remembers a wall scanner, delivering what it captured to [onScanned]. Everything in the
  * [WallScan] is in the scan's own frame; `WallScanApplier` places it.
+ *
+ * [onScanned] says whether the scan is now safe, saved with the survey: only then does the scanner
+ * throw away its own checkpoint of it, so a scan that could not be saved is recovered next time.
  */
 @Composable
-expect fun rememberWallScanner(onScanned: (WallScan) -> Unit): WallScanner
+expect fun rememberWallScanner(onScanned: (WallScan) -> Boolean): WallScanner
 
 /** The scanner for platforms without one, which is all of them but iOS. */
 internal object NoWallScanner : WallScanner {
 
     override val available = false
 
-    override fun scan(stations: List<String>, startStation: String?) = Unit
+    override fun scan(surveyName: String, stations: List<String>, startStation: String?) = Unit
 }

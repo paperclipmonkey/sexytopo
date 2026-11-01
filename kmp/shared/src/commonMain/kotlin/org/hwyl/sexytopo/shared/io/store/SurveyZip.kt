@@ -43,13 +43,20 @@ object SurveyZip {
         survey: Survey,
         versionName: String = SurveyStorage.DEFAULT_VERSION_NAME,
         versionCode: Int = 0,
+        extraFiles: List<Zip.Entry> = emptyList(),
         readPhoto: (photoId: String) -> ByteArray? = NO_PHOTOS,
-    ): ByteArray = Zip.archive(entries(survey, versionName, versionCode, readPhoto))
+    ): ByteArray = Zip.archive(entries(survey, versionName, versionCode, extraFiles, readPhoto))
 
+    /**
+     * [extraFiles] go in after everything else, as they are: the wall scans' files, which
+     * `WallScanStore.zipEntries` reads off the store under the names they already have, so this
+     * object need know nothing about what a scan is.
+     */
     internal fun entries(
         survey: Survey,
         versionName: String,
         versionCode: Int,
+        extraFiles: List<Zip.Entry> = emptyList(),
         readPhoto: (photoId: String) -> ByteArray? = NO_PHOTOS,
     ): List<Zip.Entry> {
         val name = survey.name
@@ -89,6 +96,6 @@ object SurveyZip {
                 }
             }
 
-        return files + photos
+        return files + photos + extraFiles
     }
 }

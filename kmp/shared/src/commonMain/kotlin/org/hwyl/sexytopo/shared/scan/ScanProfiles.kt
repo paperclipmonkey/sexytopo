@@ -1,9 +1,11 @@
 package org.hwyl.sexytopo.shared.scan
 
+import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Coord3D
 import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Station
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.sketch.PassageScan
 import org.hwyl.sexytopo.shared.survey.CrossSectioner
 import org.hwyl.sexytopo.shared.survey.Lrud
 import org.hwyl.sexytopo.shared.survey.LrudMode
@@ -122,12 +124,17 @@ object ScanProfiles {
      */
     fun wallsAlongLegs(frame: SurveyFrame, survey: Survey, points: PointGrid): List<List<Coord3D>> {
         val walls = mutableListOf<List<Coord3D>>()
+        val legs = mutableListOf<Pair<Coord3D, Coord3D>>()
         for (leg in survey.getAllLegs()) {
             if (!leg.hasDestination()) continue
             val from = survey.getOriginatingStation(leg) ?: continue
             val start = frame.stationPositions[from.name] ?: continue
             val end = frame.stationPositions[leg.destination.name] ?: continue
-
+            legs += start to end
+        }
+        for ((index, ends) in legs.withIndex()) {
+            val (start, end) = ends
+            val others = legs.filterIndexed { i, _ -> i != index }
             val dx = end.x - start.x
             val dy = end.y - start.y
             val horizontal = sqrt(dx * dx + dy * dy)
@@ -145,13 +152,187 @@ object ScanProfiles {
                 val centre =
                     Coord3D(start.x + t * dx, start.y + t * dy, start.z + t * (end.z - start.z))
                 val distances = distancesAt(points, centre, bearing)
-                extend(walls, leftLine, distances.left?.let { offset(centre, rightX, rightY, -it) })
-                extend(walls, rightLine, distances.right?.let { offset(centre, rightX, rightY, it) })
+                val left = distances.left?.let { offset(centre, rightX, rightY, -it) }
+                val right = distances.right?.let { offset(centre, rightX, rightY, it) }
+                extend(walls, leftLine, left?.takeUnless { insideAnother(it, distances.left, others) })
+                extend(walls, rightLine, right?.takeUnless { insideAnother(it, distances.right, others) })
             }
             if (leftLine.size >= 2) walls.add(leftLine.toList())
             if (rightLine.size >= 2) walls.add(rightLine.toList())
         }
-        return walls
+        return joinNearEnds(walls, ::planDistance)
+    }
+
+    /**
+     * The roof and the floor along every leg, for the extended elevation: what the walls are to
+     * the plan. A wall line drawn on the elevation would land on the centreline, since the
+     * elevation unrolls the passage and keeps only distance along it and height; the roof and the
+     * floor are what that view can show.
+     *
+     * Sampled as [wallsAlongLegs] samples, with the same gaps where nothing was scanned, and joined
+     * over the stations where the lines from two legs nearly meet.
+     */
+    fun roofAndFloorAlongLegs(frame: SurveyFrame, survey: Survey, points: PointGrid): List<List<Coord3D>> {
+        val lines = mutableListOf<List<Coord3D>>()
+        for (leg in survey.getAllLegs()) {
+            if (!leg.hasDestination()) continue
+            val from = survey.getOriginatingStation(leg) ?: continue
+            val start = frame.stationPositions[from.name] ?: continue
+            val end = frame.stationPositions[leg.destination.name] ?: continue
+            val dx = end.x - start.x
+            val dy = end.y - start.y
+            val horizontal = sqrt(dx * dx + dy * dy)
+            if (horizontal < MINIMUM_HORIZONTAL_METRES) continue
+            val bearing = (atan2(dx, dy) * 180 / PI.toFloat() + 360) % 360
+
+            val roof = mutableListOf<Coord3D>()
+            val floor = mutableListOf<Coord3D>()
+            val samples = maxOf(1, floor(horizontal / WALL_STEP_METRES).toInt())
+            for (i in 0..samples) {
+                val t = i.toFloat() / samples
+                val centre =
+                    Coord3D(start.x + t * dx, start.y + t * dy, start.z + t * (end.z - start.z))
+                val distances = distancesAt(points, centre, bearing)
+                extend(lines, roof, distances.up?.let { Coord3D(centre.x, centre.y, centre.z + it) })
+                extend(lines, floor, distances.down?.let { Coord3D(centre.x, centre.y, centre.z - it) })
+            }
+            if (roof.size >= 2) lines.add(roof.toList())
+            if (floor.size >= 2) lines.add(floor.toList())
+        }
+        return joinNearEnds(lines, ::distance3D)
+    }
+
+    /**
+     * Whether a wall point found square to one leg lies inside the passage along another: nearer
+     * that leg's line than this one's wall is to its own. That is the inside of a bend, where the
+     * slice square to one leg runs on past the corner into the next stretch of passage, and drawing
+     * it would put a wall across the passage.
+     */
+    private fun insideAnother(point: Coord3D, offset: Float?, others: List<Pair<Coord3D, Coord3D>>): Boolean {
+        val own = offset ?: return false
+        return others.any { (a, b) -> planDistanceToSegment(point, a, b) < own - CORNER_TOLERANCE_METRES }
+    }
+
+    /**
+     * Joins wall lines whose ends nearly meet, as the walls of two legs at the outside of a bend
+     * do: each stops square to its own leg, and the rock between them was seen by neither slice.
+     * A short straight join is what a surveyor would draw there; a long one would be a guess, and
+     * is left as a gap.
+     */
+    private fun joinNearEnds(
+        walls: List<List<Coord3D>>,
+        gap: (Coord3D, Coord3D) -> Float,
+    ): List<List<Coord3D>> {
+        val lines = walls.map { it.toMutableList() }.toMutableList()
+        var joined = true
+        while (joined) {
+            joined = false
+            loop@ for (i in lines.indices) {
+                for (j in lines.indices) {
+                    if (i == j) continue
+                    if (gap(lines[i].last(), lines[j].first()) <= JOIN_METRES) {
+                        lines[i].addAll(lines[j])
+                        lines.removeAt(j)
+                        joined = true
+                        break@loop
+                    }
+                }
+            }
+        }
+        return lines
+    }
+
+    private fun distance3D(a: Coord3D, b: Coord3D): Float = StationAnchoring.distance(a, b)
+
+    private fun planDistance(a: Coord3D, b: Coord3D): Float {
+        val dx = a.x - b.x
+        val dy = a.y - b.y
+        return sqrt(dx * dx + dy * dy)
+    }
+
+    private fun planDistanceToSegment(point: Coord3D, a: Coord3D, b: Coord3D): Float {
+        val dx = b.x - a.x
+        val dy = b.y - a.y
+        val lengthSquared = dx * dx + dy * dy
+        val t = if (lengthSquared == 0f) 0f else (((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared).coerceIn(0f, 1f)
+        val x = a.x + t * dx - point.x
+        val y = a.y + t * dy - point.y
+        return sqrt(x * x + y * y)
+    }
+
+    /** How much nearer another leg a wall point must be before it counts as inside that passage. */
+    private const val CORNER_TOLERANCE_METRES = 0.1f
+
+    /** The longest gap between two walls' ends that is joined rather than left open. */
+    private const val JOIN_METRES = 1.5f
+
+    /**
+     * The passage's outline round [centre], square to [bearingDegrees], as the cross-section
+     * editor's own scan draws it: `PassageScan`'s slice and sectors, fed the placed rock near the
+     * station rather than a fresh sweep. Strokes are in the section's own drawing space, metres
+     * from the station; empty where too little rock was seen.
+     */
+    fun sectionAt(points: PointGrid, centre: Coord3D, bearingDegrees: Float): List<List<Coord2D>> {
+        val near = mutableListOf<Coord3D>()
+        points.forEachNear(centre.x, centre.y, MAXIMUM_RANGE_METRES) { point ->
+            near.add(Coord3D(point.x - centre.x, point.y - centre.y, point.z - centre.z))
+        }
+        if (near.isEmpty()) return emptyList()
+        return PassageScan.outlines(near, bearingDegrees)
+    }
+
+    /** How many splays a fan has unless asked for another number. */
+    const val DEFAULT_FAN_SPLAYS = 12
+
+    /**
+     * A fan of splays round [centre], square to [bearingDegrees]: [count] directions evenly round
+     * the slice, the first straight to the right of the passage and going round over the roof, and
+     * for each the wall at the eighth decile of the rock in its wedge. A direction with too little
+     * rock in it gives no splay: a fan with a gap in it is a passage nobody scanned that way.
+     *
+     * Returned as (distance, azimuth, inclination) readings, as a splay records them.
+     */
+    fun fanAt(
+        points: PointGrid,
+        centre: Coord3D,
+        bearingDegrees: Float,
+        count: Int = DEFAULT_FAN_SPLAYS,
+    ): List<Triple<Float, Float, Float>> {
+        require(count >= 3) { "a fan needs at least three splays to say anything about a passage" }
+        val radians = bearingDegrees.toDouble() * PI / 180
+        val sine = sin(radians).toFloat()
+        val cosine = cos(radians).toFloat()
+        val wedge = 180f / count
+        val buckets = List(count) { mutableListOf<Float>() }
+
+        points.forEachNear(centre.x, centre.y, MAXIMUM_RANGE_METRES) { point ->
+            val dx = point.x - centre.x
+            val dy = point.y - centre.y
+            val along = dx * sine + dy * cosine
+            if (abs(along) > SLAB_METRES) return@forEachNear
+            val across = dx * cosine - dy * sine
+            val height = point.z - centre.z
+            val distance = sqrt(across * across + height * height)
+            if (distance <= 0f || distance > MAXIMUM_RANGE_METRES) return@forEachNear
+            val angle = (atan2(height, across) * 180 / PI.toFloat() + 360) % 360
+            val index = floor((angle + wedge) / (2 * wedge)).toInt() % count
+            buckets[index].add(distance)
+        }
+
+        val splays = mutableListOf<Triple<Float, Float, Float>>()
+        for ((index, bucket) in buckets.withIndex()) {
+            val distance = wall(bucket) ?: continue
+            val theta = index * 360.0 / count * PI / 180
+            // Right of the passage is (cos b, -sin b) in plan, as `across` measures it.
+            val horizontal = cos(theta).toFloat()
+            val east = horizontal * cosine
+            val north = -horizontal * sine
+            val up = sin(theta).toFloat()
+            val azimuth = (atan2(east, north) * 180 / PI.toFloat() + 360) % 360
+            val inclination = atan2(up, sqrt(east * east + north * north)) * 180 / PI.toFloat()
+            splays.add(Triple(distance, if (abs(horizontal) < 1e-4f) bearingDegrees else azimuth, inclination))
+        }
+        return splays
     }
 
     /** Below this horizontal length a leg is a pitch, with no sides to speak of. */

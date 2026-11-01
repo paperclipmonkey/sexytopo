@@ -189,12 +189,74 @@ object Strings {
      */
     val scanWalls = local("Scan walls (lidar)")
 
-    val removeLastWallScan = local("Remove last wall scan")
+    /** The review panel: every scan kept with the survey, to place again, tidy or delete. */
+    val reviewWallScans = local("Wall scans")
 
-    val noWallScanToRemove = local("There is no wall scan from this session to remove.")
+    val noWallScans = local("No wall scans in this survey yet.")
 
-    val wallScanRemoved =
-        local("Removed the last wall scan's drawing. Any LRUD splays it added are still there.")
+    val noLidarHere =
+        local(
+            "This device has no lidar, so it cannot scan. A simulated scan down the passage from " +
+                "the active station shows what review can do.",
+        )
+
+    val simulateWallScan = local("Add a simulated scan")
+
+    val simulatedScanNeedsALeg =
+        local("A simulated scan walks the survey from the active station, which has no leg on from it.")
+
+    val wallScanDeleted = local("Deleted the scan and everything it drew.")
+
+    val wallScanEmpty = local("The scan saw nothing and marked nothing, so there is nothing to keep.")
+
+    val recoveredWallScan =
+        local("Recovered a wall scan the app stopped in the middle of. It is in Tools, Wall scans.")
+
+    val deleteWallScan = local("Delete scan")
+
+    val wallScanPlacement = local("Placement")
+
+    val wallScanAutomatic = local("Automatic")
+
+    val wallScanLock = local("Lock here")
+
+    val wallScanFitFromHere = local("Fit from here")
+
+    val wallScanNoFit = local("There is no centerline near enough to fit to.")
+
+    val wallScanMarks = local("Station marks")
+
+    val wallScanLines = local("Pen lines")
+
+    val wallScanSymbols = local("Symbols")
+
+    val wallScanOutputs = local("Drawn from the rock")
+
+    val wallScanWalls = local("Walls along the legs")
+
+    val wallScanLruds = local("LRUD splays")
+
+    val wallScanFans = local("Splay fans")
+
+    val wallScanSections = local("Cross-sections at stations")
+
+    val wallScanRemove = local("Remove")
+
+    val wallScanRestore = local("Restore")
+
+    val wallScanStep = local("Step")
+
+    val wallScanEditAfter =
+        local(
+            "Everything here redraws the scan's own lines and symbols, so edit those by hand once " +
+                "the scan is placed as you want it.",
+        )
+
+    fun unfinishedScanElsewhere(survey: String): String =
+        local("An unfinished wall scan from $survey is waiting. Open $survey to keep it, then scan here.")
+
+    val unfinishedScanNotSaved =
+        local("A wall scan the app stopped in the middle of could not be saved yet. It is kept for next time.")
 
     val scanFoundNothing =
         local(

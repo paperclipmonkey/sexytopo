@@ -3,9 +3,6 @@ package org.hwyl.sexytopo.demo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import kotlin.math.roundToInt
-import kotlin.native.runtime.GC
-import kotlin.native.runtime.NativeRuntimeApi
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.CStructVar
@@ -23,9 +20,9 @@ import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Coord3D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
-import org.hwyl.sexytopo.shared.scan.InMemoryTileSink
 import org.hwyl.sexytopo.shared.scan.PenLine
 import org.hwyl.sexytopo.shared.scan.PenStroke
+import org.hwyl.sexytopo.shared.scan.ScanRecovery
 import org.hwyl.sexytopo.shared.scan.StationTouch
 import org.hwyl.sexytopo.shared.scan.SurfaceTiles
 import org.hwyl.sexytopo.shared.scan.SymbolStamp
@@ -78,6 +75,9 @@ import platform.UIKit.UIViewAutoresizingFlexibleHeight
 import platform.UIKit.UIViewAutoresizingFlexibleWidth
 import platform.UIKit.UIViewController
 import platform.darwin.sel_registerName
+import kotlin.math.roundToInt
+import kotlin.native.runtime.GC
+import kotlin.native.runtime.NativeRuntimeApi
 
 /**
  * The wall scanner on iOS: ARKit's camera with a crosshair in the middle, and the controls to
@@ -96,26 +96,28 @@ import platform.darwin.sel_registerName
  *   so away and tap; the LiDAR says where the mark is. *Touch*: hold the camera lens against the
  *   mark and tap; the lens is where the phone is. Two marked stations anchor the scan.
  * - **Draw with the pen**: hold *Draw* and sweep the crosshair along a wall edge, a water line or a
- *   ledge. The slider smooths the last five metres of the line; *Wall*/*Water* picks its colour.
+ *   ledge. The slider smooths the last five metres of the line; *Wall* or *Water* picks its colour.
  * - **Stamp a symbol**: pick one with the symbol button, aim, and tap *Stamp*. A directional
  *   symbol such as water flow points the way the phone faces.
  * - **Done** hands everything back; **Cancel** throws it away.
  *
- * ## Status: not yet run on a phone
+ * ## Status: compiled, not yet run on a phone
  *
- * Written on a machine with no Mac, so it has not been compiled for iOS, let alone run. Everything
- * it calls into in the shared module is tested on the JVM; what is unverified is this file's
- * interop and layout, which is why it reuses the scanner's own calls wherever it can.
+ * Compiled for the simulator and linked into the app with Xcode, which is as far as a machine
+ * without a lidar phone can take it: the simulator has no ARKit depth, so this screen reports
+ * itself unavailable there and the review panel's simulated scans stand in. Everything it calls
+ * into in the shared module is tested on the JVM; what is unverified is how it behaves with a real
+ * depth map, which is why it reuses the passage scanner's own calls wherever it can.
  */
 @OptIn(ExperimentalForeignApi::class)
 @Composable
-actual fun rememberWallScanner(onScanned: (WallScan) -> Unit): WallScanner {
+actual fun rememberWallScanner(onScanned: (WallScan) -> Boolean): WallScanner {
     val deliver = rememberUpdatedState(onScanned)
     return remember { ArKitWallScanner { scan -> deliver.value(scan) } }
 }
 
 @OptIn(ExperimentalForeignApi::class)
-private class ArKitWallScanner(private val onScanned: (WallScan) -> Unit) : WallScanner {
+private class ArKitWallScanner(private val onScanned: (WallScan) -> Boolean) : WallScanner {
 
     /**
      * LiDAR only. The pen, the aim and the walls all read the depth map; a phone without one
@@ -127,10 +129,13 @@ private class ArKitWallScanner(private val onScanned: (WallScan) -> Unit) : Wall
     /** Held for the reason `ArKitScanner` holds its own: ARKit's north depends on location. */
     private val location = CLLocationManager()
 
-    override fun scan(stations: List<String>, startStation: String?) {
+    override fun scan(surveyName: String, stations: List<String>, startStation: String?) {
         if (!available) return
         location.requestWhenInUseAuthorization()
         val host = topmostViewController() ?: return
+        // The app has already given any unfinished scan to a survey before calling this, so what
+        // is cleared here is only what that left behind.
+        runCatching { ScanRecovery.start(surveyFileStore, surveyName) }
         val screen = WallScanViewController(stations, startStation, onScanned)
         screen.modalPresentationStyle = WALL_FULL_SCREEN
         host.presentViewController(screen, animated = true, completion = null)
@@ -141,11 +146,17 @@ private class ArKitWallScanner(private val onScanned: (WallScan) -> Unit) : Wall
 private class WallScanViewController(
     private val stations: List<String>,
     private val startStation: String?,
-    private val onScanned: (WallScan) -> Unit,
+    private val onScanned: (WallScan) -> Boolean,
 ) : UIViewController(nibName = null, bundle = null) {
 
-    private val tiles = SurfaceTiles(WALL_VOXEL_METRES, InMemoryTileSink())
+    /**
+     * Tiles behind the surveyor go to files, so memory stays bounded however long the walk; the
+     * same files are what [ScanRecovery] reads back if the app stops before Done.
+     */
+    private val tiles = SurfaceTiles(WALL_VOXEL_METRES, ScanRecovery.tileSink(surfaceStore()))
+    private var samplesSinceCheckpoint = 0
     private val path = mutableListOf<Coord3D>()
+    private val poorTracking = mutableSetOf<Int>()
     private val touches = mutableListOf<StationTouch>()
     private val penLines = mutableListOf<PenLine>()
     private val stamps = mutableListOf<SymbolStamp>()
@@ -252,6 +263,12 @@ private class WallScanViewController(
         val smoothLabel = UILabel(frame = CGRectMake(0.0, 0.0, 0.0, 0.0))
         smoothLabel.textColor = UIColor.whiteColor
         smoothLabel.font = UIFont.systemFontOfSize(STATUS_FONT)
+        // Backed like the buttons: white on a bright wall, or on the Simulator's blank camera, is
+        // no label at all. Found by opening this screen in the Simulator.
+        smoothLabel.textAlignment = NSTextAlignmentCenter
+        smoothLabel.backgroundColor = UIColor.blackColor.colorWithAlphaComponent(WALL_BUTTON_DIMNESS)
+        smoothLabel.layer.cornerRadius = WALL_PANEL_CORNER
+        smoothLabel.layer.masksToBounds = true
         root.addSubview(smoothLabel)
         sliderLabel = smoothLabel
 
@@ -275,26 +292,35 @@ private class WallScanViewController(
 
     override fun viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        val bounds = view?.bounds ?: return
-        layOut(bounds.useContents { size.width }, bounds.useContents { size.height })
+        val root = view ?: return
+        val bounds = root.bounds
+        // Clear of the notch or Dynamic Island at the top and the home indicator at the bottom,
+        // which on a Pro iPhone are taller than any fixed margin that also suits an iPad.
+        val (top, bottom) = root.safeAreaInsets.useContents { this.top to this.bottom }
+        layOut(
+            bounds.useContents { size.width },
+            bounds.useContents { size.height },
+            maxOf(WALL_TOP, top + WALL_GAP),
+            maxOf(WALL_BOTTOM, bottom + WALL_GAP),
+        )
     }
 
     /**
      * Four rows of controls along the bottom, thumb-height, and the status and map at the top.
      * Laid out by hand, as the passage scanner's screen is, because there is no storyboard.
      */
-    private fun layOut(width: Double, height: Double) {
+    private fun layOut(width: Double, height: Double, topMargin: Double, bottomMargin: Double) {
         val inner = width - WALL_MARGIN * 2
 
         val textWidth = inner - WALL_INSET * 2
         val textHeight =
             status?.sizeThatFits(CGSizeMake(textWidth, WALL_ROOM_FOR_ANY_TEXT))?.useContents { this.height } ?: 0.0
-        statusPanel?.setFrame(CGRectMake(WALL_MARGIN, WALL_TOP, inner, textHeight + WALL_INSET * 2))
+        statusPanel?.setFrame(CGRectMake(WALL_MARGIN, topMargin, inner, textHeight + WALL_INSET * 2))
         status?.setFrame(CGRectMake(WALL_INSET, WALL_INSET, textWidth, textHeight))
         previewPanel?.setFrame(
             CGRectMake(
                 width - WALL_MARGIN - WALL_PREVIEW_SIZE,
-                WALL_TOP + textHeight + WALL_INSET * 2 + WALL_GAP,
+                topMargin + textHeight + WALL_INSET * 2 + WALL_GAP,
                 WALL_PREVIEW_SIZE,
                 WALL_PREVIEW_SIZE,
             ),
@@ -307,7 +333,7 @@ private class WallScanViewController(
                 CGRectMake(centreX - CROSSHAIR_SIZE / 2, centreY - CROSSHAIR_SIZE / 2, CROSSHAIR_SIZE, CROSSHAIR_SIZE),
             ).CGPath
 
-        fun row(index: Int): Double = height - WALL_BOTTOM - (ROWS - 1 - index) * (ROW_HEIGHT + WALL_GAP)
+        fun row(index: Int): Double = height - bottomMargin - ROW_HEIGHT - (ROWS - 1 - index) * (ROW_HEIGHT + WALL_GAP)
 
         fun place(names: List<String>, weights: List<Double>, top: Double) {
             val total = weights.sum()
@@ -328,7 +354,12 @@ private class WallScanViewController(
         place(listOf(BUTTON_DRAW, BUTTON_KIND), listOf(2.0, 1.0), row(1))
         sliderLabel?.setFrame(CGRectMake(WALL_MARGIN, row(2), SLIDER_LABEL_WIDTH, ROW_HEIGHT))
         slider?.setFrame(
-            CGRectMake(WALL_MARGIN + SLIDER_LABEL_WIDTH, row(2), inner - SLIDER_LABEL_WIDTH, ROW_HEIGHT),
+            CGRectMake(
+                WALL_MARGIN + SLIDER_LABEL_WIDTH + WALL_GAP,
+                row(2),
+                inner - SLIDER_LABEL_WIDTH - WALL_GAP,
+                ROW_HEIGHT,
+            ),
         )
         place(listOf(BUTTON_SYMBOL, BUTTON_STAMP), listOf(2.0, 1.0), row(3))
         place(listOf(BUTTON_CANCEL, BUTTON_DONE), listOf(1.0, 2.0), row(4))
@@ -358,13 +389,41 @@ private class WallScanViewController(
                     ARTrackingState.ARTrackingStateLimited -> TRACKING_LIMITED
                     else -> TRACKING_LOST
                 }
+            if (tracking.isNotEmpty()) poorTracking.add(path.size - 1)
             gatherDepth(frame)
             aimingAt = centreHit(frame)?.let { hit -> distanceBetween(hit, here) }
         }
         GC.collect()
+        if (++samplesSinceCheckpoint >= WALL_CHECKPOINT_SAMPLES) {
+            samplesSinceCheckpoint = 0
+            checkpoint()
+        }
         refreshLabels()
         drawPreview()
     }
+
+    /**
+     * Writes the scan down as it stands, so a crash or a flat battery loses seconds rather than
+     * the trip. Failing to is not worth stopping a scan for: the scan in memory is still whole.
+     */
+    private fun checkpoint() {
+        runCatching {
+            tiles.flush()
+            val lines = penLines.toMutableList()
+            activeStroke?.let { if (it.rawHits.size >= 2) lines.add(PenLine(it, penColour())) }
+            ScanRecovery.checkpoint(
+                surfaceStore(),
+                path.toList(),
+                touches.toList(),
+                lines,
+                stamps.toList(),
+                startStation,
+                poorTracking.toSet(),
+            )
+        }
+    }
+
+    private fun penColour(): Colour = if (drawingWater) Colour.BLUE else Colour.BLACK
 
     /** Ten times a second while *Draw* is held: one pen hit from the crosshair. */
     private fun penSample() {
@@ -607,7 +666,7 @@ private class WallScanViewController(
         val stroke = activeStroke ?: return
         activeStroke = null
         if (stroke.rawHits.size >= 2) {
-            penLines.add(PenLine(stroke, if (drawingWater) Colour.BLUE else Colour.BLACK))
+            penLines.add(PenLine(stroke, penColour()))
             say("Line ${penLines.size} drawn")
         } else {
             say(NO_LINE)
@@ -661,6 +720,7 @@ private class WallScanViewController(
         if (finished) return
         finished = true
         stopEverything()
+        runCatching { ScanRecovery.clear(surfaceStore()) }
         dismissViewControllerAnimated(true, null)
     }
 
@@ -669,13 +729,26 @@ private class WallScanViewController(
     fun finish() {
         if (finished) return
         finished = true
-        activeStroke?.let { stroke -> if (stroke.rawHits.size >= 2) penLines.add(PenLine(stroke, if (drawingWater) Colour.BLUE else Colour.BLACK)) }
+        activeStroke?.let { stroke -> if (stroke.rawHits.size >= 2) penLines.add(PenLine(stroke, penColour())) }
         activeStroke = null
         stopEverything()
         val points = mutableListOf<Coord3D>()
         tiles.forEachPoint { points.add(it) }
-        val scan = WallScan(points, path.toList(), touches.toList(), penLines.toList(), stamps.toList(), startStation)
-        dismissViewControllerAnimated(true) { onScanned(scan) }
+        val scan =
+            WallScan(
+                points,
+                path.toList(),
+                touches.toList(),
+                penLines.toList(),
+                stamps.toList(),
+                startStation,
+                poorTracking.toSet(),
+            )
+        dismissViewControllerAnimated(true) {
+            // Only once the scan is saved with the survey: if it could not be, the checkpoint is
+            // what brings it back next time.
+            if (onScanned(scan)) runCatching { ScanRecovery.clear(surfaceStore()) }
+        }
     }
 
     private fun stopEverything() {
@@ -691,6 +764,9 @@ private class WallScanViewController(
         stopEverything()
     }
 }
+
+/** Where the app keeps its surveys, which is where an unfinished scan is kept too. */
+private fun surfaceStore() = surveyFileStore
 
 private fun distanceBetween(a: Coord3D, b: Coord3D): Float {
     val dx = a.x - b.x
@@ -758,6 +834,9 @@ private const val CENTRE_PATCH = 2
 private const val CENTRE_MINIMUM = 5
 
 private const val WALL_SAMPLE_SECONDS = 0.5
+
+/** Ten samples at half a second: a checkpoint every five seconds. */
+private const val WALL_CHECKPOINT_SAMPLES = 10
 private const val PEN_SAMPLE_SECONDS = 0.1
 
 private const val ROWS = 5
@@ -765,8 +844,9 @@ private const val ROW_HEIGHT = 48.0
 private const val WALL_MARGIN = 16.0
 private const val WALL_GAP = 8.0
 private const val WALL_INSET = 8.0
-private const val WALL_TOP = 56.0
-private const val WALL_BOTTOM = 96.0
+/** The least room above the status panel and below the last row, where there is no safe area. */
+private const val WALL_TOP = 24.0
+private const val WALL_BOTTOM = 24.0
 private const val WALL_PANEL_DIMNESS = 0.45
 private const val WALL_BUTTON_DIMNESS = 0.6
 private const val WALL_PANEL_CORNER = 10.0

@@ -6,6 +6,9 @@ import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.Colour
 import org.hwyl.sexytopo.shared.model.sketch.PathDetail
 import org.hwyl.sexytopo.shared.model.sketch.Symbol
+import org.hwyl.sexytopo.shared.model.survey.Leg
+import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 import org.hwyl.sexytopo.shared.survey.TestSurveys
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -71,7 +74,7 @@ class ScanGeometryTest {
 
     @Test
     fun aSurveyWithNoLegsHasNoElevationToPutAnythingOn() {
-        val frame = SurveyFrame(org.hwyl.sexytopo.shared.model.survey.Survey())
+        val frame = SurveyFrame(Survey())
 
         assertNull(frame.toExtendedElevation(Coord3D(1f, 1f, 1f)))
     }
@@ -131,8 +134,9 @@ class ScanGeometryTest {
 
         val walls = ScanProfiles.wallsAlongLegs(frame, survey, PointGrid(boxPassage()))
 
-        // Three legs, a wall each side of each.
-        assertEquals(6, walls.size)
+        // Three legs in a line: a wall each side of each, joined over the stations into one wall
+        // a side, as a surveyor would draw a straight passage.
+        assertEquals(2, walls.size)
         for (wall in walls) {
             for (point in wall) assertEquals(1.5f, kotlin.math.abs(point.x), 0.05f)
         }
@@ -146,8 +150,8 @@ class ScanGeometryTest {
         val walls = ScanProfiles.wallsAlongLegs(frame, survey, PointGrid(boxPassage(missingRight = 6f..9f)))
 
         val eastWalls = walls.filter { it.first().x > 0 }
-        // Legs 1-2 and 3-4 whole, leg 2-3 broken by the gap.
-        assertTrue(eastWalls.size >= 3)
+        // The east wall broken by the gap and nowhere else: three metres is too far to join.
+        assertEquals(2, eastWalls.size)
         assertTrue(eastWalls.flatten().none { it.y in 6.6f..8.4f })
     }
 
@@ -210,5 +214,53 @@ class ScanGeometryTest {
         assertEquals(100f, symbol.angle)
         // Three metres north in the scan, turned a quarter clockwise, is three metres east.
         assertEquals(Coord2D(3f, 0f), symbol.position)
+    }
+}
+
+class WallCornerTest {
+
+    /** A passage 2 m wide round a right-angled bend at station 2: north 5 m, then east 5 m. */
+    private fun bend(): Pair<Survey, List<Coord3D>> {
+        val survey = Survey()
+        SurveyUpdater.updateWithNewStation(survey, Leg(5f, 0f, 0f))
+        SurveyUpdater.updateWithNewStation(survey, Leg(5f, 90f, 0f))
+        val points = mutableListOf<Coord3D>()
+        // The walls of an L: west and east of the first leg, north and south of the second.
+        var t = -1f
+        while (t <= 6f) {
+            for (z in listOf(-0.8f, -0.4f, 0f, 0.4f, 0.8f)) {
+                if (t <= 6f) points.add(Coord3D(-1f, t, z)) // outer west wall, all the way up
+                if (t <= 4f) points.add(Coord3D(1f, t, z)) // inner east wall, stops at the bend
+                if (t >= -1f) points.add(Coord3D(t, 6f, z)) // outer north wall
+                if (t >= 1f) points.add(Coord3D(t, 4f, z)) // inner south wall, from the bend on
+            }
+            t += 0.05f
+        }
+        return survey to points
+    }
+
+    @Test
+    fun theInsideOfABendIsNotDrawnAcrossThePassage() {
+        val (survey, points) = bend()
+        val walls = ScanProfiles.wallsAlongLegs(SurveyFrame(survey), survey, PointGrid(points))
+
+        // Nothing drawn in the passage itself, which is everything within a metre of a leg.
+        for (point in walls.flatten()) {
+            val nearFirst = kotlin.math.abs(point.x) < 0.9f && point.y in 0f..5f
+            val nearSecond = kotlin.math.abs(point.y - 5f) < 0.9f && point.x in 0f..5f
+            assertTrue(!nearFirst && !nearSecond, "wall drawn inside the passage at ${point.x}, ${point.y}")
+        }
+    }
+
+    @Test
+    fun theOutsideOfABendIsOneWall() {
+        val (survey, points) = bend()
+        val walls = ScanProfiles.wallsAlongLegs(SurveyFrame(survey), survey, PointGrid(points))
+
+        // The west wall of the first leg and the north wall of the second meet at the outside
+        // corner, so they are one line.
+        val outer = walls.filter { wall -> wall.any { it.x < -0.5f } }
+        assertEquals(1, outer.size)
+        assertTrue(outer.single().any { it.y > 5.5f && it.x > 3f })
     }
 }

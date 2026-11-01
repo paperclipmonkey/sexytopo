@@ -11,7 +11,9 @@ import org.hwyl.sexytopo.shared.comms.distox.DistoXProtocol
 import org.hwyl.sexytopo.shared.comms.sim.SimulatedInstrument
 import org.hwyl.sexytopo.shared.demo.ExampleSurvey
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
+import org.hwyl.sexytopo.shared.model.survey.Leg
 import org.hwyl.sexytopo.shared.model.survey.Survey
+import org.hwyl.sexytopo.shared.scan.SimulatedWallScan
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.survey.SurveyUpdater
 import org.jetbrains.skia.EncodedImageFormat
@@ -102,6 +104,25 @@ private fun renderEverything() {
     }
     render("export.png", 1200, 820) { App(survey = survey, initialScreen = Screen.EXPORT) }
 
+    // Tools -> Wall scans, with a simulated scan in a survey recorded for it: what a phone with no
+    // lidar shows, and the screen a surveyor reviews a real scan on.
+    render("wall-scans.png", 1200, 820) { App(preparedState = wallScanState()) }
+    render("phone-wall-scans.png", 390, 844) { App(preparedState = wallScanState()) }
+    render("phone-wall-scans-fitted.png", 390, 844) { App(preparedState = wallScanState(markStations = false)) }
+    render("wall-scans-sections.png", 1200, 820) {
+        App(
+            preparedState =
+                wallScanState().also { state ->
+                    val record = state.wallScans.single()
+                    record.review.crossSections = true
+                    state.rebuildWallScan(record)
+                },
+        )
+    }
+    render("wall-scans-3d.png", 1200, 820, warmUpFrames = 2) {
+        App(preparedState = wallScanState().also { it.reviewingScans = false; it.viewing3D = true })
+    }
+
     render("live-survey.png", 1200, 820) {
         App(survey = buildSurveyFromInstrument(), initialProjection = Projection2D.PLAN)
     }
@@ -160,4 +181,29 @@ private fun buildSurveyFromInstrument(): Survey {
     instrument.connect()
     while (instrument.hasMoreShots) instrument.emitNextShot()
     return survey
+}
+
+/** A survey with one simulated wall scan in it and the review panel open, kept nowhere. */
+private fun wallScanState(markStations: Boolean = true): DemoState {
+    val state =
+        DemoState(
+            exampleSurvey = ExampleSurvey.create(),
+            initialProjection = Projection2D.PLAN,
+            initialSystemDark = false,
+            initialTool = null,
+            initialMode = SurveyMode.LIVE,
+            initialScreen = Screen.SKETCH,
+            library = SurveyLibrary(NoStorage()),
+        )
+    state.newSurvey("Wall scan")
+    val survey = state.liveSurvey
+    for ((distance, azimuth) in listOf(6f to 20f, 6f to 80f, 5f to 30f, 7f to 120f, 6f to 60f, 6f to 10f)) {
+        SurveyUpdater.updateWithNewStation(survey, Leg(distance, azimuth, 0f))
+    }
+    survey.activeStation = survey.getStationByName("1")!!
+    val settings = SimulatedWallScan.Settings(markStations = markStations)
+    SimulatedWallScan.around(survey, survey.activeStation, settings)
+        ?.let { state.addWallScan(it.scan) }
+    state.reviewingScans = true
+    return state
 }

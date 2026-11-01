@@ -34,9 +34,8 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.SideEffect
-import kotlinx.coroutines.delay
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,6 +49,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import org.hwyl.sexytopo.demo.resources.Res
 import org.hwyl.sexytopo.demo.resources.add
 import org.hwyl.sexytopo.demo.resources.add_splay
@@ -66,9 +66,7 @@ import org.hwyl.sexytopo.shared.model.graph.Coord2D
 import org.hwyl.sexytopo.shared.model.graph.Projection2D
 import org.hwyl.sexytopo.shared.model.sketch.PhotoDetail
 import org.hwyl.sexytopo.shared.model.survey.Survey
-import org.hwyl.sexytopo.shared.scan.DerivedContent
-import org.hwyl.sexytopo.shared.scan.ScanSketchWriter
-import org.hwyl.sexytopo.shared.scan.WallScanApplier
+import org.hwyl.sexytopo.shared.scan.pointCloudOf
 import org.hwyl.sexytopo.shared.sketch.SketchEditor
 import org.hwyl.sexytopo.shared.sketch.SketchTool
 import org.hwyl.sexytopo.shared.survey.InputMode
@@ -94,9 +92,14 @@ fun App(
     initialScreen: Screen = Screen.SKETCH,
     /** Opens straight into the 3D view. Only used by the headless renderer. */
     initialView3D: Boolean = false,
+    /**
+     * A state made beforehand, with a survey and scans already in it. Only used by the headless
+     * renderer, to draw screens that need a recorded survey behind them.
+     */
+    preparedState: DemoState? = null,
 ) {
     val state =
-        remember(survey) {
+        preparedState ?: remember(survey) {
             DemoState(
                 exampleSurvey = survey,
                 initialProjection = initialProjection,
@@ -199,6 +202,11 @@ fun App(
                             darkMode = state.darkMode,
                             onClose = { state.viewing3D = false },
                             pinchToZoom = state.preferences.pinchToZoom,
+                            scanPoints =
+                                remember(state.wallScans, state.scanRevision, state.mode) {
+                                    // The demo cave has no scans; the live survey's are its own.
+                                    if (state.mode == SurveyMode.LIVE) pointCloudOf(state.wallScans) else emptyList()
+                                },
                         )
                     } else {
                         if (state.preferences.fullScreen) {
@@ -222,10 +230,19 @@ fun App(
                             store,
                         )
 
-                        FieldBar(state)
+                        if (state.reviewingScans && state.screen == Screen.SKETCH) {
+                            // In place of the field bar and the toolbar, so the drawing stays in
+                            // view above while a scan is moved about on it.
+                            WallScanPanel(
+                                state = state,
+                                modifier = Modifier.fillMaxWidth().heightIn(max = 340.dp),
+                            )
+                        } else {
+                            FieldBar(state)
 
-                        if (state.screen == Screen.SKETCH) {
-                            SketchToolbar(state, editor, canvas, camera)
+                            if (state.screen == Screen.SKETCH) {
+                                SketchToolbar(state, editor, canvas, camera)
+                            }
                         }
                     }
                 }
@@ -376,17 +393,9 @@ private fun SexyTopoAppBar(state: DemoState) {
     var editingGeneral by remember { mutableStateOf(false) }
     var editingInstruments by remember { mutableStateOf(false) }
 
-    // What the last wall scan drew, so it can be taken out again or replaced. Held for the
-    // session only: the drawing itself is saved with the survey, this record of it is not.
-    var lastWallScan by remember { mutableStateOf<DerivedContent?>(null) }
-    // Always against `liveSurvey`, as the dialogs below are: the demo cave is read-only.
-    val wallScanner = rememberWallScanner { scan ->
-        val report = WallScanApplier.apply(state.liveSurvey, scan)
-        if (report.mode != null) lastWallScan = report.content
-        state.noteSketchEdited()
-        state.saveLiveSurvey()
-        state.note(report.message)
-    }
+    // Always against `liveSurvey`, as the dialogs below are: the demo cave is read-only. The scan
+    // is kept with the survey, so Tools -> Wall scans can place it again or take it out later.
+    val wallScanner = rememberWallScanner { scan -> state.acceptScannedWallScan(scan) }
 
     // Always against `liveSurvey`, never `state.survey`: the demo cave is read-only.
     if (addingLeg || addingSplay) {
@@ -983,28 +992,32 @@ private fun SexyTopoAppBar(state: DemoState) {
                     HorizontalDivider()
                     MenuAction(Strings.scanWalls) {
                         if (wallScanner.available) {
-                            val survey = state.liveSurvey
-                            wallScanner.scan(
-                                survey.getAllStationsInChronoOrder().map { it.name },
-                                survey.activeStation.name,
-                            )
+                            // Before a new scan clears it: a scan the app stopped in the middle of
+                            // goes into its own survey first, or this one waits for it.
+                            if (state.readyToScan()) {
+                                val survey = state.liveSurvey
+                                wallScanner.scan(
+                                    survey.name,
+                                    survey.getAllStationsInChronoOrder().map { it.name },
+                                    survey.activeStation.name,
+                                )
+                            }
                         } else {
+                            // Review says why there is no scanner here, and offers a simulated
+                            // scan in its place, which is more use than a notice that fades.
+                            state.mode = SurveyMode.LIVE
+                            state.screen = Screen.SKETCH
+                            state.reviewingScans = true
                             state.note(whyNoScanner())
                         }
                         menuOpen = false
                         page = MenuPage.TOP
                     }
-                    MenuAction(Strings.removeLastWallScan) {
-                        val content = lastWallScan
-                        if (content == null) {
-                            state.note(Strings.noWallScanToRemove)
-                        } else {
-                            ScanSketchWriter.remove(state.liveSurvey, content)
-                            lastWallScan = null
-                            state.noteSketchEdited()
-                            state.saveLiveSurvey()
-                            state.note(Strings.wallScanRemoved)
-                        }
+                    MenuAction(Strings.reviewWallScans, checked = state.reviewingScans) {
+                        // Scans belong to the survey being recorded, never to the demo cave.
+                        state.mode = SurveyMode.LIVE
+                        state.screen = Screen.SKETCH
+                        state.reviewingScans = !state.reviewingScans
                         menuOpen = false
                         page = MenuPage.TOP
                     }

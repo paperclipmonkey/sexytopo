@@ -2,20 +2,19 @@ package org.hwyl.sexytopo.demo
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -27,16 +26,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PointMode
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isMetaPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import org.hwyl.sexytopo.shared.math.Camera3D
@@ -78,6 +78,11 @@ fun ThreeDView(
     modifier: Modifier = Modifier,
     /** `SketchPreferences.Toggle.PINCH_TO_ZOOM`, one preference shared with the sketch. */
     pinchToZoom: Boolean = AppPreferences.DEFAULT_PINCH_TO_ZOOM,
+    /**
+     * The rock the survey's wall scans saw, already placed: drawn as a faint cloud behind the
+     * centreline. Nothing upstream has one; the Android app's 3D view is the centreline alone.
+     */
+    scanPoints: List<Coord3D> = emptyList(),
 ) {
     // Rebuilt only when the survey changes: moving the camera changes the transform, not this.
     val wireframe =
@@ -252,7 +257,7 @@ fun ThreeDView(
                         }
                     },
             ) {
-                drawWireframe(wireframe, camera, showSplays, darkMode)
+                drawWireframe(wireframe, camera, showSplays, darkMode, scanPoints)
             }
 
             if (wireframe.hasNothingToDraw) {
@@ -336,6 +341,10 @@ private object ThreeDColours {
     val splayNight = Color(0x99BBBBBB)
     val station = Color(0xFF3366CC)
     val stationNight = Color(0xFF6699FF)
+
+    /** The scans' rock: a soft brown, the colour of mud, and faint enough to look through. */
+    val scan = Color(0x66806040)
+    val scanNight = Color(0x77C0A080)
 }
 
 /**
@@ -345,6 +354,7 @@ private object ThreeDColours {
 private const val LEG_WIDTH_DP = 2f
 private const val SPLAY_WIDTH_DP = 1f
 private const val STATION_RADIUS_DP = 3f
+private const val SCAN_POINT_DP = 1.5f
 
 /** Splays, then legs, then stations — a painter's algorithm standing in for the GL depth buffer. */
 private fun DrawScope.drawWireframe(
@@ -352,9 +362,27 @@ private fun DrawScope.drawWireframe(
     camera: Camera3D,
     showSplays: Boolean,
     darkMode: Boolean,
+    scanPoints: List<Coord3D> = emptyList(),
 ) {
     if (size.width <= 0f || size.height <= 0f) return
     val transform = camera.transformFor(wireframe.centre, size.width / size.height)
+
+    // The scans' rock first, faintest of all, so the survey reads on top of it. One drawPoints
+    // call rather than a circle each: twenty thousand draw calls a frame is what would make the
+    // view stutter on a phone.
+    if (scanPoints.isNotEmpty()) {
+        val projected = ArrayList<Offset>(scanPoints.size)
+        for (point in scanPoints) {
+            val at = wireframe.project(transform, point, size.width, size.height) ?: continue
+            if (at.x in 0f..size.width && at.y in 0f..size.height) projected.add(Offset(at.x, at.y))
+        }
+        drawPoints(
+            projected,
+            PointMode.Points,
+            if (darkMode) ThreeDColours.scanNight else ThreeDColours.scan,
+            strokeWidth = SCAN_POINT_DP.dp.toPx(),
+        )
+    }
 
     fun line(ends: Pair<Coord3D, Coord3D>, colour: Color, width: Float) {
         val drawn =

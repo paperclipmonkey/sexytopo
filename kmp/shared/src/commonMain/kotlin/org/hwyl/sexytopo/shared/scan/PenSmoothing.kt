@@ -187,6 +187,9 @@ class PenStroke(val liveLengthMetres: Float = DEFAULT_LIVE_LENGTH_METRES) {
     /** Where the live part starts: hits before this index are frozen. */
     val liveStart: Int get() = frozenAmounts.size
 
+    /** The amount each frozen hit was committed at, in order: what a saved stroke keeps. */
+    val frozenSmoothing: List<Float> get() = frozenAmounts.toList()
+
     fun add(hit: Coord3D) {
         raw.add(hit)
         freezeWhatHasFallenBehind()
@@ -227,6 +230,24 @@ class PenStroke(val liveLengthMetres: Float = DEFAULT_LIVE_LENGTH_METRES) {
     }
 
     companion object {
+        /**
+         * A stroke as it was saved: its raw hits, the amounts its frozen part was committed at, and
+         * the slider's last position for the rest. Nothing is re-frozen on the way back in, so the
+         * line drawn from it is the line that was drawn before it was saved.
+         */
+        fun restore(
+            rawHits: List<Coord3D>,
+            frozenSmoothing: List<Float>,
+            smoothing: Float,
+            liveLengthMetres: Float = DEFAULT_LIVE_LENGTH_METRES,
+        ): PenStroke {
+            val stroke = PenStroke(liveLengthMetres)
+            stroke.raw.addAll(rawHits)
+            stroke.frozenAmounts.addAll(frozenSmoothing.take(rawHits.size).map { it.coerceIn(0f, 1f) })
+            stroke.smoothing = smoothing
+            return stroke
+        }
+
         const val DEFAULT_LIVE_LENGTH_METRES = 5f
 
         /** Halfway: fliers gone and the wobble out, without rounding anything a caver would draw. */

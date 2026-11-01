@@ -97,7 +97,12 @@ class FittedPlacementTest {
         assertTrue(headingError(20f, result.placement.headingDegrees) < 2f, "heading ${result.placement.headingDegrees}")
         val placedStart = result.placement.place(scan.path.first())
         val trueStart = truth.place(scan.path.first())
-        assertTrue(StationAnchoring.distance(placedStart, trueStart) < 0.5f, "start off by ${StationAnchoring.distance(placedStart, trueStart)}")
+        val across = sqrt((placedStart.x - trueStart.x).let { it * it } + (placedStart.y - trueStart.y).let { it * it })
+        assertTrue(across < 0.5f, "start off by $across across")
+        // Height is looser by design: in a passage three metres high, the rock allows the legs
+        // anywhere from half a metre off the floor to half a metre under the roof, and the fit puts
+        // them low, where stations usually are. These stations are a metre up.
+        assertTrue(abs(placedStart.z - trueStart.z) < 0.75f, "start off by ${placedStart.z - trueStart.z} in height")
         assertTrue(result.legsThroughRock < 0.05f)
     }
 
@@ -127,10 +132,11 @@ class FittedPlacementTest {
         val scan = scanOf(survey, ScanPlacement(10f, Coord3D(1f, 1f, 0f)))
         val wallScan = WallScan(scan.points, scan.path, emptyList(), emptyList(), emptyList(), startStation = "1")
 
-        val report = WallScanApplier.apply(survey, wallScan)
+        val report = WallScanApplier.rebuild(survey, WallScanRecord("1", wallScan))
 
         assertEquals(PlacementMode.FITTED, report.mode)
-        assertTrue(survey.getSketch(Projection2D.PLAN).pathDetails.size >= 6, report.message)
+        // A wall down each side of the straight passage, joined over the stations.
+        assertTrue(survey.getSketch(Projection2D.PLAN).pathDetails.size >= 2, report.message)
         assertTrue(report.lrudsAdded >= 3, report.message)
     }
 
@@ -145,9 +151,12 @@ class FittedPlacementTest {
         val legsBefore = survey.getAllLegs().size
 
         val report =
-            WallScanApplier.apply(
+            WallScanApplier.rebuild(
                 survey,
-                WallScan(emptyList(), emptyList(), touches, listOf(PenLine(stroke, Colour.BLACK)), emptyList(), null),
+                WallScanRecord(
+                    "1",
+                    WallScan(emptyList(), emptyList(), touches, listOf(PenLine(stroke, Colour.BLACK)), emptyList(), null),
+                ),
             )
 
         assertEquals(PlacementMode.ANCHORED, report.mode)
@@ -161,7 +170,11 @@ class FittedPlacementTest {
     fun aScanWithNoTouchesAndNoPinSaysWhatIsMissing() {
         val survey = TestSurveys.createStraightNorth()
 
-        val report = WallScanApplier.apply(survey, WallScan(emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), null))
+        val report =
+            WallScanApplier.rebuild(
+                survey,
+                WallScanRecord("1", WallScan(emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), null)),
+            )
 
         assertNull(report.mode)
         assertEquals(WallScanApplier.NOTHING_TO_PLACE_BY, report.message)

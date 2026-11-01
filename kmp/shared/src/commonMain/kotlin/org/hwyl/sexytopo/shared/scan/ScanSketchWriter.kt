@@ -65,30 +65,66 @@ object ScanSketchWriter {
         walls: List<List<Coord3D>> = emptyList(),
         wallColour: Colour = Colour.BLACK,
         previous: DerivedContent = DerivedContent.NONE,
+        scanId: String? = null,
     ): DerivedContent {
         remove(survey, previous)
+        return draw(
+            survey,
+            frame,
+            placement,
+            penLines.map { it.stroke.line() to it.colour },
+            stamps,
+            walls,
+            wallColour,
+            scanId,
+        )
+    }
 
+    /**
+     * Draws a placed scan: [lines] are already smoothed and in the scan's frame, each with its
+     * colour; [walls] are in survey coordinates. Everything drawn carries [scanId], so it can be
+     * found and taken out again after the survey has been saved and opened.
+     */
+    fun draw(
+        survey: Survey,
+        frame: SurveyFrame,
+        placement: ScanPlacement,
+        lines: List<Pair<List<Coord3D>, Colour>>,
+        stamps: List<SymbolStamp>,
+        walls: List<List<Coord3D>> = emptyList(),
+        wallColour: Colour = Colour.BLACK,
+        scanId: String? = null,
+        /**
+         * Roof and floor lines in survey coordinates, drawn on the elevation only, as [walls] are
+         * drawn on the plan only: each is what its own view can show of the passage.
+         */
+        roofAndFloor: List<List<Coord3D>> = emptyList(),
+    ): DerivedContent {
         val plan = mutableListOf<SketchDetail>()
         val elevation = mutableListOf<SketchDetail>()
+        val both = listOf(Projection2D.PLAN to plan, Projection2D.EXTENDED_ELEVATION to elevation)
 
-        fun drawLine(points: List<Coord3D>, colour: Colour) {
-            for ((projection, added) in listOf(
-                Projection2D.PLAN to plan,
-                Projection2D.EXTENDED_ELEVATION to elevation,
-            )) {
+        fun drawLine(
+            points: List<Coord3D>,
+            colour: Colour,
+            onto: List<Pair<Projection2D, MutableList<SketchDetail>>> = both,
+        ) {
+            for ((projection, added) in onto) {
                 val sketch = survey.getSketch(projection)
                 for (stroke in frame.toStrokes(points, projection)) {
                     val detail = PathDetail(stroke, colour)
+                    detail.scanId = scanId
                     sketch.pathDetails.add(detail)
                     added.add(detail)
                 }
             }
         }
 
-        for (line in penLines) {
-            drawLine(line.stroke.line().map { placement.place(it) }, line.colour)
+        for ((line, colour) in lines) {
+            drawLine(line.map { placement.place(it) }, colour)
         }
-        for (wall in walls) drawLine(wall, wallColour)
+        for (wall in walls) drawLine(wall, wallColour, both.take(1))
+        for (line in roofAndFloor) drawLine(line, wallColour, both.drop(1))
 
         for (stamp in stamps) {
             val point = placement.place(stamp.inScan)
@@ -100,17 +136,19 @@ object ScanSketchWriter {
                 } else {
                     0f
                 }
-            plan.add(
+            val onPlan =
                 survey
                     .getSketch(Projection2D.PLAN)
-                    .addSymbolDetail(frame.toPlan(point), name, SYMBOL_SIZE_METRES, angle, colour),
-            )
+                    .addSymbolDetail(frame.toPlan(point), name, SYMBOL_SIZE_METRES, angle, colour)
+            onPlan.scanId = scanId
+            plan.add(onPlan)
             frame.toExtendedElevation(point)?.let { position ->
-                elevation.add(
+                val onElevation =
                     survey
                         .getSketch(Projection2D.EXTENDED_ELEVATION)
-                        .addSymbolDetail(position, name, SYMBOL_SIZE_METRES, 0f, colour),
-                )
+                        .addSymbolDetail(position, name, SYMBOL_SIZE_METRES, 0f, colour)
+                onElevation.scanId = scanId
+                elevation.add(onElevation)
             }
         }
 
@@ -122,6 +160,33 @@ object ScanSketchWriter {
         removeFrom(survey, Projection2D.PLAN, content.plan)
         removeFrom(survey, Projection2D.EXTENDED_ELEVATION, content.elevation)
     }
+
+    /**
+     * Takes out everything scan [scanId] drew, on both sketches, by the id each detail carries.
+     * Returns how many details went. Works on a survey just opened from disk, where the
+     * [DerivedContent] the drawing was made with is long gone.
+     */
+    fun removeScan(survey: Survey, scanId: String): Int {
+        var removed = 0
+        for (projection in listOf(Projection2D.PLAN, Projection2D.EXTENDED_ELEVATION)) {
+            val sketch = survey.getSketch(projection)
+            val before = sketch.pathDetails.size + sketch.symbolDetails.size + sketch.crossSectionDetails.size
+            sketch.pathDetails.removeAll { it.scanId == scanId }
+            sketch.symbolDetails.removeAll { it.scanId == scanId }
+            sketch.crossSectionDetails.removeAll { it.scanId == scanId }
+            removed += before - (sketch.pathDetails.size + sketch.symbolDetails.size + sketch.crossSectionDetails.size)
+        }
+        return removed
+    }
+
+    /** How many details on either sketch scan [scanId] drew. */
+    fun countDrawnBy(survey: Survey, scanId: String): Int =
+        listOf(Projection2D.PLAN, Projection2D.EXTENDED_ELEVATION).sumOf { projection ->
+            val sketch = survey.getSketch(projection)
+            sketch.pathDetails.count { it.scanId == scanId } +
+                sketch.symbolDetails.count { it.scanId == scanId } +
+                sketch.crossSectionDetails.count { it.scanId == scanId }
+        }
 
     private fun removeFrom(survey: Survey, projection: Projection2D, details: List<SketchDetail>) {
         if (details.isEmpty()) return

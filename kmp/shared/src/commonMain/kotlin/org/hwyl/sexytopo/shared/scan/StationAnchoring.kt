@@ -50,6 +50,25 @@ class ScanPlacement(val headingDegrees: Float, val translation: Coord3D) {
         return Coord3D(east * cosine - north * sine, east * sine + north * cosine, point.z - translation.z)
     }
 
+    /** The same placement shifted by [offset] in the survey: east, north and up. */
+    fun moved(offset: Coord3D): ScanPlacement =
+        ScanPlacement(
+            headingDegrees,
+            Coord3D(translation.x + offset.x, translation.y + offset.y, translation.z + offset.z),
+        )
+
+    /**
+     * The same placement turned [degrees] clockwise about [pivot], a point in the survey that stays
+     * where it is. Turning about the scan's own middle rather than the survey's origin is what makes
+     * a nudge by hand turn the scan in place rather than swing it across the cave.
+     */
+    fun turnedAbout(pivot: Coord3D, degrees: Float): ScanPlacement {
+        val inScan = unplace(pivot)
+        val heading = ((headingDegrees + degrees) % 360 + 360) % 360
+        val turned = ScanPlacement(heading, Coord3D.ORIGIN).place(inScan)
+        return ScanPlacement(heading, Coord3D(pivot.x - turned.x, pivot.y - turned.y, pivot.z - turned.z))
+    }
+
     companion object {
         val IDENTITY = ScanPlacement(0f, Coord3D.ORIGIN)
     }

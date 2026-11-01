@@ -19,6 +19,21 @@ fun Colour.forDarkMode(isDarkModeActive: Boolean): Colour =
 
 abstract class SketchDetail(val colour: Colour) {
 
+    /**
+     * The wall scan that drew this, by its id, or null for anything drawn by hand.
+     *
+     * A scan's drawing is rebuilt whenever its placement or smoothing is changed in review, and
+     * the rebuild must take out what the scan drew before and nothing else. The sketch has no
+     * layers, so each generated detail carries the id of the scan that made it.
+     *
+     * It is carried by translate and scale and by an eraser's fragments, so a generated line that
+     * has been moved or partly rubbed out is still the scan's, and the next rebuild replaces it
+     * whole. The other way round, the edited pieces would be left behind and the rebuild would draw
+     * the line again beside them: two walls, one of them with a gap in it. So editing a scan's
+     * drawing is for after its review is finished; review says so.
+     */
+    var scanId: String? = null
+
     fun getDrawColour(isDarkModeActive: Boolean): Colour = colour.forDarkMode(isDarkModeActive)
 
     abstract fun getDistanceFrom(point: Coord2D): Float
@@ -50,10 +65,10 @@ class PathDetail(path: List<Coord2D>, colour: Colour) : SketchDetail(colour) {
     }
 
     override fun translate(translation: Coord2D): PathDetail =
-        PathDetail(points.map { it + translation }, colour)
+        PathDetail(points.map { it + translation }, colour).also { it.scanId = scanId }
 
     override fun scale(scale: Float): PathDetail =
-        PathDetail(points.map { it.scale(scale) }, colour)
+        PathDetail(points.map { it.scale(scale) }, colour).also { it.scanId = scanId }
 
     /**
      * Erasing splits a path rather than deleting it: the fragments that survive are the runs of
@@ -72,7 +87,7 @@ class PathDetail(path: List<Coord2D>, colour: Colour) : SketchDetail(colour) {
             val distance = getDistanceFromLine(targetPoint, lastPoint, currentPoint)
             if (distance < radius) {
                 if (currentLine.size > 1) {
-                    fragments.add(PathDetail(currentLine, colour))
+                    fragments.add(PathDetail(currentLine, colour).also { it.scanId = scanId })
                 }
                 currentLine = mutableListOf()
             }
@@ -80,7 +95,7 @@ class PathDetail(path: List<Coord2D>, colour: Colour) : SketchDetail(colour) {
         }
 
         if (currentLine.size > 1) {
-            fragments.add(PathDetail(currentLine, colour))
+            fragments.add(PathDetail(currentLine, colour).also { it.scanId = scanId })
         }
         return fragments
     }
@@ -98,7 +113,7 @@ class SymbolDetail(
         org.hwyl.sexytopo.shared.math.getDistance(position, point)
 
     override fun translate(translation: Coord2D): SymbolDetail =
-        SymbolDetail(position + translation, symbolName, size, angle, colour)
+        SymbolDetail(position + translation, symbolName, size, angle, colour).also { it.scanId = scanId }
 
     /**
      * Grows the stamp but leaves it where it is — deliberately, not a bug. Scaling the position too
@@ -107,7 +122,7 @@ class SymbolDetail(
      * annotates.
      */
     override fun scale(scale: Float): SymbolDetail =
-        SymbolDetail(position, symbolName, size * scale, angle, colour)
+        SymbolDetail(position, symbolName, size * scale, angle, colour).also { it.scanId = scanId }
 }
 
 class TextDetail(
